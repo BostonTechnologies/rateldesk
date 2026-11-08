@@ -10,7 +10,7 @@ const routes: Record<string, string[]> = {
   email: ['/incidents'],
   'ticket-filters': ['/incidents', '/requests', '/changes'],
   assignee: ['/incidents', '/requests', '/changes'],
-  operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire'],
+  operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire', '/tasks', '/notifications', '/admin/email-rules'],
   'pending-mail': ['/admin/pending-emails'],
   'request-editor': ['/admin/requests/services/service-1']
 };
@@ -33,6 +33,7 @@ async function settleFiniteAnimations(page: Page) {
 for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
   test(`${suite} ${theme} native browser zoom 200 percent at ${width}px`, async ({ baseURL, request }, info) => {
     await request.get(`http://127.0.0.1:${ports[suite]}/fixture/reset`);
+    if (suite === 'operations') await request.get('http://127.0.0.1:18400/fixture/premium');
     const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-zoom-'));
     const extension = path.resolve('tests/ux/native-zoom-extension');
     const context = await chromium.launchPersistentContext(profile, {
@@ -180,6 +181,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await expect(page.getByRole('option', { name: /Zulu (Participant|Customer)/ })).toBeVisible();
           await participant.press('Escape');
           if (route === '/changes') {
+            await create.getByRole('button', { name: /^3\. Schedule/ }).click();
             const approvers = create.getByRole('combobox', { name: 'Approvers', exact: true });
             await approvers.fill('Duplicate');
             await page.getByRole('option', { name: /one@example.test/ }).click();

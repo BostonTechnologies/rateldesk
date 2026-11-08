@@ -1,6 +1,9 @@
 @using Helpdesk.Shared.DTOs.Change
 @inject IJSRuntime JS
 
+@if (ReadOnly) { <ChangePlanSummary Model="Model" ChangeType="@ChangeType" /> }
+else
+{
 <MudStack Spacing="2">
     @if (ValidationErrors?.Count > 0)
     {
@@ -13,7 +16,7 @@
             <MudList T="string" Dense="true">
                 @foreach (var error in ValidationErrors)
                 {
-                    var targetId = GetTargetId(error);
+                    var targetId = TargetForError(error);
                     <MudListItem T="string">
                         @if (!string.IsNullOrWhiteSpace(targetId))
                         {
@@ -52,7 +55,7 @@
                                   FullWidth="true" />
                 </div>
             </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="6">
                 <div id="@AffectedSystemsFieldId" class="change-template-target">
                     <ChangeFieldHelp Label="Affected Systems or Services"
                                      TooltipText="List the systems, services, sites, or business capabilities touched by this change."
@@ -64,11 +67,11 @@
                                   ValueChanged="OnAffectedSystemsChanged"
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
-                                  Lines="8"
+                                  Lines="3"
                                   FullWidth="true" />
                 </div>
             </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="6">
                 <div id="@ImplementationStepsFieldId" class="change-template-target">
                     <ChangeFieldHelp Label="Implementation Steps"
                                      TooltipText="Describe the step-by-step actions the implementer will perform."
@@ -80,11 +83,11 @@
                                   ValueChanged="OnImplementationStepsChanged"
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
-                                  Lines="8"
+                                  Lines="3"
                                   FullWidth="true" />
                 </div>
             </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="6">
                 <div id="@ValidationStepsFieldId" class="change-template-target">
                     <ChangeFieldHelp Label="Validation Steps"
                                      TooltipText="Describe how you will confirm the change worked as intended."
@@ -96,11 +99,11 @@
                                   ValueChanged="OnValidationStepsChanged"
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
-                                  Lines="8"
+                                  Lines="3"
                                   FullWidth="true" />
                 </div>
             </MudItem>
-            <MudItem xs="12" md="8">
+            <MudItem xs="12" md="6">
                 <div id="@RollbackPlanFieldId" class="change-template-target">
                     <ChangeFieldHelp Label="Rollback Plan"
                                      TooltipText="Explain exactly how the change will be reversed if it causes issues."
@@ -111,11 +114,11 @@
                                   ValueChanged="OnRollbackPlanChanged"
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
-                                  Lines="4"
+                                  Lines="3"
                                   FullWidth="true" />
                 </div>
             </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="6">
                 <div id="@RollbackReferenceFieldId" class="change-template-target">
                     <ChangeFieldHelp Label="Rollback Reference"
                                      TooltipText="Provide the runbook, SOP, KB, backup job, or script reference used during rollback."
@@ -198,7 +201,7 @@
                                       ValueChanged="OnBusinessJustificationChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -213,7 +216,7 @@
                                       ValueChanged="OnImpactAssessmentChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -228,7 +231,7 @@
                                       ValueChanged="OnRiskAssessmentChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -244,7 +247,7 @@
                                       ValueChanged="OnPreChangeChecksChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -259,7 +262,7 @@
                                       ValueChanged="OnTestingPlanChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -274,7 +277,7 @@
                                   ValueChanged="OnDependenciesChanged"
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
-                                  Lines="5"
+                                  Lines="3"
                                   FullWidth="true" />
                 </MudItem>
             </MudGrid>
@@ -297,7 +300,7 @@
                                       ValueChanged="OnEmergencyReasonChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -312,7 +315,7 @@
                                       ValueChanged="OnEmergencyBusinessImpactChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -327,7 +330,7 @@
                                       ValueChanged="OnImmediateRiskAssessmentChanged"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense"
-                                      Lines="5"
+                                      Lines="3"
                                       FullWidth="true" />
                     </div>
                 </MudItem>
@@ -343,7 +346,7 @@
                                   Margin="Margin.Dense"
                                   FullWidth="true" />
                 </MudItem>
-                <MudItem xs="12">
+                <MudItem xs="12" id="change-template-post-validation">
                     <ChangeFieldHelp Label="Post-change Validation"
                                      TooltipText="State what checks will confirm the emergency change stabilized the service after implementation."
                                      ExampleText="Example: 'Users can log in, VPN traffic is stable, and no fresh errors appear for 15 minutes'" />
@@ -353,13 +356,14 @@
                                   ValueChanged="OnPostChangeValidationChanged"
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
-                                  Lines="4"
+                                  Lines="3"
                                   FullWidth="true" />
                 </MudItem>
             </MudGrid>
         </MudPaper>
     }
 </MudStack>
+}
 
 @code {
     [Parameter] public bool ReadOnly { get; set; }
@@ -453,10 +457,10 @@
         return "Use the items above to jump to the missing fields and complete the required sections.";
     }
 
-    private static string? GetTargetId(string error)
+    public static string? TargetForError(string error)
     {
         if (error.Contains("scope", StringComparison.OrdinalIgnoreCase)) return ScopeOfChangeFieldId;
-        if (error.Contains("affected systems", StringComparison.OrdinalIgnoreCase)) return AffectedSystemsFieldId;
+        if (error.Contains("affected system", StringComparison.OrdinalIgnoreCase)) return AffectedSystemsFieldId;
         if (error.Contains("implementation step", StringComparison.OrdinalIgnoreCase)) return ImplementationStepsFieldId;
         if (error.Contains("validation step", StringComparison.OrdinalIgnoreCase)) return ValidationStepsFieldId;
         if (error.Contains("rollback plan", StringComparison.OrdinalIgnoreCase)) return RollbackPlanFieldId;
@@ -465,10 +469,12 @@
         if (error.Contains("runbook", StringComparison.OrdinalIgnoreCase) || error.Contains("sop", StringComparison.OrdinalIgnoreCase)) return RunbookReferenceFieldId;
         if (error.Contains("business justification", StringComparison.OrdinalIgnoreCase)) return BusinessJustificationFieldId;
         if (error.Contains("impact assessment", StringComparison.OrdinalIgnoreCase)) return ImpactAssessmentFieldId;
+        if (error.Contains("immediate risk", StringComparison.OrdinalIgnoreCase)) return ImmediateRiskAssessmentFieldId;
+        if (error.Contains("post-change validation", StringComparison.OrdinalIgnoreCase)) return "change-template-post-validation";
         if (error.Contains("risk assessment", StringComparison.OrdinalIgnoreCase)) return RiskAssessmentFieldId;
         if (error.Contains("pre-change checks", StringComparison.OrdinalIgnoreCase)) return PreChangeChecksFieldId;
         if (error.Contains("testing plan", StringComparison.OrdinalIgnoreCase) || error.Contains("validation or testing plan", StringComparison.OrdinalIgnoreCase)) return TestingPlanFieldId;
-        if (error.Contains("reason for emergency", StringComparison.OrdinalIgnoreCase)) return EmergencyReasonFieldId;
+        if (error.Contains("reason for emergency", StringComparison.OrdinalIgnoreCase) || error.Contains("emergency reason", StringComparison.OrdinalIgnoreCase)) return EmergencyReasonFieldId;
         if (error.Contains("business impact", StringComparison.OrdinalIgnoreCase)) return BusinessImpactFieldId;
         if (error.Contains("immediate risk", StringComparison.OrdinalIgnoreCase)) return ImmediateRiskAssessmentFieldId;
 

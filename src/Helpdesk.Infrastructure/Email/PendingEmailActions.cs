@@ -39,7 +39,9 @@ public sealed class PendingEmailActions(HelpdeskDbContext db, MailboxOutboxStore
         if (action is not ("cancel" or "remove"))
             return new(id, "InvalidAction", "Unsupported queue action.");
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        // A bulk target owns the outer transaction so its receipt and queue change commit together.
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct) : null;
         var timeline = await db.TicketTimelineEvents.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == id && x.EventType == TimelineEventType.EmailDelivery, ct);
         if (timeline is null) return new(id, "NotFound", "Delivery unavailable.");
@@ -87,7 +89,7 @@ public sealed class PendingEmailActions(HelpdeskDbContext db, MailboxOutboxStore
                 (action == "remove" ? "Queue visibility removed and future dispatch blocked; prior delivery is not recalled." : "Future delivery cancelled before submission.")
         });
         await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return action == "cancel" ? new(id, "Cancelled", "Future delivery cancelled before submission.")
             : new(id, "Removed", "Queue entry removed. Ticket history is retained; prior delivery is not recalled.");
     }

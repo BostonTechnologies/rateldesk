@@ -1,0 +1,54 @@
+@using Helpdesk.Shared.DTOs.Change
+
+<dl class="change-plan-summary">
+    @foreach (var field in Fields())
+    {
+        <div><dt>@field.Label</dt><dd>@(string.IsNullOrWhiteSpace(field.Value) ? "Not provided" : field.Value)</dd></div>
+    }
+</dl>
+
+@code {
+    [Parameter, EditorRequired] public ChangeTemplateDto Model { get; set; } = new();
+    [Parameter] public string ChangeType { get; set; } = string.Empty;
+    private static string Lines(IEnumerable<string>? values) => string.Join("\n", values ?? []);
+    private IEnumerable<(string Label, string? Value)> Fields()
+    {
+        yield return ("Scope of change", Model.ScopeOfChange);
+        yield return ("Affected systems or services", Lines(Model.AffectedSystems));
+        yield return ("Implementation steps", Lines(Model.ImplementationSteps));
+        yield return ("Validation steps", Lines(Model.ValidationSteps));
+        yield return ("Rollback plan", Model.RollbackPlan);
+        yield return ("Rollback reference", Model.RollbackReference);
+        if (ChangeType.Equals("Standard", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return ("Pre-approved change", Model.IsPreApproved is null ? null : Model.IsPreApproved == true ? "Yes" : "No");
+            yield return ("SOP or runbook reference", Model.ExistingRunbookReference);
+            yield return ("Risk classification", Model.RiskClassification);
+        }
+        if (ChangeType.Equals("Normal", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return ("Change description", Model.ChangeDescription);
+            yield return ("Business justification", Model.BusinessJustification);
+            yield return ("Impact assessment", Model.ImpactAssessment);
+            yield return ("Risk assessment", Model.RiskAssessment);
+            yield return ("Pre-change checks", Lines(Model.PreChangeChecks));
+            yield return ("Testing plan", Model.TestingPlan);
+            yield return ("Dependencies", Lines(Model.Dependencies));
+        }
+        if (ChangeType.Equals("Emergency", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return ("Reason for emergency", Model.EmergencyReason);
+            yield return ("Business impact if not implemented", Model.BusinessImpactIfNotImplemented);
+            yield return ("Immediate risk assessment", Model.ImmediateRiskAssessment);
+            yield return ("Incident reference", Model.IncidentReference);
+            yield return ("Post-change validation", Model.PostChangeValidation);
+        }
+    }
+}
+
+<style>
+    .change-plan-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin: 0; }
+    .change-plan-summary dt { font-size: .8rem; color: var(--mud-palette-text-secondary); margin-bottom: 4px; }
+    .change-plan-summary dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .875rem; }
+    @@media (max-width: 700px) { .change-plan-summary { grid-template-columns: 1fr; } }
+</style>

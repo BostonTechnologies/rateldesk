@@ -86,8 +86,7 @@ public class SystemNotificationApiClient(IHttpClientFactory httpClientFactory, I
 
         using var request = CreateUserScopedRequest(HttpMethod.Get, $"/api/v1/notifications?{string.Join("&", queryParts)}");
         using var response = await _httpClient.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode)
-            return new PagedResponse<NotificationDto> { Page = page, PageSize = pageSize };
+        response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<PagedResponse<NotificationDto>>(cancellationToken: ct)
                ?? new PagedResponse<NotificationDto> { Page = page, PageSize = pageSize };
@@ -201,8 +200,7 @@ public class SystemNotificationApiClient(IHttpClientFactory httpClientFactory, I
     {
         using var request = CreateUserScopedRequest(HttpMethod.Get, "/api/v1/notifications/summary");
         using var response = await _httpClient.SendAsync(request);
-        if (!response.IsSuccessStatusCode)
-            return new NotificationSummaryDto();
+        response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<NotificationSummaryDto>() ?? new NotificationSummaryDto();
     }

@@ -133,6 +133,23 @@ public class HelpdeskDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Helpdesk.Infrastructure.Email.PendingEmailOperationRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ActorId).HasMaxLength(256);
+            entity.Property(x => x.Action).HasMaxLength(16);
+            entity.Property(x => x.Reason).HasMaxLength(200);
+            entity.HasIndex(x => new { x.ActorId, x.CreatedUnixMilliseconds });
+        });
+        modelBuilder.Entity<Helpdesk.Infrastructure.Email.PendingEmailOperationTarget>(entity =>
+        {
+            entity.HasKey(x => new { x.OperationId, x.DeliveryId });
+            entity.HasIndex(x => new { x.OperationId, x.Sequence }).IsUnique();
+            entity.Property(x => x.Outcome).HasMaxLength(32);
+            entity.Property(x => x.Message).HasMaxLength(500);
+            entity.HasOne<Helpdesk.Infrastructure.Email.PendingEmailOperationRecord>().WithMany()
+                .HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Cascade);
+        });
         if (Database.IsSqlite()) SqliteUnicodeSearch.Configure(modelBuilder);
         modelBuilder.ConfigureServiceIdentityModel();
         modelBuilder.ConfigurePairingModel();

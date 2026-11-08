@@ -119,13 +119,32 @@ ID in the URL. Additional filters expand below the compact search toolbar. Creat
 bounds use UTC and include both endpoints. Equal endpoints select that instant.
 The URL retains filters, sorting and page for browser Back/Forward.
 
-Selection covers the explicit records on the current page, at most 100. Changing
-filters/pages or refreshing clears selection. Bulk actions confirm the selected
-count and return an outcome for every record. Retry keeps the existing sender
-binding; sender adoption, mailbox/outgoing revision changes, partial acceptance,
-and unknown submission outcomes still require individual review. Legacy records
-without an outbox owner can be retried individually after confirmation; bulk
-retry leaves them for review.
+Use **Select this page** for visible records or **Select all N matching
+deliveries** for the complete authorized result set, including an unfiltered
+queue. Uncheck individual rows to exclude them across pages. The count remains
+explicit; changing filters clears selection. Paging retains it. The native
+25/50/100-row pager sits outside the bounded table body.
+
+**Cancel selected** and **Remove selected** first resolve a durable, actor-bound
+selection. Review its exact count, scope, eligibility/skipped counts and required
+reason. Membership and state revisions are fixed before confirmation: new
+arrivals stay outside it and changed deliveries report conflicts. Dismissing a
+review changes no delivery. Confirmation processes at most 50 targets per server
+request, with each queue action and its receipt committed in one transaction.
+Progress distinguishes completed, skipped and conflicted targets. Database or
+transport interruption leaves committed receipts intact. Retain the operation
+URL and use **Resume same operation** to reconcile and continue that operation;
+do not create a replacement operation to guess what committed. Pause stops after
+the current batch. Recent per-delivery outcomes appear on the page; all outcomes
+are available in 100-result pages from
+`GET /api/v1/timeline/pending/operations/{id}/results?page=0` for its owner.
+Cancellation followed by removal requires a separate reviewed removal selection,
+for example with status Cancelled. Neither operation sends mail or recalls it.
+
+**Retry selected** retains the existing explicit-ID maximum of 100 and skips
+records needing individual review. It never applies to all-matching selection.
+Sender adoption, mailbox/outgoing revision changes, partial acceptance, unknown
+submission outcomes and legacy reconstruction still use individual review.
 
 **Cancel delivery** persists cancellation before submission. The worker rechecks
 its owner, lease and fence immediately before SMTP `SendAsync` or Graph
@@ -154,3 +173,22 @@ transports. The focused rendered browser suite is
 `HELPDESK_PENDING_MAIL_CONFIGURATION=Release` for a Release Web build. Its
 loopback fixture is presentation evidence, while the .NET suites verify real
 API authorization and database state transitions.
+
+## Email rules and audit browsing
+
+`/admin/email-rules` retains separate Rules and Audit tabs. Rules can be searched
+and paged without changing configuration. Clone creates a disabled copy. Move
+actions reorder the complete tenant/mailbox precedence scope, including rules
+outside the current page/filter. Mailbox binding, details and enable/disable
+remain explicit actions.
+
+Audit searches, outcome/rule/organization/mailbox filters, UTC dates and totals
+apply to the full retained history. Use Advanced for exact message, ticket, rule
+and organization IDs. Details retain the complete event, original IDs, action key
+and error, with a copy control. Missing names remain identified as unavailable;
+only supported authorized ticket types receive links. Deleting configuration
+retains independent audit records. The additive
+`GET /api/v1/inbound-email-rules/audit/page` contract supports page=0,
+pageSize=25|50|100, search, messageId, ticketId, tenantId, mailboxId, ruleId,
+status, from/to, sort=created|status|action and descending. The existing
+`/audit` list contract remains available to existing clients.

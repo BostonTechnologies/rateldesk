@@ -36,6 +36,9 @@ public static partial class ChangeEndpoints
 
         group.MapGet("/", GetChanges);
 
+        group.MapPost("/template-validation", (ChangeTemplateValidationRequest request,
+            IChangeTemplateService templates) => Results.Ok(templates.ValidateTemplate(request.ChangeType, request.Template)));
+
         group.MapGet("/{id}/timeline", async (
             [FromRoute] string id,
             [FromQuery] string? order,
@@ -242,7 +245,8 @@ public static partial class ChangeEndpoints
             }
 
             var templateValidation = changeTemplateService.ValidateTemplate(normalizedChangeType, dto.ChangeTemplate);
-            var lifecycleState = ResolveInitialLifecycleState(templateValidation.IsComplete, dto.ApproverUserIds, access.CanApproveChange(organization.Id));
+            var lifecycleState = dto.SaveAsDraft ? ChangeLifecycleState.Draft :
+                ResolveInitialLifecycleState(templateValidation.IsComplete, dto.ApproverUserIds, access.CanApproveChange(organization.Id));
 
             var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
             var validation = await ValidateCategorySelectionAsync(

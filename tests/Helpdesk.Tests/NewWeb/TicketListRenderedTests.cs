@@ -315,6 +315,54 @@ public sealed class TicketListRenderedTests
         Assert.Empty(api.Reads);
     }
 
+    [Fact]
+    public async Task Task_dashboard_first_request_is_all_assignments_and_native_pager_and_filter_send_server_queries()
+    {
+        using var api = new FixtureClient();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton<IHttpClientFactory>(api);
+        var authorization = context.AddAuthorization(); authorization.SetAuthorized("Synthetic operator"); authorization.SetRoles("HelpdeskAdmin");
+        var popovers = context.Render<MudPopoverProvider>();
+        var dashboard = context.Render<NewWeb::HelpDesk.NewWeb.Components.Pages.Tasks.TaskDashboard>();
+        dashboard.WaitForAssertion(() => Assert.Equal(25, dashboard.FindAll("tbody tr").Count));
+        Assert.Contains("assignedToMe=false", api.Requests[0]);
+        Assert.Contains("pageSize=25", api.Requests[0]);
+        dashboard.Find("button[aria-label='Next page']").Click();
+        dashboard.WaitForAssertion(() => Assert.Contains("page=2", api.Requests.Last()));
+        var assignment = dashboard.FindComponents<MudSwitch<bool>>().Single(x => x.Instance.Label == "Assigned to me");
+        assignment.Find("input").Change(true);
+        dashboard.WaitForAssertion(() => Assert.Contains("assignedToMe=true", api.Requests.Last()));
+        Assert.Contains("page=1", api.Requests.Last());
+        Assert.Contains("Running", dashboard.Markup);
+        Assert.DoesNotContain(dashboard.FindAll("button"), x => x.TextContent.Trim() == "Running");
+        Assert.NotEmpty(dashboard.FindAll("button[aria-label='Start task']"));
+    }
+
+    [Theory]
+    [InlineData("Standard")]
+    [InlineData("Normal")]
+    [InlineData("Emergency")]
+    public async Task Change_plan_has_one_associated_label_per_input_and_read_only_summary_retains_values(string type)
+    {
+        await using var context = new BunitContext();
+        context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var model = new ChangeTemplateDto { ScopeOfChange = "Retained synthetic scope", ExistingRunbookReference = "Retained runbook",
+            BusinessJustification = "Retained normal field", EmergencyReason = "Retained emergency field" };
+        var editor = context.Render<NewWeb::HelpDesk.NewWeb.Components.Pages.Changes.ChangeTemplateEditor>(p =>
+            p.Add(x => x.Model, model).Add(x => x.ChangeType, type));
+        foreach (var input in editor.FindAll("textarea, input:not([type=hidden]):not([type=checkbox])"))
+        {
+            Assert.False(string.IsNullOrWhiteSpace(input.Id));
+            Assert.Single(editor.FindAll("label"), label => label.GetAttribute("for") == input.Id);
+        }
+        editor.Render(p => p.Add(x => x.ReadOnly, true));
+        Assert.Empty(editor.FindAll("input, textarea"));
+        Assert.Contains("Retained synthetic scope", editor.Markup);
+        Assert.Equal("Retained normal field", model.BusinessJustification);
+        Assert.Equal("Retained emergency field", model.EmergencyReason);
+    }
+
     private static BunitContext PopupContext(PopupApi api)
     {
         var context = new BunitContext();
@@ -368,6 +416,18 @@ public sealed class TicketListRenderedTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             Requests.Add(request.RequestUri!.PathAndQuery);
+            if (request.RequestUri.AbsolutePath == "/api/v1/request-tasks")
+            {
+                var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query);
+                var page = int.Parse(query["page"].ToString());
+                var size = int.Parse(query["pageSize"].ToString());
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new
+                {
+                    items = Enumerable.Range((page - 1) * size, Math.Min(size, 76 - (page - 1) * size)).Select(i => new
+                    { id = $"task-{i}", requestId = "request", requestTrackingId = $"REQ-{i}", requestTitle = "Synthetic request", name = "Synthetic task",
+                        organizationId = "org", type = i % 2 + 1, status = i % 5 + 1, automationReadyToStart = true }), totalCount = 76
+                }) });
+            }
             if (request.RequestUri.AbsolutePath.EndsWith("/filter-options"))
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { items = new[] { new { id = "org", label = "Named organization" } }, hasMore = false }) });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { items = Array.Empty<object>(), totalCount = 0 }) });

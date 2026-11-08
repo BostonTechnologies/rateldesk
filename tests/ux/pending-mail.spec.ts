@@ -8,14 +8,16 @@ async function ready(page: Page, route = '/admin/pending-emails') {
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
 }
 test.beforeEach(async ({ request, page }) => { await request.get(`${fixture}/reset`); await page.goto('/auth/development'); });
-for (const theme of ['light', 'dark']) for (const width of [320, 768, 1440, 1920]) {
-  test(`pending mail ${theme} ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 900 });
+for (const theme of ['light', 'dark']) for (const [width, height] of [[320, 900], [768, 900], [1440, 900], [1366, 768], [1920, 900]]) {
+  test(`pending mail ${theme} ${width}x${height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height });
     await page.evaluate(theme => localStorage.setItem('helpdesk.theme.preference', theme), theme);
     await ready(page);
-    await expect(page.getByText('1205 deliveries · 0 selected records on this page')).toBeVisible();
+    await expect(page.getByText('1205 deliveries · 0 selected records')).toBeVisible();
     await expect(page.locator('.pending-mail tbody tr')).toHaveCount(25);
-    await page.getByRole('button', { name: 'Details', exact: true }).first().click();
+    await expect(page.locator('.pending-mail .mud-table-pagination')).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`pending-grid-${theme}-${width}.png`) });
+    await page.getByRole('button', { name: 'Delivery details', exact: true }).first().click();
     await expect(page.getByRole('region', { name: 'Delivery details' })).toBeVisible();
     await assertNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath(`pending-${theme}-${width}.png`), fullPage: true });
@@ -23,25 +25,25 @@ for (const theme of ['light', 'dark']) for (const width of [320, 768, 1440, 1920
 }
 test('server paging, filter URL, Back and explicit selection scope', async ({ page, request }) => {
   await ready(page);
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.getByText('Page 2 of 49', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.getByText('26-50 of 1,205', { exact: true })).toBeVisible();
   await page.locator('.pending-mail tbody input[type="checkbox"]').first().check();
-  await expect(page.getByText('1205 deliveries · 1 selected records on this page')).toBeVisible();
+  await expect(page.getByText('1205 deliveries · 1 selected records')).toBeVisible();
   await page.getByRole('textbox', { name: 'Search ticket or recipient' }).fill('INC-SYN-0001');
   await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
-  await expect(page.getByText('1 deliveries · 0 selected records on this page')).toBeVisible();
+  await expect(page.getByText('1 deliveries · 0 selected records')).toBeVisible();
   await expect(page.getByRole('link', { name: 'INC-SYN-0001' })).toHaveAttribute('href', '/incidents/synthetic-1');
   await page.goBack();
-  await expect(page.getByText('Page 2 of 49', { exact: true })).toBeVisible();
+  await expect(page.getByText('26-50 of 1,205', { exact: true })).toBeVisible();
   const state = await (await request.get(`${fixture}/state`)).json();
   expect(state.requests.some((q: any) => q.page === '1')).toBe(true);
   expect(state.requests.some((q: any) => q.search === 'INC-SYN-0001' && q.page === '0')).toBe(true);
 });
 test('applied filter removal is reachable by Tab and resets URL, page and selection', async ({ page, request }) => {
   await ready(page, '/admin/pending-emails?search=INC-SYN-0&page=1');
-  await expect(page.getByText('Page 2 of 40', { exact: true })).toBeVisible();
+  await expect(page.getByText('26-50 of 999', { exact: true })).toBeVisible();
   await page.locator('.pending-mail tbody input[type="checkbox"]').first().check();
-  await expect(page.getByText('999 deliveries · 1 selected records on this page')).toBeVisible();
+  await expect(page.getByText('999 deliveries · 1 selected records')).toBeVisible();
   await page.getByRole('button', { name: 'Apply filters', exact: true }).focus();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Clear filters', exact: true })).toBeFocused();
@@ -50,8 +52,8 @@ test('applied filter removal is reachable by Tab and resets URL, page and select
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Remove filter search: INC-SYN-0', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('1205 deliveries · 0 selected records on this page')).toBeVisible();
-  await expect(page.getByText('Page 1 of 49', { exact: true })).toBeVisible();
+  await expect(page.getByText('1205 deliveries · 0 selected records')).toBeVisible();
+  await expect(page.getByText('1-25 of 1,205', { exact: true })).toBeVisible();
   expect(new URL(page.url()).searchParams.get('search')).toBeNull();
   expect(new URL(page.url()).searchParams.get('page')).toBe('0');
   const state = await (await request.get(`${fixture}/state`)).json();
@@ -62,7 +64,7 @@ test('applied filter removal is reachable by Tab and resets URL, page and select
 test('bounded selection, cancelled confirmation, mixed results, removal and refreshed totals', async ({ page, request }) => {
   await ready(page);
   await page.locator('.pending-mail thead input[type="checkbox"]').check();
-  await expect(page.getByText('1205 deliveries · 25 selected records on this page')).toBeVisible();
+  await expect(page.getByText('1205 deliveries · 25 selected records')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('25 explicitly selected record(s)');
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -79,7 +81,7 @@ test('bounded selection, cancelled confirmation, mixed results, removal and refr
   const state = await (await request.get(`${fixture}/state`)).json();
   expect(state.actions[0].ids).toHaveLength(25); expect(state.actions[0].confirmed).toBe(true);
   expect(state.actions[1].ids).toHaveLength(1);
-  await expect(page.getByText(/0 selected records on this page/)).toBeVisible();
+  await expect(page.getByText(/0 selected records/)).toBeVisible();
 });
 test('failure and zero states remain distinct and recover, keyboard at 200 percent zoom', async ({ page, request }) => {
   await ready(page);
@@ -88,7 +90,7 @@ test('failure and zero states remain distinct and recover, keyboard at 200 perce
   await expect(page.getByText('Delivery list unavailable. Refresh to try again.')).toBeVisible({ timeout: 35_000 });
   await request.get(`${fixture}/fail?enabled=false`);
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByText('1205 deliveries · 0 selected records on this page')).toBeVisible();
+  await expect(page.getByText('1205 deliveries · 0 selected records')).toBeVisible();
   await page.getByRole('textbox', { name: 'Search ticket or recipient' }).fill('does-not-exist');
   await page.getByRole('button', { name: 'Apply filters', exact: true }).focus(); await page.keyboard.press('Enter');
   await expect(page.getByText('No deliveries match these filters.')).toBeVisible();
@@ -117,7 +119,7 @@ for (const environment of ['normal browser', 'embedded browser']) {
       const before = await (await request.get(`${fixture}/state`)).json();
       const selectedIds = before.data.slice(0, 18).map((x: any) => x.id);
       await ready(page, '/admin/pending-emails?search=Disposable%20campaign');
-      await expect(page.getByText('18 deliveries · 0 selected records on this page')).toBeVisible();
+      await expect(page.getByText('18 deliveries · 0 selected records')).toBeVisible();
       await page.locator('.pending-mail thead input[type="checkbox"]').check();
       for (const dismissal of ['cancel', 'escape', 'close', 'backdrop']) {
         await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
@@ -130,7 +132,7 @@ for (const environment of ['normal browser', 'embedded browser']) {
         if (dismissal === 'backdrop') await page.locator('.mud-overlay-dialog').click({ position: { x: 5, y: 5 } });
         await expect(dialog).toBeHidden();
         await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
-        await expect(page.getByText('18 deliveries · 18 selected records on this page')).toBeVisible();
+        await expect(page.getByText('18 deliveries · 18 selected records')).toBeVisible();
         const state = await (await request.get(`${fixture}/state`)).json();
         expect(state.actions).toEqual([]); expect(state.retries).toEqual([]); expect(state.submissions).toEqual([]);
         expect(state.data).toEqual(before.data); expect(state.history).toEqual(before.history);
@@ -151,16 +153,17 @@ for (const environment of ['normal browser', 'embedded browser']) {
       await confirm.evaluate((element: HTMLElement) => { element.click(); element.click(); });
       await expect(dialog).toBeHidden();
       await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeDisabled();
-      await expect(page.getByText('Action results (18 selected records)')).toBeVisible();
+      await expect(page.getByText('cancel · 18 / 18 processed', { exact: true })).toBeVisible();
       const after = await (await request.get(`${fixture}/state`)).json();
       expect(after.actions).toEqual([{ ids: expect.any(Array), action: 'cancel', reason: 'Synthetic cancellation regression', confirmed: true }]);
       expect([...after.actions[0].ids].sort()).toEqual([...selectedIds].sort());
       expect(after.data.slice(0, 18).every((x: any) => x.emailStatus === 5)).toBe(true);
       expect(after.data.slice(18)).toEqual(before.data.slice(18));
       expect(after.history).toEqual(before.history); expect(after.submissions).toEqual([]);
+      await page.getByText('Per-delivery outcomes', { exact: true }).click();
       await expect(page.getByRole('status').getByText(/Cancelled — Synthetic action persisted/)).toHaveCount(18);
       await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
-      await expect(page.getByText('601 deliveries · 0 selected records on this page')).toBeVisible();
+      await expect(page.getByText('601 deliveries · 0 selected records')).toBeVisible();
     });
 
     test('browser Back keeps action busy and invalidates a review opened before navigation', async ({ page, request }) => {
@@ -168,15 +171,15 @@ for (const environment of ['normal browser', 'embedded browser']) {
       await ready(page);
       await page.getByRole('textbox', { name: 'Search ticket or recipient' }).fill('Disposable campaign');
       await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
-      await expect(page.getByText('18 deliveries · 0 selected records on this page')).toBeVisible();
+      await expect(page.getByText('18 deliveries · 0 selected records')).toBeVisible();
       await page.locator('.pending-mail thead input[type="checkbox"]').check();
       await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toContainText('18 explicitly selected record(s)');
       await page.goBack();
-      await expect(page.getByText('619 deliveries · 0 selected records on this page')).toBeVisible();
+      await expect(page.getByText('619 deliveries · 0 selected records')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeDisabled();
-      await expect(page.getByRole('button', { name: 'Cancel delivery', exact: true }).first()).toBeDisabled();
+      await expect(page.getByRole('button', { name: 'Cancel future delivery', exact: true }).first()).toBeDisabled();
       await dialog.getByRole('textbox', { name: 'Reason' }).fill('Stale navigation review');
       await dialog.getByRole('button', { name: 'Cancel deliveries', exact: true }).click();
       await expect(dialog).toBeHidden();
@@ -197,13 +200,14 @@ for (const environment of ['normal browser', 'embedded browser']) {
         await page.getByRole('dialog').getByRole('button', { name: 'Cancel deliveries', exact: true }).click();
       };
       await submit();
-      await expect(page.getByText('Queue action failed. Refresh before trying again.')).toBeVisible();
-      await expect(page.getByText('18 deliveries · 0 selected records on this page')).toBeVisible();
+      // Processing uses the real API client's bounded resilience retries on 503.
+      await expect(page.getByText('Operation interrupted. Resume the same operation to reconcile committed outcomes.')).toBeVisible({ timeout: 35_000 });
+      await expect(page.getByText('18 deliveries · 0 selected records')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
-      await request.get(`${fixture}/action-options?fail=false`); await submit();
-      await expect(page.getByText('Action results (18 selected records)')).toBeVisible();
+      await request.get(`${fixture}/action-options?fail=false`); await page.getByRole('button', { name: 'Resume same operation' }).click();
+      await expect(page.getByText('cancel · 18 / 18 processed', { exact: true })).toBeVisible();
       const state = await (await request.get(`${fixture}/state`)).json();
-      expect(state.actions).toHaveLength(2); expect(state.actions[0].ids.sort()).toEqual(state.actions[1].ids.sort());
+      expect(state.actions).toHaveLength(1); expect(state.operations).toHaveLength(1); expect(state.operations[0].results).toHaveLength(18);
       expect(state.submissions).toEqual([]);
     });
 
@@ -283,3 +287,66 @@ for (const environment of ['normal browser', 'embedded browser']) {
     });
   });
 }
+
+test('1106 matching deliveries freeze exclusions and arrivals, pause/reload/resume once, then remove without mail', async ({ page, request }) => {
+  await request.get(`${fixture}/reset?scenario=bulk`);
+  const before = await (await request.get(`${fixture}/state`)).json();
+  await ready(page, '/admin/pending-emails?search=Disposable%20bulk');
+  await page.getByRole('button', { name: 'Select all 1106 matching deliveries', exact: true }).click();
+  const first = page.locator('.pending-mail tbody input[type="checkbox"]').first(); await first.uncheck();
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.getByText('26-50 of 1,106', { exact: true })).toBeVisible();
+  await page.locator('.pending-mail tbody input[type="checkbox"]').first().uncheck();
+  await expect(page.getByText('1106 deliveries · 1104 selected records', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
+  const review = page.getByRole('dialog'); await expect(review).toContainText('1104 explicitly selected record(s)');
+  await request.get(`${fixture}/arrival`);
+  await request.get(`${fixture}/change?id=${before.data[20].id}`);
+  await request.get(`${fixture}/action-options?delay=100`);
+  await review.getByRole('textbox', { name: 'Reason' }).fill('Synthetic bulk cancellation');
+  await review.getByRole('button', { name: 'Cancel deliveries', exact: true }).click();
+  await page.getByRole('button', { name: 'Pause after current batch', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Resume same operation', exact: true })).toBeEnabled();
+  const operationId = new URL(page.url()).searchParams.get('operation'); expect(operationId).toBeTruthy();
+  await page.reload(); await expect(page.getByRole('button', { name: 'Resume same operation', exact: true })).toBeEnabled();
+  await request.get(`${fixture}/action-options?delay=0`);
+  await page.getByRole('button', { name: 'Resume same operation', exact: true }).click();
+  await expect(page.getByText('cancel · 1104 / 1104 processed', { exact: true })).toBeVisible();
+  let after = await (await request.get(`${fixture}/state`)).json();
+  expect(after.actions).toHaveLength(1); expect(after.actions[0].ids).toHaveLength(1104);
+  expect(after.operations[0].results.filter((x: any) => x.outcome === 'Conflict')).toHaveLength(1);
+  expect(new Set(after.operations[0].results.map((x: any) => x.id)).size).toBe(1104);
+  expect(after.data.slice(1106, 1113)).toEqual(before.data.slice(1106));
+  expect(after.history).toEqual(before.history); expect(after.submissions).toEqual([]);
+  await page.getByRole('combobox', { name: 'Delivery status', exact: true }).click();
+  await page.getByRole('option', { name: 'Cancelled', exact: true }).click();
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+  await page.getByRole('button', { name: 'Select all 1103 matching deliveries', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove selected', exact: true }).click();
+  await page.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill('Synthetic reviewed removal');
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove entries', exact: true }).click();
+  await expect(page.getByText('remove · 1103 / 1103 processed', { exact: true })).toBeVisible();
+  after = await (await request.get(`${fixture}/state`)).json();
+  expect(after.operations[1].results.filter((x: any) => x.outcome === 'Removed')).toHaveLength(1103);
+  expect(after.history).toEqual(before.history); expect(after.submissions).toEqual([]);
+});
+
+test('unfiltered all matching is explicit, filter changes clear it, and 100-row pager stays outside the scroll region', async ({ page, request }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Select all 1205 matching deliveries', exact: true }).click();
+  await expect(page.getByText('1205 deliveries · 1205 selected records', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('1205 explicitly selected record(s)');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await (await request.get(`${fixture}/state`)).json()).actions).toEqual([]);
+  await page.getByRole('textbox', { name: 'Search ticket or recipient' }).fill('INC-SYN-0001');
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+  await expect(page.getByText('1 deliveries · 0 selected records', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await page.locator('.mud-table-pagination').getByRole('combobox').click();
+  await page.getByRole('option', { name: '100', exact: true }).click();
+  await expect(page.locator('.pending-mail tbody tr')).toHaveCount(100);
+  const bounds = await page.locator('.mud-table-pagination').boundingBox();
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeInViewport();
+});

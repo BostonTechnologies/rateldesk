@@ -105,6 +105,74 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("AiOpsInvestigation");
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Email.PendingEmailOperationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedUnixMilliseconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorId", "CreatedUnixMilliseconds");
+
+                    b.ToTable("PendingEmailOperationRecord");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Email.PendingEmailOperationTarget", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("DeliveryId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Eligible")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Snapshot")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("OperationId", "DeliveryId");
+
+                    b.HasIndex("OperationId", "Sequence")
+                        .IsUnique();
+
+                    b.ToTable("PendingEmailOperationTarget");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.McpPolicies.McpAccessPolicy", b =>
                 {
                     b.Property<Guid>("CredentialId")
@@ -4596,6 +4664,15 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .WithMany()
                         .HasForeignKey("Id")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Email.PendingEmailOperationTarget", b =>
+                {
+                    b.HasOne("Helpdesk.Infrastructure.Email.PendingEmailOperationRecord", null)
+                        .WithMany()
+                        .HasForeignKey("OperationId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

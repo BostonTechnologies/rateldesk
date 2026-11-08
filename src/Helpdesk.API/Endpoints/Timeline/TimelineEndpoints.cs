@@ -27,6 +27,7 @@ public static class TimelineEndpoints
         group
             .WithTags("Timeline")
             .RequireAuthorization("HelpdeskAdmin");
+        group.MapPendingEmailOperations(nameSuffix);
 
         group.MapPost("/{id:guid}/retry",
             async (

@@ -25,6 +25,36 @@ namespace Helpdesk.Tests.Api;
 
 public class InboundEmailRuleEndpointsTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Paged_audit_finds_older_status_date_and_rule_matches_and_preserves_deleted_history(bool postgres)
+    {
+        await using var harness = await Harness.CreateAsync(postgres);
+        await harness.SeedFullAuditAsync();
+        var first = await harness.Client.GetFromJsonAsync<InboundEmailAuditPage>("/api/v1/inbound-email-rules/audit/page");
+        Assert.Equal(305, first!.Total); Assert.Equal(25, first.Items.Count);
+        var older = await harness.Client.GetFromJsonAsync<InboundEmailAuditPage>(
+            "/api/v1/inbound-email-rules/audit/page?status=Failed&ruleId=deleted-rule&from=2026-11-01T00:00:00Z&to=2026-11-01T00:01:00Z");
+        var match = Assert.Single(older!.Items);
+        Assert.Equal(1, older.Total); Assert.Equal("Unknown rule", match.RuleName);
+        Assert.Equal("old-message", match.Event.MessageId); Assert.Equal("Retained complete diagnostic", match.Event.Error);
+        Assert.Equal("Unknown organization", match.OrganizationName); Assert.Null(match.TicketRoute);
+        var search = await harness.Client.GetFromJsonAsync<InboundEmailAuditPage>("/api/v1/inbound-email-rules/audit/page?search=old-message");
+        Assert.Equal(match.Event.Id, Assert.Single(search!.Items).Event.Id);
+        var tail = await harness.Client.GetFromJsonAsync<InboundEmailAuditPage>("/api/v1/inbound-email-rules/audit/page?page=3&pageSize=100&descending=false");
+        Assert.Equal(305, tail!.Total); Assert.Equal(5, tail.Items.Count);
+        Assert.Equal("audit-300", tail.Items[0].Event.Id);
+        var seen = new HashSet<string>();
+        for (var page = 0; page < 4; page++)
+            foreach (var row in (await harness.Client.GetFromJsonAsync<InboundEmailAuditPage>($"/api/v1/inbound-email-rules/audit/page?page={page}&pageSize=100&sort=status"))!.Items)
+                Assert.True(seen.Add(row.Event.Id));
+        Assert.Equal(305, seen.Count);
+        Assert.Equal(HttpStatusCode.BadRequest, (await harness.Client.GetAsync("/api/v1/inbound-email-rules/audit/page?pageSize=200")).StatusCode);
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Incident.Read");
+        Assert.Equal(HttpStatusCode.Forbidden, (await harness.Client.GetAsync("/api/v1/inbound-email-rules/audit/page")).StatusCode);
+    }
+
     [Fact]
     public async Task Crud_EnableDisable_Reorder_AndAudit_WorkForHelpdeskAdmin()
     {
@@ -113,15 +143,27 @@ public class InboundEmailRuleEndpointsTests
 
         public HttpClient Client { get; }
 
-        public static async Task<Harness> CreateAsync()
+        private Testcontainers.PostgreSql.PostgreSqlContainer? container;
+        private string? sqlitePath;
+
+        public static async Task<Harness> CreateAsync(bool? postgres = null)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.WebHost.UseTestServer();
             builder.Services.AddHttpContextAccessor();
             var databaseRoot = new InMemoryDatabaseRoot();
             var databaseName = $"inbound-rules-{Guid.NewGuid():N}";
-            builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseInMemoryDatabase(databaseName, databaseRoot));
-            builder.Services.AddScoped<ITenantContext>(_ => Substitute.For<ITenantContext>());
+            Testcontainers.PostgreSql.PostgreSqlContainer? container = null;
+            string? sqlitePath = null;
+            if (postgres == true) { container = new Testcontainers.PostgreSql.PostgreSqlBuilder("postgres:16").Build(); await container.StartAsync(); }
+            else if (postgres == false) sqlitePath = Path.Combine(Path.GetTempPath(), $"inbound-audit-{Guid.NewGuid():N}.db");
+            builder.Services.AddDbContext<HelpdeskDbContext>(options =>
+            {
+                if (container is not null) options.UseNpgsql(container.GetConnectionString());
+                else if (sqlitePath is not null) options.UseSqlite($"Data Source={sqlitePath};Pooling=False", sqlite => sqlite.MigrationsAssembly("Helpdesk.Infrastructure.SqliteMigrations"));
+                else options.UseInMemoryDatabase(databaseName, databaseRoot);
+            });
+            builder.Services.AddScoped<ITenantContext>(_ => { var tenant = Substitute.For<ITenantContext>(); tenant.IsHelpdeskAdmin.Returns(true); return tenant; });
             builder.Services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = "Test";
@@ -141,10 +183,30 @@ public class InboundEmailRuleEndpointsTests
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapInboundEmailRuleEndpoints();
+            if (postgres is not null)
+            {
+                await using var scope = app.Services.CreateAsyncScope();
+                await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Database.MigrateAsync();
+            }
             await app.StartAsync();
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", HelpdeskPermissions.HelpdeskAdmin);
-            return new Harness(app, client);
+            return new Harness(app, client) { container = container, sqlitePath = sqlitePath };
+        }
+
+        public async Task SeedFullAuditAsync()
+        {
+            await using var scope = _app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var first = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+            db.InboundEmailProcessingLogs.AddRange(Enumerable.Range(0, 305).Select(i => new InboundEmailProcessingLog
+            {
+                Id = $"audit-{i:D3}", MessageId = i == 0 ? "old-message" : $"message-{i}",
+                TenantId = "missing-org", RuleId = i == 0 ? "deleted-rule" : null,
+                ActionKey = "SyntheticAction", Status = i == 0 ? InboundEmailProcessingStatus.Failed : InboundEmailProcessingStatus.Succeeded,
+                Error = i == 0 ? "Retained complete diagnostic" : null, CreatedAtUtc = first.AddMinutes(i)
+            }));
+            await db.SaveChangesAsync();
         }
 
         public async Task SeedAuditAsync(string ruleId)
@@ -174,6 +236,8 @@ public class InboundEmailRuleEndpointsTests
         public async ValueTask DisposeAsync()
         {
             await _app.DisposeAsync();
+            if (container is not null) await container.DisposeAsync();
+            if (sqlitePath is not null) File.Delete(sqlitePath);
         }
     }
 

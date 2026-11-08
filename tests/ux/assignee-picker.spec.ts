@@ -176,6 +176,7 @@ test('required change implementor create field does not save on selection or Can
   const dialog = page.getByRole('dialog').first();
   await dialog.getByRole('combobox', { name: /^Organization\*?$/ }).fill('Customer organization');
   await page.getByRole('option', { name: 'Customer organization', exact: true }).click();
+  await dialog.getByRole('button', { name: /^3\. Schedule/ }).click();
   const chooser = dialog.getByRole('button', { name: /^Choose implementor:/ });
   await chooser.click(); await search(page).fill('late@');
   await expect(page.getByRole('button', { name: 'Unassigned', exact: true })).toHaveCount(0);
@@ -260,6 +261,7 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await requester.fill('remote-participant@');
   await page.getByRole('option', { name: /Zulu Participant/ }).click();
   await expect(requester).toHaveValue(/remote-participant@example.test/);
+  await dialog.getByRole('button', { name: /^3\. Schedule/ }).click();
   const approvers = dialog.getByRole('combobox', { name: 'Approvers', exact: true });
   await approvers.fill('Duplicate'); await page.getByRole('option', { name: /one@example.test/ }).click();
   await expect(approvers).toBeEditable();
@@ -275,9 +277,12 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await expect(page.getByText('No matching participants.')).toBeVisible();
   await expect(selected).toContainText('one@example.test');
   await approvers.press('Escape');
+  await dialog.getByRole('button', { name: /^1\. Overview/ }).click();
   await organization.fill('Second organization'); await page.getByRole('option', { name: 'Second organization', exact: true }).click();
   await expect(requester).toHaveValue('');
+  await dialog.getByRole('button', { name: /^3\. Schedule/ }).click();
   await expect(selected).toBeEmpty();
+  await dialog.getByRole('button', { name: /^1\. Overview/ }).click();
   await expect(dialog.getByRole('textbox', { name: /^Title\*?$/ })).toHaveValue('Retain this draft');
   expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await noError(page);
@@ -407,4 +412,99 @@ test.describe('touch creation selections', () => {
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap(); await noError(page);
     });
   }
+});
+
+for (const type of ['Standard', 'Normal', 'Emergency']) test(`guided ${type} change draft preserves hidden data, saves once and reopens without submitting`, async ({ page, request }) => {
+  await grid(page, 'changes'); await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const dialog = page.getByRole('dialog').first();
+  await dialog.getByRole('textbox', { name: /^Title\*?$/ }).fill(`Synthetic ${type} draft`);
+  await dialog.getByRole('textbox', { name: /^Description\*?$/ }).fill('Synthetic incomplete plan retained for later review');
+  await dialog.getByRole('combobox', { name: /^Organization\*?$/ }).fill('Customer organization');
+  await page.getByRole('option', { name: 'Customer organization', exact: true }).click();
+  await dialog.getByRole('combobox', { name: /^Requested for\*?$/ }).fill('remote-participant@');
+  await page.getByRole('option', { name: /Zulu Participant/ }).click();
+  await dialog.getByRole('combobox', { name: 'Change type', exact: true }).click();
+  await page.getByRole('option', { name: type, exact: true }).click();
+  await dialog.getByRole('button', { name: /^2\. Plan/ }).click();
+  await dialog.getByRole('textbox', { name: 'Scope of Change', exact: true }).fill('Retained across all steps');
+  await dialog.getByRole('textbox', { name: 'Rollback Reference', exact: true }).fill('Synthetic-runbook');
+  await dialog.getByRole('button', { name: /^3\. Schedule/ }).click();
+  const implementor = dialog.getByRole('button', { name: /^Choose implementor:/ });
+  await implementor.click(); await search(page).fill('late@');
+  await page.getByRole('option', { name: /Zulu/ }).click();
+  await dialog.getByRole('textbox', { name: 'Start date (UTC)', exact: true }).fill('2030-11-01');
+  await dialog.getByRole('textbox', { name: 'Start time (UTC)', exact: true }).fill('10:00');
+  await dialog.getByRole('textbox', { name: 'End date (UTC)', exact: true }).fill('2030-11-01');
+  await dialog.getByRole('textbox', { name: 'End time (UTC)', exact: true }).fill('11:00');
+  await dialog.getByRole('button', { name: /^4\. Review/ }).click();
+  await expect(dialog).toContainText('Incomplete plan · optional for saving this draft');
+  await dialog.getByRole('button', { name: /^2\. Plan/ }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Scope of Change', exact: true })).toHaveValue('Retained across all steps');
+  await dialog.getByRole('button', { name: /^4\. Review/ }).click();
+  await request.get(`${fixture}/fault?mode=slow-save`);
+  await dialog.getByRole('button', { name: 'Create draft', exact: true }).evaluate((element: HTMLElement) => { element.click(); element.click(); });
+  await expect(dialog).toBeHidden();
+  const state = await (await request.get(`${fixture}/state`)).json();
+  const saves = state.saves.filter((x: any) => x.kind === 'create'); expect(saves).toHaveLength(1);
+  expect(saves[0]).toMatchObject({ saveAsDraft: true, changeType: type, requestedForUserId: 'late-participant', implementorUserId: 'late',
+    implementationStartAt: '2030-11-01T10:00:00Z', implementationEndAt: '2030-11-01T11:00:00Z', changeTemplate: { scopeOfChange: 'Retained across all steps', rollbackReference: 'Synthetic-runbook' } });
+  await page.goto('/changes/changes-1'); await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByRole('button', { name: 'Edit plan', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Scope of Change', exact: true })).toHaveValue('Retained across all steps');
+  await noError(page);
+});
+
+test('guided change validates hidden steps, focuses errors and confirms discard without mutations', async ({ page, request }) => {
+  await grid(page, 'changes'); await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const dialog = page.getByRole('dialog').first();
+  await dialog.getByRole('button', { name: /^4\. Review/ }).click();
+  await dialog.getByRole('button', { name: 'Create draft', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: /^Title\*?$/ })).toBeFocused();
+  await dialog.getByRole('textbox', { name: /^Title\*?$/ }).fill('Unsaved draft');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const discard = page.getByRole('dialog').filter({ has: page.getByText('Discard change draft?', { exact: true }) });
+  await discard.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: /^Title\*?$/ })).toHaveValue('Unsaved draft');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await expect(dialog).toBeHidden(); expect((await (await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
+});
+
+for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [1366, 768], [390, 844]]) {
+  test(`guided change layout ${theme} ${width}x${height}`, async ({ page, request }, info) => {
+    await page.setViewportSize({ width, height }); await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+    await grid(page, 'changes'); await page.getByRole('button', { name: 'Create', exact: true }).click();
+    const dialog = page.getByRole('dialog').first();
+    for (const [index, name] of ['Overview', 'Plan', 'Schedule', 'Review'].entries()) {
+      await dialog.getByRole('button', { name: new RegExp(`^${index + 1}\\. ${name}`) }).click();
+      await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+      const rect = await dialog.boundingBox(); expect(rect!.y + rect!.height).toBeLessThanOrEqual(height + 1);
+      await assertNoHorizontalOverflow(page);
+      await page.screenshot({ path: info.outputPath(`change-${theme}-${width}-step-${index}.png`) });
+    }
+    expect((await (await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
+  });
+}
+
+test('change type switches retain distinct hidden plan fields in the same draft', async ({ page, request }) => {
+  await grid(page, 'changes'); await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const dialog = page.getByRole('dialog').first();
+  const chooseType = async (type: string) => {
+    await dialog.getByRole('button', { name: /^1\. Overview/ }).click();
+    await dialog.getByRole('combobox', { name: 'Change type', exact: true }).click();
+    await page.getByRole('option', { name: type, exact: true }).click();
+    await dialog.getByRole('button', { name: /^2\. Plan/ }).click();
+  };
+  await chooseType('Normal');
+  await dialog.getByRole('textbox', { name: 'Business Justification', exact: true }).fill('Retain the normal business case');
+  await chooseType('Emergency');
+  await dialog.getByRole('textbox', { name: 'Reason for Emergency', exact: true }).fill('Retain the emergency justification');
+  await chooseType('Normal');
+  await expect(dialog.getByRole('textbox', { name: 'Business Justification', exact: true })).toHaveValue('Retain the normal business case');
+  await chooseType('Emergency');
+  await expect(dialog.getByRole('textbox', { name: 'Reason for Emergency', exact: true })).toHaveValue('Retain the emergency justification');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  expect((await (await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
 });

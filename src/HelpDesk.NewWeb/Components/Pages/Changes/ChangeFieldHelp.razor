@@ -1,32 +1,9 @@
-<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-1">
-    <MudText Typo="Typo.caption" Class="text-secondary">@Label</MudText>
-    <MudTooltip Placement="Placement.Right">
-        <ChildContent>
-            <MudIcon Icon="@Icons.Material.Outlined.Info"
-                     Size="Size.Small"
-                     Class="change-field-help-icon" />
-        </ChildContent>
-        <TooltipContent>
-            <MudStack Spacing="1" Class="pa-1">
-                <MudText Typo="Typo.caption">@TooltipText</MudText>
-                @if (!string.IsNullOrWhiteSpace(ExampleText))
-                {
-                    <MudText Typo="Typo.caption" Class="text-secondary">@ExampleText</MudText>
-                }
-            </MudStack>
-        </TooltipContent>
-    </MudTooltip>
-</MudStack>
+<MudTooltip Text="@($"{TooltipText} {ExampleText}")">
+    <MudIconButton Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" aria-label="@($"Help for {Label}")" Class="change-field-help" />
+</MudTooltip>
 
 @code {
     [Parameter] public string Label { get; set; } = string.Empty;
     [Parameter] public string TooltipText { get; set; } = string.Empty;
     [Parameter] public string? ExampleText { get; set; }
 }
-
-<style>
-    .change-field-help-icon {
-        color: var(--mud-palette-info);
-        cursor: help;
-    }
-</style>

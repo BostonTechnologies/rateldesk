@@ -22,6 +22,10 @@ public interface ITimelineApiClient
     Task<IReadOnlyList<PendingEmailOrganization>> SearchPendingOrganizationsAsync(string? search, string? id = null, CancellationToken ct = default);
     Task<PendingEmailPage> SearchPendingAsync(PendingEmailQuery query, CancellationToken ct = default);
     Task<PendingEmailActionResponse> ApplyPendingActionAsync(PendingEmailActionRequest request, CancellationToken ct = default);
+    Task<PendingEmailOperation> ResolvePendingSelectionAsync(PendingEmailSelectionRequest request, CancellationToken ct = default);
+    Task<PendingEmailOperation> GetPendingOperationAsync(Guid id, CancellationToken ct = default);
+    Task ConfirmPendingOperationAsync(Guid id, string reason, CancellationToken ct = default);
+    Task<PendingEmailOperation> ProcessPendingOperationAsync(Guid id, CancellationToken ct = default);
 }
 
 public class TimelineApiClient(
@@ -30,6 +34,33 @@ public class TimelineApiClient(
 {
     private readonly HttpClient _client = httpClientFactory.CreateClient("HelpdeskApi");
     private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
+
+    public Task<PendingEmailOperation> ResolvePendingSelectionAsync(PendingEmailSelectionRequest selection, CancellationToken ct = default) =>
+        PendingOperationAsync(HttpMethod.Post, "/api/v1/timeline/pending/operations", selection, ct);
+
+    public Task<PendingEmailOperation> GetPendingOperationAsync(Guid id, CancellationToken ct = default) =>
+        PendingOperationAsync(HttpMethod.Get, $"/api/v1/timeline/pending/operations/{id:D}", null, ct);
+
+    public Task<PendingEmailOperation> ProcessPendingOperationAsync(Guid id, CancellationToken ct = default) =>
+        PendingOperationAsync(HttpMethod.Post, $"/api/v1/timeline/pending/operations/{id:D}/process", null, ct);
+
+    public async Task ConfirmPendingOperationAsync(Guid id, string reason, CancellationToken ct = default)
+    {
+        using var request = CreateUserScopedRequest(HttpMethod.Post, $"/api/v1/timeline/pending/operations/{id:D}/confirm");
+        request.Content = JsonContent.Create(new PendingEmailOperationConfirmation(reason, true));
+        using var response = await _client.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private async Task<PendingEmailOperation> PendingOperationAsync(HttpMethod method, string url, object? content, CancellationToken ct)
+    {
+        using var request = CreateUserScopedRequest(method, url);
+        if (content is not null) request.Content = JsonContent.Create(content);
+        using var response = await _client.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PendingEmailOperation>(ct)
+            ?? throw new HttpRequestException("Operation response unavailable. Resume the same operation to reconcile progress.");
+    }
 
     public async Task<List<TicketTimelineEventDto>> GetTimelineAsync(string ticketId, string order = "desc", string ticketType = "incidents")
     {

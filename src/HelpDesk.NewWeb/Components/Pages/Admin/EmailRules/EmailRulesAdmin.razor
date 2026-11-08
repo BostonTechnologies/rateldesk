@@ -7,13 +7,14 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
 <PageTitle>Email Rules</PageTitle>
 
-<MudPaper Class="pa-4" data-testid="mailbox-rules" data-interactive="@interactive.ToString().ToLowerInvariant()">
+<MudPaper Class="pa-3 premium-workspace email-rules-workspace" data-testid="mailbox-rules" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <MudText Typo="Typo.h5">Email Rules</MudText>
+            <MudText Typo="Typo.h6" HtmlTag="h1">Email Rules</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
                 Enabled rules can affect live inbound email processing.
             </MudText>
@@ -66,6 +67,7 @@
     }
     <MudTabs Rounded="true" Border="true" PanelClass="pt-3">
         <MudTabPanel Text="Rules" Icon="@Icons.Material.Filled.Rule">
+            <div class="workspace-toolbar"><MudTextField T="string" Label="Search rules" @bind-Value="ruleSearch" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" /></div>
             @if (!loading && rules.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No inbound email rules found.</MudAlert>
@@ -73,7 +75,7 @@
             else
             {
                 <div class="email-rules-table-wrap">
-                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="email-rules-table">
+                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="email-rules-table" RowsPerPage="25" FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 23rem), 46rem)">
                         <HeaderContent>
                             <MudTh Class="email-rule-name">Name</MudTh>
                             <MudTh>Scope</MudTh>
@@ -101,28 +103,28 @@
                                 }
                             </MudSelect></MudTd>
                             <MudTd DataLabel="Status">
-                                <MudChip T="string" Size="Size.Small" Color="@(context.Enabled ? Color.Success : Color.Default)" Variant="Variant.Filled">
+                                <MudChip T="string" Size="Size.Small" Color="@(context.Enabled ? Color.Success : Color.Default)" Variant="Variant.Text">
                                     @(context.Enabled ? "Enabled" : "Disabled")
                                 </MudChip>
                                 <MudText Typo="Typo.caption">Updated @context.UpdatedAtUtc.ToLocalTime().ToString("g")</MudText>
                             </MudTd>
                             <MudTd DataLabel="Processing"><MudStack Spacing="0"><MudText Typo="Typo.body2">Priority @context.Priority</MudText><MudText Typo="Typo.caption">@(context.StopProcessing ? "Stop after match" : "Continue after match")</MudText></MudStack></MudTd>
                             <MudTd Class="email-rules-actions">
-                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" aria-label="Clone rule" Size="Size.Small" OnClick="() => BeginClone(context)" />
+                                <WorkspaceAction Label="Clone rule" Icon="@Icons.Material.Filled.ContentCopy" OnClick="() => BeginClone(context)" />
                                 <MudTooltip Text="Move up">
-                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
+                                    <MudIconButton aria-label="Move up" Icon="@Icons.Material.Filled.KeyboardArrowUp"
                                                    Size="Size.Small"
                                                    Disabled="@(!CanMove(context, -1) || loading)"
                                                    OnClick="() => MoveRuleAsync(context, -1)" />
                                 </MudTooltip>
                                 <MudTooltip Text="Move down">
-                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
+                                    <MudIconButton aria-label="Move down" Icon="@Icons.Material.Filled.KeyboardArrowDown"
                                                    Size="Size.Small"
                                                    Disabled="@(!CanMove(context, 1) || loading)"
                                                    OnClick="() => MoveRuleAsync(context, 1)" />
                                 </MudTooltip>
                                 <MudTooltip Text="View details">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                    <MudIconButton aria-label="View details" Icon="@Icons.Material.Filled.Visibility"
                                                    Size="Size.Small"
                                                    Color="Color.Primary"
                                                    OnClick="() => OpenDetailsAsync(context)" />
@@ -130,7 +132,7 @@
                                 @if (context.Enabled)
                                 {
                                     <MudTooltip Text="Disable rule">
-                                        <MudIconButton Icon="@Icons.Material.Filled.ToggleOff"
+                                        <MudIconButton aria-label="Disable rule" Icon="@Icons.Material.Filled.ToggleOff"
                                                        Size="Size.Small"
                                                        Color="Color.Warning"
                                                        Disabled="@loading"
@@ -140,7 +142,7 @@
                                 else
                                 {
                                     <MudTooltip Text="Enable rule">
-                                        <MudIconButton Icon="@Icons.Material.Filled.ToggleOn"
+                                        <MudIconButton aria-label="Enable rule" Icon="@Icons.Material.Filled.ToggleOn"
                                                        Size="Size.Small"
                                                        Color="Color.Success"
                                                        Disabled="@loading"
@@ -149,112 +151,81 @@
                                 }
                             </MudTd>
                         </RowTemplate>
+                        <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
                     </MudTable>
                 </div>
             }
         </MudTabPanel>
         <MudTabPanel Text="Audit" Icon="@Icons.Material.Filled.ManageSearch">
-            <MudGrid Spacing="2" Class="mb-3" AlignItems="Center">
-                <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="auditMessageId"
-                                  Label="Message ID"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense"
-                                  Adornment="Adornment.Start"
-                                  AdornmentIcon="@Icons.Material.Filled.Mail" />
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="auditTicketId"
-                                  Label="Ticket ID"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense"
-                                  Adornment="Adornment.Start"
-                                  AdornmentIcon="@Icons.Material.Filled.ConfirmationNumber" />
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="auditTenantId"
-                                  Label="Tenant ID"
-                                  Variant="Variant.Outlined"
-                                  Margin="Margin.Dense"
-                                  Adornment="Adornment.Start"
-                                  AdornmentIcon="@Icons.Material.Filled.Apartment" />
-                </MudItem>
-                <MudItem xs="12" sm="6" md="2">
-                    <MudSelect T="string"
-                               @bind-Value="auditStatus"
-                               Label="Status"
-                               Variant="Variant.Outlined"
-                               Margin="Margin.Dense">
-                        <MudSelectItem T="string" Value="@AllStatusesValue">All</MudSelectItem>
-                        @foreach (var status in Enum.GetValues<InboundEmailProcessingStatus>())
-                        {
-                            <MudSelectItem T="string" Value="@status.ToString()">@InboundEmailRuleLabels.Status(status)</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" md="1">
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               FullWidth="true"
-                               Disabled="@auditLoading"
-                               OnClick="LoadAuditAsync">
-                        Apply
-                    </MudButton>
-                </MudItem>
-            </MudGrid>
-
-            @if (auditLoading)
-            {
-                <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-3" />
-            }
-
-            @if (!auditLoading && FilteredAudit.Count == 0)
-            {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No inbound email rule audit rows found.</MudAlert>
-            }
-            else
-            {
-                <div class="email-rules-table-wrap">
-                    <MudTable Items="FilteredAudit" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="email-rules-table">
-                        <HeaderContent>
-                            <MudTh>Timestamp</MudTh>
-                            <MudTh>Rule</MudTh>
-                            <MudTh>Message ID</MudTh>
-                            <MudTh>Action</MudTh>
-                            <MudTh>Status</MudTh>
-                            <MudTh>Ticket</MudTh>
-                            <MudTh>Error</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Timestamp">@context.CreatedAtUtc.ToLocalTime().ToString("g")</MudTd>
-                            <MudTd DataLabel="Rule">@RuleDisplay(context.RuleId)</MudTd>
-                            <MudTd DataLabel="Message ID">@context.MessageId</MudTd>
-                            <MudTd DataLabel="Action">@ActionDisplay(context.ActionKey)</MudTd>
-                            <MudTd DataLabel="Status">
-                                <MudChip T="string" Size="Size.Small" Color="@InboundEmailRuleLabels.StatusColor(context.Status)" Variant="Variant.Filled">
-                                    @InboundEmailRuleLabels.Status(context.Status)
-                                </MudChip>
-                            </MudTd>
-                            <MudTd DataLabel="Tenant">@TenantDisplay(context.TenantId)</MudTd>
-                            <MudTd DataLabel="Ticket">
-                                @if (!string.IsNullOrWhiteSpace(context.TicketId))
-                                {
-                                    <MudLink Href="@($"/incidents/{context.TicketId}")">@context.TicketId</MudLink>
-                                }
-                                else
-                                {
-                                    <span>-</span>
-                                }
-                            </MudTd>
-                            <MudTd DataLabel="Error">@(!string.IsNullOrWhiteSpace(context.Error) ? context.Error : "-")</MudTd>
-                        </RowTemplate>
-                    </MudTable>
+            <div class="workspace-toolbar">
+                <MudTextField T="string" Label="Search audit" @bind-Value="auditSearch" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudSelect T="string" @bind-Value="auditStatus" Label="Outcome" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem Value="@AllStatusesValue">All outcomes</MudSelectItem>
+                    @foreach (var status in Enum.GetValues<InboundEmailProcessingStatus>())
+                    { <MudSelectItem Value="@status.ToString()">@InboundEmailRuleLabels.Status(status)</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="string" @bind-Value="auditTenantId" Label="Organization" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var org in tenantNames) { <MudSelectItem Value="@org.Key">@org.Value</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="string" @bind-Value="auditRuleId" Label="Rule" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var rule in rules) { <MudSelectItem Value="@rule.Id">@rule.Name</MudSelectItem> }
+                </MudSelect>
+                <MudButton OnClick="LoadAuditAsync" Disabled="auditLoading" Variant="Variant.Outlined">Apply</MudButton>
+            </div>
+            <details class="mb-2"><summary>Advanced · exact IDs and dates</summary>
+                <div class="workspace-toolbar">
+                    <MudTextField T="string" Label="Organization ID" @bind-Value="auditTenantId" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField T="string" Label="Rule ID" @bind-Value="auditRuleId" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField T="string" Label="Message ID" @bind-Value="auditMessageId" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField T="string" Label="Ticket ID" @bind-Value="auditTicketId" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField T="string" Label="Created from (UTC)" InputType="InputType.DateTimeLocal" @bind-Value="auditFrom" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField T="string" Label="Created to (UTC)" InputType="InputType.DateTimeLocal" @bind-Value="auditTo" Variant="Variant.Outlined" Margin="Margin.Dense" />
                 </div>
-            }
+            </details>
+            @if (auditError is not null) { <MudAlert Severity="Severity.Error">@auditError <MudButton OnClick="LoadAuditAsync">Retry</MudButton></MudAlert> }
+            <MudTable T="InboundEmailAuditRow" @ref="auditTable" ServerData="LoadAuditPageAsync" Dense="true" Hover="true"
+                      RowsPerPage="25" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.Sm"
+                      Height="clamp(16rem, calc(100dvh - 26rem), 46rem)" Class="email-audit-table">
+                <HeaderContent>
+                    <MudTh><MudTableSortLabel T="InboundEmailAuditRow" SortLabel="created" InitialDirection="SortDirection.Descending">Time</MudTableSortLabel></MudTh>
+                    <MudTh>Rule</MudTh><MudTh>Organization / mailbox</MudTh>
+                    <MudTh><MudTableSortLabel T="InboundEmailAuditRow" SortLabel="action">Action</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel T="InboundEmailAuditRow" SortLabel="status">Outcome</MudTableSortLabel></MudTh>
+                    <MudTh>Ticket</MudTh><MudTh>Details</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Time">@context.Event.CreatedAtUtc.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Rule"><MudTooltip Text="@context.RuleName"><span class="workspace-primary">@context.RuleName</span></MudTooltip></MudTd>
+                    <MudTd DataLabel="Organization / mailbox"><span class="workspace-primary">@context.OrganizationName</span><MudTooltip Text="@context.MailboxName"><span class="workspace-secondary">@context.MailboxName</span></MudTooltip></MudTd>
+                    <MudTd DataLabel="Action"><span class="workspace-primary" title="@ActionDisplay(context.Event.ActionKey)">@ActionDisplay(context.Event.ActionKey)</span></MudTd>
+                    <MudTd DataLabel="Outcome"><MudText Typo="Typo.body2" Color="@InboundEmailRuleLabels.StatusColor(context.Event.Status)">@InboundEmailRuleLabels.Status(context.Event.Status)</MudText></MudTd>
+                    <MudTd DataLabel="Ticket">
+                        @if (context.TicketRoute is not null) { <MudLink Href="@context.TicketRoute">@context.TicketTrackingId</MudLink> }
+                        else { <span>@(context.Event.TicketId is null ? "—" : "Unavailable ticket")</span> }
+                    </MudTd>
+                    <MudTd DataLabel="Details"><WorkspaceAction Label="Audit details" Icon="@Icons.Material.Outlined.Info" OnClick="() => auditDetail = context" /></MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>@(auditError is null ? "No audit events match these filters." : "Audit history unavailable. Retry the request.")</MudText></NoRecordsContent>
+                <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+            </MudTable>
         </MudTabPanel>
     </MudTabs>
 </MudPaper>
 
+@if (auditDetail is not null)
+{
+    <MudDrawer Class="premium-workspace" Anchor="Anchor.Right" Variant="DrawerVariant.Temporary"
+               Width="min(560px, 100vw)" Open="true" OpenChanged="open => { if (!open) auditDetail = null; }">
+        <div class="pa-4" role="region" aria-label="Audit details">
+            <div class="workspace-actions">
+                <MudText Typo="Typo.h6">Audit details</MudText><MudSpacer />
+                <WorkspaceAction Label="Copy diagnostics" Icon="@Icons.Material.Filled.ContentCopy" OnClick="CopyAuditAsync" />
+                <WorkspaceAction Label="Close details" Icon="@Icons.Material.Filled.Close" OnClick="() => auditDetail = null" />
+            </div>
+            <pre class="workspace-diagnostics">@System.Text.Json.JsonSerializer.Serialize(auditDetail.Event, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })</pre>
+        </div>
+    </MudDrawer>
+}
 
 
 @code {
@@ -301,7 +272,9 @@
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private readonly List<InboundEmailRuleDto> rules = new();
-    private readonly List<InboundEmailRuleAuditDto> auditRows = new();
+    private MudTable<InboundEmailAuditRow>? auditTable;
+    private InboundEmailAuditRow? auditDetail;
+    private string? auditError, auditSearch, auditRuleId, auditFrom, auditTo, ruleSearch;
     private async Task BindMailboxAsync(InboundEmailRuleDto rule, Guid? mailboxId)
     {
         var request = new UpdateInboundEmailRuleRequest(rule.ScopeType, rule.TenantId, mailboxId, rule.Name,
@@ -327,17 +300,14 @@
     private string auditStatus = AllStatusesValue;
 
     private List<InboundEmailRuleDto> OrderedRules => rules
+        .Where(x => string.IsNullOrWhiteSpace(ruleSearch) ||
+            $"{x.Name} {x.Description} {TenantDisplay(x.TenantId)}".Contains(ruleSearch.Trim(), StringComparison.OrdinalIgnoreCase))
         .Where(x => !MailboxId.HasValue || x.MailboxId == null || x.MailboxId == MailboxId)
         .OrderByDescending(x => x.ScopeType == InboundEmailRuleScopeType.Tenant)
         .ThenBy(x => x.TenantId)
         .ThenBy(x => x.MailboxId)
         .ThenBy(x => x.Priority)
         .ThenBy(x => x.Name)
-        .ToList();
-
-    private List<InboundEmailRuleAuditDto> FilteredAudit => auditRows
-        .Where(x => string.IsNullOrWhiteSpace(auditStatus) ||
-                    string.Equals(x.Status.ToString(), auditStatus, StringComparison.OrdinalIgnoreCase))
         .ToList();
 
     protected override async Task OnInitializedAsync()
@@ -386,22 +356,42 @@
         }
     }
 
-    private async Task LoadAuditAsync()
+    private Task LoadAuditAsync()
     {
-        auditLoading = true;
+        auditDetail = null;
+        if (auditTable?.CurrentPage > 0) { auditTable.NavigateTo(0); return Task.CompletedTask; }
+        return auditTable?.ReloadServerData() ?? Task.CompletedTask;
+    }
+
+    private async Task<TableData<InboundEmailAuditRow>> LoadAuditPageAsync(TableState state, CancellationToken ct)
+    {
+        auditLoading = true; auditError = null;
         try
         {
-            auditRows.Clear();
-            auditRows.AddRange(await RulesClient.GetAuditAsync(auditMessageId, auditTicketId, auditTenantId, MailboxId));
+            var first = ParseUtc(auditFrom); var last = ParseUtc(auditTo);
+            var query = new InboundEmailAuditQuery(auditSearch, auditMessageId, auditTicketId, auditTenantId, MailboxId,
+                auditRuleId, Enum.TryParse<InboundEmailProcessingStatus>(auditStatus, out var outcome) ? outcome : null,
+                first, last, state.SortLabel ?? "created", state.SortDirection != SortDirection.Ascending, state.Page, state.PageSize);
+            var page = await RulesClient.SearchAuditAsync(query, ct);
+            return new() { Items = page.Items, TotalItems = page.Total };
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception)
         {
-            Snackbar.Add($"Could not load inbound email rule audit: {ex.Message}", Severity.Error);
+            auditError = "Could not load audit history. Check the filters and retry.";
+            return new() { Items = [], TotalItems = 0 };
         }
-        finally
-        {
-            auditLoading = false;
-        }
+        finally { auditLoading = false; await InvokeAsync(StateHasChanged); }
+    }
+
+    private static DateTimeOffset? ParseUtc(string? value) => string.IsNullOrWhiteSpace(value) ? null :
+        DateTimeOffset.Parse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
+
+    private async Task CopyAuditAsync()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", System.Text.Json.JsonSerializer.Serialize(auditDetail?.Event)); }
+        catch (JSException) { Snackbar.Add("Select and copy the diagnostics; clipboard access is unavailable.", Severity.Info); }
     }
 
     private async Task EnableRuleAsync(InboundEmailRuleDto rule)
@@ -512,8 +502,8 @@
         }
 
         return tenantNames.TryGetValue(tenantId, out var name) && !string.IsNullOrWhiteSpace(name)
-            ? $"{name} ({tenantId})"
-            : tenantId;
+            ? name
+            : "Unknown organization";
     }
 
     private string RuleDisplay(string? ruleId)
@@ -524,7 +514,7 @@
         }
 
         var rule = rules.FirstOrDefault(x => string.Equals(x.Id, ruleId, StringComparison.OrdinalIgnoreCase));
-        return rule is null ? ruleId : rule.Name;
+        return rule is null ? "Deleted rule" : rule.Name;
     }
 
     private static string ActionDisplay(string actionKey)
@@ -534,6 +524,6 @@
             return InboundEmailRuleLabels.Action(new InboundEmailRuleActionConfig(parsed, actionKey));
         }
 
-        return actionKey;
+        return HelpDesk.NewWeb.Models.WorkspaceLabels.Readable(actionKey);
     }
 }

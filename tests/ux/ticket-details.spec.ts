@@ -26,6 +26,21 @@ async function noOverflow(page: Page) {
 
 test.beforeEach(async ({ request }) => { await request.get(`${fixture}/reset`); });
 
+for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [1366, 768], [390, 844]]) {
+  test(`change record and shared editor ${theme} ${width}x${height}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+    await open(page, 'changes');
+    await expect(page.getByRole('button', { name: 'Edit plan', exact: true })).toBeVisible();
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath(`change-record-${theme}-${width}.png`) });
+    await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Implementation Plan', exact: true })).toBeVisible();
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath(`change-editor-${theme}-${width}.png`) });
+  });
+}
+
 for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} selected categories can be removed with Tab Enter and Space then reverted`, async ({ page, request }) => {
     await open(page, module);
@@ -208,6 +223,7 @@ test('submitted changes retain lifecycle assignment restrictions', async ({ page
 
 test('change template draft survives activity tab switches', async ({ page }) => {
   await open(page, 'changes');
+  await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
   const draft = page.getByRole('textbox', { name: 'Scope of Change', exact: true });
   await draft.fill('Synthetic draft retained while reading activity');
   await page.getByRole('tab', { name: /Timeline/ }).click();

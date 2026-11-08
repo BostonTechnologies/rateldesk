@@ -49,3 +49,19 @@ Run the owning browser suite with `npx playwright test --config
 playwright.operations.config.ts` after building the Web project with the pinned
 SDK. The loopback fixture is presentation evidence; real API/provider security
 tests remain separate required checks.
+
+## Notifications
+
+`/notifications` emphasizes readable events, concise sources and severity.
+Reference/correlation IDs remain searchable and copyable in event details and
+correlated timelines. Read/Unread denotes the current actor's receipt, never a
+resolution of the underlying event. All existing filters, paging, metrics and
+authorized related-item links remain available. The 24-hour metrics shown beside
+the table are explicitly scoped to its current page.
+
+Live arrivals and reconnect do not reorder the rows being read or clear their
+selection. A new-events prompt offers an explicit refresh; a reconnect gap asks
+for reconciliation. Duplicate arrivals keep their identity. Failed receipt
+requests retain selection and show an error. Refresh re-reads authoritative
+receipts/counts before another attempt. Event details retain original keys,
+complete payloads, source metadata and copyable diagnostics.

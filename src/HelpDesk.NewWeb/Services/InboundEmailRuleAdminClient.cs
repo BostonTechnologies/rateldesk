@@ -14,11 +14,29 @@ public interface IInboundEmailRuleAdminClient
     Task<InboundEmailRuleDto?> DisableAsync(string id);
     Task<IReadOnlyList<InboundEmailRuleDto>> ReorderAsync(IEnumerable<InboundEmailRulePriorityDto> rules);
     Task<IReadOnlyList<InboundEmailRuleAuditDto>> GetAuditAsync(string? messageId = null, string? ticketId = null, string? tenantId = null, Guid? mailboxId = null);
+    Task<InboundEmailAuditPage> SearchAuditAsync(InboundEmailAuditQuery query, CancellationToken ct = default);
 }
 
 public sealed class InboundEmailRuleAdminClient(IHttpClientFactory httpClientFactory) : IInboundEmailRuleAdminClient
 {
     private readonly HttpClient http = httpClientFactory.CreateClient("HelpdeskApi");
+
+    public async Task<InboundEmailAuditPage> SearchAuditAsync(InboundEmailAuditQuery query, CancellationToken ct = default)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["search"] = query.Search, ["messageId"] = query.MessageId, ["ticketId"] = query.TicketId,
+            ["tenantId"] = query.TenantId, ["mailboxId"] = query.MailboxId?.ToString("D"), ["ruleId"] = query.RuleId,
+            ["status"] = query.Status?.ToString(), ["from"] = query.From?.ToString("O"), ["to"] = query.To?.ToString("O"),
+            ["sort"] = query.Sort, ["descending"] = query.Descending.ToString(),
+            ["page"] = query.Page.ToString(), ["pageSize"] = query.PageSize.ToString()
+        };
+        using var response = await http.GetAsync(Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(
+            "api/v1/inbound-email-rules/audit/page", values), ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<InboundEmailAuditPage>(ct)
+            ?? throw new HttpRequestException("Audit response unavailable.");
+    }
 
     public async Task<IReadOnlyList<InboundEmailRuleDto>> GetRulesAsync(string? tenantId = null, Guid? mailboxId = null)
     {
