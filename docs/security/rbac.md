@@ -17,6 +17,14 @@ sent by a browser is not trusted as an authorization decision.
 | Change Approver | Each assigned tenant | Read changes and approve a submitted change; cannot otherwise edit or implement it. |
 | Self-service User | Own resources in each assigned tenant | The self-service, incident-user, and request-user permission bundle. |
 
+Custom-role creation, editing and cloning use a dialog with a grouped permission
+selector. Search by permission name, key or family. A family checkbox selects or
+clears the entire eligible family, including rows hidden by search; **Select
+shown permissions** only adds the current search results. Selection counts and
+partial family states show the resulting grants. Save validates permission
+dependencies and current API authority; rejected saves keep the draft. Cancel
+asks before discarding changed drafts. Editing cannot change role ownership.
+
 Built-in roles are protected. Instance administrators can create tenant-owned
 custom roles in **Administration → Roles & Permissions**. A custom role can
 only contain the published assignable permissions, and write, delete and approval permissions must
@@ -85,6 +93,29 @@ scoped-role grant or revocation takes effect for both API operations and Web
 navigation on the next request. Local-account membership changes instead
 invalidate the account's authorization revision and security stamp, causing the
 next API request to reject the old local session.
+
+Configured `Authentication:Authentik:RoleMappings` entries preserve the complete
+provider-group name, including `:` separators. The mapped `HelpdeskAdmin`
+permission grants instance administration; ordinary organization roles remain
+saved scoped assignments.
+
+### OIDC account ownership
+
+An external instance administrator’s successful provisioning now creates a
+passwordless application account, uniquely bound through the Identity login
+store to the verified issuer and subject. This account can own integration
+credentials and system connections without a fabricated customer-contact link.
+Email is display data and is never used to select or merge an account. Existing
+customer/local account links retain their existing ownership.
+
+The external account must remain enabled. Provider groups and explicit API
+role mappings remain the source of instance-administrator authority; the
+persisted administrator projection is reconciled when authenticated access is
+resolved. A fresh token without the admin claim removes that projection.
+Previously issued provider tokens retain their claims until expiry or refresh;
+disable the application account when immediate local denial is required.
+Provisioning never reenables a disabled account and does not create a local
+password or activation flow.
 
 ## Owner administration through HTTP MCP
 

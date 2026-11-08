@@ -7,6 +7,7 @@ async function openEditor(page:Page,expectTasks=true){
  await expect(page.locator('.svc-card')).toContainText('Example access request');
  await page.locator('.svc-card .svc-actions button').first().click();
  await expect(page.locator('.request-form-builder-dialog')).toBeVisible({timeout:20_000});
+ if(!baseline){await expect(page.getByRole('tab',{name:'Form setup',exact:true})).toHaveAttribute('aria-selected','true');await expect(page.locator('.request-form-tabs [role=tab]')).toHaveText(['Form setup',/^Form fields \(/,/^Workflow \(/]);await page.getByRole('tab',{name:/^Workflow \(/}).click();}
  if(!baseline&&expectTasks&&(page.viewportSize()?.width??1440)<=760)await page.locator('[data-task-id]').first().click();
  if(expectTasks)await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('Prepare access — synthetic automation');
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
@@ -16,7 +17,7 @@ test.beforeEach(async({page,request})=>{page.on('requestfailed',request=>console
 test('synthetic before and after geometry evidence',async({page},info)=>{
  test.setTimeout(120_000);
  for(const [width,height] of [[1440,900],[1366,768],[1280,720],[390,844]]){
-  await page.setViewportSize({width,height});await openEditor(page);await settled(page);
+  await page.setViewportSize({width,height});await openEditor(page);await page.getByRole('tab',{name:'Form setup',exact:true}).click();await settled(page);await page.screenshot({path:info.outputPath(`setup-${width}x${height}.png`)});await page.getByRole('tab',{name:/^Workflow \(/}).click();if(width<=760&&await page.locator('.request-form-task-list-panel').isVisible())await page.locator('[data-task-id]').first().click();await settled(page);
   if(!baseline){
    await expect(page.getByRole('tab',{name:'Workflow (3)'})).toHaveAttribute('aria-selected','true');
    await expect(page.getByTestId('task-automation')).toBeVisible();
@@ -36,7 +37,7 @@ test('synthetic before and after geometry evidence',async({page},info)=>{
 if(!baseline){
  test('task selection, tab drafts, keyboard order and save/reload retain stable identities',async({page,request})=>{
   await openEditor(page);
-  await page.getByRole('tab',{name:'Workflow (3)'}).focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'Form fields (2)'})).toBeFocused();await expect(page.getByRole('tab',{name:'Form fields (2)'})).toHaveAttribute('aria-selected','true');await page.keyboard.press('ArrowLeft');await expect(page.getByRole('tab',{name:'Workflow (3)'})).toBeFocused();
+  await page.getByRole('tab',{name:'Workflow (3)'}).focus();await page.keyboard.press('ArrowLeft');await expect(page.getByRole('tab',{name:'Form fields (2)'})).toBeFocused();await expect(page.getByRole('tab',{name:'Form fields (2)'})).toHaveAttribute('aria-selected','true');await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'Workflow (3)'})).toBeFocused();
   await page.locator('[data-task-id]').nth(1).click();
   const name=page.getByRole('textbox',{name:/^Task Name\*?$/});
   await expect(name).toHaveValue('Review result');await name.fill('Edited review');await name.blur();
@@ -54,7 +55,7 @@ if(!baseline){
   expect(schema.tasks[0].dependsOn).toEqual(['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']);expect(schema.tasks[0].name).toBe('Edited review');
   expect(schema.fields[0]).toMatchObject({key:'request_reason',label:'Edited reason'});expect(schema.fields[1].predefinedOptions).toEqual(['Notebook','Desktop']);
   expect(state.form.description).toBe('Changed form setup');
-  await page.locator('.svc-card .svc-actions button').first().click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('Edited review');
+  await page.locator('.svc-card .svc-actions button').first().click();await expect(page.getByRole('tab',{name:'Form setup',exact:true})).toHaveAttribute('aria-selected','true');await page.getByRole('tab',{name:'Workflow (3)'}).click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('Edited review');
  });
  test('whole-draft validation activates hidden setup and task errors, and cancel discards',async({page,request})=>{
   await openEditor(page);

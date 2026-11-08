@@ -187,22 +187,23 @@ public sealed class AutomationConnectionSelectionRenderedTests
     }
 
     [Fact]
-    public async Task Workflow_is_default_and_selection_shows_automation_in_the_adjacent_editor()
+    public async Task Setup_is_default_and_tabs_preserve_the_form_and_selected_task_drafts()
     {
         using var api = new FixtureApi { Rows = [Connection(FirstId)], StoredConnectionId = FirstId };
         await using var context = Context(api);
         var page = await RenderAsync(context);
         page.WaitForAssertion(() => Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected")));
+        Assert.Equal(new[] { "Form setup", "Form fields (0)", "Workflow (1)" }, page.FindAll("[role='tab']").Select(x => x.TextContent.Trim()));
+        Assert.False(page.Find("#request-form-panel-0").HasAttribute("hidden"));
         Assert.True(page.Find("#request-form-panel-1").HasAttribute("hidden"));
         Assert.True(page.Find("#request-form-panel-2").HasAttribute("hidden"));
-        Assert.Single(page.FindAll(".request-form-task-config-panel [data-testid='task-automation']"));
-        Assert.Empty(page.FindAll(".request-form-task-list-panel [data-testid='task-automation']"));
-        Assert.DoesNotContain("Toggle automation configuration", page.Markup);
+        page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("Changed title");
         page.Find("#request-form-tab-2").Click();
         Assert.Equal("true", page.Find("#request-form-tab-2").GetAttribute("aria-selected"));
-        page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("Changed title");
-        page.Find("#request-form-tab-0").Click();
+        Assert.Single(page.FindAll(".request-form-task-config-panel [data-testid='task-automation']"));
+        Assert.Empty(page.FindAll(".request-form-task-list-panel [data-testid='task-automation']"));
         Assert.Equal(TaskId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
+        page.Find("#request-form-tab-0").Click();
         Assert.Equal("Changed title", page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Instance.GetState(x => x.Value));
         Assert.True(Property<bool>(page.Instance, "IsDirty"));
         Assert.Equal(0, api.FormCreates + api.FormUpdates);
@@ -231,7 +232,7 @@ public sealed class AutomationConnectionSelectionRenderedTests
         tasks[1].Name = " ";
         page.Find("#request-form-tab-1").Click();
         await InvokeAsync(page, "Save");
-        Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected"));
+        Assert.Equal("true", page.Find("#request-form-tab-2").GetAttribute("aria-selected"));
         Assert.Equal(TaskId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
         Assert.Contains("Every task must have a name", page.Find("[role='alert']").TextContent);
         Assert.Equal(0, api.FormCreates + api.FormUpdates);
@@ -270,7 +271,7 @@ public sealed class AutomationConnectionSelectionRenderedTests
         page.WaitForAssertion(() => Assert.True(Property<bool>(page.Instance, "CanCreateTenantScopedOrchestrationTarget")));
         page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("");
         await InvokeAsync(page, "Save");
-        Assert.Equal("true", page.Find("#request-form-tab-2").GetAttribute("aria-selected"));
+        Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected"));
         page.FindComponents<MudTextField<string>>().Single(x => x.Instance.Label == "Form Title").Find("input").Input("Restored title");
         await InvokeAsync(page, "AddField");
         Field<List<FormField>>(page.Instance, "FormFields")[0].Label = "";
@@ -325,7 +326,7 @@ public sealed class AutomationConnectionSelectionRenderedTests
         page.Find("#request-form-tab-1").Click();
         await InvokeAsync(page, "Save");
 
-        Assert.Equal("true", page.Find("#request-form-tab-0").GetAttribute("aria-selected"));
+        Assert.Equal("true", page.Find("#request-form-tab-2").GetAttribute("aria-selected"));
         Assert.Equal(invalidState == "cycle" ? firstTaskId : TaskId, Field<RequestTaskTemplateModel>(page.Instance, "selectedTask").Id);
         Assert.Contains(expectedError, page.Find("[role='alert']").TextContent);
         Assert.Equal(advanced, Field<bool>(page.Instance, "advancedExpanded"));

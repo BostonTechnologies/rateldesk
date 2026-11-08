@@ -44,7 +44,10 @@ public sealed class IntegrationCredentialOwnerResolver(
             .Select(link => link.LocalAccountId)
             .SingleOrDefaultAsync(cancellationToken);
 
-        return await ResolveEnabledAccountAsync(localAccountId, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(localAccountId))
+            return await ResolveEnabledAccountAsync(localAccountId, cancellationToken);
+        var external = await OidcApplicationAccount.FindAsync(identityDb, issuer, subject, cancellationToken);
+        return external?.IsEnabled == true ? new IntegrationCredentialOwner(external.Id) : null;
     }
 
     private async Task<IntegrationCredentialOwner?> ResolveEnabledAccountAsync(string? userId, CancellationToken cancellationToken)

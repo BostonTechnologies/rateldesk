@@ -29,10 +29,147 @@
                     var tab = index;
                     <button type="button" id="@($"request-form-tab-{tab}")" role="tab" aria-selected="@((activeWorkspaceTab == tab).ToString().ToLowerInvariant())"
                             aria-controls="@($"request-form-panel-{tab}")" tabindex="@(activeWorkspaceTab == tab ? 0 : -1)" @ref="workspaceTabElements[tab]" @onkeydown="@((KeyboardEventArgs args) => OnWorkspaceTabKeyDown(args, tab))" class="@(activeWorkspaceTab == tab ? "request-form-tab request-form-tab-active" : "request-form-tab")"
-                            @onclick="@(() => SetWorkspaceTab(tab))">@(tab == 0 ? $"Workflow ({Tasks.Count})" : tab == 1 ? $"Form fields ({FormFields.Count})" : "Form setup")</button>
+                            @onclick="@(() => SetWorkspaceTab(tab))">@(tab == SetupTab ? "Form setup" : tab == FieldsTab ? $"Form fields ({FormFields.Count})" : $"Workflow ({Tasks.Count})")</button>
                 }
             </nav>
-            <div id="request-form-panel-0" role="tabpanel" aria-labelledby="request-form-tab-0" hidden="@(activeWorkspaceTab != 0)"
+            <section id="request-form-panel-0" role="tabpanel" aria-labelledby="request-form-tab-0" hidden="@(activeWorkspaceTab != SetupTab)" class="request-form-tab-content request-form-setup" data-testid="request-form-setup">
+                <div class="request-form-setup-grid">
+                    <section class="request-authoring-card"><div class="request-authoring-card-heading"><span>01</span><div><MudText Typo="Typo.subtitle1">Form details</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Give people a clear title and explain what they can request.</MudText></div></div>
+                        <MudStack Spacing="2">
+                            <MudTextField @ref="formTitleInput" @bind-Value="model.Title" Immediate="true"
+                                          Label="Form Title"
+                                          Required="true"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" />
+
+                            <MudTextField @bind-Value="model.Description"
+                                          Label="Description"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Lines="3" />
+
+                        </MudStack>
+                    </section>
+                    <section class="request-authoring-card"><div class="request-authoring-card-heading"><span>02</span><div><MudText Typo="Typo.subtitle1">Publication &amp; access</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Choose where this form is available.</MudText></div></div>
+                        <MudStack Spacing="2">
+                            <MudSelect T="RequestFormReleaseStatus"
+                                       @bind-Value="model.ReleaseStatus"
+                                       Label="Self-Service Release Status"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense">
+                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.InTesting">In Testing</MudSelectItem>
+                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.Production">Production</MudSelectItem>
+                            </MudSelect>
+
+                            <MudSelect T="string"
+                                       Value="model.OrganizationId"
+                                       ValueChanged="OnOrganizationChanged"
+                                       Label="Primary Organization"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense"
+                                       Clearable="true"
+                                       HelperText="Automation uses a saved system connection for this primary organization.">
+                                @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+
+                            @if (SelectedOrganization is not null)
+                            {
+                                <MudText Typo="Typo.caption" Class="request-form-builder-subtitle">
+                                    @AutomationConnectionChoices.Count saved automation connection(s) available. Configure connections on each automation task.
+                                </MudText>
+                            }
+
+
+                        </MudStack>
+                    </section>
+                </div>
+            </section>
+            <section id="request-form-panel-1" role="tabpanel" aria-labelledby="request-form-tab-1" hidden="@(activeWorkspaceTab != FieldsTab)" class="request-form-tab-content" data-testid="request-form-fields">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.subtitle1">Form fields</MudText>
+                                <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
+                                    Define the request payload captured from the form.
+                                </MudText>
+                            </MudStack>
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddField">Add Field</MudButton>
+                        </MudStack>
+
+                        @if (!FormFields.Any())
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-2">No form fields yet. Add a field to start.</MudText>
+                        }
+
+                        <MudTable Items="FormFields" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm">
+                            <HeaderContent>
+                                <MudTh>Label</MudTh>
+                                <MudTh>Type</MudTh>
+                                <MudTh>Required</MudTh>
+                                <MudTh>Data Binding</MudTh>
+                                <MudTh>Predefined</MudTh>
+                                <MudTh Style="width: 1%;"></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Label">
+                                    <MudTextField @ref="fieldLabelInputs[context]" @bind-Value="context.Label" Label="Field label" Required="true" Margin="Margin.Dense" Immediate="true" />
+                                </MudTd>
+                                <MudTd>
+                                    <MudSelect T="string" Label="Field type" Value="context.Type" ValueChanged="@((string value) => OnFieldTypeChanged(context, value))" Margin="Margin.Dense" Dense="true">
+                                        @foreach (var t in FieldTypes)
+                                        {
+                                            <MudSelectItem Value="@t.Value">@t.Label</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudTd>
+                                <MudTd>
+                                    <MudSwitch @bind-Value="context.Required" Color="Color.Primary" aria-label="Field required" />
+                                </MudTd>
+                                <MudTd>
+                                    <MudStack Spacing="1">
+                                        <MudSelect T="string"
+                                                   Label="Dataset binding" Value="context.DataBinding?.DatasetId"
+                                                   ValueChanged="@((string? value) => OnFieldDatasetChanged(context, value))"
+                                                   Margin="Margin.Dense"
+                                                   Dense="true"
+                                                   Clearable="true"
+                                                   Disabled="@(!IsHelpdeskDataField(context))">
+                                            @foreach (var dataset in availableDatasets)
+                                            {
+                                                <MudSelectItem T="string" Value="@dataset.Id">@dataset.Name</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        @if (context.DataBinding is not null && IsHelpdeskDataField(context))
+                                        {
+                                            <MudTextField T="string"
+                                                          Value="context.DataBinding.Placeholder"
+                                                          ValueChanged="@((string? value) => OnFieldBindingPlaceholderChanged(context, value))"
+                                                          Margin="Margin.Dense"
+                                                          Dense="true"
+                                                          Placeholder="Search placeholder" />
+                                        }
+                                    </MudStack>
+                                </MudTd>
+                                <MudTd>
+                                    <MudTooltip Text="@GetPredefinedOptionsTooltip(context)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                       Color="@(IsPredefinedField(context) ? Color.Primary : Color.Default)"
+                                                       Disabled="@(!IsPredefinedField(context))"
+                                                       OnClick="@(() => OpenPredefinedOptionsDialogAsync(context))" />
+                                    </MudTooltip>
+                                </MudTd>
+                                <MudTd>
+                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="Move field up" Disabled="@(FormFields.IndexOf(context) == 0)" OnClick="@(() => MoveField(context, -1))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="Move field down" Disabled="@(FormFields.IndexOf(context) == FormFields.Count - 1)" OnClick="@(() => MoveField(context, 1))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Delete field" OnClick="@(() => RemoveField(context))" />
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+            </section>
+            <div id="request-form-panel-2" role="tabpanel" aria-labelledby="request-form-tab-2" hidden="@(activeWorkspaceTab != WorkflowTab)"
                  class="@(showMobileTaskEditor ? "request-form-workflow show-task-editor" : "request-form-workflow")" data-testid="request-workflow">
                 <aside class="request-form-task-list-panel" aria-label="Ordered workflow tasks">
                     <div class="request-form-pane-toolbar">
@@ -81,8 +218,9 @@
                         {
                             @if (!string.IsNullOrWhiteSpace(validationError) && invalidTaskId == selectedTask.Id)
                             { <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2" role="alert">@validationError</MudAlert> }
-                            <MudStack Spacing="1">
-                                        <MudText Typo="Typo.subtitle2">Task details</MudText>
+                            <MudStack Spacing="2" Class="request-task-settings">
+                                    <section class="request-authoring-card request-task-basics">
+                                        <div class="request-authoring-card-heading"><span>01</span><div><MudText Typo="Typo.subtitle1">Task details</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Name this step and choose how it starts.</MudText></div></div>
 
                                         <MudTextField @ref="taskNameInput" @bind-Value="selectedTask.Name" @bind-Value:after="@(() => RequestTaskDropContainerRefresh())" Immediate="true" Label="Task Name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
                                         <MudTextField @bind-Value="selectedTask.Description" Label="Task Description" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
@@ -100,6 +238,7 @@
                                             </MudItem>
                                         </MudGrid>
 
+                                    </section>
                                         @if (selectedTask.Type == "manual")
                                         {
                                             <MudDivider Class="my-2" />
@@ -170,7 +309,7 @@
                                                 <div class="request-form-step-automation-panel" data-testid="task-automation" @onclick:stopPropagation="true">
                                                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="request-form-section-header">
                                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                            <MudText Typo="Typo.subtitle2">Automation</MudText>
+                                                            <MudText Typo="Typo.subtitle1">Automation</MudText>
                                                             <MudTooltip Text="Automation targets must belong to the peer tenant on the selected saved system connection.">
                                                                 <MudIconButton Icon="@Icons.Material.Filled.Info"
                                                                                Size="Size.Small"
@@ -208,7 +347,7 @@
                                                                 <MudSelectItem T="Guid?" Value="@((Guid?)connection.ConnectionId)">@($"{connection.Name} · {connection.PeerName} · tenant {connection.PeerTenantId}")</MudSelectItem>
                                                             }
                                                         </MudSelect>
-                                                        <MudButton Size="Size.Small" OnClick="ReloadAutomationConnectionsAsync" Disabled="@orchestrationCatalogLoading">Refresh system connections</MudButton>
+                                                        <MudButton Class="request-form-refresh-connections" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAutomationConnectionsAsync" Disabled="@orchestrationCatalogLoading">Refresh system connections</MudButton>
                                                         @if (!CanCreateTenantScopedOrchestrationTarget)
                                                         {
                                                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-1">
@@ -630,135 +769,6 @@
                     </div>
                 </section>
             </div>
-            <section id="request-form-panel-1" role="tabpanel" aria-labelledby="request-form-tab-1" hidden="@(activeWorkspaceTab != 1)" class="request-form-tab-content" data-testid="request-form-fields">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.subtitle1">Form fields</MudText>
-                                <MudText Typo="Typo.body2" Class="request-form-builder-subtitle">
-                                    Define the request payload captured from the form.
-                                </MudText>
-                            </MudStack>
-                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddField">Add Field</MudButton>
-                        </MudStack>
-
-                        @if (!FormFields.Any())
-                        {
-                            <MudText Typo="Typo.body2" Class="mb-2">No form fields yet. Add a field to start.</MudText>
-                        }
-
-                        <MudTable Items="FormFields" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm">
-                            <HeaderContent>
-                                <MudTh>Label</MudTh>
-                                <MudTh>Type</MudTh>
-                                <MudTh>Required</MudTh>
-                                <MudTh>Data Binding</MudTh>
-                                <MudTh>Predefined</MudTh>
-                                <MudTh Style="width: 1%;"></MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Label">
-                                    <MudTextField @ref="fieldLabelInputs[context]" @bind-Value="context.Label" Label="Field label" Required="true" Margin="Margin.Dense" Immediate="true" />
-                                </MudTd>
-                                <MudTd>
-                                    <MudSelect T="string" Label="Field type" Value="context.Type" ValueChanged="@((string value) => OnFieldTypeChanged(context, value))" Margin="Margin.Dense" Dense="true">
-                                        @foreach (var t in FieldTypes)
-                                        {
-                                            <MudSelectItem Value="@t.Value">@t.Label</MudSelectItem>
-                                        }
-                                    </MudSelect>
-                                </MudTd>
-                                <MudTd>
-                                    <MudSwitch @bind-Value="context.Required" Color="Color.Primary" aria-label="Field required" />
-                                </MudTd>
-                                <MudTd>
-                                    <MudStack Spacing="1">
-                                        <MudSelect T="string"
-                                                   Label="Dataset binding" Value="context.DataBinding?.DatasetId"
-                                                   ValueChanged="@((string? value) => OnFieldDatasetChanged(context, value))"
-                                                   Margin="Margin.Dense"
-                                                   Dense="true"
-                                                   Clearable="true"
-                                                   Disabled="@(!IsHelpdeskDataField(context))">
-                                            @foreach (var dataset in availableDatasets)
-                                            {
-                                                <MudSelectItem T="string" Value="@dataset.Id">@dataset.Name</MudSelectItem>
-                                            }
-                                        </MudSelect>
-                                        @if (context.DataBinding is not null && IsHelpdeskDataField(context))
-                                        {
-                                            <MudTextField T="string"
-                                                          Value="context.DataBinding.Placeholder"
-                                                          ValueChanged="@((string? value) => OnFieldBindingPlaceholderChanged(context, value))"
-                                                          Margin="Margin.Dense"
-                                                          Dense="true"
-                                                          Placeholder="Search placeholder" />
-                                        }
-                                    </MudStack>
-                                </MudTd>
-                                <MudTd>
-                                    <MudTooltip Text="@GetPredefinedOptionsTooltip(context)">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                                       Color="@(IsPredefinedField(context) ? Color.Primary : Color.Default)"
-                                                       Disabled="@(!IsPredefinedField(context))"
-                                                       OnClick="@(() => OpenPredefinedOptionsDialogAsync(context))" />
-                                    </MudTooltip>
-                                </MudTd>
-                                <MudTd>
-                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="Move field up" Disabled="@(FormFields.IndexOf(context) == 0)" OnClick="@(() => MoveField(context, -1))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="Move field down" Disabled="@(FormFields.IndexOf(context) == FormFields.Count - 1)" OnClick="@(() => MoveField(context, 1))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Delete field" OnClick="@(() => RemoveField(context))" />
-                                </MudTd>
-                            </RowTemplate>
-                        </MudTable>
-
-            </section>
-            <section id="request-form-panel-2" role="tabpanel" aria-labelledby="request-form-tab-2" hidden="@(activeWorkspaceTab != 2)" class="request-form-tab-content request-form-setup" data-testid="request-form-setup">
-                <MudStack Spacing="2">
-                            <MudTextField @ref="formTitleInput" @bind-Value="model.Title" Immediate="true"
-                                          Label="Form Title"
-                                          Required="true"
-                                          Variant="Variant.Outlined"
-                                          Margin="Margin.Dense" />
-
-                            <MudTextField @bind-Value="model.Description"
-                                          Label="Description"
-                                          Variant="Variant.Outlined"
-                                          Margin="Margin.Dense"
-                                          Lines="3" />
-
-                            <MudSelect T="RequestFormReleaseStatus"
-                                       @bind-Value="model.ReleaseStatus"
-                                       Label="Self-Service Release Status"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense">
-                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.InTesting">In Testing</MudSelectItem>
-                                <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.Production">Production</MudSelectItem>
-                            </MudSelect>
-
-                            <MudSelect T="string"
-                                       Value="model.OrganizationId"
-                                       ValueChanged="OnOrganizationChanged"
-                                       Label="Primary Organization"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense"
-                                       Clearable="true"
-                                       HelperText="Automation uses a saved system connection for this primary organization.">
-                                @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                }
-                            </MudSelect>
-
-                            @if (SelectedOrganization is not null)
-                            {
-                                <MudText Typo="Typo.caption" Class="request-form-builder-subtitle">
-                                    @AutomationConnectionChoices.Count saved automation connection(s) available. Configure connections on each automation task.
-                                </MudText>
-                            }
-
-
-                </MudStack>
-            </section>
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -788,7 +798,7 @@
 .request-form-pane-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; flex:none; min-height:40px; padding-bottom:8px; }
 .request-form-task-list, .request-form-task-editor-content, .request-form-tab-content { overflow:auto; min-height:0; min-width:0; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .request-form-task-list { flex:1; }
-.request-form-task-editor-content { padding:2px 4px 16px 0; flex:1; }
+.request-form-task-editor-content { padding:2px 12px 20px 4px; flex:1; }
 .request-form-task-drop-zone { min-height:40px; }
 .request-form-task-item { display:flex; align-items:center; width:100%; text-align:left; gap:8px; border:1px solid var(--mud-palette-lines-default); border-radius:var(--mud-default-borderradius); background:var(--mud-palette-surface); color:var(--mud-palette-text-primary); font:inherit; padding:10px 8px; margin-bottom:6px; cursor:pointer; }
 .request-form-task-item-active { border-color:var(--mud-palette-primary); background:var(--mud-palette-action-default-hover); }
@@ -799,12 +809,27 @@
 .request-form-selected-title { min-width:0; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .request-form-task-actions { display:flex; flex:none; }
 .request-form-back-to-tasks { display:none; }
-.request-form-step-automation-panel { display:grid; gap:8px; padding-top:12px; border-top:1px solid var(--mud-palette-lines-default); margin-top:8px; min-width:0; }
+.request-form-step-automation-panel { display:grid; gap:12px; padding:20px; border:1px solid var(--mud-palette-lines-default); border-radius:12px; background:var(--mud-palette-surface); min-width:0; }
 .request-form-script-picker, .request-form-section-header, .request-form-chip-row { flex-wrap:wrap; gap:8px; }
 .request-form-script-picker .mud-input-control { flex:1 1 240px; min-width:0; }
 .request-form-info-icon { padding:2px; }
 .request-form-tab-content { flex:1; padding:16px 0; }
-.request-form-setup > .mud-stack { max-width:760px; }
+.request-form-setup-grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr); align-items:start; gap:20px; max-width:1080px; margin:8px auto; }
+.request-authoring-card { min-width:0; padding:20px; border:1px solid var(--mud-palette-lines-default); border-radius:12px; background:var(--mud-palette-surface); }
+.request-authoring-card-heading { display:flex; align-items:flex-start; gap:12px; margin-bottom:18px; }
+.request-authoring-card-heading > span { flex:none; display:grid; place-items:center; width:30px; height:30px; border-radius:8px; border:1px solid var(--mud-palette-lines-default); background:var(--mud-palette-background-gray); color:var(--mud-palette-primary); font-size:.75rem; font-weight:650; }
+.request-task-settings { width:100%; max-width:860px; margin-inline:auto; }
+.request-task-basics { display:flex; flex-direction:column; gap:10px; }
+.request-task-basics .request-authoring-card-heading { margin-bottom:4px; }
+.request-task-basics > .mud-input-control { max-width:640px; width:100%; }
+.request-task-basics > .mud-grid { max-width:660px; }
+.request-form-step-automation-panel > .mud-select, .request-form-step-automation-panel > .mud-input-control { max-width:640px; width:100%; }
+.request-form-step-automation-panel > .mud-grid { max-width:660px; }
+.request-form-refresh-connections { justify-self:start; width:auto; }
+.request-form-section-header { padding-bottom:10px; border-bottom:1px solid var(--mud-palette-lines-default); }
+.request-form-task-config-panel > .request-form-pane-toolbar { padding-inline:6px; }
+.request-form-tab-content { background:var(--mud-palette-background-gray); border-radius:0 0 10px 10px; padding:20px; }
+@@media (max-width:980px) { .request-form-setup-grid { grid-template-columns:minmax(0,1fr); max-width:720px; } }
 .request-form-save-state { flex:1; min-width:0; color:var(--mud-palette-text-secondary); overflow-wrap:anywhere; }
 @@media (max-width: 760px) {
  .request-form-builder-dialog { width:100vw; height:100dvh; max-height:100dvh; margin:0; border-radius:0; }
@@ -823,6 +848,12 @@
  .request-form-back-to-tasks { display:inline-flex; }
  .request-form-pane-toolbar { flex-wrap:wrap; }
  .request-form-save-state { flex-basis:100%; }
+ .request-form-tab-content { padding:12px 0; }
+ .request-authoring-card, .request-form-step-automation-panel { padding:14px; border-radius:10px; }
+ .request-form-task-editor-content { padding:2px 0 16px; }
+ .request-form-section-header { align-items:flex-start; }
+ .request-form-setup-grid { gap:12px; margin:0; }
+ .request-form-section-header > .mud-button-root { max-width:100%; white-space:normal; }
 }
 </style>
 
@@ -838,8 +869,11 @@
     private List<RequestTaskTemplateModel> Tasks = new();
     private RequestTaskTemplateModel? selectedTask;
     private bool saving;
-    private static readonly string[] WorkspaceTabs = ["Workflow", "Form fields", "Form setup"];
-    private int activeWorkspaceTab;
+    private const int SetupTab = 0;
+    private const int FieldsTab = 1;
+    private const int WorkflowTab = 2;
+    private static readonly string[] WorkspaceTabs = ["Form setup", "Form fields", "Workflow"];
+    private int activeWorkspaceTab = SetupTab;
     private readonly ElementReference[] workspaceTabElements = new ElementReference[3];
     private int? pendingTabFocus;
     private bool showMobileTaskEditor;
@@ -1195,7 +1229,7 @@
         Tasks = RequestFormTaskEditorState.NormalizeTaskOrder(ordered);
         selectedTask = Tasks.FirstOrDefault(x => x.Id == task.Id);
         showMobileTaskEditor = true;
-        activeWorkspaceTab = 0;
+        activeWorkspaceTab = WorkflowTab;
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh(rebuild: true);
     }
@@ -1636,7 +1670,7 @@
     private bool ShowTaskError(RequestTaskTemplateModel task, string message, string focus = "task", bool advanced = false)
     {
         SelectTask(task.Id);
-        activeWorkspaceTab = 0;
+        activeWorkspaceTab = WorkflowTab;
         invalidTaskId = task.Id;
         validationError = message;
         pendingFocus = focus == "binding" ? CanCreateTenantScopedOrchestrationTarget && FilteredOrchestrationRequestDefinitions.Any() ? "target" : "connection" : focus;
@@ -1909,7 +1943,7 @@
         invalidTaskId = null;
         if (string.IsNullOrWhiteSpace(model.Title))
         {
-            activeWorkspaceTab = 2;
+            activeWorkspaceTab = SetupTab;
             validationError = "A form title is required.";
             pendingFocus = "title";
             return;
@@ -1917,7 +1951,7 @@
         invalidField = FormFields.FirstOrDefault(x => string.IsNullOrWhiteSpace(x.Label));
         if (invalidField is not null)
         {
-            activeWorkspaceTab = 1;
+            activeWorkspaceTab = FieldsTab;
             validationError = "Every form field must have a label.";
             pendingFocus = "field";
             return;
