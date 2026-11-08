@@ -422,6 +422,16 @@ public sealed class PendingEmailQueueTests
         await using (var db = fixture.Open())
         {
             var service = new PendingEmailOperationService(db, fixture.Actions(db), fixture.Clock);
+            var missingId = Guid.NewGuid();
+            var stale = await service.ResolveAsync(new(new(Search: "No matching synthetic delivery"), "cancel", false,
+                [delivery, missingId], []), "operator", admin);
+            Assert.Equal(2, stale.Total); Assert.Equal(0, stale.Eligible);
+            Assert.True(await service.ConfirmAsync(stale.Id, "operator", new("Synthetic stale explicit selection", true)));
+            var staleResults = (await service.ProcessAsync(stale.Id, "operator", admin))!;
+            Assert.Equal(2, staleResults.Processed); Assert.Equal(1, staleResults.Conflicted); Assert.Equal(1, staleResults.Skipped);
+            Assert.Equal("Unavailable", staleResults.Results.Single(x => x.Id == missingId).Outcome);
+            Assert.Equal("Conflict", staleResults.Results.Single(x => x.Id == delivery).Outcome);
+            Assert.Empty(await db.ActivityLogs.ToListAsync());
             op = await service.ResolveAsync(new(new(), "cancel", false, [delivery], []), "operator", admin);
             Assert.True(await service.ConfirmAsync(op.Id, "operator", new("Synthetic concurrency", true)));
         }

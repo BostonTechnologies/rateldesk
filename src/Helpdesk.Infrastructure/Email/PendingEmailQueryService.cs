@@ -13,7 +13,8 @@ public sealed class PendingEmailQueryService(HelpdeskDbContext db)
 {
     public const int MaximumPageSize = 100;
 
-    public async Task<PendingEmailPage> SearchAsync(PendingEmailQuery input, CancellationToken ct)
+    public async Task<PendingEmailPage> SearchAsync(PendingEmailQuery input, CancellationToken ct,
+        IReadOnlyCollection<Guid>? deliveryIds = null)
     {
         if (input.Page < 0 || input.Page > 1000000 || input.PageSize is not (25 or 50 or 100))
             throw new ArgumentException("Page must be non-negative; page size must be 25, 50 or 100.");
@@ -33,6 +34,7 @@ public sealed class PendingEmailQueryService(HelpdeskDbContext db)
                         delivery.EmailStatus != EmailDeliveryStatus.Removed &&
                         (effect == null || effect.State != MailboxEffectState.Removed)
                     select new { Delivery = delivery, Ticket = ticket, Effect = effect, Organization = organization, Mailbox = mailbox };
+        if (deliveryIds is not null) query = query.Where(x => deliveryIds.Contains(x.Delivery.Id));
         if (input.Status is { } status) query = query.Where(x => x.Delivery.EmailStatus == status);
         else query = query.Where(x => x.Delivery.EmailStatus == EmailDeliveryStatus.Pending || x.Delivery.EmailStatus == EmailDeliveryStatus.Failed);
         if (input.Search?.Trim().ToLowerInvariant() is { Length: > 0 } search)

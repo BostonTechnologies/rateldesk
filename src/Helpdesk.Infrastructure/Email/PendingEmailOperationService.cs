@@ -25,6 +25,7 @@ public sealed class PendingEmailOperationService(HelpdeskDbContext db, PendingEm
             throw new ArgumentException("Select deliveries and choose cancel or remove. Retry requires individual review.");
         var excluded = request.ExcludedIds.ToHashSet();
         var included = request.IncludedIds.ToHashSet();
+        HashSet<Guid> unresolved = request.AllMatching ? [] : included.Except(excluded).ToHashSet();
         var operation = new PendingEmailOperationRecord
         {
             ActorId = actor, Action = request.Action, Scope = JsonSerializer.Serialize(request.Query),
@@ -39,12 +40,14 @@ public sealed class PendingEmailOperationService(HelpdeskDbContext db, PendingEm
         var browse = new PendingEmailQueryService(db);
         for (var page = 0; ; page++)
         {
-            var result = await browse.SearchAsync(request.Query with { Page = page, PageSize = 100 }, ct);
+            var result = await browse.SearchAsync(request.Query with { Page = page, PageSize = 100 }, ct,
+                request.AllMatching ? null : request.IncludedIds);
             foreach (var row in result.Items)
             {
                 if (excluded.Contains(row.Id) || !request.AllMatching && !included.Contains(row.Id)) continue;
                 var snapshot = await CaptureAsync(row.Id, profile, ct);
                 if (snapshot is null) continue;
+                unresolved.Remove(row.Id);
                 db.Add(new PendingEmailOperationTarget
                 {
                     OperationId = operation.Id, DeliveryId = row.Id, Sequence = sequence++, Snapshot = snapshot,
@@ -54,6 +57,18 @@ public sealed class PendingEmailOperationService(HelpdeskDbContext db, PendingEm
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
             if ((page + 1) * 100 >= result.Total) break;
+        }
+        // Explicitly requested IDs that disappeared, left the filter or lost authority
+        // retain a non-actionable receipt. They must not silently vanish from the review.
+        foreach (var batch in unresolved.Order().Chunk(100))
+        {
+            foreach (var id in batch)
+                db.Add(new PendingEmailOperationTarget
+                {
+                    OperationId = operation.Id, DeliveryId = id, Sequence = sequence++, Snapshot = "", Eligible = false
+                });
+            await db.SaveChangesAsync(ct);
+            db.ChangeTracker.Clear();
         }
         await transaction.CommitAsync(ct);
         return (await GetAsync(operation.Id, actor, ct))!;
@@ -128,7 +143,7 @@ public sealed class PendingEmailOperationService(HelpdeskDbContext db, PendingEm
         var current = await CaptureAsync(deliveryId, profile, ct);
         await transaction.CreateSavepointAsync("queue_action", ct);
         var result = current is null ? new PendingEmailActionResult(deliveryId, "Unavailable", "Delivery unavailable in your current authorized scope.") :
-            current != target.Snapshot ? new(deliveryId, "Conflict", "Delivery changed since selection. Review it in a new selection.") :
+            current != target.Snapshot ? new(deliveryId, "Conflict", "Delivery changed or left the matching scope. Review it in a new selection.") :
             !target.Eligible ? new(deliveryId, "ReviewRequired", "This delivery was not eligible when the selection was reviewed.") :
             await actions.ApplyAsync(deliveryId, op.Action, op.ActorId, op.Reason!, ct);
         if (result.Outcome is not ("Cancelled" or "Removed" or "AlreadyCancelled" or "AlreadyRemoved"))

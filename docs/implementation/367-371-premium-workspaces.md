@@ -14,10 +14,14 @@ User authorization covers implementation, reviewed PR/merge, hosted release and 
   required.
 - Slopwatch: zero new issues; baseline unchanged. Documentation validation:
   195 Markdown files and 912 local links passed. Public disclosure gate passed.
-- Initial focused provider/domain validation: 103 passed, one obsolete
-  source-string assertion failed; that assertion was replaced with real rendered
-  audit header/cell/filter coverage. Seven subsequent rendered/draft cases passed
-  with no failures/skips. Final combined provider/domain rerun is pending.
+- Combined focused provider/domain/rendered validation at `9d4d764`: 129 passed,
+  zero failed/skipped (5m36s), including actual SQLite/PostgreSQL and existing
+  approval/state/authority tests. An earlier obsolete source-string assertion was
+  replaced with real rendered audit header/cell/filter coverage. A follow-up
+  preserves explicit selected IDs that leave the filter as non-actionable
+  receipts; its provider/coverage regression run is pending.
+- Layout, release helper regressions and gitleaks passed. The secret scan checked
+  the exact committed source archive without local dependency/build caches.
 - Browser iteration caught and corrected encoded-space URL reloads, stale pager
   selection in the test, audit flex sizing, tooltip overflow and notification
   metric wrapping. Earlier failing iterations are not acceptance receipts.
