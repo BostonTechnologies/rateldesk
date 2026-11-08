@@ -29,6 +29,14 @@ User authorization covers implementation, reviewed PR/merge, hosted release and 
   details **4/4 each** (light/dark, physical 1280/1920 by 1000). Layout width is
   independently checked as 640/960; full pager/footer intersection is asserted.
   Rules and Audit are both exercised. These are actual browser zoom receipts.
+- Hosted regression findings were reproduced and fixed in the owning acceptance
+  harnesses: shared ticket-filter fixtures now run serially; bulk exclusion waits
+  verify checkbox/count/row identity; mobile dismissal follows current focus;
+  role permissions and request-editor initial setup match the existing grouped
+  editors. Native keyboard scrolling settles before evidence resets. Local
+  follow-up: ticket filters **84/84**, admin **32/32**, assignees **40/40**,
+  and ticket-filter/request-editor native zoom **4/4 each**, without retries or
+  skipped assertions. The first failed hosted attempt is not a passing receipt.
 - Light/dark matrices cover 1440×900, 1366×768 and mobile 320/390px, realistic
   long labels and dense synthetic rows. Before screenshots use baseline main
   `6a7e7fb`; after screenshots use the final owning suites. Reviewed images include

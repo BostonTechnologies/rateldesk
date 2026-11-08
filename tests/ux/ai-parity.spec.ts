@@ -136,6 +136,7 @@ for (const route of [...routes, '/incidents/ux-chat']) {
       await page.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
       await page.setViewportSize({ width, height: 950 });
       await page.goto('/auth/development'); await page.goto(route);
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
       if (route.startsWith('/incidents')) await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
       const response = page.getByTestId('ai-assistant-response');
       await expect(response.getByRole('table')).toHaveCount(2);
@@ -158,9 +159,15 @@ for (const route of [...routes, '/incidents/ux-chat']) {
         await expect(scroll).toBeFocused();
         if (width < 760) {
           expect(await scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+          await scroll.evaluate(el => {
+            el.setAttribute('data-keyboard-scroll', 'pending');
+            el.addEventListener('scrollend', () => el.setAttribute('data-keyboard-scroll', 'settled'), { once: true });
+          });
           await page.keyboard.press('ArrowRight');
           await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
-          // Cancel the keyboard's smooth scroll before resetting the screenshot position.
+          // Chromium applies keyboard scrolling asynchronously. Let that native
+          // operation finish before resetting the screenshot position.
+          await expect(scroll).toHaveAttribute('data-keyboard-scroll', 'settled');
           await scroll.evaluate(el => el.scrollTo({ left: 0, behavior: 'instant' }));
           await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBe(0);
         }

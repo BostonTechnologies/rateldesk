@@ -100,6 +100,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await page.getByRole('button', { name: 'Edit Example access request', exact: true }).click();
           const editor = page.locator('.request-form-builder-dialog');
           await expect(editor).toBeVisible();
+          await expect(editor.getByRole('tab', { name: 'Form setup', exact: true })).toHaveAttribute('aria-selected', 'true');
+          await editor.getByRole('tab', { name: 'Workflow (3)' }).click();
           await expect(editor.getByRole('tab', { name: 'Workflow (3)' })).toHaveAttribute('aria-selected', 'true');
           if (width / 2 <= 760) await editor.locator('[data-task-id]').first().click();
           await expect(editor.getByRole('textbox', { name: /^Task Name\*?$/ })).toHaveValue('Prepare access — synthetic automation');

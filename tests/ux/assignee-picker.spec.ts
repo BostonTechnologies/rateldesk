@@ -16,6 +16,14 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto('/auth/development', { waitUntil: 'domcontentloaded' });
 });
 
+test.afterEach(async ({ request }, info) => {
+  if (info.status !== info.expectedStatus) {
+    await info.attach('synthetic-picker-state', {
+      body: await (await request.get(`${fixture}/state`)).body(), contentType: 'application/json'
+    });
+  }
+});
+
 for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} visible trigger searches beyond initial results and persists after reload`, async ({ page, request }) => {
     await grid(page, module);
@@ -346,7 +354,11 @@ for (const theme of ['light', 'dark']) {
     await assertNoHorizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath(`${theme}-creation-search-mobile.png`), fullPage: true });
     await page.getByRole('option', { name: /Zulu Partner/ }).click();
+    await expect(organization).toHaveValue(/Zulu Partner/);
     await organization.press('Tab'); await noError(page);
+    // Close the directory layer explicitly before addressing the dialog footer.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('option')).toHaveCount(0);
     // The native zoom suite owns browser zoom; this checks the equally narrow CSS viewport.
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   });
