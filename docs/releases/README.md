@@ -1,5 +1,12 @@
 # Releases
 
+## 0.1.3-beta.7 candidate — OIDC integration ownership
+
+[Release notes](../release-notes/0.1.3-beta.7.md) describe passwordless,
+issuer/subject-bound application ownership for external administrators. Follow
+the existing reviewed PR/main validation and immutable hosted release workflow;
+publication and deployed functional acceptance remain separate gates.
+
 ## 0.1.3-beta.6 candidate — quiet logging and connected follow-ups
 
 [Release notes and operator checklist](../release-notes/0.1.3-beta.6.md) cover

@@ -86,6 +86,24 @@ navigation on the next request. Local-account membership changes instead
 invalidate the account's authorization revision and security stamp, causing the
 next API request to reject the old local session.
 
+### OIDC account ownership
+
+An external instance administrator’s successful provisioning now creates a
+passwordless application account, uniquely bound through the Identity login
+store to the verified issuer and subject. This account can own integration
+credentials and system connections without a fabricated customer-contact link.
+Email is display data and is never used to select or merge an account. Existing
+customer/local account links retain their existing ownership.
+
+The external account must remain enabled. Provider groups and explicit API
+role mappings remain the source of instance-administrator authority; the
+persisted administrator projection is reconciled when authenticated access is
+resolved. A fresh token without the admin claim removes that projection.
+Previously issued provider tokens retain their claims until expiry or refresh;
+disable the application account when immediate local denial is required.
+Provisioning never reenables a disabled account and does not create a local
+password or activation flow.
+
 ## Owner administration through HTTP MCP
 
 An instance administrator can explicitly authorize an account-bound HTTP MCP

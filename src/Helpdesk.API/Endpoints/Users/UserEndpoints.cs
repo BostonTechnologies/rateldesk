@@ -62,7 +62,9 @@ public static class UserEndpoints
         app.MapPost("/api/v1/users/provision", async (
             ClaimsPrincipal principal,
             [FromServices] HelpdeskDbContext db,
-            [FromServices] ICurrentUserAccessService accessService) =>
+            [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] Helpdesk.Infrastructure.Identity.RatelDeskIdentityDbContext identityDb,
+            CancellationToken ct) =>
         {
             var email = FirstClaim(principal, ClaimTypes.Email, "email", "preferred_username");
             var issuer = FirstClaim(principal, "iss")?.TrimEnd('/');
@@ -86,9 +88,11 @@ public static class UserEndpoints
                 // An explicitly authorized external instance administrator does not
                 // require a customer-contact link. Other users need an established identity link.
                 var unlinkedAccess = await accessService.ResolveAsync(principal);
-                return unlinkedAccess.IsHelpdeskAdmin
-                    ? Results.Ok(ToAccessDto(unlinkedAccess))
-                    : Results.Forbid();
+                if (!unlinkedAccess.IsHelpdeskAdmin || string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
+                    return Results.Forbid();
+                var account = await Helpdesk.Infrastructure.Identity.OidcApplicationAccount.ProvisionAdministratorAsync(
+                    identityDb, issuer, subject, principal.Identity?.Name ?? email, ct);
+                return account.IsEnabled ? Results.Ok(ToAccessDto(unlinkedAccess)) : Results.Forbid();
             }
 
             var linkedCustomer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(customer => customer.Id == link.CustomerId);

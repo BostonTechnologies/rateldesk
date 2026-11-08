@@ -6,6 +6,9 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Helpdesk.API;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Auth;
 using Helpdesk.Shared.Models;
@@ -33,7 +36,7 @@ public sealed class OidcProvisioningTests
         await fixture.SeedLinkedUserAsync();
         using var client = fixture.Client(fixture.Token(roles: ["TenantAdministrator"]));
         var response = await client.PostAsync("/api/v1/users/provision", null);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         var access = await response.Content.ReadFromJsonAsync<CurrentUserAccessDto>();
         Assert.Equal("contact-a", access!.CustomerId);
         Assert.False(access.IsHelpdeskAdmin);
@@ -56,8 +59,64 @@ public sealed class OidcProvisioningTests
         using var fixture = new SignedOidcApi(mode);
         using var client = fixture.Client(fixture.Token(roles: ["external-administrators"], roleClaim: roleClaim));
         var response = await client.PostAsync("/api/v1/users/provision", null);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         Assert.True((await response.Content.ReadFromJsonAsync<CurrentUserAccessDto>())!.IsHelpdeskAdmin);
+    }
+
+    [Fact]
+    public async Task External_admin_gets_one_passwordless_owner_and_can_manage_system_connections()
+    {
+        using var fixture = new SignedOidcApi("Oidc");
+        using var client = fixture.Client(fixture.Token(roles: ["external-administrators"]));
+        for (var attempt = 0; attempt < 2; attempt++)
+            Assert.Equal(HttpStatusCode.OK, (await client.PostAsync("/api/v1/users/provision", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/integration-credentials/")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/admin/system-connections/")).StatusCode);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Helpdesk.Infrastructure.Identity.RatelDeskIdentityDbContext>();
+        var login = Assert.Single(db.UserLogins);
+        var account = db.Users.Single(user => user.Id == login.UserId);
+        Assert.Null(account.PasswordHash);
+        Assert.True(account.IsInstanceAdministrator);
+        Assert.NotEqual("subject", account.Id);
+        Assert.Equal("subject", login.ProviderKey);
+        Assert.Empty(scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().CustomerAuthLinks);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task External_owner_disable_or_admin_claim_removal_denies_instance_operations(bool disable)
+    {
+        using var fixture = new SignedOidcApi("Oidc");
+        using var admin = fixture.Client(fixture.Token(roles: ["external-administrators"]));
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync("/api/v1/users/provision", null)).StatusCode);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Helpdesk.Infrastructure.Identity.RatelDeskIdentityDbContext>();
+            var account = db.Users.Single(user => user.UserName!.StartsWith("oidc-"));
+            if (disable) { account.IsEnabled = false; await db.SaveChangesAsync(); }
+        }
+        using var denied = fixture.Client(fixture.Token(roles: disable ? ["external-administrators"] : []));
+        Assert.Equal(HttpStatusCode.Forbidden, (await denied.GetAsync("/api/v1/admin/system-connections/")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await denied.PostAsync("/api/v1/users/provision", null)).StatusCode);
+        if (!disable)
+        {
+            using var scope = fixture.Factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Helpdesk.Infrastructure.Identity.RatelDeskIdentityDbContext>();
+            Assert.False(db.Users.Single(user => user.UserName!.StartsWith("oidc-")).IsInstanceAdministrator);
+        }
+    }
+
+    [Fact]
+    public async Task Same_email_with_another_subject_does_not_inherit_the_external_owner()
+    {
+        using var fixture = new SignedOidcApi("Oidc");
+        using var admin = fixture.Client(fixture.Token(roles: ["external-administrators"]));
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync("/api/v1/users/provision", null)).StatusCode);
+        using var other = fixture.Client(fixture.Token(subject: "other-subject"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await other.GetAsync("/api/v1/integration-credentials/")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await other.PostAsync("/api/v1/users/provision", null)).StatusCode);
     }
 
     [Theory]
@@ -107,6 +166,8 @@ internal sealed class SignedOidcApi : IDisposable
 {
     public const string Issuer = "https://provider.example.test/application/o/rateldesk/";
     public const string Audience = "helpdesk-api";
+    private readonly ServiceProvider _identityProvider = new ServiceCollection().AddEntityFrameworkInMemoryDatabase().BuildServiceProvider();
+    private readonly Microsoft.EntityFrameworkCore.Storage.InMemoryDatabaseRoot _identityRoot = new();
     private readonly RSA _rsa = RSA.Create(2048);
     public RsaSecurityKey Key { get; }
     public WebApplicationFactory<Program> Factory { get; }
@@ -131,6 +192,11 @@ internal sealed class SignedOidcApi : IDisposable
             }));
             builder.ConfigureServices(services =>
             {
+                var identityDatabaseName = $"oidc-identity-{Guid.NewGuid():N}";
+                services.RemoveAll<DbContextOptions<RatelDeskIdentityDbContext>>();
+                services.AddDbContext<RatelDeskIdentityDbContext>(options => options
+                    .UseInMemoryDatabase(identityDatabaseName, _identityRoot)
+                    .UseInternalServiceProvider(_identityProvider));
                 foreach (var scheme in new[] { "Authentik", "Azure" })
                     services.PostConfigure<JwtBearerOptions>(scheme, options =>
                     {
@@ -177,5 +243,5 @@ internal sealed class SignedOidcApi : IDisposable
         await db.SaveChangesAsync();
     }
 
-    public void Dispose() { Factory.Dispose(); _rsa.Dispose(); }
+    public void Dispose() { Factory.Dispose(); _identityProvider.Dispose(); _rsa.Dispose(); }
 }

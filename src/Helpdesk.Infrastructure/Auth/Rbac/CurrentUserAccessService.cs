@@ -58,6 +58,11 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             }
         }
 
+        var externalAccount = _identityDb is not null && string.IsNullOrWhiteSpace(localAccountId) &&
+                              !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject)
+            ? await OidcApplicationAccount.FindAsync(_identityDb, issuer, subject, ct) : null;
+        if (externalAccount is { IsEnabled: false }) return Empty(true);
+
         // Local role claims are an authorization projection, never a source of
         // grants. OIDC groups remain an explicit, independent provider source.
         var groups = string.IsNullOrWhiteSpace(localAccountId)
@@ -72,6 +77,15 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var isAdmin = localAccount?.IsInstanceAdministrator == true ||
                       groups.Contains(HelpdeskPermissions.HelpdeskAdmin) ||
                       groups.Contains(AuthentikRbacGroups.HelpdeskAdmin);
+
+        // Provider claims remain the authority for OIDC-only accounts. Persist
+        // the current projection for account-bound credentials, including removal.
+        if (externalAccount is not null && externalAccount.IsInstanceAdministrator != isAdmin)
+        {
+            externalAccount.IsInstanceAdministrator = isAdmin;
+            externalAccount.AuthorizationRevision++;
+            await _identityDb!.SaveChangesAsync(ct);
+        }
 
         if (isAdmin)
         {
