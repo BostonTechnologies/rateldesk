@@ -12,7 +12,7 @@
 <PageTitle>Email Rules</PageTitle>
 
 <MudPaper Class="pa-3 premium-workspace email-rules-workspace" data-testid="mailbox-rules" data-interactive="@interactive.ToString().ToLowerInvariant()">
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="mb-3 email-rules-heading">
         <div style="flex:1 1 15rem">
             <MudText Typo="Typo.h6" HtmlTag="h1">Email Rules</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
@@ -75,7 +75,7 @@
             {
                 <div class="email-rules-table-wrap">
                     <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="email-rules-table" RowsPerPage="25" FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 23rem), 46rem)">
-                        <ColGroup><col /><col style="width:132px" /><col style="width:196px" /><col style="width:100px" /><col style="width:120px" /><col style="width:212px" /></ColGroup>
+                        <ColGroup><col /><col style="width:132px" /><col style="width:196px" /><col style="width:100px" /><col style="width:120px" /><col style="width:228px" /></ColGroup>
                         <HeaderContent>
                             <MudTh Class="email-rule-name">Name</MudTh>
                             <MudTh>Scope</MudTh>
@@ -89,9 +89,9 @@
                                 <MudTooltip Text="@context.Name"><span class="workspace-primary">@context.Name</span></MudTooltip>
                                 <span class="workspace-secondary">@context.Description</span>
                             </MudTd>
-                            <MudTd DataLabel="Scope"><MudStack Spacing="0"><MudText Typo="Typo.body2">@InboundEmailRuleLabels.Scope(context.ScopeType)</MudText><MudText Typo="Typo.caption">@TenantDisplay(context.TenantId)</MudText></MudStack></MudTd>
+                            <MudTd DataLabel="Scope"><MudTooltip Text="@TenantDisplay(context.TenantId)"><span class="workspace-primary">@(context.TenantId is null ? "Instance" : TenantDisplay(context.TenantId))</span></MudTooltip><span class="workspace-secondary">@InboundEmailRuleLabels.Scope(context.ScopeType)</span></MudTd>
                             <MudTd DataLabel="Mailbox" Class="email-rule-mailbox"><MudSelect T="Guid?" Label="Source mailbox" Value="context.MailboxId" ValueChanged="id => BindMailboxAsync(context, id)" Disabled="@loading">
-                                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All eligible mailboxes</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All mailboxes</MudSelectItem>
                                 @foreach (var mailbox in mailboxes.Where(x => !x.Archived && (context.ScopeType == InboundEmailRuleScopeType.Global || x.OrganizationId == null || x.OrganizationId == context.TenantId)))
                                 {
                                     <MudSelectItem T="Guid?" Value="@((Guid?)mailbox.Id)">@mailbox.DisplayName — @mailbox.MailboxAddress (@(mailbox.OrganizationId is null ? "Instance-global mailbox" : "Dedicated"))</MudSelectItem>
@@ -101,7 +101,7 @@
                                 <MudChip T="string" Size="Size.Small" Color="@(context.Enabled ? Color.Success : Color.Default)" Variant="Variant.Text">
                                     @(context.Enabled ? "Enabled" : "Disabled")
                                 </MudChip>
-                                <MudTooltip Text="@($"Updated {context.UpdatedAtUtc.ToLocalTime():g}")"><span class="workspace-secondary">@context.UpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd")</span></MudTooltip>
+                                <MudTooltip Text="@($"Updated {context.UpdatedAtUtc.ToLocalTime():g}")"><span class="workspace-secondary">@context.UpdatedAtUtc.ToLocalTime().ToString("MMM d")</span></MudTooltip>
                             </MudTd>
                             <MudTd DataLabel="Processing"><MudStack Spacing="0"><MudText Typo="Typo.body2">Priority @context.Priority</MudText><MudText Typo="Typo.caption">@(context.StopProcessing ? "Stop after match" : "Continue after match")</MudText></MudStack></MudTd>
                             <MudTd DataLabel="Actions" Class="email-rules-actions">
@@ -134,16 +134,17 @@
                     @foreach (var status in Enum.GetValues<InboundEmailProcessingStatus>())
                     { <MudSelectItem Value="@status.ToString()">@InboundEmailRuleLabels.Status(status)</MudSelectItem> }
                 </MudSelect>
+                <MudButton OnClick="LoadAuditAsync" Disabled="auditLoading" Variant="Variant.Outlined">Apply</MudButton>
+            </div>
+            <details class="mb-2"><summary>More filters · organization, rule, exact IDs and dates</summary>
+                <div class="workspace-toolbar">
                 <MudSelect T="string" @bind-Value="auditTenantId" Label="Organization" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                     @foreach (var org in tenantNames) { <MudSelectItem Value="@org.Key">@org.Value</MudSelectItem> }
                 </MudSelect>
                 <MudSelect T="string" @bind-Value="auditRuleId" Label="Rule" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                     @foreach (var rule in rules) { <MudSelectItem Value="@rule.Id">@rule.Name</MudSelectItem> }
                 </MudSelect>
-                <MudButton OnClick="LoadAuditAsync" Disabled="auditLoading" Variant="Variant.Outlined">Apply</MudButton>
-            </div>
-            <details class="mb-2"><summary>Advanced · exact IDs and dates</summary>
-                <div class="workspace-toolbar">
+
                     <MudTextField T="string" Label="Organization ID" @bind-Value="auditTenantId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Rule ID" @bind-Value="auditRuleId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Message ID" @bind-Value="auditMessageId" Variant="Variant.Outlined" Margin="Margin.Dense" />

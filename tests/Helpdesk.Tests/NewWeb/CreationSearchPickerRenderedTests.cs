@@ -124,6 +124,35 @@ public sealed class CreationSearchPickerRenderedTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Superseded_callbacks_return_current_suggestions_without_clearing_the_newer_selection(bool olderCompletesFirst)
+    {
+        await using var context = Context(out var api);
+        var selections = new List<string?>();
+        var picker = context.Render<OrganizationPicker>(p => p.Add(x => x.SelectionChanged, item => selections.Add(item?.Id)));
+        await picker.InvokeAsync(() => api.Calls[0].Response.SetResult(Page("initial", "Initial organization", 55)));
+        var autocomplete = picker.FindComponent<MudAutocomplete<OrganizationDto>>().Instance;
+        Task<IEnumerable<OrganizationDto>> Search(string term) => autocomplete.SearchFunc?.Invoke(term, CancellationToken.None)
+            ?? throw new InvalidOperationException("A wired search callback is required.");
+        IEnumerable<OrganizationDto>? oldOptions = null, currentOptions = null;
+        var oldSearch = picker.InvokeAsync(async () => oldOptions = await Search("older"));
+        var oldRequest = await api.WaitForCallAsync("q=older");
+        var currentSearch = picker.InvokeAsync(async () => currentOptions = await Search("current"));
+        var currentRequest = await api.WaitForCallAsync("q=current");
+        if (olderCompletesFirst) oldRequest.Response.SetResult(Page("stale", "Stale organization", 55));
+        currentRequest.Response.SetResult(Page("current", "Current organization", 55));
+        await currentSearch;
+        if (!olderCompletesFirst) oldRequest.Response.SetResult(Page("stale", "Stale organization", 55));
+        await oldSearch;
+        Assert.Equal("current", Assert.Single(currentOptions!).Id);
+        var retained = Assert.Single(oldOptions!);
+        Assert.Equal("current", retained.Id);
+        await picker.InvokeAsync(() => autocomplete.ValueChanged.InvokeAsync(retained));
+        Assert.Equal(new[] { "current" }, selections);
+    }
+
+    [Theory]
     [InlineData("http")]
     [InlineData("timeout")]
     [InlineData("circuit")]

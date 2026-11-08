@@ -1424,4 +1424,5 @@ body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
 @media (max-height:600px) {
     :is(.pending-mail, .task-workspace, .notifications-workspace, .email-rules-workspace).premium-workspace { height:calc(100dvh - 90px); }
     .pending-mail > p.mud-typography-body2 { display:none; }
+    .email-rules-workspace .email-rules-heading .mud-typography-body2 { display:none; }
 }

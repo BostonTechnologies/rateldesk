@@ -26,6 +26,23 @@ async function noOverflow(page: Page) {
 
 test.beforeEach(async ({ request }) => { await request.get(`${fixture}/reset`); });
 
+test('category refresh between pointer down and click retains the visible selection without saving', async ({ page, request }) => {
+  await open(page, 'changes');
+  await categorySearch(page).fill('R&D');
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await expect(page.locator('.category-create')).toContainText('R&D');
+  await request.get(`${fixture}/fault?mode=hold-category-search`);
+  await categorySearch(page).fill('R&D +');
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).held).toContain('category-search');
+  await page.getByRole('option', { name: /R&D/ }).hover();
+  await page.mouse.down();
+  await request.get(`${fixture}/release`);
+  await expect(page.locator('.category-create')).toContainText('R&D +');
+  await page.mouse.up();
+  await expect(selected(page)).toContainText('R&D');
+  expect((await (await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
+});
+
 for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [1366, 768], [390, 844]]) {
   test(`change record and shared editor ${theme} ${width}x${height}`, async ({ page }, info) => {
     await page.setViewportSize({ width, height });
