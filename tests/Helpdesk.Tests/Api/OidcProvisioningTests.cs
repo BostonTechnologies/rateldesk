@@ -52,12 +52,14 @@ public sealed class OidcProvisioningTests
     }
 
     [Theory]
-    [InlineData("Oidc", "roles")]
-    [InlineData("Hybrid", "groups")]
-    public async Task Explicitly_mapped_external_admin_can_provision_without_a_customer_link(string mode, string roleClaim)
+    [InlineData("Oidc", "roles", "external-administrators")]
+    [InlineData("Hybrid", "groups", "external-administrators")]
+    [InlineData("Oidc", "groups", "custom:role:administrators")]
+    [InlineData("Hybrid", "roles", "rateldesk:role:admin")]
+    public async Task Explicitly_mapped_external_admin_can_provision_without_a_customer_link(string mode, string roleClaim, string group)
     {
         using var fixture = new SignedOidcApi(mode);
-        using var client = fixture.Client(fixture.Token(roles: ["external-administrators"], roleClaim: roleClaim));
+        using var client = fixture.Client(fixture.Token(roles: [group], roleClaim: roleClaim));
         var response = await client.PostAsync("/api/v1/users/provision", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         Assert.True((await response.Content.ReadFromJsonAsync<CurrentUserAccessDto>())!.IsHelpdeskAdmin);
@@ -188,7 +190,8 @@ internal sealed class SignedOidcApi : IDisposable
                 ["Authentication:Mode"] = mode,
                 ["Authentication:Authentik:Authority"] = Issuer,
                 ["Authentication:Authentik:Audience"] = Audience,
-                ["Authentication:Authentik:RoleMappings:external-administrators"] = "HelpdeskAdmin"
+                ["Authentication:Authentik:RoleMappings:external-administrators"] = "HelpdeskAdmin",
+                ["Authentication:Authentik:RoleMappings:custom:role:administrators"] = "HelpdeskAdmin"
             }));
             builder.ConfigureServices(services =>
             {

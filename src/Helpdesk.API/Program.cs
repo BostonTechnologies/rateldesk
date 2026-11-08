@@ -685,8 +685,12 @@ builder.Services.AddAuthentication(options =>
                 return Task.CompletedTask;
             }
 
+            // A provider group may contain ':'. Dictionary binding treats it as
+            // configuration nesting, so retain the complete relative leaf key.
             var roleMappings = builder.Configuration.GetSection("Authentication:Authentik:RoleMappings")
-                .Get<Dictionary<string, string>>() ?? new Dictionary<string, string>();
+                .AsEnumerable(makePathsRelative: true)
+                .Where(mapping => !string.IsNullOrWhiteSpace(mapping.Key) && !string.IsNullOrWhiteSpace(mapping.Value))
+                .ToDictionary(mapping => mapping.Key, mapping => mapping.Value!, StringComparer.OrdinalIgnoreCase);
             var claimValues = context.Principal.FindAll("groups")
                 .Concat(context.Principal.FindAll("roles"))
                 .Select(c => c.Value)

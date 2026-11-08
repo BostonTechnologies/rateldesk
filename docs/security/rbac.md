@@ -86,6 +86,11 @@ navigation on the next request. Local-account membership changes instead
 invalidate the account's authorization revision and security stamp, causing the
 next API request to reject the old local session.
 
+Configured `Authentication:Authentik:RoleMappings` entries preserve the complete
+provider-group name, including `:` separators. The mapped `HelpdeskAdmin`
+permission grants instance administration; ordinary organization roles remain
+saved scoped assignments.
+
 ### OIDC account ownership
 
 An external instance administrator’s successful provisioning now creates a
