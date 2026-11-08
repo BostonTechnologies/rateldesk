@@ -266,6 +266,7 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await approvers.fill('Duplicate'); await page.getByRole('option', { name: /one@example.test/ }).click();
   await expect(approvers).toBeEditable();
   await expect(approvers).toBeFocused();
+  await expect(approvers).toHaveValue('');
   await page.keyboard.type('Duplicate');
   await expect(page.getByRole('option', { name: /two@example.test/ })).toBeVisible();
   await page.keyboard.press('ArrowDown');

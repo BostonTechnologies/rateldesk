@@ -179,6 +179,7 @@
               RowClassFunc="GetRowClass"
               OnRowClick="OnRowClicked"
               Loading="tableLoading">
+        <ColGroup><col style="width:44px" /><col style="width:88px" /><col /><col style="width:104px" /><col style="width:112px" /><col style="width:128px" /><col style="width:88px" /><col style="width:192px" /></ColGroup>
         <HeaderContent>
             <MudTh>
                 <div @onclick:stopPropagation="true">
@@ -214,7 +215,7 @@
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd @attributes="GetCellAttributes(context)">
+            <MudTd DataLabel="Selection" @attributes="GetCellAttributes(context)">
                 <div @onclick:stopPropagation="true">
                     <MudCheckBox T="bool"
                                  Value="@selectedIds.Contains(context.Id)" Disabled="context.IsRead" aria-label="@($"Select {context.Title}")"

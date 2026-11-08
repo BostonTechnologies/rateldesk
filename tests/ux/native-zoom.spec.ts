@@ -83,6 +83,17 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await tabs.nth(index).press('Enter');
           await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
         }
+        if (suite === 'operations' && ['/tasks', '/notifications', '/admin/email-rules'].includes(route)) {
+          if (route === '/admin/email-rules') {
+            for (const tab of ['Rules', 'Audit']) {
+              await page.getByRole('tab', { name: tab, exact: true }).click();
+              await expect(page.locator('.premium-workspace tbody tr').first()).toBeVisible();
+              await expect(page.locator('.premium-workspace .mud-table-pagination').last()).toBeInViewport({ ratio: 1 });
+            }
+          } else {
+            await expect(page.locator('.premium-workspace .mud-table-pagination')).toBeInViewport({ ratio: 1 });
+          }
+        }
         if (suite === 'integrations')
           await expect(page.getByText('Netclaw settings could not be loaded.', { exact: true })).not.toBeVisible();
         if (suite === 'request-editor') {
@@ -146,6 +157,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await expect(review.getByRole('button', { name: 'Approve connection', exact: true })).toBeVisible();
         }
         if (suite === 'pending-mail') {
+          await expect(page.locator('.pending-mail .mud-table-pagination')).toBeInViewport({ ratio: 1 });
           await page.locator('.pending-mail tbody input[type="checkbox"]').first().check();
           await page.getByRole('button', { name: 'Cancel selected', exact: true }).click();
           const review = page.getByRole('dialog');
@@ -186,6 +198,12 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
             await approvers.fill('Duplicate');
             await page.getByRole('option', { name: /one@example.test/ }).click();
             await expect(create.getByLabel('Selected approvers', { exact: true })).toContainText('one@example.test');
+            for (const label of [/^1\. Overview/, /^2\. Plan/, /^3\. Schedule/, /^4\. Review/]) {
+              await create.getByRole('button', { name: label }).click();
+              await expect(create.locator('.mud-dialog-actions')).toBeInViewport({ ratio: 1 });
+              await expect(create.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 });
+            }
+            await expect(create.getByRole('button', { name: 'Create draft', exact: true })).toBeInViewport({ ratio: 1 });
           }
           const cancel = create.getByRole('button', { name: 'Cancel', exact: true });
           await cancel.scrollIntoViewIfNeeded();

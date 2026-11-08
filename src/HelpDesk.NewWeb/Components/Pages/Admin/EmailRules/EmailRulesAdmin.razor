@@ -12,14 +12,20 @@
 <PageTitle>Email Rules</PageTitle>
 
 <MudPaper Class="pa-3 premium-workspace email-rules-workspace" data-testid="mailbox-rules" data-interactive="@interactive.ToString().ToLowerInvariant()">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-        <div>
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="mb-3">
+        <div style="flex:1 1 15rem">
             <MudText Typo="Typo.h6" HtmlTag="h1">Email Rules</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
                 Enabled rules can affect live inbound email processing.
             </MudText>
         </div>
-        <MudSpacer />
+        <MudSelect T="Guid?" Label="Filter by source mailbox" @bind-Value="MailboxId" @bind-Value:after="LoadAuditAsync" Margin="Margin.Dense" Variant="Variant.Outlined" Style="flex:1 1 10rem;max-width:20rem">
+        <MudSelectItem T="Guid?" Value="@((Guid?)null)">All mailboxes</MudSelectItem>
+        @foreach (var mailbox in mailboxes)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)mailbox.Id)">@mailbox.DisplayName — @mailbox.MailboxAddress @(mailbox.Archived ? "(archived)" : "")</MudSelectItem>
+        }
+    </MudSelect>
         <MudButton Variant="Variant.Outlined"
                    StartIcon="@Icons.Material.Filled.Refresh"
                    Disabled="@loading"
@@ -40,13 +46,6 @@
         <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-3" />
     }
 
-    <MudSelect T="Guid?" Label="Filter by source mailbox" @bind-Value="MailboxId" @bind-Value:after="LoadAuditAsync" Class="mb-3">
-        <MudSelectItem T="Guid?" Value="@((Guid?)null)">All mailboxes</MudSelectItem>
-        @foreach (var mailbox in mailboxes)
-        {
-            <MudSelectItem T="Guid?" Value="@((Guid?)mailbox.Id)">@mailbox.DisplayName — @mailbox.MailboxAddress @(mailbox.Archived ? "(archived)" : "")</MudSelectItem>
-        }
-    </MudSelect>
     @if (cloneSource is not null)
     {
         <MudPaper Outlined="true" Class="pa-4 mb-3">
@@ -76,23 +75,19 @@
             {
                 <div class="email-rules-table-wrap">
                     <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="email-rules-table" RowsPerPage="25" FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 23rem), 46rem)">
+                        <ColGroup><col /><col style="width:132px" /><col style="width:196px" /><col style="width:100px" /><col style="width:120px" /><col style="width:212px" /></ColGroup>
                         <HeaderContent>
                             <MudTh Class="email-rule-name">Name</MudTh>
                             <MudTh>Scope</MudTh>
                             <MudTh Class="email-rule-mailbox">Mailbox</MudTh>
                             <MudTh>Status</MudTh>
                             <MudTh>Processing</MudTh>
-                            <MudTh Class="email-rules-actions"></MudTh>
+                            <MudTh Class="email-rules-actions">Actions</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Name" Class="email-rule-name">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.body2">@context.Name</MudText>
-                                    @if (!string.IsNullOrWhiteSpace(context.Description))
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Description</MudText>
-                                    }
-                                </MudStack>
+                                <MudTooltip Text="@context.Name"><span class="workspace-primary">@context.Name</span></MudTooltip>
+                                <span class="workspace-secondary">@context.Description</span>
                             </MudTd>
                             <MudTd DataLabel="Scope"><MudStack Spacing="0"><MudText Typo="Typo.body2">@InboundEmailRuleLabels.Scope(context.ScopeType)</MudText><MudText Typo="Typo.caption">@TenantDisplay(context.TenantId)</MudText></MudStack></MudTd>
                             <MudTd DataLabel="Mailbox" Class="email-rule-mailbox"><MudSelect T="Guid?" Label="Source mailbox" Value="context.MailboxId" ValueChanged="id => BindMailboxAsync(context, id)" Disabled="@loading">
@@ -106,49 +101,24 @@
                                 <MudChip T="string" Size="Size.Small" Color="@(context.Enabled ? Color.Success : Color.Default)" Variant="Variant.Text">
                                     @(context.Enabled ? "Enabled" : "Disabled")
                                 </MudChip>
-                                <MudText Typo="Typo.caption">Updated @context.UpdatedAtUtc.ToLocalTime().ToString("g")</MudText>
+                                <MudTooltip Text="@($"Updated {context.UpdatedAtUtc.ToLocalTime():g}")"><span class="workspace-secondary">@context.UpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd")</span></MudTooltip>
                             </MudTd>
                             <MudTd DataLabel="Processing"><MudStack Spacing="0"><MudText Typo="Typo.body2">Priority @context.Priority</MudText><MudText Typo="Typo.caption">@(context.StopProcessing ? "Stop after match" : "Continue after match")</MudText></MudStack></MudTd>
-                            <MudTd Class="email-rules-actions">
-                                <WorkspaceAction Label="Clone rule" Icon="@Icons.Material.Filled.ContentCopy" OnClick="() => BeginClone(context)" />
-                                <MudTooltip Text="Move up">
-                                    <MudIconButton aria-label="Move up" Icon="@Icons.Material.Filled.KeyboardArrowUp"
-                                                   Size="Size.Small"
-                                                   Disabled="@(!CanMove(context, -1) || loading)"
-                                                   OnClick="() => MoveRuleAsync(context, -1)" />
-                                </MudTooltip>
-                                <MudTooltip Text="Move down">
-                                    <MudIconButton aria-label="Move down" Icon="@Icons.Material.Filled.KeyboardArrowDown"
-                                                   Size="Size.Small"
-                                                   Disabled="@(!CanMove(context, 1) || loading)"
-                                                   OnClick="() => MoveRuleAsync(context, 1)" />
-                                </MudTooltip>
-                                <MudTooltip Text="View details">
-                                    <MudIconButton aria-label="View details" Icon="@Icons.Material.Filled.Visibility"
-                                                   Size="Size.Small"
-                                                   Color="Color.Primary"
-                                                   OnClick="() => OpenDetailsAsync(context)" />
-                                </MudTooltip>
-                                @if (context.Enabled)
-                                {
-                                    <MudTooltip Text="Disable rule">
-                                        <MudIconButton aria-label="Disable rule" Icon="@Icons.Material.Filled.ToggleOff"
-                                                       Size="Size.Small"
-                                                       Color="Color.Warning"
-                                                       Disabled="@loading"
-                                                       OnClick="() => DisableRuleAsync(context)" />
-                                    </MudTooltip>
-                                }
-                                else
-                                {
-                                    <MudTooltip Text="Enable rule">
-                                        <MudIconButton aria-label="Enable rule" Icon="@Icons.Material.Filled.ToggleOn"
-                                                       Size="Size.Small"
-                                                       Color="Color.Success"
-                                                       Disabled="@loading"
-                                                       OnClick="() => EnableRuleAsync(context)" />
-                                    </MudTooltip>
-                                }
+                            <MudTd DataLabel="Actions" Class="email-rules-actions">
+                                <div class="workspace-actions">
+                                    <WorkspaceAction Label="Clone rule" Icon="@Icons.Material.Filled.ContentCopy" OnClick="() => BeginClone(context)" />
+                                    <WorkspaceAction Label="Move up" Icon="@Icons.Material.Filled.KeyboardArrowUp" Disabled="@(!CanMove(context, -1) || loading)" DisabledReason="Already first in its complete organization/mailbox scope" OnClick="() => MoveRuleAsync(context, -1)" />
+                                    <WorkspaceAction Label="Move down" Icon="@Icons.Material.Filled.KeyboardArrowDown" Disabled="@(!CanMove(context, 1) || loading)" DisabledReason="Already last in its complete organization/mailbox scope" OnClick="() => MoveRuleAsync(context, 1)" />
+                                    <WorkspaceAction Label="View details" Icon="@Icons.Material.Filled.Visibility" OnClick="() => OpenDetailsAsync(context)" />
+                                    @if (context.Enabled)
+                                    {
+                                        <WorkspaceAction Label="Disable rule" Icon="@Icons.Material.Filled.ToggleOff" Disabled="loading" OnClick="() => DisableRuleAsync(context)" />
+                                    }
+                                    else
+                                    {
+                                        <WorkspaceAction Label="Enable rule" Icon="@Icons.Material.Filled.ToggleOn" Disabled="loading" OnClick="() => EnableRuleAsync(context)" />
+                                    }
+                                </div>
                             </MudTd>
                         </RowTemplate>
                         <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>

@@ -35,7 +35,7 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900
     await noOverflow(page);
     await page.screenshot({ path: info.outputPath(`change-record-${theme}-${width}.png`) });
     await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'Implementation Plan', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Scope of Change', exact: true })).toBeVisible();
     await noOverflow(page);
     await page.screenshot({ path: info.outputPath(`change-editor-${theme}-${width}.png`) });
   });

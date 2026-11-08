@@ -224,7 +224,7 @@ test('rule paging and filtered reordering retain full scope; browsing, clone and
   expect(reordered.some((x: any) => Number(x.id.slice(5)) >= 60)).toBe(false);
   await page.getByRole('button', { name: 'View details', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Rule 25:');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog').locator('.mud-dialog-actions').getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Enable rule', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await (await request.get(`${fixture}/state`)).json()).mutations).toHaveLength(1);

@@ -56,15 +56,17 @@
         <MudAlert Severity="Severity.Error" Class="my-2">@error</MudAlert>
     }
     <div class="pending-mail-actions my-2">
-        <MudText Typo="Typo.body2">@(error is null ? $"{total} deliveries · {SelectedCount} selected records" : "Delivery count unavailable")</MudText>
+        <MudTooltip Text="Selection persists across pages. Changing filters clears selection.">
+            <MudText Typo="Typo.body2">@(error is null ? $"{total} deliveries · {SelectedCount} selected records" : "Delivery count unavailable")</MudText>
+        </MudTooltip>
         <MudButton OnClick="SelectPage" Disabled="@(Busy || rows.Count == 0)">Select this page</MudButton>
         <MudButton OnClick="SelectAll" Disabled="@(Busy || total == 0)">@($"Select all {total} matching deliveries")</MudButton>
-        <MudButton OnClick="ClearSelection" Disabled="@(Busy || SelectedCount == 0)">Clear selection</MudButton>
-        <MudButton OnClick='() => ActAsync("retry", selectedRecords.Values.ToArray())' Disabled="@(Busy || allMatching || selectedRecords.Count is 0 or > 100)">Retry selected</MudButton>
-        <MudButton OnClick='() => BeginBulkAsync("cancel")'  Disabled="@(Busy || SelectedCount == 0)">Cancel selected</MudButton>
-        <MudButton OnClick='() => BeginBulkAsync("remove")' Disabled="@(Busy || SelectedCount == 0)">Remove selected</MudButton>
+        <WorkspaceAction Label="Clear selection" Icon="@Icons.Material.Filled.ClearAll" OnClick="ClearSelection" Disabled="@(Busy || SelectedCount == 0)" />
+        <WorkspaceAction Label="Retry selected" Icon="@Icons.Material.Filled.Replay" OnClick='() => ActAsync("retry", selectedRecords.Values.ToArray())' Disabled="@(Busy || allMatching || selectedRecords.Count is 0 or > 100)" DisabledReason="Retry requires 1–100 explicitly selected deliveries and individual review where required" />
+        <WorkspaceAction Label="Cancel selected" Icon="@Icons.Material.Filled.Block" OnClick='() => BeginBulkAsync("cancel")' Disabled="@(Busy || SelectedCount == 0)" />
+        <WorkspaceAction Label="Remove selected" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick='() => BeginBulkAsync("remove")' Disabled="@(Busy || SelectedCount == 0)" />
     </div>
-    <MudText Typo="Typo.caption">@(allMatching ? $"All matching deliveries, with {excluded.Count} exclusions. Membership is frozen before confirmation." : "Explicit selection persists across pages. Changing filters clears selection.")</MudText>
+    @if (allMatching) { <MudText Typo="Typo.caption">All matching deliveries, with @excluded.Count exclusions. Membership is frozen before confirmation.</MudText> }
     @if (operation is not null)
     {
         <MudPaper Outlined="true" Class="pa-3 my-2" role="status" aria-live="polite">

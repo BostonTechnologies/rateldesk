@@ -308,7 +308,9 @@ test('1106 matching deliveries freeze exclusions and arrivals, pause/reload/resu
   await page.getByRole('button', { name: 'Pause after current batch', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Resume same operation', exact: true })).toBeEnabled();
   const operationId = new URL(page.url()).searchParams.get('operation'); expect(operationId).toBeTruthy();
-  await page.reload(); await expect(page.getByRole('button', { name: 'Resume same operation', exact: true })).toBeEnabled();
+  await page.reload();
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByRole('button', { name: 'Resume same operation', exact: true })).toBeEnabled();
   await request.get(`${fixture}/action-options?delay=0`);
   await page.getByRole('button', { name: 'Resume same operation', exact: true }).click();
   await expect(page.getByText('cancel · 1104 / 1104 processed', { exact: true })).toBeVisible();
