@@ -1,9 +1,10 @@
 # Releases
 
-## 0.1.3-beta.7 candidate — OIDC integration ownership
+## 0.1.3-beta.7 candidate — OIDC administration and authoring editors
 
 [Release notes](../release-notes/0.1.3-beta.7.md) describe passwordless,
-issuer/subject-bound application ownership for external administrators. Follow
+issuer/subject-bound application ownership for external administrators, the
+grouped custom-role dialog and setup-first request-service authoring. Follow
 the existing reviewed PR/main validation and immutable hosted release workflow;
 publication and deployed functional acceptance remain separate gates.
 

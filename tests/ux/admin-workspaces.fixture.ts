@@ -559,3 +559,45 @@ for(const theme of ['light','dark'])for(const width of [320,1440])test(`guided w
  await graph.screenshot({path:info.outputPath(`graph-wizard-${width}-${theme}.png`)});
  expect((await(await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
 });
+
+test.describe('grouped custom-role dialog',()=>{
+ test('edit family selection, search, server rejection and clone retain exact grants',async({page,request})=>{
+  await open(page,'/admin/roles');await page.getByRole('button',{name:'Edit role',exact:true}).click();
+  const editor=page.locator('.role-editor-dialog');await expect(editor).toBeVisible();
+  await expect(editor.getByRole('checkbox',{name:'Select all Incidents permissions',exact:true})).toHaveAttribute('aria-checked','mixed');
+  await editor.getByRole('checkbox',{name:'Select all Incidents permissions',exact:true}).click();
+  await editor.getByRole('searchbox',{name:'Search permissions',exact:true}).fill('Requests');
+  await expect(editor.locator('.permission-family')).toHaveCount(1);
+  await editor.getByRole('button',{name:'Select shown permissions',exact:true}).click();
+  await editor.getByRole('textbox',{name:'Role name'}).fill('Synthetic responder');
+  await request.get(`${fixture}/fault?mode=save`);await editor.getByRole('button',{name:'Save role',exact:true}).click();
+  await expect(editor.getByRole('alert')).toContainText('could not be saved');
+  await expect(editor.getByRole('textbox',{name:'Role name'})).toHaveValue('Synthetic responder');
+  await editor.getByRole('button',{name:'Save role',exact:true}).click();await expect(editor).toBeHidden();
+  const state=await(await request.get(`${fixture}/state`)).json();
+  expect(state.saves).toHaveLength(1);expect(state.saves[0].payload.permissions).toEqual(['Incident.Delete','Incident.Manager','Incident.Read','Incident.User','Incident.Write','Request.Delete','Request.Execute','Request.Manager','Request.Read','Request.User','Request.Write']);
+  await page.getByRole('button',{name:'Clone role',exact:true}).click();await expect(editor.getByRole('textbox',{name:'Role name'})).toHaveValue('Synthetic responder copy');
+  await editor.getByRole('button',{name:'Save role',exact:true}).click();await expect(editor).toBeHidden();
+  const cloned=await(await request.get(`${fixture}/state`)).json();expect(cloned.saves).toHaveLength(2);expect(cloned.saves[1].method).toBe('POST');expect(cloned.saves[1].payload.ownerOrganizationId).toBe('org-1');expect(cloned.saves[1].payload.permissions).toEqual(state.saves[0].payload.permissions);
+ });
+ test('create dependency validation and explicit cancel preserve saved roles',async({page,request})=>{
+  await open(page,'/admin/roles');await page.getByRole('button',{name:'Create custom role',exact:true}).click();const editor=page.locator('.role-editor-dialog');
+  await editor.getByRole('textbox',{name:'Role name'}).fill('Synthetic unsaved role');
+  await editor.locator('.permission-choice').filter({hasText:'Incident.Write'}).getByRole('checkbox').check();
+  await editor.getByRole('button',{name:'Save role',exact:true}).click();await expect(editor.getByRole('alert')).toContainText('matching Read permission');
+  expect((await(await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
+  await editor.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Keep editing',exact:true}).click();await expect(editor.getByRole('textbox',{name:'Role name'})).toHaveValue('Synthetic unsaved role');
+  await editor.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Discard',exact:true}).click();await expect(editor).toBeHidden();expect((await(await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
+ });
+ test('dialog remains bounded with reachable actions at desktop and mobile widths',async({page},info)=>{
+  for(const theme of ['light','dark']){
+   await page.evaluate(value=>localStorage.setItem('helpdesk.theme.preference',value),theme);
+   for(const width of [1440,390]){
+    await page.setViewportSize({width,height:900});await open(page,'/admin/roles');await page.getByRole('button',{name:'Edit role',exact:true}).click();const editor=page.locator('.role-editor-dialog');await expect(editor).toBeVisible();
+    await expect(editor.getByRole('button',{name:'Save role',exact:true})).toBeInViewport();await expect(editor.getByRole('button',{name:'Cancel',exact:true})).toBeInViewport();
+    const box=await editor.evaluate(el=>({scroll:el.scrollWidth,client:el.clientWidth,top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom}));expect(box.scroll).toBeLessThanOrEqual(box.client+2);expect(box.top).toBeGreaterThanOrEqual(-1);expect(box.bottom).toBeLessThanOrEqual(901);
+    await settleEvidence(page);await page.screenshot({path:info.outputPath(`role-dialog-${theme}-${width}.png`)});await editor.getByRole('button',{name:'Cancel',exact:true}).click();await expect(editor).toBeHidden();
+   }
+  }
+ });
+});

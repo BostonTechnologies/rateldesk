@@ -1,0 +1,35 @@
+.permission-selector { min-width:0; margin:0; padding:0; border:0; color:var(--mud-palette-text-primary); }
+.permission-selector legend { padding:0; margin-bottom:12px; font-size:1rem; font-weight:650; }
+.permission-selector-toolbar { display:flex; align-items:end; gap:20px; }
+.permission-search { display:grid; flex:1; gap:6px; font-size:.8rem; font-weight:500; color:var(--mud-palette-text-secondary); }
+.permission-search input { width:100%; box-sizing:border-box; padding:11px 13px; color:var(--mud-palette-text-primary); background:var(--mud-palette-surface); border:1px solid var(--mud-palette-lines-inputs); border-radius:8px; font:inherit; font-size:.9rem; }
+.permission-selection-count { display:flex; flex:none; align-items:baseline; gap:6px; padding-bottom:10px; white-space:nowrap; color:var(--mud-palette-text-secondary); font-size:.8rem; }
+.permission-selection-count strong { color:var(--mud-palette-primary); font-size:1.5rem; font-weight:650; }
+.permission-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0 16px; }
+.permission-actions > span { flex:1; color:var(--mud-palette-text-secondary); font-size:.8rem; }
+.permission-actions button { padding:5px 9px; font:inherit; font-size:.8rem; font-weight:550; color:var(--mud-palette-primary); background:transparent; border:1px solid var(--mud-palette-lines-default); border-radius:6px; cursor:pointer; }
+button:disabled { opacity:.5; cursor:default; }
+.permission-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; align-items:start; }
+.permission-family { min-width:0; border:1px solid var(--mud-palette-lines-default); border-radius:10px; overflow:hidden; background:var(--mud-palette-surface); }
+.permission-family-selected { border-color:color-mix(in srgb,var(--mud-palette-primary) 40%,var(--mud-palette-lines-default)); }
+.permission-group-heading { display:flex; align-items:center; gap:8px; padding:12px; background:var(--mud-palette-background-gray); border-bottom:1px solid var(--mud-palette-lines-default); }
+.permission-family-toggle { display:flex; justify-content:flex-start; flex:1; align-items:center; gap:10px; padding:0; min-width:0; border:0; background:transparent; color:inherit; text-align:left; font:inherit; cursor:pointer; }
+.permission-family-check { display:flex; align-items:center; justify-content:center; flex:none; width:19px; height:19px; border:1.5px solid var(--mud-palette-text-secondary); border-radius:5px; font-weight:700; font-size:.9rem; line-height:1; }
+.permission-family-toggle[aria-checked="true"] .permission-family-check, .permission-family-toggle[aria-checked="mixed"] .permission-family-check { background:var(--mud-palette-primary); border-color:var(--mud-palette-primary); color:var(--mud-palette-primary-text); }
+.permission-family-toggle strong { display:block; font-size:.9rem; font-weight:650; }
+.permission-family-toggle small { display:block; margin-top:2px; color:var(--mud-palette-text-secondary); font-size:.72rem; }
+.permission-family-total { flex:none; padding:2px 7px; border:1px solid var(--mud-palette-lines-default); border-radius:12px; font-size:.72rem; color:var(--mud-palette-text-secondary); }
+.permission-family-choices { padding:5px 10px; }
+.permission-choice { display:flex; align-items:flex-start; gap:10px; padding:10px 4px; min-width:0; overflow-wrap:anywhere; cursor:pointer; border-radius:6px; }
+.permission-choice:hover { background:var(--mud-palette-action-default-hover); }
+.permission-choice + .permission-choice { border-top:1px solid var(--mud-palette-lines-default); }
+.permission-choice strong { display:block; font-size:.85rem; font-weight:500; line-height:1.4; }
+.permission-choice small { display:block; font-size:.7rem; color:var(--mud-palette-text-secondary); margin-top:2px; }
+.permission-choice input { width:16px; height:16px; flex:none; margin:2px 0 0; accent-color:var(--mud-palette-primary); }
+.permission-selected { margin-top:16px; border-top:1px solid var(--mud-palette-lines-default); font-size:.8rem; }
+.permission-selected summary { padding:12px 0; cursor:pointer; color:var(--mud-palette-text-secondary); }
+.permission-selected-keys { display:flex; flex-wrap:wrap; gap:6px; }
+.permission-selected-keys span { border:1px solid var(--mud-palette-lines-default); border-radius:5px; padding:4px 7px; overflow-wrap:anywhere; }
+.permission-empty { padding:24px 12px; text-align:center; color:var(--mud-palette-text-secondary); }
+input:focus-visible, button:focus-visible, summary:focus-visible { outline:2px solid var(--mud-palette-primary); outline-offset:3px; }
+@media (max-width:640px) { .permission-groups { grid-template-columns:minmax(0,1fr); } .permission-selector-toolbar { align-items:stretch; flex-direction:column; gap:4px; } .permission-selection-count { padding:4px 0; } .permission-actions > span { flex-basis:100%; } }

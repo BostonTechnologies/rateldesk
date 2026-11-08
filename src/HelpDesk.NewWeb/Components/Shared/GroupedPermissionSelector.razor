@@ -1,0 +1,82 @@
+@using Helpdesk.Shared.Auth
+
+<fieldset class="permission-selector" aria-label="@AriaLabel" data-testid="grouped-permission-selector" disabled="@Disabled">
+    <legend>@Title</legend>
+    <div class="permission-selector-toolbar">
+        <label class="permission-search"><span>Search permissions</span>
+            <input type="search" value="@search" @oninput="SearchChanged" placeholder="Search a permission or family" disabled="@Disabled" />
+        </label>
+        <div class="permission-selection-count" aria-live="polite"><strong>@Selected.Count</strong><span>of @Eligible.Count selected</span></div>
+    </div>
+    <div class="permission-actions">
+        <span>@Displayed.Count permissions shown</span>
+        <button type="button" @onclick="SelectDisplayedAsync" disabled="@(Disabled || Displayed.Count == 0)">@(string.IsNullOrWhiteSpace(search) ? "Select all permissions" : "Select shown permissions")</button>
+        <button type="button" @onclick="ClearAsync" disabled="@(Disabled || Selected.Count == 0)">Clear selection</button>
+    </div>
+    <div class="permission-groups">
+        @foreach (var group in Displayed.GroupBy(Category))
+        {
+            var family = Eligible.Where(p => Category(p) == group.Key).ToArray();
+            var selectedCount = family.Count(Selected.Contains);
+            var state = selectedCount == 0 ? "false" : selectedCount == family.Length ? "true" : "mixed";
+            <section class="@(selectedCount > 0 ? "permission-family permission-family-selected" : "permission-family")" aria-label="@($"{CredentialPermissionLabels.Group(group.Key)} permissions")" @key="group.Key">
+                <div class="permission-group-heading">
+                    <button type="button" class="permission-family-toggle" role="checkbox" aria-checked="@state" aria-label="@($"Select all {CredentialPermissionLabels.Group(group.Key)} permissions")" @onclick="() => ToggleGroupAsync(group.Key)" disabled="@Disabled">
+                        <span class="permission-family-check" aria-hidden="true">@(state == "true" ? "✓" : state == "mixed" ? "−" : "")</span>
+                        <span><strong>@CredentialPermissionLabels.Group(group.Key)</strong><small>@selectedCount of @family.Length selected</small></span>
+                    </button>
+                    <span class="permission-family-total">@family.Length</span>
+                </div>
+                <div class="permission-family-choices">
+                    @foreach (var permission in group)
+                    {
+                        <label class="permission-choice" @key="permission"><input type="checkbox" checked="@Selected.Contains(permission)" @onchange="args => ToggleAsync(permission, args)" disabled="@Disabled" /><span><strong>@CredentialPermissionLabels.Name(permission)</strong><small>@permission</small></span></label>
+                    }
+                </div>
+            </section>
+        }
+    </div>
+    @if (Eligible.Count == 0) { <p class="permission-empty">@EmptyText</p> }
+    else if (Displayed.Count == 0) { <p class="permission-empty">No permissions match this search. Your selection is retained.</p> }
+    @if (Selected.Count > 0)
+    {
+        <details class="permission-selected"><summary>@Selected.Count selected permissions</summary><div class="permission-selected-keys">@foreach (var permission in Selected.Order(StringComparer.OrdinalIgnoreCase)) { <span>@permission</span> }</div></details>
+    }
+    @if (FormFieldName is not null)
+    {
+        @foreach (var permission in Selected.Order(StringComparer.OrdinalIgnoreCase)) { <input type="hidden" name="@FormFieldName" value="@permission" /> }
+    }
+</fieldset>
+
+@code {
+    [Parameter] public IEnumerable<string> EligiblePermissions { get; set; } = [];
+    [Parameter] public IEnumerable<string> SelectedValues { get; set; } = [];
+    [Parameter] public EventCallback<IEnumerable<string>> SelectedValuesChanged { get; set; }
+    [Parameter] public string? FormFieldName { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Title { get; set; } = "Permissions";
+    [Parameter] public string AriaLabel { get; set; } = "Permissions";
+    [Parameter] public string EmptyText { get; set; } = "No eligible permissions are available.";
+    private string search = "";
+    private IReadOnlyList<string> Eligible => EligiblePermissions.Where(p => HelpdeskPermissions.AssignablePermissions.Contains(p, StringComparer.OrdinalIgnoreCase))
+        .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+    private HashSet<string> Selected => SelectedValues.Intersect(Eligible, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<string> Displayed => Eligible.Where(p => $"{p} {CredentialPermissionLabels.Name(p)} {CredentialPermissionLabels.Group(Category(p))}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+    private static string Category(string permission) => permission.Split('.')[0];
+    private void SearchChanged(ChangeEventArgs args) => search = args.Value?.ToString() ?? "";
+    private Task SelectDisplayedAsync() => ChangeAsync(Selected.Union(Displayed, StringComparer.OrdinalIgnoreCase));
+    private Task ToggleGroupAsync(string category)
+    {
+        var family = Eligible.Where(p => Category(p) == category).ToArray();
+        return ChangeAsync(family.All(Selected.Contains) ? Selected.Except(family, StringComparer.OrdinalIgnoreCase) : Selected.Union(family, StringComparer.OrdinalIgnoreCase));
+    }
+    private Task ClearAsync() => ChangeAsync([]);
+    private Task ToggleAsync(string permission, ChangeEventArgs args)
+    {
+        var values = Selected;
+        if (args.Value is true) values.Add(permission); else values.Remove(permission);
+        return ChangeAsync(values);
+    }
+    private Task ChangeAsync(IEnumerable<string> values) => Disabled ? Task.CompletedTask :
+        SelectedValuesChanged.InvokeAsync(values.Intersect(Eligible, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray());
+}

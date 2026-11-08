@@ -17,6 +17,14 @@ sent by a browser is not trusted as an authorization decision.
 | Change Approver | Each assigned tenant | Read changes and approve a submitted change; cannot otherwise edit or implement it. |
 | Self-service User | Own resources in each assigned tenant | The self-service, incident-user, and request-user permission bundle. |
 
+Custom-role creation, editing and cloning use a dialog with a grouped permission
+selector. Search by permission name, key or family. A family checkbox selects or
+clears the entire eligible family, including rows hidden by search; **Select
+shown permissions** only adds the current search results. Selection counts and
+partial family states show the resulting grants. Save validates permission
+dependencies and current API authority; rejected saves keep the draft. Cancel
+asks before discarding changed drafts. Editing cannot change role ownership.
+
 Built-in roles are protected. Instance administrators can create tenant-owned
 custom roles in **Administration → Roles & Permissions**. A custom role can
 only contain the published assignable permissions, and write, delete and approval permissions must

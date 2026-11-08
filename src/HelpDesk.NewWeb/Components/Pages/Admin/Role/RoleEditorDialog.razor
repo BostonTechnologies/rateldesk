@@ -1,0 +1,117 @@
+@using Helpdesk.Shared.Auth
+@using HelpDesk.NewWeb.Components.Shared
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject IHttpClientFactory HttpClientFactory
+@inject IDialogService DialogService
+
+<MudDialog Class="role-editor-dialog">
+    <TitleContent>
+        <div class="role-editor-heading"><MudIcon Icon="@Icons.Material.Outlined.AdminPanelSettings" Color="Color.Primary" /><div><MudText Typo="Typo.h6">@(IsEditing ? "Edit custom role" : IsClone ? "Clone custom role" : "Create custom role")</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Define access for one organization.</MudText></div></div>
+    </TitleContent>
+    <DialogContent>
+        <div class="role-editor-content" data-testid="role-editor">
+            @if (!string.IsNullOrWhiteSpace(error)) { <MudAlert Severity="Severity.Error" Dense="true" role="alert">@error</MudAlert> }
+            @if (HasUnsupportedPermissions) { <MudAlert Severity="Severity.Warning" Dense="true">This role contains permissions outside your current authority. An instance administrator must review it; its saved permissions are preserved.</MudAlert> }
+            <div class="role-editor-details">
+                <MudTextField @bind-Value="draftName" Label="Role name" Required="true" MaxLength="200" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(saving || HasUnsupportedPermissions)" />
+                <MudSelect T="string" @bind-Value="draftOwner" Label="Owning organization" Required="true" Disabled="@(saving || IsEditing)" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@(IsEditing ? "The owning organization is fixed for this role." : "Permissions apply within this organization.")">
+                    @foreach (var organization in Organizations) { <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem> }
+                </MudSelect>
+            </div>
+            <div class="role-editor-permissions">
+                <GroupedPermissionSelector EligiblePermissions="EligiblePermissions" SelectedValues="draftPermissions" SelectedValuesChanged="PermissionsChanged" AriaLabel="Custom role permissions" Disabled="@(saving || HasUnsupportedPermissions)" />
+            </div>
+            <p class="role-editor-hint">Write, delete, execute and approve permissions require their matching Read permission. Manager permissions require their matching User permission.</p>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <span class="role-editor-save-state" role="status">@draftPermissions.Count permission@(draftPermissions.Count == 1 ? "" : "s") selected</span>
+        <MudButton OnClick="CancelAsync" Disabled="saving">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(saving || HasUnsupportedPermissions)" OnClick="SaveAsync">@(saving ? "Saving…" : "Save role")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+.role-editor-dialog { width:min(1040px,94vw); max-height:90dvh; display:flex; flex-direction:column; }
+.role-editor-dialog .mud-dialog-title { padding:22px 26px 18px; border-bottom:1px solid var(--mud-palette-lines-default); }
+.role-editor-dialog .mud-dialog-content { padding:20px 26px; overflow:auto; min-height:0; overscroll-behavior:contain; }
+.role-editor-dialog .mud-dialog-actions { flex:none; border-top:1px solid var(--mud-palette-lines-default); padding:14px 26px; gap:8px; }
+.role-editor-heading { display:flex; align-items:center; gap:14px; }
+.role-editor-heading > .mud-icon-root { flex:none; width:40px; height:40px; padding:8px; box-sizing:content-box; border:1px solid var(--mud-palette-lines-default); border-radius:12px; }
+.role-editor-content { display:grid; gap:20px; min-width:0; }
+.role-editor-details { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.role-editor-permissions { min-width:0; padding-top:18px; border-top:1px solid var(--mud-palette-lines-default); }
+.role-editor-hint, .role-editor-save-state { color:var(--mud-palette-text-secondary); font-size:.78rem; }
+.role-editor-save-state { flex:1; }
+@@media (max-width:640px) { .role-editor-dialog { width:100vw; max-height:100dvh; height:100dvh; margin:0; border-radius:0; } .role-editor-dialog .mud-dialog-title, .role-editor-dialog .mud-dialog-content { padding:16px; } .role-editor-dialog .mud-dialog-actions { padding:12px 16px; } .role-editor-details { grid-template-columns:minmax(0,1fr); gap:6px; } .role-editor-heading > .mud-icon-root { display:none; } }
+</style>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public RoleManagement.RoleDefinition? Role { get; set; }
+    [Parameter] public IReadOnlyList<RoleManagement.TenantOrganization> Organizations { get; set; } = [];
+    [Parameter] public IEnumerable<string> EligiblePermissions { get; set; } = [];
+    [Parameter] public bool IsClone { get; set; }
+    private string draftName = "";
+    private string? draftOwner;
+    private HashSet<string> draftPermissions = new(StringComparer.OrdinalIgnoreCase);
+    private bool saving;
+    private string? error;
+    private string initialDraft = "";
+    private bool IsEditing => Role is not null && !IsClone;
+    private bool HasUnsupportedPermissions => Role?.Permissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase).Any() == true;
+    private string Fingerprint() => JsonSerializer.Serialize(new { draftName, draftOwner, permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase) });
+    protected override void OnInitialized()
+    {
+        draftName = Role is null ? "" : IsClone ? $"{Role.Name} copy" : Role.Name;
+        draftOwner = Role?.OwnerOrganizationId ?? Organizations.FirstOrDefault()?.Id;
+        draftPermissions = Role?.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new(StringComparer.OrdinalIgnoreCase);
+        initialDraft = Fingerprint();
+    }
+    private void PermissionsChanged(IEnumerable<string> values) => draftPermissions = values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private async Task CancelAsync()
+    {
+        if (saving) return;
+        if (initialDraft != Fingerprint() && await DialogService.ShowMessageBoxAsync("Discard role edits?", "Your unsaved role changes will be lost.", yesText: "Discard", cancelText: "Keep editing") != true) return;
+        MudDialog.Cancel();
+    }
+    private async Task SaveAsync()
+    {
+        if (saving || HasUnsupportedPermissions) return;
+        error = null;
+        if (IsEditing && Role is { IsBuiltIn: true } or { IsProtected: true }) { error = "Protected roles cannot be edited."; return; }
+        if (string.IsNullOrWhiteSpace(draftName)) { error = "Enter a role name."; return; }
+        if (!Organizations.Any(x => x.Id == draftOwner)) { error = "Choose an authorized owning organization."; return; }
+        if (draftPermissions.Count == 0) { error = "Select at least one permission."; return; }
+        if (draftPermissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase).Any()) { error = "This role includes permissions outside your current authority. Ask an instance administrator to review it."; return; }
+        if (!RoleDefinitionCatalog.SatisfiesDependencies(draftPermissions)) { error = "Include the matching Read permission for Write, Delete, Execute or Approve, and the matching User permission for Manager."; return; }
+        saving = true;
+        try
+        {
+            var api = HttpClientFactory.CreateClient("HelpdeskApi");
+            using var response = IsEditing
+                ? await api.PutAsJsonAsync($"api/v1/admin/role-definitions/{Role!.Id}", new { name = draftName.Trim(), permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase).ToArray() })
+                : await api.PostAsJsonAsync("api/v1/admin/role-definitions/", new { name = draftName.Trim(), key = (string?)null, ownerOrganizationId = draftOwner, permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase).ToArray() });
+            if (!response.IsSuccessStatusCode) { error = await SaveErrorAsync(response); return; }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (HttpRequestException) { error = "The role service is unavailable. Your changes are retained; please retry."; }
+        finally { saving = false; }
+    }
+    private static async Task<string> SaveErrorAsync(HttpResponseMessage response)
+    {
+        const string fallback = "The role could not be saved. Check your current access and the role's permissions, then retry.";
+        try
+        {
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (body.RootElement.ValueKind != JsonValueKind.Object) return fallback;
+            if (body.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+                return string.Join(" ", errors.EnumerateObject().Where(x => x.Value.ValueKind == JsonValueKind.Array).SelectMany(x => x.Value.EnumerateArray()).Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString())) is { Length: > 0 } message ? message : fallback;
+            foreach (var key in new[] { "message", "detail" })
+                if (body.RootElement.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())) return value.GetString()!;
+            return fallback;
+        }
+        catch (JsonException) { return fallback; }
+    }
+}
