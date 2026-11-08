@@ -52,6 +52,20 @@ User authorization covers implementation, reviewed PR/merge, hosted release and 
   creation search waits for MudDialog 9.11's actual initial focus fallback before
   typing, avoiding the component's late opening focus/coercion. Twenty repeated
   light/dark cases passed, without retries or fixed sleeps.
+- The full hosted suite identified two public-contract inventory omissions:
+  the seven new HTTP methods and the reflected optional `saveAsDraft` field.
+  OpenAPI now expects 477 Release / 478 Debug methods, with a separate assertion
+  for every new route's tag, authentication and management policy. The current
+  MCP catalog was regenerated through its SDK-backed export test at revision
+  `2026-11-08.beta8-contracts-v28`: semantic changes are the revision, two hashes
+  and four optional Boolean schema occurrences. All 390 operations, 37 tools,
+  effects, transports and confirmation rules are retained. The compiled schema
+  graph regenerated identically (129 roots, 144 models, 35 enums); historical
+  catalogs and mappings retain their original bytes.
+- Follow-up contract verification: complete Debug solution build passed with
+  zero errors and the same 23 existing warnings; all **23** executable-schema
+  and OpenAPI cases passed without failures/skips. Slopwatch reported zero new
+  issues, and the offline MCP campaign harness passed against the new catalog.
 - Light/dark matrices cover 1440×900, 1366×768 and mobile 320/390px, realistic
   long labels and dense synthetic rows. Before screenshots use baseline main
   `6a7e7fb`; after screenshots use the final owning suites. Reviewed images include

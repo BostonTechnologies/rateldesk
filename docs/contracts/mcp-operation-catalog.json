@@ -1,7 +1,7 @@
 {
-  "schemaHash": "b0e3d444c9cc1834f2ad8320998fc7afd3a3ef3ae341a0b46a9803d73cea0f7a",
-  "catalogRevision": "2026-11-05.beta4-contracts-v27",
-  "catalogHash": "b76fb254fae699512c524e942d5791d22f77c6ebe0c1c8b5b038efc237023a44",
+  "schemaHash": "29efc652cd58595a23534adfbdb60465f738500c8b7b980059e695827ab311b7",
+  "catalogRevision": "2026-11-08.beta8-contracts-v28",
+  "catalogHash": "b314388665136c980641273791341247df0297692a4f7f0e92f7ac430ab8b56b",
   "operationCount": 390,
   "operations": [
     {
@@ -3084,6 +3084,9 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "saveAsDraft": {
+            "type": "boolean"
+          },
           "title": {
             "type": "string",
             "minLength": 1
@@ -5984,6 +5987,9 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "saveAsDraft": {
+                  "type": "boolean"
+                },
                 "title": {
                   "type": "string",
                   "minLength": 1
@@ -50976,6 +50982,9 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "saveAsDraft": {
+                    "type": "boolean"
+                  },
                   "title": {
                     "type": "string",
                     "minLength": 1
@@ -52203,6 +52212,9 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
+                        "saveAsDraft": {
+                          "type": "boolean"
+                        },
                         "title": {
                           "type": "string",
                           "minLength": 1

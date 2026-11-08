@@ -7,7 +7,7 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The current catalog revision `2026-11-05.beta4-contracts-v27` contains 390
+The current catalog revision `2026-11-08.beta8-contracts-v28` contains 390
 operations on 37 tools. The retained [inventory delta](mcp-operation-inventory-delta-beta13.json)
 compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
 with beta.11 at revision `2026-10-25.beta11-contracts-v25`: all 389 prior
@@ -17,6 +17,12 @@ while preserving delivery and rule audit history. The
 [retained beta.8 mapping](mcp-operation-inventory-delta-beta8.json) records the
 earlier operator expansion. These source mappings remain distinct from fresh
 runtime acceptance evidence.
+
+In 0.1.3-beta.8, Change creation accepts optional `request.saveAsDraft=true`;
+bulk creation accepts the same field on each `request.items` entry. Omitting it
+preserves existing creation semantics. Creating a draft remains a confirmed
+write, with the same authority checks. The generated schemas include this
+optional Boolean; the catalog retains all 390 operations and 37 tools.
 
 ## Requests, previews and effects
 
