@@ -1378,6 +1378,7 @@ body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
 .premium-workspace .mud-table-root { table-layout: fixed; }
 .premium-workspace .mud-table-head th { background: var(--mud-palette-surface); font-size: .8rem; color: var(--mud-palette-text-secondary); }
 .premium-workspace .mud-table-cell { vertical-align: middle; overflow-wrap: anywhere; }
+.premium-workspace .mud-table-head .mud-table-cell { overflow-wrap: normal; word-break: normal; }
 .premium-workspace .mud-table-pagination { background: var(--mud-palette-surface); border-top: 1px solid var(--mud-palette-divider); flex-wrap: wrap; }
 .premium-workspace .workspace-primary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .premium-workspace .workspace-secondary { color: var(--mud-palette-text-secondary); font-size: .8rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
