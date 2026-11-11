@@ -26,3 +26,10 @@
 
 .request-detail-page { min-width:0; }
 .request-detail-page ::deep .ticket-header-title { font-size:1.75rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
+
+/* Match the shared workspace actions' hit boxes, including the disclosure button. */
+.request-task-actions ::deep .mud-icon-button { min-width:2.25rem; min-height:2.25rem; }
+.request-task-actions ::deep :focus-visible { outline:2px solid var(--mud-palette-primary); outline-offset:2px; }
+@media(max-width:600px) {
+    .request-task-actions ::deep .mud-icon-button { min-width:2.75rem; min-height:2.75rem; }
+}
