@@ -12,9 +12,11 @@ export function resetTeamDirectory() {
   for (const release of held) release(); held = [];
   records = Array.from({ length: 137 }, (_, index) => ({
     id: `team-user-${String(index).padStart(3, '0')}`, name: `Synthetic person ${String(index).padStart(3, '0')}${index === 0 ? ' · a long identity with readable full text' : ''}`,
-    email: `person${String(index).padStart(3, '0')}@example.invalid`, role: index % 3 === 0 ? 'Technician' : 'User', roleKeys: [],
+    email: `person${String(index).padStart(3, '0')}@example.invalid`, role: index % 3 === 0 ? 'Technician' : 'User',
+    roleKeys: index === 0 ? ['tenant.requests.executors.with.a.long.scoped.role.key'] : [],
     isTestUser: index % 2 === 0, organizationId: organizations[index % 8].id, organizationName: organizations[index % 8].name,
     accountState: index % 5 === 0 ? 'Disabled' : 'Enabled', accountId: `team-user-${String(index).padStart(3, '0')}`,
+    accountSignInEnabled: index % 5 !== 0, identitySummary: 'Local application account',
     canManageAccount: true, canChangeSignIn: true, canDelete: true, deleteBlockedReason: null
   }));
 }
@@ -24,6 +26,7 @@ export function handleTeamDirectory(req, res, url) {
   if (path === '/fixture/team') { resetTeamDirectory(); active = true; json(res, { active: true }); return true; }
   if (!active) return false;
   if (path === '/fixture/team/state') { json(res, { requests, count: records.length }); return true; }
+  if (path === '/fixture/team/count') { records = records.slice(0, Math.max(0, Number(url.searchParams.get('value')))); json(res, { count: records.length }); return true; }
   if (path === '/fixture/team/unavailable') { unavailable = url.searchParams.get('value') === 'true'; json(res, {}); return true; }
   if (path === '/fixture/team/reject-delete') { rejectDelete = url.searchParams.get('value') === 'true'; json(res, {}); return true; }
   if (path === '/fixture/team/release') { for (const release of held) release(); held = []; json(res, {}); return true; }
@@ -48,6 +51,7 @@ export function handleTeamDirectory(req, res, url) {
     return true;
   }
   if (path === '/api/v1/users' && req.method === 'GET') { json(res, records); return true; }
+  if (path === '/api/v1/organizations' && req.method === 'GET') { json(res, organizations); return true; }
   const deletion = path.match(/^\/api\/v1\/users\/(team-user-\d+)$/);
   if (deletion && req.method === 'DELETE') {
     requests.push({ method: req.method, path });
@@ -61,7 +65,7 @@ export function handleTeamDirectory(req, res, url) {
     const row = records.find(item => item.id === signIn[1]);
     if (!row) json(res, {}, 404);
     else if (signIn[2] === 'status') json(res, { isEnabled: row.accountState === 'Enabled' });
-    else { row.accountState = signIn[2] === 'enable' ? 'Enabled' : 'Disabled'; res.writeHead(204); res.end(); }
+    else { row.accountState = signIn[2] === 'enable' ? 'Enabled' : 'Disabled'; row.accountSignInEnabled = signIn[2] === 'enable'; res.writeHead(204); res.end(); }
     return true;
   }
   return false;

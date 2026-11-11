@@ -17,21 +17,22 @@
 <Authorized>
 <div class="helpdesk-page team-directory directory-workspace">
 <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="helpdesk-page-header">
-        <div><MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText><MudText Typo="Typo.body2">People, organization roles and application access</MudText></div>
-        <MudSpacer />
+    <header class="team-header">
+        <div class="team-heading"><MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText><MudText Typo="Typo.body2">People, organization roles and application access</MudText></div>
+        <div class="team-header-actions">
         <MudTooltip Text="Refresh current query"><MudIconButton aria-label="Refresh team" Icon="@Icons.Material.Filled.Refresh" OnClick="Refresh" /></MudTooltip>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create user</MudButton>
-    </MudStack>
+        </div>
+    </header>
     <div class="team-query-toolbar" role="search" aria-label="Find team members">
-        <MudTextField T="string" Value="searchText" ValueChanged="SearchChanged" Label="Search name or email" Variant="Variant.Outlined" Margin="Margin.Dense"
+        <MudTextField T="string" Value="@searchText" ValueChanged="SearchChanged" Label="Search name or email" Variant="Variant.Outlined" Margin="Margin.Dense"
                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" DebounceInterval="300" Immediate="true" Clearable="true" />
         <MudAutocomplete T="TenantLookupDto" Value="selectedOrganization" ValueChanged="OrganizationChanged" SearchFunc="FindOrganizations" ToStringFunc="@(item => item?.Name ?? string.Empty)"
                          Label="Organization" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" ResetValueOnEmptyText="true" MinCharacters="0" DebounceInterval="300" MaxItems="50" />
-        <MudTextField T="string" Value="roleFilter" ValueChanged="RoleChanged" Label="Role or scoped role key" Placeholder="User, Technician or a scoped role key" DebounceInterval="300" Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
-        <MudSelect T="string" Value="stateFilter" ValueChanged="StateChanged" Label="Application access" Variant="Variant.Outlined" Margin="Margin.Dense">
+        <MudTextField T="string" Value="@roleFilter" ValueChanged="RoleChanged" Label="Role or scoped role key" Placeholder="User, Technician or a scoped role key" DebounceInterval="300" Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudSelect T="string" Value="@stateFilter" ValueChanged="StateChanged" Label="Application access" Variant="Variant.Outlined" Margin="Margin.Dense">
             <MudSelectItem T="string" Value="@(string.Empty)">All access states</MudSelectItem>
-            @foreach (var state in new[] { "Enabled", "Disabled", "External", "Profile" }) { <MudSelectItem T="string" Value="state">@StateLabel(state)</MudSelectItem> }
+            @foreach (var state in new[] { "Enabled", "Disabled", "External", "Profile" }) { <MudSelectItem T="string" Value="@state">@StateLabel(state)</MudSelectItem> }
         </MudSelect>
         <MudSelect T="bool?" Value="testFilter" ValueChanged="CohortChanged" Label="Self-service cohort" Variant="Variant.Outlined" Margin="Margin.Dense">
             <MudSelectItem T="bool?" Value="@((bool?)null)">All cohorts</MudSelectItem>
