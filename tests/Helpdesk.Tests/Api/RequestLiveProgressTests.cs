@@ -110,6 +110,8 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         }
         Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Gateway/frame/render convergence took {elapsed.Elapsed}.");
         output.WriteLine($"Provider={(postgres ? "PostgreSQL" : "SQLite")}; Request=live-request; gateway=true; persisted terminal → SSE → rendered convergence={elapsed.Elapsed.TotalMilliseconds:F0} ms");
+        output.WriteLine($"State frame bytes observed at {factory.Frames.StateObservedAt:O}; actual stream:\n{factory.Frames.Text}");
+        output.WriteLine("Canonical HTTP reads:\n" + string.Join("\n", factory.Reads));
         Assert.Contains("event: request-state", factory.Frames.Text);
         Assert.Contains("live-request", factory.Frames.Text);
         Assert.True(factory.Frames.GatewayHeaderSeen);
@@ -522,6 +524,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         public TaskCompletionSource<bool> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<bool> Reconnected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<bool> State { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public DateTimeOffset? StateObservedAt { get; private set; }
         public TaskCompletionSource<bool> SecondRequestState { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool GatewayHeaderSeen { get; set; }
         public string Text => string.Concat(text);
@@ -531,7 +534,11 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             var all = Text;
             if (all.Contains("event: ready", StringComparison.Ordinal)) Ready.TrySetResult(true);
             if (all.Split("event: ready", StringSplitOptions.None).Length >= 3) Reconnected.TrySetResult(true);
-            if (all.Contains("event: request-state", StringComparison.Ordinal)) State.TrySetResult(true);
+            if (all.Contains("event: request-state", StringComparison.Ordinal))
+            {
+                StateObservedAt ??= DateTimeOffset.UtcNow;
+                State.TrySetResult(true);
+            }
             if (all.Contains("\"ticketId\":\"second-request\"", StringComparison.Ordinal)) SecondRequestState.TrySetResult(true);
         }
     }
