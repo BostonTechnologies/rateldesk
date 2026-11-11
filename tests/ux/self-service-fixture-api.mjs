@@ -37,7 +37,7 @@ http.createServer(async (req, res) => {
   }
   if (path.endsWith('/breadcrumb')) return reply([{ id: 'service-0', name: 'Synthetic hardware folder' }]);
   if (path === '/api/v1/request-forms/form-synthetic') return reply({ id: 'form-synthetic', serviceId: 'service-0', title: 'Synthetic access request', description: 'Harmless rendered submission fixture', organizationId: 'org-synthetic', allowedOrganizationIds: ['org-synthetic'], releaseStatus: 1,
-    jsonSchema: JSON.stringify({ fields: [{ key: 'reason', label: 'Request reason', type: 'text', required: true }], tasks: [] }) });
+    jsonSchema: JSON.stringify({ title: 'Synthetic access request', description: 'Harmless rendered submission fixture', fields: [{ key: 'reason', label: 'Request reason', type: 'text', required: true }], tasks: [] }) });
   if (path === '/api/v1/self-service/submission-context') {
     const denied = ['missing-requester', 'disabled-requester', 'wrong-organization'].includes(fault);
     return reply({ organizationId: 'org-synthetic', organizationName: 'Example Organization', requestedForName: 'Synthetic Owner', canSubmit: !denied,

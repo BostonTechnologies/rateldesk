@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { copyFile } from 'node:fs/promises';
+import path from 'node:path';
 import { assertNoHorizontalOverflow } from './auth';
 
 const fixture = 'http://127.0.0.1:18440/fixture';
@@ -35,6 +37,8 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
     await expect(sections.getByRole('link', { name: 'Service Catalog' })).toHaveAttribute('aria-current', 'page');
     await assertNoHorizontalOverflow(page);
     await page.screenshot({ path: info.outputPath('catalog-after.png'), fullPage: true });
+    await copyFile(path.resolve(`docs/implementation/assets/381-self-service/catalog-${width}x${height}-${theme}.png`), info.outputPath('catalog-before.png'));
+    await copyFile(path.resolve('docs/implementation/assets/381-self-service/capture-receipt.json'), info.outputPath('baseline-source.json'));
 
     await sections.getByRole('link', { name: 'My Requests', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'My Requests', exact: true })).toBeVisible();
@@ -54,12 +58,15 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
     await expect(page.locator('.mud-table-pagination')).toBeInViewport({ ratio: 1 });
     await assertNoHorizontalOverflow(page);
     await page.screenshot({ path: info.outputPath('my-requests-after.png'), fullPage: true });
+    await copyFile(path.resolve(`docs/implementation/assets/381-self-service/my-requests-${width}x${height}-${theme}.png`), info.outputPath('my-requests-before.png'));
   });
 }
 
-for (const width of [1440, 1920]) {
-  test(`sparse catalog preserves three slots and drawer geometry at ${width}px`, async ({ page, request }, info) => {
+for (const theme of ['light', 'dark']) for (const width of [1440, 1920]) {
+  test(`sparse catalog preserves three slots and drawer geometry ${theme} at ${width}px`, async ({ page, request }, info) => {
     await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+    await copyFile(path.resolve('docs/implementation/assets/381-self-service/capture-receipt.json'), info.outputPath('baseline-source.json'));
     let expectedWidth = 0;
     for (const count of [7, 1, 2, 3, 4]) {
       await request.get(`${fixture}/catalogue?count=${count}`);
@@ -69,6 +76,9 @@ for (const width of [1440, 1920]) {
       expect(result.tracks).toBe(3);
       if (expectedWidth) expect(Math.abs(result.widths[0] - expectedWidth)).toBeLessThan(2);
       expectedWidth = result.widths[0];
+      await page.screenshot({ path: info.outputPath(`catalog-after-${count}-cards.png`), fullPage: true });
+      if (count === 1 || count === 2)
+        await copyFile(path.resolve(`docs/implementation/assets/381-self-service/catalog-${count}-cards-${width}-${theme}.png`), info.outputPath(`catalog-before-${count}-cards.png`));
     }
     const search = page.getByRole('textbox', { name: 'Search services and requests' });
     await search.fill('Service 1');

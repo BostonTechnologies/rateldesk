@@ -1,5 +1,5 @@
 import { chromium, expect, test, type Page } from '@playwright/test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 const suite = process.env.HELPDESK_NATIVE_ZOOM_SUITE!;
@@ -376,6 +376,17 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         // paths must also be valid on Windows and GitHub's artifact service.
         const routeFileName = route.replace(/[^a-zA-Z0-9._-]+/g, '-');
         await writeFile(info.outputPath(`${routeFileName}-${theme}-${width}-native-200.png`), screenshot);
+        if (suite === 'self-service') {
+          const beforeRoute = route === '/self-service' ? 'catalog' : 'my-requests';
+          await copyFile(path.resolve(`docs/implementation/assets/381-self-service/${beforeRoute}-${width}-${theme}-native200.png`),
+            info.outputPath(`${routeFileName}-${theme}-${width}-before-native-200.png`));
+          await copyFile(path.resolve('docs/implementation/assets/381-self-service/capture-receipt.json'), info.outputPath('baseline-source.json'));
+        }
+        if (suite === 'premium-cards') {
+          const beforeRoute = route === '/home' ? 'home' : route.startsWith('/admin/requests/services') ? 'services' : 'connections';
+          await copyFile(path.resolve(`docs/implementation/assets/381-premium-cards/${beforeRoute}-${width}-${theme}-native-200.png`),
+            info.outputPath(`${routeFileName}-${theme}-${width}-before-native-200.png`));
+        }
         await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme,
           capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
         if (suite === 'admin' && route === '/admin/resources/data-management') {

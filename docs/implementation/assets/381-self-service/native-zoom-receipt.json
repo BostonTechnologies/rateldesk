@@ -1,0 +1,100 @@
+{
+  "evidence": [
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 1280,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 640,
+      "path": "catalog-1280-light-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1280,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 1280,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 640,
+      "path": "my-requests-1280-light-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1280,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 1920,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 960,
+      "path": "catalog-1920-light-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1920,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 1920,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 960,
+      "path": "my-requests-1920-light-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1920,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 1280,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 640,
+      "path": "catalog-1280-dark-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1280,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 1280,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 640,
+      "path": "my-requests-1280-dark-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1280,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 1920,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 960,
+      "path": "catalog-1920-dark-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1920,
+      "captureHeight": 1000
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 1920,
+      "height": 1000,
+      "zoom": 2,
+      "cssWidth": 960,
+      "path": "my-requests-1920-dark-native200.png",
+      "capture": "physical viewport without CSS clip",
+      "captureWidth": 1920,
+      "captureHeight": 1000
+    }
+  ]
+}

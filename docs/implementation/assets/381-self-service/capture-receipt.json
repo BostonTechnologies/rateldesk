@@ -1,0 +1,267 @@
+{
+  "purpose": "Synthetic before visuals for catalog and My Requests; no execution, authorization or final-build acceptance is established by these captures.",
+  "baselineSourceForShownPages": "11c8997816833d753caf8df912a8279490da34fb",
+  "buildBoundary": "The pre-UX Web output included unrelated draft #380 form changes. The catalog, My Requests, navigation and scoped CSS shown here were unchanged from the baseline main source. Private scoped/static assets were copied before UX integration.",
+  "capturedAtUtc": "2026-11-11T16:25:55.009234+00:00",
+  "fixture": "tests/ux/self-service-fixture-api.mjs; synthetic names/accounts only; isolated baseline API18442/Web5182",
+  "viewportReceipt": "receipt.json",
+  "nativeZoomReceipt": "native-zoom-receipt.json",
+  "sparseReceipt": "sparse-receipt.json",
+  "nativeZoom": "Official Playwright Chromium1248; chrome.tabs.setZoom=2, innerWidth=physicalWidth/2; CDP physical viewport capture without CSS clip.",
+  "pngCount": 36,
+  "totalPngBytes": 4395905,
+  "files": [
+    {
+      "file": "catalog-1-cards-1440-dark.png",
+      "bytes": 74691,
+      "width": 1440,
+      "height": 900,
+      "sha256": "c5d787c20bdd995378a5db62d44dc824cefde5137962b3875aacb22e78a24a1c"
+    },
+    {
+      "file": "catalog-1-cards-1440-light.png",
+      "bytes": 73704,
+      "width": 1440,
+      "height": 900,
+      "sha256": "8cb6786e8dd89018dde4b2e715bd2052202775e112d70a3661af7462bf9eaaa0"
+    },
+    {
+      "file": "catalog-1-cards-1920-dark.png",
+      "bytes": 76679,
+      "width": 1920,
+      "height": 900,
+      "sha256": "77dd291c47e2150b859693e4ff5863285699e602e46a2c3463316039565a23f5"
+    },
+    {
+      "file": "catalog-1-cards-1920-light.png",
+      "bytes": 75810,
+      "width": 1920,
+      "height": 900,
+      "sha256": "d22a07944de11914cdf6ecb3f2c0c00b6b7406041a0f282f0a96777e5bb67404"
+    },
+    {
+      "file": "catalog-1280-dark-native200.png",
+      "bytes": 106484,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "2d002fa095d66ba8a7ae6c619b2e9315b99cc21c6c704473d21e35de9d3d77d9"
+    },
+    {
+      "file": "catalog-1280-light-native200.png",
+      "bytes": 105651,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "f9bde11ec5ab58028eed35807241b499ae6d185781a2465d7fffa431f7b4fa3f"
+    },
+    {
+      "file": "catalog-1366x768-dark.png",
+      "bytes": 108704,
+      "width": 1366,
+      "height": 768,
+      "sha256": "30649c856f127a3665dee6c6e204bc51650aec4c277e2eae0860d6019d5a2e1d"
+    },
+    {
+      "file": "catalog-1366x768-light.png",
+      "bytes": 106901,
+      "width": 1366,
+      "height": 768,
+      "sha256": "630cde3bf2b73003df2bec05edfb266f1250730ff321021a720cae05740571e7"
+    },
+    {
+      "file": "catalog-1440x900-dark.png",
+      "bytes": 102021,
+      "width": 1440,
+      "height": 900,
+      "sha256": "1cd768418f697189db3a556aacd2e89ab59881811d6d0d252cb3a401a00d9a3c"
+    },
+    {
+      "file": "catalog-1440x900-light.png",
+      "bytes": 100719,
+      "width": 1440,
+      "height": 900,
+      "sha256": "88986c5ce68dabeb7a44be5d6c34b8ee71ff67a443d96ca7178b50c42e6b4cb9"
+    },
+    {
+      "file": "catalog-1920-dark-native200.png",
+      "bytes": 129350,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "c9fa82d2c9b1fdb9f22bb43663a65cf71faf3056d708a21be5749c8ee7bc7257"
+    },
+    {
+      "file": "catalog-1920-light-native200.png",
+      "bytes": 127850,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "5c468114b8a54ee215bd20f02de8ff244ec1010f8ef82426c53959e553f4a396"
+    },
+    {
+      "file": "catalog-1920x1080-dark.png",
+      "bytes": 103175,
+      "width": 1920,
+      "height": 1080,
+      "sha256": "42e4526b383c75c81d3cc436219c7046245c5e471d2a529c56633fd851d17f33"
+    },
+    {
+      "file": "catalog-1920x1080-light.png",
+      "bytes": 102177,
+      "width": 1920,
+      "height": 1080,
+      "sha256": "936af7fe4c64477e95d780e75699425427a4247ad02c4eb0de7e58574fbb22be"
+    },
+    {
+      "file": "catalog-2-cards-1440-dark.png",
+      "bytes": 79094,
+      "width": 1440,
+      "height": 900,
+      "sha256": "e6815f0652ac2d8a95a3ac30f36d73acae07af56fb93459be6e27ff811d2fb44"
+    },
+    {
+      "file": "catalog-2-cards-1440-light.png",
+      "bytes": 78058,
+      "width": 1440,
+      "height": 900,
+      "sha256": "a5bf1fd8cc656c0b60cbc6448c2261ffce900a5e047b1caa21b653b17d86bbae"
+    },
+    {
+      "file": "catalog-2-cards-1920-dark.png",
+      "bytes": 79754,
+      "width": 1920,
+      "height": 900,
+      "sha256": "b8af73514722bf36212ef41ac38c5587e004668a7a2e0acbd41cc7c2bc98d330"
+    },
+    {
+      "file": "catalog-2-cards-1920-light.png",
+      "bytes": 78918,
+      "width": 1920,
+      "height": 900,
+      "sha256": "cf22805e75b8cebd96912393dc0e43e9794006a0cddd544b590229d591da137d"
+    },
+    {
+      "file": "catalog-390x844-dark.png",
+      "bytes": 123037,
+      "width": 390,
+      "height": 1807,
+      "sha256": "c1217ad7c3879db8ece90dcb6e2d184ede0d09e51cf606e7355f5402a4f7b0a7"
+    },
+    {
+      "file": "catalog-390x844-light.png",
+      "bytes": 118380,
+      "width": 390,
+      "height": 1807,
+      "sha256": "6f47c6325ce973c4459ef2c3da4415b16d05b4846d8619c523559a72f370eb80"
+    },
+    {
+      "file": "catalog-768x1024-dark.png",
+      "bytes": 109423,
+      "width": 768,
+      "height": 1194,
+      "sha256": "1cf2e9c27da5ec0a8e8ee71348ecc2a5763032d212d9ceed5608150a970cc320"
+    },
+    {
+      "file": "catalog-768x1024-light.png",
+      "bytes": 106354,
+      "width": 768,
+      "height": 1194,
+      "sha256": "1f9f08a6aba424749ea01eb93cb1d0b2f682ce6e8af9e0f31932aaeaab2e0d10"
+    },
+    {
+      "file": "my-requests-1280-dark-native200.png",
+      "bytes": 92833,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "0de4b4fe00df94f323e36180431f08e49030ab5dd504a6de7f3f0121465b32a6"
+    },
+    {
+      "file": "my-requests-1280-light-native200.png",
+      "bytes": 91032,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "fa078a49763b9722d2851022eb7534046de1bbd858a1325944f9a31e802d4e72"
+    },
+    {
+      "file": "my-requests-1366x768-dark.png",
+      "bytes": 175048,
+      "width": 1366,
+      "height": 779,
+      "sha256": "cdecf3d36775dd120da18c9cd0e8ca8b00c07fc1f03d6895804e514ea8621bad"
+    },
+    {
+      "file": "my-requests-1366x768-light.png",
+      "bytes": 172523,
+      "width": 1366,
+      "height": 779,
+      "sha256": "0b98bd64e2cddba83f7ed58903fb883a58ff6630aa3e6fa0a354ab3ee4c75ff5"
+    },
+    {
+      "file": "my-requests-1440x900-dark.png",
+      "bytes": 179843,
+      "width": 1440,
+      "height": 900,
+      "sha256": "d86c7280689e541bd515beeca2428af5655363fc4ce60da6fa92f960e21cf09f"
+    },
+    {
+      "file": "my-requests-1440x900-light.png",
+      "bytes": 177240,
+      "width": 1440,
+      "height": 900,
+      "sha256": "42ee1b27a87ab6c793d5376739b651312816a4ff43c417f2e39c5f96503a9b0f"
+    },
+    {
+      "file": "my-requests-1920-dark-native200.png",
+      "bytes": 120307,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "648e21d86302f17484e36f2e8f72402fdc33d77cc2f9192baadfc09480dae519"
+    },
+    {
+      "file": "my-requests-1920-light-native200.png",
+      "bytes": 118163,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "4a570d1e4f47a4520b9f2c4354b9eb444ccd55ac55da670bf0813e97b345bd2c"
+    },
+    {
+      "file": "my-requests-1920x1080-dark.png",
+      "bytes": 160173,
+      "width": 1920,
+      "height": 1080,
+      "sha256": "51883756c15a92ca6de5b92d48682c3aea2f79f90116fa80f4693f734d3cd631"
+    },
+    {
+      "file": "my-requests-1920x1080-light.png",
+      "bytes": 157684,
+      "width": 1920,
+      "height": 1080,
+      "sha256": "56fc042b176926a0e1fad0477c8e78a24081c7d4a3c39260a3b01d7865b95272"
+    },
+    {
+      "file": "my-requests-390x844-dark.png",
+      "bytes": 196354,
+      "width": 390,
+      "height": 2442,
+      "sha256": "f26aaa5cb753698e0d5ec1959286f8427a502e0da5ac16bc15f9427ead424f7f"
+    },
+    {
+      "file": "my-requests-390x844-light.png",
+      "bytes": 192339,
+      "width": 390,
+      "height": 2442,
+      "sha256": "b3273e2930edb4f29bb041cecd0b984795555fbe1163b7af643fd9d60955b3e7"
+    },
+    {
+      "file": "my-requests-768x1024-dark.png",
+      "bytes": 199194,
+      "width": 768,
+      "height": 2242,
+      "sha256": "46cd0ff8c4ee31e30234d6244124f5ab092051c20bf1136764c7ac7a018f2c06"
+    },
+    {
+      "file": "my-requests-768x1024-light.png",
+      "bytes": 196238,
+      "width": 768,
+      "height": 2242,
+      "sha256": "9e60e8db3cb2e33db40e319fd9c40ad23ea865fd604cd746e62d3818ceb92db5"
+    }
+  ]
+}
