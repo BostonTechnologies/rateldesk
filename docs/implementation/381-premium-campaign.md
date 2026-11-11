@@ -312,3 +312,46 @@ The [supplemental request-detail matrix](383-live-request-details-visual-matrix.
 completes ordinary and actual 200% before/after comparisons without changing the
 frozen application binaries or original evidence. The deep lane publishes these
 source-bound comparison bundles alongside its newly executed browser artifacts.
+
+## Final review corrections and hosted verification snapshot
+
+At 18:27 UTC on 11 November, the functional head is
+`86473186c02da77b2ed81380546096e81cf59fdc` and the administration head is
+`ae29b918aae153b07d4a15bec94d9dd7000399bc`. Independent source reviews and root's
+follow-up checks are recorded on PRs #395/#396 and companion NetRatel PR #730.
+The functional normal run is
+[43077718615](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43077718615);
+the administration normal run is
+[43077803948](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43077803948).
+Both are pending in this source-preparation snapshot. Final merge/main/deep and
+public distribution receipts belong to the subsequent campaign delivery comments.
+
+The first complete functional run executed 4,015 cases: 3,999 passed, eight failed
+and eight pre-existing optional cases were skipped. It is retained as a failed
+run. Five failures came from historical fixtures that seeded current fields into
+an old schema or attempted reverse migration through a forward-only identity
+upgrade. One dashboard fixture expected an obsolete status label. Two failures
+exposed repeated quick-state commands changing saved workflow metadata.
+
+The repairs preserve the old assertions and schema history. The five historical
+upgrades, two quick-state no-op/scope cases, eight supported operator routes,
+two readiness fences and two lost-wake cases passed **19/19**, with no skips.
+The dashboard's owning class passed **25/25** after supplying real normalized
+provider status and checking the intended local **In progress** / provider
+**External: running** display, rendered paging/filter completion and valid actions.
+Its original failure remains retained.
+
+Requester-link review repairs follow the same trusted Local, verified issuer/subject,
+then supported legacy provider-ID precedence as the access resolver. A current
+binding that differs from the prior access snapshot is rejected. All **7/7** new
+SQLite HTTP cases passed without failures/skips or request/task/link writes on
+denials. Retirement review repairs reject a deleted domain before unavailable-account
+early exits and refresh tracked external account state during long-lived authorization.
+All **29/29** focused SQLite/InMemory cases passed without failures/skips, including
+second-context disable/delete/removal and persisted provider-role projection changes.
+
+The first hosted native-pair run reached both real local logins and saved both
+pairings, but failed before business execution because its assertion still
+expected **Connected** instead of the truthful **Connection configured** notice.
+The helper now checks the actual configured receipt. That failed run establishes
+no native business acceptance; final source-pair execution remains required.
