@@ -278,7 +278,12 @@ public static class CustomerAuthEndpoints
         var account = await users.FindByIdAsync(link.LocalAccountId!);
         var externalLogin = account is not null && string.IsNullOrEmpty(account.PasswordHash) &&
                             (await users.GetLoginsAsync(account)).Count != 0;
-        var status = await IsLinkDisabledAsync(link, db, ct) ? CustomerInviteStatus.Disabled : account switch
+        var status = LocalStatus(account, externalLogin, await IsLinkDisabledAsync(link, db, ct));
+        return LocalStatusDto(customerId, link, account, externalLogin, status);
+    }
+
+    private static CustomerInviteStatus LocalStatus(ApplicationUser? account, bool externalLogin, bool linkDisabled) =>
+        linkDisabled ? CustomerInviteStatus.Disabled : account switch
         {
             null => CustomerInviteStatus.Failed,
             { IsEnabled: false } or { IsDeleted: true } => CustomerInviteStatus.Disabled,
@@ -287,7 +292,9 @@ public static class CustomerAuthEndpoints
             _ => CustomerInviteStatus.Active
         };
 
-        return new CustomerAuthStatusDto
+    private static CustomerAuthStatusDto LocalStatusDto(string customerId, CustomerAuthLink link,
+        ApplicationUser? account, bool externalLogin, CustomerInviteStatus status) =>
+        new()
         {
             CustomerId = customerId,
             InviteStatus = status,
@@ -310,7 +317,6 @@ public static class CustomerAuthEndpoints
             CanResend = false,
             CanDisableLogin = false
         };
-    }
 
     private static Task<bool> IsLinkDisabledAsync(CustomerAuthLink link, HelpdeskDbContext db, CancellationToken ct) =>
         link.DisabledAtUtc is not null || link.InviteStatus == CustomerInviteStatus.Disabled

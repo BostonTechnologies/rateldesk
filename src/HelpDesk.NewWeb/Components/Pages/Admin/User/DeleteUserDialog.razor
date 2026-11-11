@@ -30,7 +30,7 @@
             if (response.IsSuccessStatusCode) Dialog.Close(DialogResult.Ok(true));
             else error = await UserLifecycleErrors.ReadAsync(response, "The user could not be deleted. Refresh and retry. Their application access has not been reported as deleted.");
         }
-        catch (HttpRequestException) { error = "The account service is unavailable. Keep this dialog open and retry; repeated deletion is safe."; }
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception)) { error = "The account service is unavailable. Keep this dialog open and retry; repeated deletion is safe."; }
         finally { busy = false; }
     }
 

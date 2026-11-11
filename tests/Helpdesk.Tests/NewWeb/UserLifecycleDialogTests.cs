@@ -8,6 +8,8 @@ using MudBlazor;
 using MudBlazor.Services;
 using Bunit.TestDoubles;
 using Helpdesk.Shared.DTOs;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using DeleteDialog = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.User.DeleteUserDialog;
 using SignInDialog = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.User.ChangeUserSignInDialog;
 using TeamPage = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.User.UserManagement;
@@ -24,17 +26,78 @@ public sealed class UserLifecycleDialogTests
     public async Task Team_respects_mode_route_availability_while_Delete_remains_distinct(string mode, bool localActions)
     {
         using var api = new DirectoryApi();
-        await using var context = new BunitContext();
-        context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
-        var authorization = context.AddAuthorization(); authorization.SetAuthorized("Synthetic administrator"); authorization.SetRoles("HelpdeskAdmin");
-        context.Services.AddSingleton(new AuthenticationMode(mode));
-        context.Services.AddSingleton<IHttpClientFactory>(api); context.Render<MudPopoverProvider>();
+        await using var context = DirectoryContext(api, mode);
         var page = context.Render<TeamPage>();
         page.WaitForAssertion(() => Assert.Contains("1 team members", page.Markup));
         Assert.Single(page.FindAll("button[aria-label='Delete user']"));
         Assert.Equal(localActions ? 1 : 0, page.FindAll("button[aria-label='Manage local account']").Count);
         Assert.Equal(localActions ? 1 : 0, page.FindAll("button[aria-label='Disable sign-in']").Count);
         Assert.DoesNotContain(api.Paths, path => path.EndsWith("/status", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("timeout")]
+    [InlineData("circuit")]
+    [InlineData("cancellation")]
+    [InlineData("io")]
+    public async Task Team_transport_failures_show_retained_query_and_retry_without_crashing_the_component(string failure)
+    {
+        using var api = new DirectoryApi { Failure = TransportFailure(failure) };
+        await using var context = DirectoryContext(api, "Hybrid");
+        var page = context.Render<TeamPage>(parameters => parameters.Add(component => component.QuerySearch, "kept query"));
+        page.WaitForAssertion(() => Assert.Contains("Team members could not be loaded. Retry the query.", page.Markup));
+        Assert.Contains("query is retained", page.Find("[role=alert]").TextContent);
+        Assert.DoesNotContain("private technical detail", page.Markup);
+        Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "kept query");
+        api.Failure = null;
+        page.FindAll("button").Single(button => button.TextContent == "Retry").Click();
+        page.WaitForAssertion(() => Assert.Contains("1 team members", page.Markup));
+        Assert.Empty(page.FindAll("[role=alert]"));
+    }
+
+    [Theory]
+    [InlineData("timeout")]
+    [InlineData("circuit")]
+    [InlineData("cancellation")]
+    [InlineData("io")]
+    public async Task Delete_transport_failures_remain_open_and_retry_the_same_idempotent_delete(string failure)
+    {
+        using var api = new Api { Failure = TransportFailure(failure), Reject = false };
+        await using var context = Context(api);
+        var host = context.Render<MudDialogProvider>();
+        IDialogReference? dialog = null;
+        await host.InvokeAsync(async () => dialog = await context.Services.GetRequiredService<IDialogService>().ShowAsync<DeleteDialog>("Delete user",
+            new DialogParameters { [nameof(DeleteDialog.User)] = new UserDto("target", "Synthetic Person", "person@example.invalid", "User", false) }));
+        var page = host.FindComponent<DeleteDialog>();
+        page.FindAll("button").Single(button => button.TextContent == "Delete user").Click();
+        page.WaitForAssertion(() => Assert.Contains("repeated deletion is safe", page.Find("[role=alert]").TextContent));
+        Assert.False(dialog!.Result.IsCompleted);
+        Assert.DoesNotContain("private technical detail", page.Markup);
+        api.Failure = null;
+        page.FindAll("button").Single(button => button.TextContent == "Delete user").Click();
+        Assert.False((await dialog.Result.WaitAsync(TimeSpan.FromSeconds(5)))!.Canceled);
+        Assert.Equal(2, api.Requests.Count);
+        Assert.All(api.Requests, request => Assert.Equal((HttpMethod.Delete, "/api/v1/users/target"), request));
+    }
+
+    [Fact]
+    public async Task Sign_in_timeout_keeps_the_separate_setting_dialog_open_and_retries_only_that_setting()
+    {
+        using var api = new Api { Failure = TransportFailure("timeout"), Reject = false };
+        await using var context = Context(api);
+        var host = context.Render<MudDialogProvider>();
+        IDialogReference? dialog = null;
+        await host.InvokeAsync(async () => dialog = await context.Services.GetRequiredService<IDialogService>().ShowAsync<SignInDialog>("Disable sign-in",
+            new DialogParameters { [nameof(SignInDialog.User)] = new UserDirectoryDto { Id = "profile", AccountId = "account", Name = "Synthetic Person", AccountSignInEnabled = true } }));
+        var page = host.FindComponent<SignInDialog>();
+        page.FindAll("button").Single(button => button.TextContent == "Disable sign-in").Click();
+        page.WaitForAssertion(() => Assert.Contains("Retry when it is reachable", page.Find("[role=alert]").TextContent));
+        Assert.False(dialog!.Result.IsCompleted);
+        api.Failure = null;
+        page.FindAll("button").Single(button => button.TextContent == "Disable sign-in").Click();
+        Assert.False((await dialog.Result.WaitAsync(TimeSpan.FromSeconds(5)))!.Canceled);
+        Assert.Equal(2, api.Requests.Count);
+        Assert.All(api.Requests, request => Assert.Equal((HttpMethod.Post, "/api/v1/local-auth/users/account/disable"), request));
     }
 
     [Theory]
@@ -85,15 +148,33 @@ public sealed class UserLifecycleDialogTests
         var context = new BunitContext(); context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton<IHttpClientFactory>(api); context.Render<MudPopoverProvider>(); return context;
     }
+
+    private static BunitContext DirectoryContext(DirectoryApi api, string mode)
+    {
+        var context = new BunitContext(); context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var authorization = context.AddAuthorization(); authorization.SetAuthorized("Synthetic administrator"); authorization.SetRoles("HelpdeskAdmin");
+        context.Services.AddSingleton(new AuthenticationMode(mode));
+        context.Services.AddSingleton<IHttpClientFactory>(api); context.Render<MudPopoverProvider>(); return context;
+    }
+
+    private static Exception TransportFailure(string failure) => failure switch
+    {
+        "timeout" => new TimeoutRejectedException("private technical detail"),
+        "circuit" => new BrokenCircuitException("private technical detail"),
+        "cancellation" => new TaskCanceledException("private technical detail"),
+        _ => new IOException("private technical detail")
+    };
     private sealed class Api : HttpMessageHandler, IHttpClientFactory
     {
         public bool Reject { get; set; } = true;
         public string ErrorBody { get; set; } = string.Empty;
+        public Exception? Failure { get; set; }
         public List<(HttpMethod Method, string Path)> Requests { get; } = [];
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("https://synthetic.example.invalid/") };
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add((request.Method, request.RequestUri!.AbsolutePath));
+            if (Failure is { } failure) return Task.FromException<HttpResponseMessage>(failure);
             return Task.FromResult(new HttpResponseMessage(Reject ? HttpStatusCode.Conflict : HttpStatusCode.NoContent)
             {
                 Content = new StringContent(ErrorBody)
@@ -103,11 +184,13 @@ public sealed class UserLifecycleDialogTests
 
     private sealed class DirectoryApi : HttpMessageHandler, IHttpClientFactory
     {
+        public Exception? Failure { get; set; }
         public List<string> Paths { get; } = [];
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("https://synthetic.example.invalid/") };
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Paths.Add(request.RequestUri!.AbsolutePath);
+            if (Failure is { } failure) return Task.FromException<HttpResponseMessage>(failure);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new PagedResult<UserDirectoryDto>
             {
                 Page = 1, PageSize = 25, Total = 1, Items = [new() { Id = "profile", AccountId = "account", Name = "Synthetic Person", Email = "person@example.invalid", AccountState = "Enabled", AccountSignInEnabled = true, CanManageAccount = true, CanChangeSignIn = true, CanDelete = true }]

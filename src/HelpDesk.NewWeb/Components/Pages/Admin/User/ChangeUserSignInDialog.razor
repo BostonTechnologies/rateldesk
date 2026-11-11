@@ -28,7 +28,7 @@
             if (response.IsSuccessStatusCode) Dialog.Close(DialogResult.Ok(true));
             else error = await UserLifecycleErrors.ReadAsync(response, "The sign-in setting could not be changed. Refresh and retry.");
         }
-        catch (HttpRequestException) { error = "The account service is unavailable. Retry when it is reachable."; }
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception)) { error = "The account service is unavailable. Retry when it is reachable."; }
         finally { busy = false; }
     }
 }

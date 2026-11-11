@@ -11,6 +11,7 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Text.Json
 @using Microsoft.AspNetCore.Components.Authorization
+@using HelpDesk.NewWeb.Services
 
 <PageTitle>Team</PageTitle>
 <AuthorizeView Roles="HelpdeskAdmin" Context="instanceAdministrator">
@@ -123,8 +124,19 @@
         if (actor?.IsInRole("HelpdeskAdmin") != true) return;
         if (!string.IsNullOrWhiteSpace(organizationId))
         {
-            try { selectedOrganization = (await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(organizationId)}"))?.FirstOrDefault(); }
-            catch (HttpRequestException) { selectedOrganization = new() { Id = organizationId, Name = "Selected organization" }; }
+            var requestedOrganization = organizationId;
+            try
+            {
+                var organizations = await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(requestedOrganization)}");
+                if (disposed || organizationId != requestedOrganization) return;
+                selectedOrganization = organizations?.FirstOrDefault(); organizationError = null;
+            }
+            catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
+            {
+                if (disposed || organizationId != requestedOrganization) return;
+                selectedOrganization = new() { Id = requestedOrganization, Name = "Selected organization" };
+                organizationError = "Organization lookup is unavailable. Your selection is retained; retry the lookup.";
+            }
         }
         else selectedOrganization = null;
         reloadAfterRender = table is not null;
@@ -161,7 +173,7 @@
             return lastData;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return lastData; }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
         {
             if (current == generation && !disposed)
             {
@@ -179,7 +191,8 @@
             organizationError = null;
             return await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", ct) ?? [];
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return []; }
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
         {
             organizationError = "Organization lookup is unavailable. Your selection is retained; retry the search.";
             await InvokeAsync(StateHasChanged);
