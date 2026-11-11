@@ -63,7 +63,7 @@
   "commands": {
     "before": "HELPDESK_DIRECTORY_BASELINE=true HELPDESK_ADMIN_FIXTURE_ORIGIN=http://127.0.0.1:18510 playwright test --config /workspace/work/directory-before.config.cjs --grep \"directory synthetic\"",
     "after": "HELPDESK_ADMIN_FIXTURE_ORIGIN=http://127.0.0.1:18511 playwright test --config /workspace/work/directory-after.config.cjs",
-    "native": "HELPDESK_E2E_SUITE=directories HELPDESK_E2E_CHROMIUM_PATH=/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome playwright test --config /workspace/work/directory-native.config.cjs"
+    "native": "HELPDESK_NATIVE_ZOOM_SUITE=directories HELPDESK_E2E_CHROMIUM_PATH=/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome playwright test --config /workspace/work/directory-native.config.cjs"
   },
   "typographySamples": 30,
   "typographyMinimumPixels": {
@@ -766,5 +766,13 @@
     "before": "6c77eaea053b2b6e9b06b59a13e56514826cd02e606b798906e8c7f951248f4c",
     "after": "8bbb3d79e90d18b4ca73655c9fcfa7dd105ae19b34201c489c54a72b6a93c7d4",
     "native": "7b52c156f0e0dec73b527333e19f289890ca2f74bc665aa41263ac2aef67b7fa"
+  },
+  "playwrightVersion": "1.64.1",
+  "inputSha256": {
+    "/workspace/work/worktrees/directories/tests/ux/admin-directories.spec.ts": "77e4353054eb9bad2ca7fa863a5c8f5a00e968e197303df22c5477dec34934d7",
+    "/workspace/work/worktrees/directories/tests/ux/admin-directories-fixture.mjs": "67bb9a11fa05f8ef6e9fd264c65d794ea071fe342386a681dc26d70e98aded0e",
+    "/workspace/work/native-directories/native-zoom.spec.ts": "88a88a4453b4a548a05332b0b77707fd69e9d8fc6e451f90cff4c75006bfd753",
+    "/workspace/work/directories-browser-snapshot/HelpDesk.NewWeb.dll": "1167b93a2dd92daa46c42287655999251875cb382e0b63f359dff16a29549002",
+    "/workspace/work/baseline-web/HelpDesk.NewWeb.dll": "218a1498b86ad2f2225458bb635e526409737c0445f82089012cdd3b20c86270"
   }
 }
