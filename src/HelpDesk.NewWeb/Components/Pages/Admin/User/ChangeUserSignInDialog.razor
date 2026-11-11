@@ -15,7 +15,7 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public UserDirectoryDto User { get; set; } = default!;
-    private bool Enabled => User.AccountState == "Enabled";
+    private bool Enabled => User.AccountSignInEnabled ?? User.AccountState == "Enabled";
     private bool busy;
     private string? error;
     private async Task Change()

@@ -52,7 +52,8 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         {
             localAccount = await _identityDb.Users.AsNoTracking()
                 .SingleOrDefaultAsync(account => account.Id == localAccountId, ct);
-            if (localAccount?.IsEnabled != true || localAccount.IsDeleted)
+            if (localAccount?.IsDeleted == true) return Empty(false);
+            if (localAccount?.IsEnabled != true)
             {
                 return Empty(true);
             }
@@ -61,7 +62,11 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var externalAccount = _identityDb is not null && string.IsNullOrWhiteSpace(localAccountId) &&
                               !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject)
             ? await OidcApplicationAccount.FindAsync(_identityDb, issuer, subject, ct) : null;
-        if (externalAccount is { IsEnabled: false } or { IsDeleted: true }) return Empty(true);
+        if (externalAccount?.IsDeleted == true) return Empty(false);
+        if (externalAccount is { IsEnabled: false }) return Empty(true);
+        if (link is not null && !string.IsNullOrWhiteSpace(link.DomainUserId) &&
+            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == link.DomainUserId && domainUser.IsDeleted, ct))
+            return Empty(false);
         if (link is { DisabledAtUtc: not null } || link?.InviteStatus == CustomerInviteStatus.Disabled) return Empty(true);
 
         // Local role claims are an authorization projection, never a source of
@@ -126,7 +131,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var domainUser = string.IsNullOrWhiteSpace(domainUserId)
             ? null
             : await _db.Users.AsNoTracking().FirstOrDefaultAsync(domainUser => domainUser.Id == domainUserId, ct);
-        if (domainUser?.IsDeleted == true) return Empty(true);
+        if (domainUser?.IsDeleted == true) return Empty(false);
         var domainUserOrganization = domainUser is null || string.IsNullOrWhiteSpace(domainUser.OrganizationId)
             ? null
             : await _db.Organizations.AsNoTracking().FirstOrDefaultAsync(x => x.Id == domainUser.OrganizationId, ct);
