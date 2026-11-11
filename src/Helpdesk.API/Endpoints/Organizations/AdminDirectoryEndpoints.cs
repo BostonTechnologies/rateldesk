@@ -36,9 +36,10 @@ public static class AdminDirectoryEndpoints
         // Both contexts share the configured database. This composable, read-only projection
         // joins account state in SQL without retrieving password hashes or loading account lists.
         var accounts = db.Database.SqlQueryRaw<DirectoryLocalAccount>("""
-            SELECT "Id", "IsEnabled", "EmailConfirmed",
-                   CASE WHEN "PasswordHash" IS NULL OR "PasswordHash" = '' THEN false ELSE true END AS "HasPassword"
-            FROM "AspNetUsers"
+            SELECT account."Id", account."IsEnabled", account."EmailConfirmed",
+                   CASE WHEN account."PasswordHash" IS NULL OR account."PasswordHash" = '' THEN false ELSE true END AS "HasPassword",
+                   EXISTS (SELECT 1 FROM "AspNetUserLogins" login WHERE login."UserId" = account."Id") AS "HasExternalLogin"
+            FROM "AspNetUsers" account
             """);
         var now = DateTimeOffset.UtcNow;
         var expiredLinks = db.Database.IsSqlite()
@@ -61,13 +62,17 @@ public static class AdminDirectoryEndpoints
                        OrganizationName = organization == null ? "Organization unavailable" : organization.Name,
                        IsEnabled = customer.State == Helpdesk.Shared.Models.EntityState.Enabled,
                        OrganizationEnabled = organization != null && organization.State == Helpdesk.Shared.Models.EntityState.Enabled,
-                       LinkCount = linkCount,
-                       IsLocal = link != null && (link.AuthProviderType.ToLower() == "local" || link.LocalAccountId != null && link.LocalAccountId != ""),
+                       LinkCount = linkCount, ProviderType = link == null ? null : link.AuthProviderType,
+                       IsLocal = link != null && link.AuthProviderType.ToLower() == "local",
+                       HasApplicationAccount = link != null && link.LocalAccountId != null && link.LocalAccountId != "",
                        Access = linkCount == 0 ? CustomerInviteStatus.NotInvited : linkCount > 1 ? CustomerInviteStatus.Failed :
-                           link!.AuthProviderType.ToLower() == "local" || link.LocalAccountId != null && link.LocalAccountId != ""
-                               ? account == null ? CustomerInviteStatus.Failed : !account.IsEnabled ? CustomerInviteStatus.Disabled :
-                                   !account.EmailConfirmed || !account.HasPassword ? CustomerInviteStatus.Pending : CustomerInviteStatus.Active
-                               : link.InviteStatus == CustomerInviteStatus.Pending && expiredLinks.Contains(link.Id)
+                           link!.InviteStatus == CustomerInviteStatus.Disabled || link.DisabledAtUtc != null ? CustomerInviteStatus.Disabled :
+                           link.LocalAccountId != null && link.LocalAccountId != "" && account.Id != null && !account.IsEnabled ? CustomerInviteStatus.Disabled :
+                           link.AuthProviderType.ToLower() == "local"
+                               ? account.Id == null ? CustomerInviteStatus.Failed : !account.IsEnabled ? CustomerInviteStatus.Disabled :
+                                   account.HasExternalLogin ? CustomerInviteStatus.Active : !account.EmailConfirmed || !account.HasPassword ? CustomerInviteStatus.Pending : CustomerInviteStatus.Active
+                               : link.LocalAccountId != null && link.LocalAccountId != "" && account.Id == null ? CustomerInviteStatus.Failed :
+                                 link.InviteStatus == CustomerInviteStatus.Pending && expiredLinks.Contains(link.Id)
                                    ? CustomerInviteStatus.Expired : link.InviteStatus
                    };
         if (!string.IsNullOrWhiteSpace(query.Search))
@@ -109,7 +114,7 @@ public static class AdminDirectoryEndpoints
 
     private static CustomerDto ToCustomerDto(CustomerDirectoryRow row, bool invitationsConfigured)
     {
-        var canInvite = invitationsConfigured && row.IsEnabled && row.OrganizationEnabled && !row.IsLocal && row.LinkCount <= 1;
+        var canInvite = invitationsConfigured && row.IsEnabled && row.OrganizationEnabled && !row.IsLocal && !row.HasApplicationAccount && row.LinkCount <= 1;
         return new CustomerDto
         {
             Id = row.Id, Name = row.Name, Email = row.Email, OrganizationId = row.OrganizationId,
@@ -117,7 +122,10 @@ public static class AdminDirectoryEndpoints
             AuthStatus = new CustomerAuthStatusDto
             {
                 CustomerId = row.Id, InviteStatus = row.Access, IsLinkedLogin = row.LinkCount > 0,
-                AuthProviderType = row.IsLocal ? "Local" : row.LinkCount > 0 ? "External" : null,
+                AuthProviderType = row.IsLocal ? "Local" : row.ProviderType,
+                IdentitySummary = row.HasApplicationAccount ? "Manage linked application sign-in in Team. External provider access is managed separately."
+                    : !row.OrganizationEnabled ? "Enable the customer organization before inviting."
+                    : !invitationsConfigured ? "External invitations are not configured." : null,
                 HasMultipleIdentityLinks = row.LinkCount > 1,
                 StatusText = row.LinkCount > 1 ? "Multiple linked identities" : row.Access switch
                 {
@@ -248,6 +256,7 @@ public static class AdminDirectoryEndpoints
         public bool IsEnabled { get; set; }
         public bool EmailConfirmed { get; set; }
         public bool HasPassword { get; set; }
+        public bool HasExternalLogin { get; set; }
     }
     private sealed class CustomerDirectoryRow
     {
@@ -259,6 +268,8 @@ public static class AdminDirectoryEndpoints
         public bool IsEnabled { get; set; }
         public bool OrganizationEnabled { get; set; }
         public bool IsLocal { get; set; }
+        public bool HasApplicationAccount { get; set; }
+        public string? ProviderType { get; set; }
         public int LinkCount { get; set; }
         public CustomerInviteStatus Access { get; set; }
     }

@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -89,6 +90,44 @@ public sealed class AdminDirectoryEndpointsTests
         Assert.Equal(0, unauthorized.TotalCount);
         var linked = await h.Get<CustomerDto>("customers?access=linked&pageSize=100");
         Assert.Equal(6, linked.TotalCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Hybrid_external_logins_do_not_require_a_local_password_and_disabled_links_override_accounts(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        await h.Seed(async (db, identity) =>
+        {
+            db.Organizations.Add(new Organization { Id = "hybrid-org", Name = "Hybrid organization" });
+            db.Customers.AddRange(Enumerable.Range(0, 6).Select(i => new Customer { Id = $"hybrid-{i}", Name = $"Hybrid {i}", OrganizationId = "hybrid-org" }));
+            identity.Users.AddRange(
+                new ApplicationUser { Id = "local-label-external", UserName = "linked-oidc", IsEnabled = true, PasswordHash = null, EmailConfirmed = false },
+                new ApplicationUser { Id = "external-active", UserName = "external", IsEnabled = true, PasswordHash = null, EmailConfirmed = false },
+                new ApplicationUser { Id = "external-disabled", UserName = "disabled-external", IsEnabled = false },
+                new ApplicationUser { Id = "local-link-disabled", UserName = "disabled-link", IsEnabled = true, PasswordHash = "test-only", EmailConfirmed = true },
+                new ApplicationUser { Id = "local-timestamp-disabled", UserName = "disabled-timestamp", IsEnabled = true, PasswordHash = "test-only", EmailConfirmed = true });
+            identity.UserLogins.Add(new IdentityUserLogin<string> { LoginProvider = "synthetic-oidc", ProviderKey = "synthetic-subject", UserId = "local-label-external" });
+            db.CustomerAuthLinks.AddRange(
+                new CustomerAuthLink { CustomerId = "hybrid-5", AuthProviderType = "Local", LocalAccountId = "local-label-external", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "hybrid-0", AuthProviderType = "OIDC", LocalAccountId = "external-active", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "hybrid-1", AuthProviderType = "Authentik", LocalAccountId = "external-disabled", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "hybrid-2", AuthProviderType = "Local", LocalAccountId = "local-link-disabled", InviteStatus = CustomerInviteStatus.Disabled },
+                new CustomerAuthLink { CustomerId = "hybrid-3", AuthProviderType = "Local", LocalAccountId = "local-timestamp-disabled", InviteStatus = CustomerInviteStatus.Active, DisabledAtUtc = DateTimeOffset.UtcNow },
+                new CustomerAuthLink { CustomerId = "hybrid-4", AuthProviderType = "OIDC", LocalAccountId = "missing-account", InviteStatus = CustomerInviteStatus.Failed });
+            await identity.SaveChangesAsync(); await db.SaveChangesAsync();
+        });
+        var active = await h.Get<CustomerDto>("customers?access=active");
+        Assert.Equal(2, active.TotalCount);
+        var external = Assert.Single(active.Items, row => row.Id == "hybrid-0");
+        Assert.Equal("hybrid-0", external.Id); Assert.Equal("OIDC", external.AuthStatus!.AuthProviderType);
+        Assert.False(external.AuthStatus.CanInvite); Assert.False(external.AuthStatus.CanResend);
+        var disabled = await h.Get<CustomerDto>("customers?access=disabled");
+        Assert.Equal(new[] { "hybrid-1", "hybrid-2", "hybrid-3" }, disabled.Items.Select(row => row.Id));
+        Assert.All(disabled.Items, row => { Assert.False(row.AuthStatus!.CanInvite); Assert.False(row.AuthStatus.CanResend); });
+        var unavailable = await h.Get<CustomerDto>("customers?access=failed");
+        Assert.Equal("hybrid-4", Assert.Single(unavailable.Items).Id); Assert.False(unavailable.Items[0].AuthStatus!.CanResend);
     }
 
     [Theory]
@@ -214,7 +253,7 @@ public sealed class AdminDirectoryEndpointsTests
             var counter = new ReadCounter();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.Logging.ClearProviders(); builder.WebHost.UseTestServer(); builder.Services.AddHttpContextAccessor();
-            builder.Services.AddScoped<ITenantContext, DirectoryTenant>(); builder.Services.Configure<AuthentikOptions>(_ => { });
+            builder.Services.AddScoped<ITenantContext, DirectoryTenant>(); builder.Services.Configure<AuthentikOptions>(options => { options.BaseUrl = "https://identity.example.invalid/"; options.ApiToken = "synthetic-configured-token"; });
             builder.Services.AddDbContext<HelpdeskDbContext>(options => { Configure(options); options.AddInterceptors(counter); });
             builder.Services.AddDbContext<RatelDeskIdentityDbContext>(Configure);
             builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, DirectoryAuth>("Test", _ => { });

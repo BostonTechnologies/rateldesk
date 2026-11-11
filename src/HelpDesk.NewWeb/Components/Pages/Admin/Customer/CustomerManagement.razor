@@ -29,11 +29,11 @@
         <MudTable T="CustomerDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
                   RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
             <HeaderContent>
-                <MudTh><MudTableSortLabel T="CustomerDto" SortLabel="name" InitialDirection="@query.Direction("name")">Customer</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="CustomerDto" SortLabel="email" InitialDirection="@query.Direction("email")">Email</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="CustomerDto" SortLabel="organization" InitialDirection="@query.Direction("organization")">Organization</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="CustomerDto" SortLabel="state" InitialDirection="@query.Direction("state")">State</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="CustomerDto" SortLabel="access" InitialDirection="@query.Direction("access")">Access</MudTableSortLabel></MudTh>
+                <DirectorySortHeader Column="name" Label="Customer" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="email" Label="Email" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="organization" Label="Organization" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="state" Label="State" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="access" Label="Access" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <MudTh Class="directory-action-column">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -87,6 +87,7 @@
     }
     private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
     private async Task ResetPageAsync() { query.Page = 0; query.Remember(NavigationManager); if (table is not null) { table.NavigateTo(0); await table.ReloadServerData(); } }
+    private Task SortChangedAsync(string column) { query.Descending = query.Sort == column && !query.Descending; query.Sort = column; return ResetPageAsync(); }
     private Task SearchChangedAsync(string? value) { query.Search = value; return ResetPageAsync(); }
     private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
     private Task ClearAsync() { query.Clear(); return ResetPageAsync(); }
@@ -158,7 +159,7 @@
         ? "Enable the customer before inviting."
         : customer.AuthStatus?.HasMultipleIdentityLinks == true ? "Review the multiple linked identities before changing access."
         : customer.AuthStatus?.AuthProviderType == "Local" ? "Manage local account activation and sign-in in Team."
-        : IsInviteActionDisabled(customer) ? "Invitation requires an enabled organization and configured external invitation provider."
+        : IsInviteActionDisabled(customer) ? customer.AuthStatus?.IdentitySummary ?? "Invitation requires an enabled organization and configured external invitation provider."
         : GetInviteActionLabel(customer);
 
     private static string GetInviteIcon(CustomerInviteStatus? status) => status switch

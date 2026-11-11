@@ -36,11 +36,11 @@
         <MudTable T="TicketCategoryDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
                   RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 28rem), 44rem)" Breakpoint="Breakpoint.None">
             <HeaderContent>
-                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="name" InitialDirection="@query.Direction("name")">Category</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="type" InitialDirection="@query.Direction("type")">Type</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="order" InitialDirection="@query.Direction("order")">Order</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="scope" InitialDirection="@query.Direction("scope")">Scope</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="active" InitialDirection="@query.Direction("active")">Availability</MudTableSortLabel></MudTh>
+                <DirectorySortHeader Column="name" Label="Category" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="type" Label="Type" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="order" Label="Order" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="scope" Label="Scope" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="active" Label="Availability" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <MudTh Class="directory-action-column">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -86,6 +86,7 @@
     }
     private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
     private async Task ResetPageAsync() { query.Page = 0; query.Remember(NavigationManager); if (table is not null) { table.NavigateTo(0); await table.ReloadServerData(); } }
+    private Task SortChangedAsync(string column) { query.Descending = query.Sort == column && !query.Descending; query.Sort = column; return ResetPageAsync(); }
     private Task SearchChangedAsync(string? value) { query.Search = value; return ResetPageAsync(); }
     private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
     private Task ScopeChangedAsync(string? value) { if (value == "global") query.Set("organizationId", null); return FilterChangedAsync("scope", value); }

@@ -42,6 +42,8 @@ export async function handleDirectoryRequest(req, res, url) {
   const search = (url.searchParams.get('search') ?? '').toLowerCase(), selected = url.searchParams.get('selectedId');
   return reply(organizations.filter(row => selected ? row.id === selected : row.name.toLowerCase().includes(search)).slice(0, 50).map(({ id, name }) => ({ id, name })));
  }
+ const authCustomer = path.match(/^\/api\/v1\/customers\/([^/]+)\/auth\/status$/)?.[1];
+ if (authCustomer) { reads.push({ path, query: url.search }); return reply(customers.find(row => row.id === authCustomer)?.authStatus ?? {}); }
  if (path === '/api/v1/organizations') return reply(organizations);
  if (path === '/api/v1/customers' && req.method === 'GET') return reply(customers);
  if (path === '/api/v1/categories' && req.method === 'GET') return reply(categories);

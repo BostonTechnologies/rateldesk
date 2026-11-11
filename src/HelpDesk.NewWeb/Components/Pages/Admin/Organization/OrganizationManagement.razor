@@ -33,11 +33,11 @@
         <MudTable T="OrganizationDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
                   RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
             <HeaderContent>
-                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="name" InitialDirection="@query.Direction("name")">Organization</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="contact" InitialDirection="@query.Direction("contact")">Contact</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="support" InitialDirection="@query.Direction("support")">Support organization</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="state" InitialDirection="@query.Direction("state")">State</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="orchestration" InitialDirection="@query.Direction("orchestration")">Orchestration</MudTableSortLabel></MudTh>
+                <DirectorySortHeader Column="name" Label="Organization" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="contact" Label="Contact" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="support" Label="Support organization" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="state" Label="State" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="orchestration" Label="Orchestration" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <MudTh Class="directory-action-column">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -104,6 +104,7 @@
     }
     private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
     private async Task ResetPageAsync() { query.Page = 0; query.Remember(NavigationManager); if (table is not null) { table.NavigateTo(0); await table.ReloadServerData(); } }
+    private Task SortChangedAsync(string column) { query.Descending = query.Sort == column && !query.Descending; query.Sort = column; return ResetPageAsync(); }
     private Task SearchChangedAsync(string? value) { query.Search = value; return ResetPageAsync(); }
     private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
     private Task ClearAsync() { query.Clear(); return ResetPageAsync(); }
