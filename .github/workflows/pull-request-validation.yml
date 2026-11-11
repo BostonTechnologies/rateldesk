@@ -325,6 +325,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Publish request-detail baseline comparison evidence
+        if: ${{ always() && matrix.suite == 'details' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: request-detail-baseline-comparisons
+          path: docs/implementation/assets/383-live-request-details
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish administration baseline comparison evidence
+        if: ${{ always() && matrix.suite == 'admin' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: administration-baseline-comparisons
+          path: |
+            docs/implementation/assets/381-directories
+            docs/implementation/assets/381-team
+          if-no-files-found: error
+          retention-days: 14
+
   mailbox-lifecycle:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
     name: Mailbox lifecycle acceptance
