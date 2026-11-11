@@ -355,3 +355,16 @@ pairings, but failed before business execution because its assertion still
 expected **Connected** instead of the truthful **Connection configured** notice.
 The helper now checks the actual configured receipt. That failed run establishes
 no native business acceptance; final source-pair execution remains required.
+
+The final request-stream review also found that a failed/canceled best-effort
+notification after a committed request edit could leave an existing viewer stale.
+A hidden, non-global journal marker is now saved in the same mutation transaction;
+it has no inbox recipient and does not send a pre-commit notification. Deterministic
+marker IDs and a batched existing-ID query preserve idempotence. All **8/8** focused
+cases passed, covering 16 route/provider/fault combinations across priority PUT,
+quick state, bulk state and bulk assignment. Actual committed state → gateway SSE
+→ canonical rendered convergence was **287–693 ms**. Both selected bulk requests,
+healthy single visible notification, rollback and duplicate staging are covered.
+The local test used source `a4594d65` and explicitly reused matching prerequisite
+binaries carrying beta.9 metadata; it establishes bounded behavior, not a beta.10
+release build. The final hosted integrated run rebuilds all beta.10 projects.
