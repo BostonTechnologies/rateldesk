@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using Bunit;
 using Helpdesk.Shared.DTOs.User;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using MudBlazor.Services;
 using Bunit.TestDoubles;
@@ -44,7 +45,8 @@ public sealed class UserLifecycleDialogTests
     {
         using var api = new DirectoryApi { Failure = TransportFailure(failure) };
         await using var context = DirectoryContext(api, "Hybrid");
-        var page = context.Render<TeamPage>(parameters => parameters.Add(component => component.QuerySearch, "kept query"));
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/users?search=kept%20query");
+        var page = context.Render<TeamPage>();
         page.WaitForAssertion(() => Assert.Contains("Team members could not be loaded. Retry the query.", page.Markup));
         Assert.Contains("query is retained", page.Find("[role=alert]").TextContent);
         Assert.DoesNotContain("private technical detail", page.Markup);
