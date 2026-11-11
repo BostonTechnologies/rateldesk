@@ -5,8 +5,13 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.API.Services;
+using Helpdesk.Infrastructure.Auth.Rbac;
+using Helpdesk.Infrastructure.Identity;
+using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -121,6 +126,38 @@ public sealed class SelfServiceRequesterLinkHttpTests
         await h.EditAsync(async db => Assert.Single(await db.CustomerAuthLinks.Where(link => link.DisabledAtUtc != null).ToListAsync()));
     }
 
+    [Fact]
+    public async Task Changed_customer_binding_denies_a_prior_access_snapshot_without_writes()
+    {
+        await using var h = await CreateAsync("authentik_user_id", priorCustomerId: "prior-customer");
+        await h.EditAsync(db =>
+        {
+            db.Customers.Add(new Customer { Id = "prior-customer", Name = "Prior requester", Email = "prior@example.invalid", OrganizationId = h.OrganizationId });
+            db.CustomerAuthLinks.Add(new CustomerAuthLink
+            {
+                CustomerId = h.CustomerId, AuthentikUserId = ProviderUserId, InviteStatus = CustomerInviteStatus.Active
+            });
+            return Task.CompletedTask;
+        });
+
+        using var context = await SendAsync(h, HttpMethod.Get, "/api/v1/self-service/submission-context?requestFormId=legacy-form");
+        Assert.Equal(HttpStatusCode.OK, context.StatusCode);
+        var preview = await context.Content.ReadFromJsonAsync<SelfServiceSubmissionContextDto>();
+        Assert.False(preview!.CanSubmit);
+        Assert.Equal("requester_unavailable", preview.ErrorCode);
+        using var submitted = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", Submission());
+        Assert.Equal(HttpStatusCode.Forbidden, submitted.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            Assert.Empty(await db.Requests.IgnoreQueryFilters().ToListAsync());
+            Assert.Empty(await db.RequestTasks.IgnoreQueryFilters().ToListAsync());
+            Assert.Equal(2, await db.Customers.CountAsync());
+            var link = await db.CustomerAuthLinks.SingleAsync();
+            Assert.Equal(h.CustomerId, link.CustomerId);
+            Assert.Equal(CustomerInviteStatus.Active, link.InviteStatus);
+        });
+    }
+
     private static SubmitSelfServiceRequestDto Submission() => new()
     {
         RequestFormId = "legacy-form", SubmissionId = Guid.NewGuid(), PayloadJson = "{}",
@@ -158,13 +195,14 @@ public sealed class SelfServiceRequesterLinkHttpTests
         return await h.Client.SendAsync(request);
     }
 
-    private static async Task<IncidentReceiverTests.Harness> CreateAsync(string legacyClaim, bool localAccount = false)
+    private static async Task<IncidentReceiverTests.Harness> CreateAsync(string legacyClaim, bool localAccount = false, string? priorCustomerId = null)
     {
         var h = await IncidentReceiverTests.Harness.CreateAsync(postgres: false, serviceIdentity: true,
             configureServices: services =>
             {
                 services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
-                services.AddSingleton(new RequesterClaims(legacyClaim, localAccount));
+                services.AddSingleton(new RequesterClaims(legacyClaim, localAccount, priorCustomerId));
+                if (priorCustomerId is not null) services.AddScoped<ICurrentUserAccessService, PriorRequesterAccess>();
                 services.AddAuthentication(options =>
                     {
                         options.DefaultAuthenticateScheme = "RequesterRouting";
@@ -189,7 +227,19 @@ public sealed class SelfServiceRequesterLinkHttpTests
         return h;
     }
 
-    private sealed record RequesterClaims(string LegacyClaim, bool LocalAccount);
+    private sealed record RequesterClaims(string LegacyClaim, bool LocalAccount, string? PriorCustomerId);
+
+    // Represents access resolved immediately before the identity link changed.
+    // Authentication, organization permissions and link lookup still use the real resolver.
+    private sealed class PriorRequesterAccess(HelpdeskDbContext db, RatelDeskIdentityDbContext identity) : ICurrentUserAccessService
+    {
+        public async Task<CurrentUserAccessProfile> ResolveAsync(ClaimsPrincipal user, CancellationToken ct = default)
+        {
+            var current = await new CurrentUserAccessService(db, identity).ResolveAsync(user, ct);
+            var prior = user.FindFirstValue("synthetic_prior_customer");
+            return prior is null ? current : current with { CustomerId = prior };
+        }
+    }
 
     private sealed class RequesterAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger, UrlEncoder encoder, RequesterClaims requester)
@@ -197,13 +247,15 @@ public sealed class SelfServiceRequesterLinkHttpTests
     {
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            Claim[] claims =
+            List<Claim> claims =
             [
                 new(ClaimTypes.NameIdentifier, requester.LocalAccount ? "owner" : Subject),
                 new("auth_mode", requester.LocalAccount ? "local" : "oidc"),
                 new(ClaimTypes.Email, "claim-only@example.invalid"),
                 new("iss", Issuer), new("sub", Subject), new(requester.LegacyClaim, ProviderUserId)
             ];
+            if (requester.PriorCustomerId is not null)
+                claims.Add(new Claim("synthetic_prior_customer", requester.PriorCustomerId));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(
                 new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name)));
         }

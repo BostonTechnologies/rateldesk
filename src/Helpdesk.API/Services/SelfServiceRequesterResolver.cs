@@ -44,6 +44,8 @@ internal static class SelfServiceRequesterResolver
             if (string.IsNullOrWhiteSpace(providerUserId)) providerUserId = principal.FindFirstValue("ak_user_id");
             if (link is null && !string.IsNullOrWhiteSpace(providerUserId))
                 link = await db.CustomerAuthLinks.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.AuthentikUserId == providerUserId, ct);
+            if (link is not null && link.CustomerId != customer.Id)
+                return Denied("requester_unavailable", "Your requester identity changed. Refresh the form or ask an administrator to review its account link.");
             // Match the access resolver's precedence; a disabled lower-priority
             // alias must not override the active link that established CustomerId.
             if (link is not null && (link.DisabledAtUtc is not null || link.InviteStatus == CustomerInviteStatus.Disabled))
