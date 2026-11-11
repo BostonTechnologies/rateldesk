@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
 using Helpdesk.API.Endpoints.Customers;
@@ -8,16 +9,41 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
+using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace Helpdesk.Tests.Api;
 
 public sealed class CustomerDeletionEndpointTests
 {
+    [Fact]
+    public async Task InMemory_customer_routes_keep_the_guard_without_a_relational_transaction()
+    {
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options;
+        await using var db = new HelpdeskDbContext(options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        db.Customers.AddRange(
+            new Customer { Id = "identity", IdentityUserId = "retired-user" },
+            new Customer { Id = "contact" });
+        await db.SaveChangesAsync();
+        var customers = new EfRepository<Customer>(db);
+
+        var retained = await CustomerDeletionEndpoint.DeleteAsync("identity", customers, db, default);
+        var deleted = await CustomerDeletionEndpoint.DeleteAsync("contact", customers, db, default);
+        var repeated = await CustomerDeletionEndpoint.DeleteAsync("contact", customers, db, default);
+
+        Assert.Equal(StatusCodes.Status409Conflict, ((IStatusCodeHttpResult)retained).StatusCode);
+        Assert.Equal(StatusCodes.Status204NoContent, ((IStatusCodeHttpResult)deleted).StatusCode);
+        Assert.Equal(StatusCodes.Status404NotFound, ((IStatusCodeHttpResult)repeated).StatusCode);
+        Assert.Equal("retired-user", (await db.Customers.SingleAsync()).IdentityUserId);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -131,6 +157,50 @@ public sealed class CustomerDeletionEndpointTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Concurrent_invitation_cannot_commit_between_the_identity_check_and_customer_delete(bool postgres)
+    {
+        var gate = new DeleteGate();
+        await using var h = await Harness.CreateAsync(postgres, gate);
+        await h.EditAsync(async db =>
+        {
+            db.Customers.Add(new Customer { Id = "racing-contact", Name = "Disposable contact", Email = "race@example.invalid" });
+            await db.SaveChangesAsync();
+        });
+
+        var deletion = h.Client.DeleteAsync("/api/v1/customers/racing-contact");
+        try
+        {
+            await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await h.EditAsync(async db =>
+            {
+                if (postgres)
+                {
+                    await db.Database.OpenConnectionAsync();
+                    await db.Database.ExecuteSqlRawAsync("SET lock_timeout = '250ms'");
+                }
+                else db.Database.SetCommandTimeout(1);
+                db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "racing-contact", InviteStatus = CustomerInviteStatus.Pending });
+
+                var error = await Record.ExceptionAsync(() => db.SaveChangesAsync());
+                var databaseError = error is DbUpdateException update ? update.InnerException : error;
+                if (postgres) Assert.Equal(PostgresErrorCodes.LockNotAvailable, Assert.IsType<PostgresException>(databaseError).SqlState);
+                else Assert.Equal(5, Assert.IsType<SqliteException>(databaseError).SqliteErrorCode);
+            });
+        }
+        finally { gate.Release.TrySetResult(); }
+
+        using var deleted = await deletion.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            Assert.Empty(await db.Customers.ToListAsync());
+            Assert.Empty(await db.CustomerAuthLinks.ToListAsync());
+        });
+    }
+
     private static async Task AssertIdentityConflictAsync(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
@@ -159,7 +229,7 @@ public sealed class CustomerDeletionEndpointTests
     {
         public HttpClient Client { get; } = client;
 
-        public static async Task<Harness> CreateAsync(bool postgres)
+        public static async Task<Harness> CreateAsync(bool postgres, DbCommandInterceptor? interceptor = null)
         {
             var path = Path.Combine(Path.GetTempPath(), $"customer-delete-{Guid.NewGuid():N}.db");
             var container = postgres ? new PostgreSqlBuilder("postgres:16").Build() : null;
@@ -175,6 +245,7 @@ public sealed class CustomerDeletionEndpointTests
             {
                 if (container is not null) options.UseNpgsql(container.GetConnectionString());
                 else options.UseSqlite($"Data Source={path}");
+                if (interceptor is not null) options.AddInterceptors(interceptor);
             });
             builder.Services.AddScoped<IRepository<Customer>, EfRepository<Customer>>();
             var app = builder.Build();
@@ -198,6 +269,23 @@ public sealed class CustomerDeletionEndpointTests
             await app.DisposeAsync();
             if (postgres is not null) await postgres.DisposeAsync();
             if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    private sealed class DeleteGate : DbCommandInterceptor
+    {
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("DELETE FROM \"Customers\"", StringComparison.Ordinal))
+            {
+                Reached.TrySetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            return result;
         }
     }
 }

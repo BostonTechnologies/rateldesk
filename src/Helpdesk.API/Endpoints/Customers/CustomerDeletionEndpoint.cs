@@ -1,3 +1,4 @@
+using System.Data;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -11,12 +12,25 @@ public static class CustomerDeletionEndpoint
     public static async Task<IResult> DeleteAsync(string id, IRepository<Customer> customers,
         HelpdeskDbContext db, CancellationToken ct)
     {
-        var customer = await customers.GetAsync(id);
-        if (customer is null) return Results.Problem("Resource not found", statusCode: 404);
-
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(db.Database.IsNpgsql()
+                ? IsolationLevel.ReadCommitted : IsolationLevel.Serializable, ct)
+            : null;
         try
         {
+            var customer = await customers.GetAsync(id);
+            if (customer is null) return Results.Problem("Resource not found", statusCode: 404);
+
+            if (db.Database.IsNpgsql())
+            {
+                // The row lock also excludes concurrent auth-link inserts through their
+                // customer foreign key. Read again after locking to discard a stale snapshot.
+                customer = await db.Customers.FromSqlInterpolated(
+                        $"SELECT * FROM \"Customers\" WHERE \"Id\" = {customer.Id} FOR UPDATE")
+                    .AsNoTracking().SingleOrDefaultAsync(ct);
+                if (customer is null) return Results.Problem("Resource not found", statusCode: 404);
+            }
+
             if (customer.IdentityUserId is not null ||
                 await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == customer.Id, ct))
             {
@@ -29,7 +43,7 @@ public static class CustomerDeletionEndpoint
 
             if (!await customers.DeleteAsync(customer.Id))
                 return Results.Problem("Resource not found", statusCode: 404);
-            await transaction.CommitAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
             return Results.NoContent();
         }
         catch (DbUpdateException)
