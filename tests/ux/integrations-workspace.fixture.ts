@@ -346,7 +346,7 @@ test('system connection context, interrupted save, durable resume and row-local 
  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
  await page.getByRole('dialog').getByRole('button', { name: 'Back to connections', exact: true }).click();
  await open(page, '/account/integration-credentials?tab=connections&organizationId=unavailable-org');
- await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'Add connection', exact: true }).click();
+ await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'Add mapping', exact: true }).click();
  await expect(page.getByTestId('connection-organization-hint-error')).toBeVisible();
  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('');
  await expect(page.getByTestId('save-system-connection')).toBeDisabled();

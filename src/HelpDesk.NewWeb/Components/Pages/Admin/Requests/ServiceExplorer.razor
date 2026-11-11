@@ -1,4 +1,4 @@
-﻿@page "/admin/requests/services"
+@page "/admin/requests/services"
 @page "/admin/requests/services/{ServiceId}"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 
@@ -18,6 +18,7 @@
 <PageTitle>@(ParentService is not null ? $"Service: {ParentService!.Name}" : "Service Explorer")</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="helpdesk-page service-explorer-page">
+    <div class="service-explorer-layout">
     @if (loading)
     {
         <MudProgressCircular Indeterminate="true" />
@@ -54,110 +55,81 @@
             </MudAlert>
         }
 
-        <MudGrid Spacing="3">
+        <div class="service-explorer-grid" data-testid="service-explorer-grid">
             @foreach (var item in serviceItems)
             {
-                <MudItem xs="12" sm="6" lg="4">
-                    <MudCard Class="svc-card">
-                        <MudCardHeader Class="pb-0">
-                            <CardHeaderContent>
-                                <MudText Typo="Typo.h6" Class="text-truncate" Title="@item.Name">@item.Name</MudText>
-                            </CardHeaderContent>
-                            <CardHeaderActions>
-                                @if (item.ItemType == ServiceItemType.Service)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">Service</MudChip>
-                                }
-                                else
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Request</MudChip>
-                                    <MudChip T="string"
-                                             Size="Size.Small"
-                                             Color="@(item.ReleaseStatus == RequestFormReleaseStatus.Production ? Color.Success : Color.Warning)"
-                                             Variant="Variant.Outlined">
-                                        @(item.ReleaseStatus == RequestFormReleaseStatus.Production ? "Production" : "In Testing")
-                                    </MudChip>
-                                }
-                            </CardHeaderActions>
-                        </MudCardHeader>
-
-                        <MudCardContent Class="pt-2 svc-content">
-                            <MudText Typo="Typo.body2" Class="line-clamp-3 mb-2">@item.Description</MudText>
-
-                            @if ((item.AllowedOrganizationIds?.Any() ?? false))
+                <MudCard @key="item.Id" Class="svc-card" data-testid="service-explorer-card" data-service-id="@item.Id">
+                    <div class="svc-heading">
+                        <span class="svc-icon" aria-hidden="true"><MudIcon Icon="@(item.ItemType == ServiceItemType.Service ? Icons.Material.Filled.FolderOpen : Icons.Material.Filled.ReceiptLong)" /></span>
+                        <div class="svc-identity">
+                            <MudText Typo="Typo.h6" HtmlTag="h2" Class="svc-name">@item.Name</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@(item.ItemType == ServiceItemType.Service ? "Service folder" : "Request form")</MudText>
+                        </div>
+                    </div>
+                    <MudCardContent Class="svc-content">
+                        <div class="svc-description">
+                            <MudText Typo="Typo.body2" Class="svc-description-text">@(string.IsNullOrWhiteSpace(item.Description) ? "No description provided." : item.Description)</MudText>
+                            @if (!string.IsNullOrWhiteSpace(item.Description))
                             {
-                                <MudChipSet T="string" Class="mb-1 svc-chipset" Filter="false">
-                                    @foreach (var orgId in item.AllowedOrganizationIds!)
+                                <MudTooltip Text="Read full description"><MudIconButton Icon="@Icons.Material.Outlined.Info" Size="Size.Small" aria-label="@($"Read full description of {item.Name}")" OnClick="@(() => ShowDescriptionAsync(item))" /></MudTooltip>
+                            }
+                        </div>
+                        <div class="svc-assignment-heading"><span>Assigned organizations</span><span>@(item.AllowedOrganizationIds?.Count ?? 0)</span></div>
+                        <div class="svc-assignments" role="region" aria-label="@($"Assigned organizations for {item.Name}: {item.AllowedOrganizationIds?.Count ?? 0}")" tabindex="0" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+                            @if (item.AllowedOrganizationIds?.Count > 0)
+                            {
+                                <MudChipSet T="string" Class="svc-chipset" Filter="false">
+                                    @foreach (var orgId in item.AllowedOrganizationIds)
                                     {
                                         var orgName = organizations.FirstOrDefault(o => o.Id == orgId)?.Name ?? orgId;
-                                        <MudChip T="string"
-                                                 Value="@orgId"
-                                                 Closeable="true"
-                                                 OnClose="@(() => RemoveOrgAccess(item, orgId))"
-                                                 Color="Color.Default"
-                                                 Variant="Variant.Outlined"
-                                                 Class="me-1 mb-1">
+                                        <MudChip T="string" @key="orgId" Value="@orgId" Closeable="true"
+                                                 OnClose="@(() => RemoveOrgAccess(item, orgId))" Color="Color.Default" Variant="Variant.Outlined" Title="@orgName">
                                             @orgName
                                         </MudChip>
                                     }
                                 </MudChipSet>
                             }
-
-                            @if (item.ItemType == ServiceItemType.RequestForm && bindingsByRequestFormId.TryGetValue(item.Id, out var requestBindings) && requestBindings.Count > 0)
+                            else
                             {
-                                <MudStack Row="true" Spacing="1" Class="mt-2">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">
-                                        Automation @requestBindings.Count
-                                    </MudChip>
-                                    <MudChip T="string" Size="Size.Small" Color="@GetBindingSummaryColor(requestBindings)" Variant="Variant.Outlined">
-                                        @GetBindingSummaryLabel(requestBindings)
-                                    </MudChip>
-                                </MudStack>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">No assigned organizations</MudText>
                             }
-                        </MudCardContent>
-
-                        <MudCardActions Class="svc-actions">
-                            <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small">
-                                @if (item.ItemType == ServiceItemType.Service)
+                        </div>
+                        <div class="svc-metadata">
+                            @if (item.ItemType == ServiceItemType.Service && item.AvailableRequestCount > 0)
+                            {
+                                <span>@item.AvailableRequestCount @(item.AvailableRequestCount == 1 ? "request" : "requests")</span>
+                            }
+                            else if (item.ItemType == ServiceItemType.RequestForm)
+                            {
+                                <span>@(item.ReleaseStatus == RequestFormReleaseStatus.Production ? "Production" : "In testing")</span>
+                                @if (bindingsByRequestFormId.TryGetValue(item.Id, out var requestBindings) && requestBindings.Count > 0)
                                 {
-                                    <MudTooltip Text="Open service">
-                                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen"
-                                                       OnClick="@(() => OpenService(item.Id))" />
-                                    </MudTooltip>
+                                    <MudText Typo="Typo.body2" Color="@GetBindingSummaryColor(requestBindings)">Automation @requestBindings.Count · @GetBindingSummaryLabel(requestBindings)</MudText>
                                 }
-
-                                <MudTooltip Text="Edit">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                                   aria-label="@($"Edit {item.Name}")"
-                                                   OnClick="@(() => EditItem(item))" />
-                                </MudTooltip>
-
-                                @if (item.ItemType == ServiceItemType.RequestForm)
-                                {
-                                    <MudTooltip Text="Copy request">
-                                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
-                                                       OnClick="@(() => CopyRequest(item))" />
-                                    </MudTooltip>
-                                }
-
-                                <MudTooltip Text="Manage org access">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Group"
-                                                   OnClick="@(() => ManageAccess(item))" />
-                                </MudTooltip>
-                            </MudButtonGroup>
-
-                            <MudTooltip Text="Delete">
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                               Color="Color.Error"
-                                               OnClick="@(() => DeleteItem(item))" />
-                            </MudTooltip>
-                        </MudCardActions>
-                    </MudCard>
-                </MudItem>
+                            }
+                        </div>
+                    </MudCardContent>
+                    <MudCardActions Class="svc-actions">
+                        <div class="svc-primary-actions">
+                            @if (item.ItemType == ServiceItemType.Service)
+                            {
+                                <MudTooltip Text="Open folder"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" aria-label="@($"Open folder {item.Name}")" OnClick="@(() => OpenService(item.Id))" /></MudTooltip>
+                            }
+                            <MudTooltip Text="Edit"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" aria-label="@($"Edit {item.Name}")" OnClick="@(() => EditItem(item))" /></MudTooltip>
+                            @if (item.ItemType == ServiceItemType.RequestForm)
+                            {
+                                <MudTooltip Text="Copy request"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" aria-label="@($"Copy request {item.Name}")" OnClick="@(() => CopyRequest(item))" /></MudTooltip>
+                            }
+                            <MudTooltip Text="Manage organization access"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Group" aria-label="@($"Manage organization access for {item.Name}")" OnClick="@(() => ManageAccess(item))" /></MudTooltip>
+                        </div>
+                        <MudTooltip Text="Delete"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" aria-label="@($"Delete {item.Name}")" Color="Color.Error" OnClick="@(() => DeleteItem(item))" /></MudTooltip>
+                    </MudCardActions>
+                </MudCard>
             }
-        </MudGrid>
+        </div>
     }
 
+    </div>
 </MudContainer>
 
 @code {
@@ -338,11 +310,13 @@
         }
     }
 
+    private Task<bool?> ShowDescriptionAsync(ServiceItemDto item) => DialogService.ShowMessageBoxAsync(item.Name, item.Description, yesText: "Close", options: new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+
     private async Task DeleteItem(ServiceItemDto item)
     {
         var confirm = await DialogService.ShowMessageBoxAsync(
             title: "Confirm delete",
-            markupMessage: (MarkupString)$"Delete <b>{item.Name}</b>?",
+            message: $"Delete {item.Name}?",
             yesText: "Delete",
             cancelText: "Cancel",
             options: new DialogOptions { CloseOnEscapeKey = true });

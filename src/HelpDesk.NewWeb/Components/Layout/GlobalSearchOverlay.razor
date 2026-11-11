@@ -6,7 +6,8 @@
 @if (Open)
 {
     <div class="global-search-backdrop" @onclick="CloseAsync">
-        <div class="global-search-panel" @onclick:stopPropagation="true">
+        <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild" Class="global-search-focus-trap">
+        <div class="global-search-panel" @onclick:stopPropagation="true" @onkeydown="OnPanelKeyDownAsync" role="dialog" aria-modal="true" aria-label="@($"Search {ApplicationName}")">
             <div class="global-search-input-row">
                 <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Medium" />
                 <MudTextField @ref="searchInput"
@@ -14,6 +15,7 @@
                               Value="query"
                               ValueChanged="OnQueryChangedAsync"
                               Placeholder="Search..."
+                              aria-label="@($"Search {ApplicationName}")"
                               Immediate="true"
                               Variant="Variant.Text"
                               Underline="false"
@@ -96,12 +98,14 @@
                 }
             </div>
         </div>
+        </MudFocusTrap>
     </div>
 }
 
 @code {
     [Parameter] public bool Open { get; set; }
     [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public string ApplicationName { get; set; } = "RatelDesk";
 
     private MudTextField<string>? searchInput;
     private IReadOnlyList<GlobalSearchGroup> groups = [];
@@ -180,11 +184,7 @@
 
     private async Task OnKeyDownAsync(KeyboardEventArgs args)
     {
-        if (args.Key == "Escape")
-        {
-            await CloseAsync();
-        }
-        else if (args.Key == "Enter")
+        if (args.Key == "Enter")
         {
             var first = groups.SelectMany(g => g.Results).FirstOrDefault();
             if (first is not null)
@@ -193,6 +193,8 @@
             }
         }
     }
+
+    private Task OnPanelKeyDownAsync(KeyboardEventArgs args) => args.Key == "Escape" ? CloseAsync() : Task.CompletedTask;
 
     private void UpsertGroup(GlobalSearchGroup group)
     {

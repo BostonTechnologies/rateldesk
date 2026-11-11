@@ -158,8 +158,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('renders the application shell and opens global search', async ({ page }) => {
-  await expect(page.getByText('RatelDesk')).toBeVisible();
-  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page.getByText('RatelDesk', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Search RatelDesk' }).click();
   await expect(page.getByPlaceholder('Search...')).toBeVisible();
 });
 
@@ -261,7 +261,7 @@ test('mobile drawer starts closed, opens, fully closes, and leaves the page inte
 
   await closeDrawer(page);
   await page.screenshot({ path: testInfo.outputPath('mobile-home-drawer-closed.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search RatelDesk' }).click();
   await expect(page.getByPlaceholder('Search...')).toBeVisible();
   await context.close();
 });

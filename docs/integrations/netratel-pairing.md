@@ -20,7 +20,7 @@ remain in their separate tab.
 5. Select **Save** once. It validates the current permissions and selected
    resources, provisions the connector or automation binding, and activates
    the connection. **Configured** describes a saved and authorized mapping;
-   **Not tested** remains until the real read-only connection test succeeds.
+   **Never tested** remains until the real read-only connection test runs.
 
 Pairing alone permits setup and authorized directory choices. It does not
 permit incident creation or automation. Only existing authorized tenants,
@@ -28,17 +28,29 @@ organizations and customers are selectable; pairing creates none of them.
 There is no consent page, second sign-in, approval checkbox, enable switch or
 mandatory test. If Save fails, correct the actionable inline error and retry
 the same form. Refresh preserves the existing unconfigured pairing. Its compact
-row shows **Needs attention** and **Continue setup**; resume that record instead
+card shows **Setup required** and **Continue setup**; resume that record instead
 of generating a replacement code or duplicate connection. Setup opens in a
 focused dialog with bounded scrolling and stable actions.
 
 ## Manage a connection
 
-The list shows the connection name, peer address, mapped tenants, enabled
-directions, status and last test result/time. **View** opens its configuration.
+The cards separate the provider/connection identity, source tenant and destination
+organization, capability directions, configuration state and last test snapshot.
+**View** opens the saved configuration and exact connection identity.
 **Test connection** checks authenticated access, the current mapping and
 selected capabilities without creating an incident or task. Testing is
 optional after Save.
+
+A saved **Configured** mapping is not a live health result. The card distinguishes
+**Never tested**, a recent passing/failed check and a **Stale snapshot**. A test
+older than 15 minutes is stale; the timestamp and expandable **Test details**
+retain its original result and any safe diagnostic reference. Refresh retrieves
+saved snapshots and does not automatically run a test. Search and the status
+filter can isolate configuration work or a particular test state.
+
+**Add mapping** adds another tenant/organization mapping to the already paired
+system. It does not replace the selected connection, re-pair the installations
+or change existing job bindings. Review and save that new mapping explicitly.
 
 Administration/account entry points preserve the selected tab and authorized
 `organizationId` context across navigation and refresh. An organization URL

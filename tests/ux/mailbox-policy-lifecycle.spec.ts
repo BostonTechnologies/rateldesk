@@ -18,7 +18,7 @@ test('mailbox deployment policy: explicit false blocks worker and explicit true 
   await page.getByRole('textbox', { name: 'Email' }).fill(process.env.HELPDESK_E2E_LOCAL_EMAIL!);
   await page.getByLabel('Password').fill(process.env.HELPDESK_E2E_LOCAL_PASSWORD!);
   await page.getByRole('button', { name: /^Sign in$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Operations Dashboard' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Operations Overview' })).toBeVisible();
   await page.goto('/admin/email-settings');
   await expect(page.getByTestId('mailbox-settings')).toHaveAttribute('data-interactive', 'true');
   await expect(page.getByText(expected === 'blocked' ? 'Disabled by deployment' : 'Instance enabled',
