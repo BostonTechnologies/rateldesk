@@ -8,8 +8,9 @@ const originalRequests = Array.from({ length: 137 }, (_, i) => ({
   state: i % 7, releaseStatus: i % 2,
   createdAt: '2026-11-01T12:00:00Z', updatedAt: new Date(Date.UTC(2026, 10, 2, 12, i)).toISOString()
 }));
-let count = 7, fault = '', requests = [], rows = structuredClone(originalRequests), submissions = [], receipts = new Map();
-const catalogue = () => Array.from({ length: count }, (_, i) => ({ id: `service-${i}`, name: `Service ${i + 1} for synthetic access and device support`,
+let count = 7, fault = '', requests = [], rows = structuredClone(originalRequests), submissions = [], receipts = new Map(), formCard = false;
+const catalogue = () => formCard ? [{ id: 'form-synthetic', name: 'Synthetic access request', description: 'Harmless rendered submission fixture', itemType: 1 }]
+  : Array.from({ length: count }, (_, i) => ({ id: `service-${i}`, name: `Service ${i + 1} for synthetic access and device support`,
   description: i % 2 ? 'A short description.' : 'A longer description that remains accessible in full while the common card geometry reserves two lines and anchors all footers consistently.',
   itemType: 0, availableRequestCount: i + 1 }));
 
@@ -18,7 +19,8 @@ http.createServer(async (req, res) => {
   const path = url.pathname.replace(/\/$/, '');
   const reply = (value, status = 200) => { if (!res.destroyed) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); } };
   if (path === '/fixture/health') return reply({ ok: true });
-  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); return reply({ ok: true }); }
+  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; return reply({ ok: true }); }
+  if (path === '/fixture/form-card') { formCard = true; return reply({ ok: true }); }
   if (path === '/fixture/state') return reply({ requests, count, submissions, receiptCount: receipts.size });
   if (path === '/fixture/catalogue') { count = Math.max(0, Math.min(100, Number(url.searchParams.get('count') ?? 7))); return reply({ ok: true }); }
   if (path === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; return reply({ ok: true }); }

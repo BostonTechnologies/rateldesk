@@ -85,3 +85,21 @@ test('self submit rejects duplicate button events and on-behalf retains explicit
   expect(state.submissions[1].requestedForPersonSource).toBe(0);
   expect(state.receiptCount).toBe(2);
 });
+
+test('form cancel and successful return retain the catalog folder and search context', async ({ page, request }) => {
+  await request.get(`${fixture}/form-card`);
+  await page.goto('/self-service/service-0?search=access');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await page.getByRole('button', { name: /^Synthetic access request\./ }).click();
+  await expect(page).toHaveURL(/\/self-service\/request\/form-synthetic$/);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page).toHaveURL(/\/self-service\/service-0\?search=access$/);
+  await expect(page.getByRole('textbox', { name: 'Search services and requests' })).toHaveValue('access');
+  await page.getByRole('button', { name: /^Synthetic access request\./ }).click();
+  await page.getByRole('textbox', { name: 'Request reason' }).fill('Harmless return-context test');
+  await page.getByRole('button', { name: 'Submit', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Request submitted', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to catalog', exact: true }).click();
+  await expect(page).toHaveURL(/\/self-service\/service-0\?search=access$/);
+  await expect(page.getByRole('textbox', { name: 'Search services and requests' })).toHaveValue('access');
+});

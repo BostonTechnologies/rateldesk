@@ -255,6 +255,7 @@
 @code {
     [Parameter] public string RequestFormId { get; set; } = default!;
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+    [CascadingParameter] private SelfServiceNavigationState? SectionNavigation { get; set; }
 
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -605,7 +606,7 @@
 
     private void GoToCatalog()
     {
-        Navigation.NavigateTo("/self-service");
+        Navigation.NavigateTo(SectionNavigation?.CatalogUrl ?? "/self-service");
     }
 
     private void OpenSubmittedRequest()
