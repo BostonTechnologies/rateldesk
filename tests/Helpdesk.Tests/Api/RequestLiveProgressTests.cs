@@ -67,7 +67,8 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         context.ComponentFactories.AddStub<Activity>();
         var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        await page.FindAll("button[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new());
+        page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"));
+        await page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new());
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count));
         await page.Find("button[aria-label='Task details: Harmless automation 1']").ClickAsync(new());
         Assert.Single(page.FindAll(".request-task-details"));
