@@ -30,7 +30,7 @@
     {
         <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
             <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Request submitted</MudText>
-            <MudText Typo="Typo.body1" Class="mt-2">Tracking ID: <b>@submitted.TrackingId</b></MudText>
+            <MudText Typo="Typo.body1" Class="mt-2" data-testid="submitted-request-receipt" data-request-id="@submitted.RequestId" data-tracking-id="@submitted.TrackingId">Tracking ID: <b>@submitted.TrackingId</b></MudText>
             <MudText Typo="Typo.body2">Request ID: @submitted.RequestId</MudText>
             <MudStack Row="true" Spacing="2" Class="self-service-form-actions mt-4">
                 <MudButton Variant="Variant.Outlined" OnClick="GoToCatalog">Back to catalog</MudButton>
