@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-const fixture = 'http://127.0.0.1:18500/fixture';
+const fixture = `${process.env.HELPDESK_ADMIN_FIXTURE_ORIGIN ?? 'http://127.0.0.1:18500'}/fixture`;
 const baseline = process.env.HELPDESK_DIRECTORY_BASELINE === 'true';
 const routes = [
   ['/admin/customers', 'Customers', 133],
@@ -8,7 +8,7 @@ const routes = [
 ] as const;
 async function open(page: Page, route: string) {
   await page.goto(route, { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 }
 async function select(page: Page, label: string, option: string) {
@@ -66,6 +66,16 @@ test('complete pagers and URL query restore keep bounded customer loading', asyn
   test.skip(baseline, 'Before evidence uses the previous rendered pages.');
   await open(page, '/admin/customers');
   await expect(page.locator('.directory-table-region tbody tr')).toHaveCount(25);
+  const sortName = page.getByRole('button', { name: 'Sort by Customer', exact: true });
+  await sortName.focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('th').first()).toHaveAttribute('aria-sort', 'descending');
+  await sortName.press('Enter');
+  await expect(page.locator('th').first()).toHaveAttribute('aria-sort', 'ascending');
+  const pageSize = page.locator('.mud-table-pagination').getByRole('combobox');
+  for (const size of [50, 100, 25]) {
+    await pageSize.click(); await page.getByRole('option', { name: String(size), exact: true }).click();
+    await expect(page.locator('.directory-table-region tbody tr')).toHaveCount(size);
+  }
   await page.getByRole('button', { name: /Last page/i }).click();
   await expect(page).toHaveURL(/page=5/);
   await expect(page.locator('.directory-table-region tbody tr')).toHaveCount(8);
@@ -83,6 +93,7 @@ test('complete pagers and URL query restore keep bounded customer loading', asyn
   const state = await (await request.get(`${fixture}/state`)).json();
   expect(state.reads.filter((read: any) => /customers\/[^/]+\/auth\/status/.test(read.path))).toHaveLength(0);
   const directory = await (await request.get(`${fixture}/directories/state`)).json();
+  expect(directory.reads.filter((read: any) => /customers\/[^/]+\/auth\/status/.test(read.path))).toHaveLength(0);
   expect(directory.actions).toEqual([]);
 });
 

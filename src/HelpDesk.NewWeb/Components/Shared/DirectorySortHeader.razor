@@ -1,0 +1,15 @@
+<MudTh aria-sort="@(Sort == Column ? Descending ? "descending" : "ascending" : "none")">
+    <MudButton Variant="Variant.Text" Color="Color.Default" Size="Size.Small" Class="directory-sort"
+               aria-label="@($"Sort by {Label}")" OnClick="@(() => OnSort.InvokeAsync(Column))"
+               EndIcon="@(Sort == Column ? Descending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward : Icons.Material.Filled.UnfoldMore)">
+        @Label
+    </MudButton>
+</MudTh>
+
+@code {
+    [Parameter, EditorRequired] public string Column { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Sort { get; set; } = "name";
+    [Parameter] public bool Descending { get; set; }
+    [Parameter] public EventCallback<string> OnSort { get; set; }
+}

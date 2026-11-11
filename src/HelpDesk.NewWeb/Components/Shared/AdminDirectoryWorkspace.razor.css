@@ -16,3 +16,4 @@
 .directory-table-region ::deep .directory-action-column { width:10rem; min-width:10rem; }
 .directory-table-region ::deep .mud-table-pagination { flex-wrap:nowrap; overflow-x:auto; min-height:3.5rem; }
 @media (max-width:600px) { .directory-workspace { padding:1rem; } .directory-heading { align-items:flex-start; flex-wrap:wrap; } .directory-toolbar ::deep > * { max-width:none; } }
+.directory-table-region ::deep .directory-sort { padding:.25rem; text-transform:none; font-size:inherit; white-space:nowrap; }

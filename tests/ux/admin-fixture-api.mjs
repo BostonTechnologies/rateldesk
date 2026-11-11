@@ -164,4 +164,4 @@ http.createServer(async (req, res) => {
  if (path.includes('summary') || path.includes('status')) return reply({});
  if (path.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }
  return reply([]);
-}).listen(18500, '127.0.0.1', () => console.log('Admin fixture listening on loopback :18500'));
+}).listen(Number(process.env.HELPDESK_ADMIN_FIXTURE_PORT ?? 18500), '127.0.0.1', () => console.log('Admin fixture listening on loopback'));
