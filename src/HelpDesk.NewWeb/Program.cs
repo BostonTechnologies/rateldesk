@@ -270,6 +270,15 @@ var helpdeskApiClient = builder.Services.AddHttpClient("HelpdeskApi", client =>
 
 builder.Services.AddHelpdeskCommandsClient(apiBaseUri);
 
+// Submission has a persisted operation ID and is retried only by the user.
+var selfServiceCommandsClient = builder.Services.AddHttpClient("HelpdeskSelfServiceCommands", client =>
+{
+    client.BaseAddress = apiBaseUri;
+    client.Timeout = TimeSpan.FromSeconds(60);
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
+    .AddHttpMessageHandler<TokenAuthorizationHandler>();
+
 // Chat commands carry stable operation IDs and require an explicit operator retry.
 var chatCommandsClient = builder.Services.AddHttpClient("HelpdeskChatCommands", client =>
 {
@@ -307,6 +316,7 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
 
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
+selfServiceCommandsClient.RemoveAllResilienceHandlers();
 chatCommandsClient.RemoveAllResilienceHandlers();
 netclawPairingApiClient.RemoveAllResilienceHandlers();
 systemPairingApiClient.RemoveAllResilienceHandlers();
