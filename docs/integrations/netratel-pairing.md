@@ -81,9 +81,40 @@ storage. Long-lived credentials stay protected on the server. The pairing
 retains each administrator's setup authority and rechecks current permissions
 when selecting resources, saving and using a business capability.
 
-## Target-aware self-service automation
+## Durable execution and requester upgrades
 
-The compatible pair is RatelDesk **0.1.3-beta.9** and NetRatel **0.1.5-beta.4**.
+The requester/deadline upgrade adds forward migrations for stable submission
+receipts, identity-bound requester contacts, per-attempt execution deadlines,
+reconciliation leases and state versions, operator holds, and application-user
+retirement. SQLite and PostgreSQL remain supported. Back up the domain and
+identity databases and persistent protection keys, replace older API/worker
+replicas, and apply the normal migrations before admitting new work. Preserve
+saved connections, tenant mappings, existing runs and protected credentials.
+Do not repair identity links or move organizations through SQL. Downgrading an
+identity-bound contact database requires restoring its matching backup; managed
+contacts can legitimately share an email with unrelated legacy contacts.
+
+Use the exact paired versions and tested revisions listed in the release notes.
+The compatible NetRatel execution-receipt contract adds an authenticated read of
+the original request/run with the recorded RatelDesk request, task and attempt
+headers. It reuses the existing read grant and current saved connection; it does
+not require another pairing, credential or admission. Upgrade the provider first
+when adopting outcome reads. An older or unavailable provider cannot confirm
+termination: RatelDesk records **Timed out — outcome unknown / Needs
+reconciliation**, retains the original identifiers and holds dependent work.
+It does not infer remote cancellation, invoke ordinary failure/Continue policy,
+create a confirmed-failure incident, or resubmit automatically.
+
+A confirmed late outcome for that same attempt recomputes the task and parent
+and clears only its uncertainty hold. Historical timeout timing remains visible;
+an independent operator hold remains until explicitly released. The durable
+continuation resumes eligible work after that release without requiring another
+callback. See [execution timing and recovery](netratel-orchestrator.md) and
+[application user deletion](../security/rbac.md#application-user-deletion).
+
+## Target-aware self-service automation (beta.9 / beta.4)
+
+For that target-aware repair, the compatible pair is RatelDesk **0.1.3-beta.9** and NetRatel **0.1.5-beta.4**.
 Upgrade NetRatel first, complete its ordinary automatic database migrations and
 replace older API replicas before admitting modern automation. Then upgrade
 RatelDesk. Keep the current pairing, named tenant connections, primary
