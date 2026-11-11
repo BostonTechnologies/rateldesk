@@ -3,6 +3,7 @@ using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.API.Services;
+using Helpdesk.API.Endpoints.Orchestration;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Sla;
@@ -214,10 +215,19 @@ public static class SelfServiceRequestEndpoints
         }
 
         await requestTaskGeneration.GenerateForRequestAsync(created, token);
+        var automationContinuation = await db.RequestTasks
+            .Where(task => task.RequestId == created.Id && task.Type == RequestTaskType.Automation)
+            .OrderBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(token);
+        if (automationContinuation is not null)
+            automationContinuation.AutomationContinuationPending = true;
         await db.SaveChangesAsync(token);
         await tx.CommitAsync(token);
 
-        await workflowEngine.RunAsync(created.Id, WorkflowRunReason.RequestCreated, token);
+        if (automationContinuation is null)
+            await workflowEngine.RunAsync(created.Id, WorkflowRunReason.RequestCreated, token);
+        else
+            await http.RequestServices.GetRequiredService<AutomationExecutionOutcomeService>()
+                .ContinueAsync(automationContinuation.Id, automationContinuation.AutomationAttemptCorrelationId, token);
 
         await domainEvents.PublishAsync(
             new SelfServiceRequestSubmittedEvent(
