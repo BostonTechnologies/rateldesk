@@ -118,6 +118,13 @@ test('query, native page sizes, sorts and section return state survive navigatio
   await page.getByRole('option', { name: '50', exact: true }).click();
   await expect(page.locator('.my-requests-table tbody tr')).toHaveCount(50);
   await expect(page.locator('.mud-table-pagination')).toContainText('1-50 of 137');
+  await page.locator('.mud-table-pagination').getByRole('combobox').click();
+  await page.getByRole('option', { name: '100', exact: true }).click();
+  await expect(page.locator('.my-requests-table tbody tr')).toHaveCount(100);
+  await expect(page.locator('.mud-table-pagination')).toContainText('1-100 of 137');
+  await page.locator('.mud-table-pagination').getByRole('combobox').click();
+  await page.getByRole('option', { name: '50', exact: true }).click();
+  await expect(page.locator('.my-requests-table tbody tr')).toHaveCount(50);
   await page.getByRole('button', { name: 'Sort by title', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/sort=title/);
