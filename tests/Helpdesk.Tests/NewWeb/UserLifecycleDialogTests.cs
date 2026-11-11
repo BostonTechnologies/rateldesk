@@ -6,13 +6,37 @@ using Helpdesk.Shared.DTOs.User;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
+using Bunit.TestDoubles;
+using Helpdesk.Shared.DTOs;
 using DeleteDialog = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.User.DeleteUserDialog;
 using SignInDialog = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.User.ChangeUserSignInDialog;
+using TeamPage = NewWeb::HelpDesk.NewWeb.Components.Pages.Admin.User.UserManagement;
+using AuthenticationMode = NewWeb::HelpDesk.NewWeb.Models.WebAuthenticationMode;
 
 namespace Helpdesk.Tests.NewWeb;
 
 public sealed class UserLifecycleDialogTests
 {
+    [Theory]
+    [InlineData("Local", true)]
+    [InlineData("Hybrid", true)]
+    [InlineData("Oidc", false)]
+    public async Task Team_respects_mode_route_availability_while_Delete_remains_distinct(string mode, bool localActions)
+    {
+        using var api = new DirectoryApi();
+        await using var context = new BunitContext();
+        context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var authorization = context.AddAuthorization(); authorization.SetAuthorized("Synthetic administrator"); authorization.SetRoles("HelpdeskAdmin");
+        context.Services.AddSingleton(new AuthenticationMode(mode));
+        context.Services.AddSingleton<IHttpClientFactory>(api); context.Render<MudPopoverProvider>();
+        var page = context.Render<TeamPage>();
+        page.WaitForAssertion(() => Assert.Contains("1 team members", page.Markup));
+        Assert.Single(page.FindAll("button[aria-label='Delete user']"));
+        Assert.Equal(localActions ? 1 : 0, page.FindAll("button[aria-label='Manage local account']").Count);
+        Assert.Equal(localActions ? 1 : 0, page.FindAll("button[aria-label='Disable sign-in']").Count);
+        Assert.DoesNotContain(api.Paths, path => path.EndsWith("/status", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("<html>untrusted raw error</html>")]
@@ -74,6 +98,20 @@ public sealed class UserLifecycleDialogTests
             {
                 Content = new StringContent(ErrorBody)
             });
+        }
+    }
+
+    private sealed class DirectoryApi : HttpMessageHandler, IHttpClientFactory
+    {
+        public List<string> Paths { get; } = [];
+        public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("https://synthetic.example.invalid/") };
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Paths.Add(request.RequestUri!.AbsolutePath);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new PagedResult<UserDirectoryDto>
+            {
+                Page = 1, PageSize = 25, Total = 1, Items = [new() { Id = "profile", AccountId = "account", Name = "Synthetic Person", Email = "person@example.invalid", AccountState = "Enabled", AccountSignInEnabled = true, CanManageAccount = true, CanChangeSignIn = true, CanDelete = true }]
+            }) });
         }
     }
 }

@@ -21,8 +21,11 @@ public static class UserDirectoryQuery
         public int? PageSize { get; set; }
     }
 
-    public static async Task<IResult> ReadAsync([AsParameters] Parameters parameters,
-        HelpdeskDbContext db, ClaimsPrincipal principal, CancellationToken ct)
+    public static Task<IResult> ReadAsync(Parameters parameters, HelpdeskDbContext db,
+        ClaimsPrincipal principal, CancellationToken ct) => ReadAsync(parameters, db, principal, true, ct);
+
+    public static async Task<IResult> ReadAsync(Parameters parameters,
+        HelpdeskDbContext db, ClaimsPrincipal principal, bool supportsLocalAccounts, CancellationToken ct)
     {
         var requestedPage = parameters.Page ?? 1;
         var pageSize = parameters.PageSize ?? 25;
@@ -118,8 +121,8 @@ public static class UserDirectoryQuery
                 IdentitySummary = row.HasDisabledLink ? "Identity link disabled; enabling the account does not restore the link." :
                     row.AccountId is null ? row.State == "External" ? "External identity" : "No application sign-in account" :
                     row.CanManageCredentials ? "Local application account" : "External application account",
-                CanManageAccount = row.AccountId != null && row.CanManageCredentials,
-                CanChangeSignIn = row.AccountId != null && !row.IsAccountDeleted && !self && !lastAdministrator,
+                CanManageAccount = supportsLocalAccounts && row.AccountId != null && !row.IsAccountDeleted && row.CanManageCredentials,
+                CanChangeSignIn = supportsLocalAccounts && row.AccountId != null && !row.IsAccountDeleted && !self && !lastAdministrator,
                 CanDelete = !self && !lastAdministrator,
                 DeleteBlockedReason = self ? "You cannot delete your own application access." :
                     lastAdministrator ? "The last enabled instance administrator must remain active." : null

@@ -86,6 +86,15 @@ public class UserEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task Oidc_only_mode_does_not_map_local_authentication_routes()
+    {
+        await using var oidc = _factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Authentication:Mode"] = "Oidc" })));
+        using var client = oidc.CreateClient();
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/v1/local-auth/login", new { email = "synthetic@example.invalid", password = "synthetic passphrase" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Domain_user_crud_rejects_password_writes()
     {
         var client = GetAuthenticatedClient();
