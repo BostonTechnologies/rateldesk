@@ -4,18 +4,26 @@
 <MudDialog Class="orchestration-script-library-dialog">
     <TitleContent>
         <MudStack Spacing="0">
-            <MudText Typo="Typo.h6">Script Library</MudText>
+            <MudText Typo="Typo.h6">Browse NetRatel jobs</MudText>
             <MudText Typo="Typo.body2" Class="orchestration-script-library-subtitle">@DialogSubtitle</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
+            @if (Refresh is not null)
+            {
+                <MudButton OnClick="RefreshAsync" Disabled="@refreshing" StartIcon="@Icons.Material.Filled.Refresh">Refresh jobs</MudButton>
+            }
+            @if (!string.IsNullOrWhiteSpace(refreshError))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@refreshError</MudAlert>
+            }
             @if (TenantMetadataUnavailable)
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="orchestration-script-library-note">
                     <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Info" />
                     <MudText Typo="Typo.caption">
-                        Tenant metadata is unavailable, so all External orchestration targets are shown. Verify folder and job before saving.
+                        Tenant metadata is unavailable, so all NetRatel jobs are shown. Verify folder and job before saving.
                     </MudText>
                 </MudStack>
             }
@@ -23,7 +31,7 @@
             <MudGrid Spacing="1">
                 <MudItem xs="12" md="5">
                     <MudTextField @bind-Value="searchText"
-                                  Label="Search scripts"
+                                  Label="Search jobs"
                                   Placeholder="Name, folder, customer, parameter..."
                                   Variant="Variant.Outlined"
                                   Margin="Margin.Dense"
@@ -51,8 +59,8 @@
                     </MudSelect>
                 </MudItem>
                 <MudItem xs="12" sm="4" md="2">
-                    <MudSelect T="string" @bind-Value="clientFilter" Label="Client" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
-                        <MudSelectItem T="string" Value="@AllFilterValue">All clients</MudSelectItem>
+                    <MudSelect T="string" @bind-Value="clientFilter" Label="Execution target" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                        <MudSelectItem T="string" Value="@AllFilterValue">All targets</MudSelectItem>
                         @foreach (var client in ClientOptions)
                         {
                             <MudSelectItem T="string" Value="@client">@client</MudSelectItem>
@@ -62,14 +70,14 @@
             </MudGrid>
 
             <MudText Typo="Typo.caption" Class="orchestration-script-library-count">
-                @($"{FilteredDefinitions.Count} script{(FilteredDefinitions.Count == 1 ? string.Empty : "s")} found")
+                @($"{FilteredDefinitions.Count} job{(FilteredDefinitions.Count == 1 ? string.Empty : "s")} found")
             </MudText>
 
             <div class="orchestration-script-library-results">
                 @if (FilteredDefinitions.Count == 0)
                 {
                     <MudPaper Outlined="true" Class="pa-3">
-                        <MudText Typo="Typo.body2">No scripts match the current search and filters.</MudText>
+                        <MudText Typo="Typo.body2">No NetRatel jobs match. Refresh this connection or create a job.</MudText>
                     </MudPaper>
                 }
                 else
@@ -98,6 +106,10 @@
                                     <MudText Typo="Typo.body2" Class="orchestration-script-library-description">@definition.Description</MudText>
                                 }
 
+                                @if (definition.Target is { } target)
+                                {
+                                    <MudText Typo="Typo.caption">@OrchestrationCatalogInputResolver.ReadinessLabel(target) · Required inputs: @string.Join(", ", target.RequiredInputs)</MudText>
+                                }
                                 <MudStack Row="true" Spacing="1" Class="orchestration-script-library-chip-row">
                                     <MudChip T="string" Size="Size.Small" Color="Color.Info">@GetTenantLabel(definition)</MudChip>
                                     <MudChip T="string" Size="Size.Small" Color="Color.Default">@GetScriptType(definition)</MudChip>
@@ -117,7 +129,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SelectedDefinitionMissing" OnClick="Confirm">Select Script</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SelectedDefinitionMissing" OnClick="Confirm">Select job</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -171,6 +183,17 @@
 
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
 
+    [Parameter] public Func<Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>>>? Refresh { get; set; }
+    private bool refreshing;
+    private string? refreshError;
+    private async Task RefreshAsync()
+    {
+        refreshing = true;
+        try { Definitions = await Refresh!(); refreshError = null; }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { refreshError = error.Message; }
+        finally { refreshing = false; }
+    }
+
     [Parameter] public IReadOnlyList<OrchestrationCatalogRequestDefinitionDto> Definitions { get; set; } = [];
     [Parameter] public string? SelectedRequestDefinitionId { get; set; }
     [Parameter] public string? OrganizationDisplayName { get; set; }
@@ -183,8 +206,8 @@
     private string? selectedId;
 
     private string DialogSubtitle => string.IsNullOrWhiteSpace(OrganizationDisplayName)
-        ? "Search and filter available External orchestration automation jobs."
-        : $"Search and filter available External orchestration automation jobs for {OrganizationDisplayName}.";
+        ? "Search and filter available NetRatel jobs."
+        : $"Search and filter available NetRatel jobs for {OrganizationDisplayName}.";
 
     private IReadOnlyList<string> TenantOptions => Definitions
         .Select(GetTenantLabel)
@@ -258,6 +281,8 @@
             definition.ClientName,
             definition.ClientShortId,
             definition.ClientIdentity,
+            definition.Target?.Summary,
+            definition.Target?.Readiness,
             GetScriptType(definition),
             definition.Description,
             inputText
@@ -267,7 +292,7 @@
     private static bool IsAll(string? value) => string.IsNullOrWhiteSpace(value) || string.Equals(value, AllFilterValue, StringComparison.Ordinal);
 
     private static string GetDisplayName(OrchestrationCatalogRequestDefinitionDto definition)
-        => OrchestrationCatalogInputResolver.FirstReadableName(definition.DisplayName, definition.OrchestrationJobDefinitionName, definition.RequestDefinitionName) ?? "External orchestration target";
+        => OrchestrationCatalogInputResolver.FirstReadableName(definition.DisplayName, definition.OrchestrationJobDefinitionName, definition.RequestDefinitionName) ?? "NetRatel job";
 
     private static string GetTenantLabel(OrchestrationCatalogRequestDefinitionDto definition)
         => string.IsNullOrWhiteSpace(definition.TenantName) ? "Unassigned" : definition.TenantName.Trim();
@@ -288,6 +313,7 @@
 
     private static string? GetClientLabel(OrchestrationCatalogRequestDefinitionDto definition)
         => FirstNonEmpty(
+            definition.Target?.Summary,
             definition.ClientHostName,
             definition.ClientDisplayName,
             definition.ClientName,

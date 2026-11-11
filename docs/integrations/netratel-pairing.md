@@ -69,7 +69,64 @@ storage. Long-lived credentials stay protected on the server. The pairing
 retains each administrator's setup authority and rechecks current permissions
 when selecting resources, saving and using a business capability.
 
-## Upgrade from the previous setup
+## Target-aware self-service automation
+
+The compatible pair is RatelDesk **0.1.3-beta.9** and NetRatel **0.1.5-beta.4**.
+Upgrade NetRatel first, complete its ordinary automatic database migrations and
+replace older API replicas before admitting modern automation. Then upgrade
+RatelDesk. Keep the current pairing, named tenant connections, primary
+organization, protected credentials and persistent keys. This upgrade needs no
+new credential, scope, manual policy/configuration change or re-pairing.
+
+NetRatel's additive migration permits an absent fixed agent and records the
+aggregate target-plan digest on managed bindings. Existing fixed-agent bindings,
+in-flight intents, callbacks and history retain their identities. RatelDesk adds
+no database migration for this repair and continues to support SQLite and
+PostgreSQL. Back up the databases and persistent keys through the normal upgrade
+procedure.
+
+For a saved connection with **Run automation**, open the request-service workflow,
+select that exact connection and choose **Browse jobs**. Canonical fixed-agent,
+explicit-node, HA group, selector and declared runtime-target jobs are projected
+from the normal NetRatel Jobs catalogue. Target summaries, required inputs and
+readiness describe definitions; online-worker eligibility is checked at invocation.
+An empty catalogue can still be opened and refreshed. Bindings retain the exact
+connection, canonical job ID, input mappings and runtime settings across reopening.
+
+**Create job** offers current tenant nodes and enabled HA groups, a supported
+command runner, executable content, execution policy and optional inputs. Choose
+a runner installed on the workers. Failed creation retains the draft and shows
+the structured operation/status/code/reference. Creation refreshes the same
+connection and selects the resulting ordinary NetRatel job. Existing input-sync
+operations preserve the job's identity and execution target.
+
+HA admits one eligible worker. Explicit-node jobs retain their complete frozen
+node set and native concurrency/failure policy. Each request-task attempt owns
+one durable aggregate parent, persisted before child dispatch. Exact retries
+observe that parent; changed payloads conflict and later attempts require a
+verified terminal predecessor. Child success cannot complete the RatelDesk task.
+Final callbacks bind aggregate terminal readiness and result hashes, include
+bounded child summaries/results, and preserve acknowledgement, rejection and
+explicit replay. Unknown physical outcomes stay unknown.
+
+Contract 2 is selected by `X-NetRatel-Automation-Contract: 2` on catalogue requests.
+Read-only capability and tenant target-choice endpoints use the existing paired
+read grant; creation and invocation retain the paired invoke grant. Older
+consumers continue receiving fixed-agent catalogue entries. A newer consumer
+identifies an older peer through the missing capability endpoint and reports its
+fixed-agent limitation; modern creation/execution requires the compatible pair.
+A connection test proves current authentication/mapping and reports supported
+contract capability without creating or executing a job.
+
+After redeployment, verify both API/Web release identities. Keep the saved
+connections, refresh the intended connection, bind the HA job, save/reopen and
+submit. Verify one worker and final task status. Repeat for the five-node job,
+checking the intended nodes and parent outcome. Create a job from real target and
+content choices, independently find it in NetRatel, bind and run it, then inspect
+correlation/run links and any structured errors. Hosted source/distribution
+verification is separate from this owner deployment acceptance.
+
+## Upgrade from the retired pre-pairing setup
 
 Upgrade both products before pairing. Forward migrations retire previous
 NetRatel ↔ RatelDesk setups, revoke their credentials and disable their old

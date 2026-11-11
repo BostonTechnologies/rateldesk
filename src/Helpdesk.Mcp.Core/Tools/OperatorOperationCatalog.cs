@@ -53,7 +53,7 @@ internal static class OperatorOperationCatalog
         yield return new("helpdesk_automation", "create_form", "POST", "/api/v1/request-forms/", typeof(OperatorCreateForm), Description: "Create a self-service request form with a typed fields/tasks schema. Set releaseStatus, audience and each automation task's autoStart deliberately. Task IDs and dependency IDs are UUIDs; the API validates the dependency graph and dataset bindings.");
         yield return new("helpdesk_automation", "update_form", "PUT", "/api/v1/request-forms/{requestFormId}", typeof(OperatorUpdateForm), Description: "Edit a self-service form through its typed fields/tasks schema; omitted audience and release status remain unchanged. Existing bindings are managed separately through binding operations.");
         yield return new("helpdesk_automation", "create_request_definition", "POST", orchestration + "/catalog/request-definitions",
-            typeof(CreateOrchestrationCatalogRequestDefinitionDto), typeof(OperatorConnectionSelection), ["name", "clientIdentity"], true,
+            typeof(CreateOrchestrationCatalogRequestDefinitionDto), typeof(OperatorConnectionSelection), ["name"], true,
             Description: "Create a provider automation target using the selected saved organization mapping. This creates a request definition through the supported provider adapter.");
         yield return new("helpdesk_automation", "bindings", "GET", orchestration + "/bindings", QueryType: typeof(OperatorFormFilter), Description: "List automation bindings, optionally for one request form.");
         yield return new("helpdesk_automation", "get_binding", "GET", orchestration + "/bindings/{bindingId}", Description: "Read one saved automation binding.");

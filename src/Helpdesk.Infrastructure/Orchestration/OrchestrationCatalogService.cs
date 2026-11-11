@@ -27,6 +27,92 @@ public sealed class OrchestrationCatalogService(
     private readonly IOrchestrationTokenService _tokenService = tokenService;
     private readonly IOrchestrationConnectivityService _connectivityService = connectivityService;
 
+    public async Task<OrchestrationAutomationCapabilitiesDto> GetCapabilitiesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)
+    {
+        var result = await GetDocumentAsync<OrchestrationAutomationCapabilitiesDto>("capabilities", organizationId, connectionId, true, ct);
+        if (result is null) return new() { Message = "This NetRatel peer supports legacy fixed-agent jobs. Upgrade NetRatel for target choices and aggregate execution." };
+        if (result.ContractVersion != 2 || !result.Catalogue || result.TargetKinds is null)
+            throw new OrchestrationProviderException(new("capabilities", 502, "unsupported_contract", "NetRatel returned an unsupported automation contract.", null));
+        return result;
+    }
+
+    public async Task<IReadOnlyList<OrchestrationAutomationTargetChoiceDto>> ListTargetChoicesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)
+    {
+        var capabilities = await GetCapabilitiesAsync(organizationId, connectionId, ct);
+        if (!capabilities.Authoring || capabilities.ContractVersion != 2)
+            throw new OrchestrationProviderException(new("target-choices", 501, "unsupported_contract", "Upgrade NetRatel to create jobs using tenant target choices.", null));
+        var choices = await GetDocumentAsync<List<OrchestrationAutomationTargetChoiceDto>>("target-choices", organizationId, connectionId, false, ct) ?? [];
+        if (choices.Any(choice => !Guid.TryParse(choice.Id, out var id) || id == Guid.Empty || string.IsNullOrWhiteSpace(choice.Name) ||
+            choice.Target is null || choice.Kind is not ("explicitNodes" or "executionGroup")))
+            throw new OrchestrationProviderException(new("target-choices", 502, "invalid_contract", "NetRatel returned incompatible execution target choices.", null));
+        return choices;
+    }
+
+    private async Task<T?> GetDocumentAsync<T>(string path, string? organizationId, Guid? connectionId, bool allowOlderPeer, CancellationToken ct)
+    {
+        var settings = await ResolveSettingsAsync(organizationId, connectionId, ct);
+        if (!settings.Enabled) throw new InvalidOperationException("Select a current automation connection.");
+        RequirePeerTenantId(settings);
+        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, path), ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        await AttachAuthHeaderAsync(settings, request, ct);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(RequestTimeout);
+        using var response = await SendAsync(_httpClientFactory.CreateClient(PairingTransport.ClientName), request, timeout.Token);
+        if (allowOlderPeer && response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.NotImplemented) return default;
+        var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
+        if (!response.IsSuccessStatusCode) throw ProviderFailure(path, response, content, settings, request.Headers.Authorization?.Parameter);
+        try { return JsonSerializer.Deserialize<T>(content, JsonOptions) ?? throw new JsonException(); }
+        catch (JsonException) { throw new OrchestrationProviderException(new(path, 502, "invalid_contract", "NetRatel returned an incompatible automation response.", null)); }
+    }
+
+    private static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpRequestMessage request, CancellationToken ct)
+    {
+        try { return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct); }
+        catch (HttpRequestException)
+        { throw new OrchestrationProviderException(new("catalogue", 502, "transport_unavailable", "NetRatel could not be reached. Refresh this connection after checking API reachability.", null)); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        { throw new OrchestrationProviderException(new("catalogue", 504, "transport_timeout", "NetRatel did not respond before the automation deadline.", null)); }
+    }
+
+    private static OrchestrationProviderException ProviderFailure(string operation, HttpResponseMessage response, string content, OrchestrationResolvedSettings settings, string? accessToken)
+    {
+        string? code = null; string? correlation = null;
+        try
+        {
+            using var json = JsonDocument.Parse(content);
+            if (json.RootElement.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString();
+            if (json.RootElement.TryGetProperty("correlationId", out value) && value.ValueKind == JsonValueKind.String) correlation = value.GetString();
+        }
+        catch (JsonException) { code = "provider_error_invalid"; }
+        static bool Safe(string? value) => value is { Length: > 0 and <= 128 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.' or ':');
+        bool SafeField(string? value) => Safe(value) && !new[] { settings.ClientSecret, accessToken }.Any(secret =>
+            !string.IsNullOrEmpty(secret) && value!.Contains(secret, StringComparison.Ordinal));
+        code = SafeField(code) ? code : response.StatusCode switch { System.Net.HttpStatusCode.Unauthorized => "authentication_rejected", System.Net.HttpStatusCode.Forbidden => "access_denied", _ => "provider_rejected" };
+        correlation = SafeField(correlation) ? correlation : null;
+        return new(new(operation, (int)response.StatusCode, code!,
+            $"NetRatel {operation} failed (HTTP {(int)response.StatusCode}, {code}): {ExtractErrorMessage(content, settings, accessToken)}" + (correlation is null ? "" : $" Reference: {correlation}."), correlation));
+    }
+
+    private static void ValidateTargetContract(int contractVersion, OrchestrationAutomationTargetDto? target, string? legacyIdentity)
+    {
+        if (target is null && !string.IsNullOrWhiteSpace(legacyIdentity)) return;
+        var definition = target?.Definition;
+        var exclusive = definition is null || new object?[] { definition.ExecutionGroupId, definition.AgentIds, definition.Filter, definition.RuntimeInput }.Count(value => value is not null) == 1;
+        var valid = target is { Version: 1 } && !string.IsNullOrWhiteSpace(target.Summary) && target.RequiredInputs is not null &&
+            target.Readiness is "incomplete" or "requires-input" or "worker-check-at-run" && (target.Kind switch
+            {
+                "legacyAgent" => !string.IsNullOrWhiteSpace(legacyIdentity),
+                "executionGroup" => definition is { Version: 1, Source: 1 } && Guid.TryParse(definition.ExecutionGroupId, out var group) && group != Guid.Empty,
+                "explicitNodes" => definition is { Version: 1, Source: 2, AgentIds.Count: > 0 } && definition.AgentIds.All(id => Guid.TryParse(id, out var agent) && agent != Guid.Empty),
+                "nodeFilter" => definition is { Version: 1, Source: 3 } && !string.IsNullOrWhiteSpace(definition.Filter),
+                "runtimeInput" => definition is { Version: 1, Source: 4, RuntimeInput.Kind: >= 1 and <= 6 } && !string.IsNullOrWhiteSpace(definition.RuntimeInput.Name),
+                _ => false
+            });
+        if (contractVersion != 2 || !valid || !exclusive)
+            throw new OrchestrationProviderException(new("catalogue", 502, "unsupported_contract", "NetRatel returned an unsupported execution target. Upgrade the compatible product pair.", null));
+    }
+
     public Task<IReadOnlyList<OrchestrationCatalogJobDto>> ListJobsAsync(CancellationToken cancellationToken = default)
         => ListJobsAsync(null, null, cancellationToken);
 
@@ -77,12 +163,12 @@ public sealed class OrchestrationCatalogService(
         var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        using var response = await SendAsync(client, request, timeout.Token);
         var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"External orchestration request-definition create failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}");
+            throw ProviderFailure("create-job", response, content, settings, request.Headers.Authorization?.Parameter);
         }
 
         NetRatelCatalogRequestDefinitionDto? parsed;
@@ -147,12 +233,12 @@ public sealed class OrchestrationCatalogService(
         var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        using var response = await SendAsync(client, request, timeout.Token);
         var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"External orchestration request-definition input sync failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}");
+            throw ProviderFailure("sync-inputs", response, content, settings, request.Headers.Authorization?.Parameter);
         }
 
         NetRatelCatalogRequestDefinitionDto? parsed;
@@ -194,12 +280,12 @@ public sealed class OrchestrationCatalogService(
         var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        using var response = await SendAsync(client, request, timeout.Token);
         var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"External orchestration catalog request failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings)}");
+            throw ProviderFailure("catalogue", response, content, settings, request.Headers.Authorization?.Parameter);
         }
 
         if (string.IsNullOrWhiteSpace(content))
@@ -232,8 +318,11 @@ public sealed class OrchestrationCatalogService(
             if (typeof(T) == typeof(OrchestrationCatalogJobDto))
             {
                 foreach (var item in parsed.Cast<OrchestrationCatalogJobDto>())
+                {
+                    if (item.Target is not null || item.ContractVersion >= 2) ValidateTargetContract(item.ContractVersion, item.Target, item.ClientIdentity);
                     if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Name))
                         throw new InvalidOperationException("External orchestration returned an incompatible job catalogue.");
+                }
             }
             else if (typeof(T) == typeof(OrchestrationCatalogTenantDto))
             {
@@ -292,6 +381,7 @@ public sealed class OrchestrationCatalogService(
         var accessToken = await _tokenService.GetAccessTokenAsync(settings, cancellationToken);
         PairingOutboundNetwork.PrepareRequest(request, settings);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.TryAddWithoutValidation("X-NetRatel-Automation-Contract", "2");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -315,11 +405,12 @@ public sealed class OrchestrationCatalogService(
     {
         if (string.IsNullOrWhiteSpace(item.RequestDefinitionId)
             || string.IsNullOrWhiteSpace(item.RequestDefinitionName)
-            || string.IsNullOrWhiteSpace(item.ClientIdentity)
+            || item.Target is null && string.IsNullOrWhiteSpace(item.ClientIdentity)
             || item.Inputs is null)
         {
             throw new InvalidOperationException("External orchestration returned an incompatible request-definition catalogue.");
         }
+        ValidateTargetContract(item.ContractVersion, item.Target, item.ClientIdentity);
     }
 
     private static async Task<string> ReadBoundedContentAsync(HttpContent content, CancellationToken cancellationToken)
@@ -339,7 +430,7 @@ public sealed class OrchestrationCatalogService(
         return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
     }
 
-    private static string ExtractErrorMessage(string content, OrchestrationResolvedSettings settings)
+    private static string ExtractErrorMessage(string content, OrchestrationResolvedSettings settings, string? accessToken)
     {
         if (string.IsNullOrWhiteSpace(content)) return "provider returned no error details";
         try
@@ -351,7 +442,7 @@ public sealed class OrchestrationCatalogService(
                 {
                     var value = element.GetString();
                     if (!string.IsNullOrWhiteSpace(value))
-                        return IntegrationErrorSafety.ProviderMessage(value, 256, settings.ClientSecret);
+                        return IntegrationErrorSafety.ProviderMessage(value, 256, settings.ClientSecret, accessToken);
                 }
             }
         }
@@ -366,6 +457,8 @@ public sealed class OrchestrationCatalogService(
     private static OrchestrationCatalogRequestDefinitionDto MapRequestDefinition(NetRatelCatalogRequestDefinitionDto source)
         => new()
         {
+            ContractVersion = source.ContractVersion,
+            Target = source.Target,
             RequestDefinitionId = source.RequestDefinitionId,
             RequestDefinitionName = source.RequestDefinitionName,
             DisplayName = source.DisplayName,
@@ -389,6 +482,8 @@ public sealed class OrchestrationCatalogService(
 
     private sealed class NetRatelCatalogRequestDefinitionDto
     {
+        public int ContractVersion { get; set; } = 1;
+        public OrchestrationAutomationTargetDto? Target { get; set; }
         public string RequestDefinitionId { get; set; } = string.Empty;
         public string RequestDefinitionName { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;

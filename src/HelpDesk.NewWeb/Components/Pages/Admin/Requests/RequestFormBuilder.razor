@@ -325,7 +325,7 @@
                                                                        StartIcon="@Icons.Material.Filled.Add"
                                                                        Disabled="@(!CanCreateOrchestrationRequestDefinition)"
                                                                        OnClick="OpenCreateOrchestrationTargetDialogAsync">
-                                                                Create External orchestration Target
+                                                                Create job
                                                             </MudButton>
                                                         }
                                                     </MudStack>
@@ -385,25 +385,31 @@
                                                         else if (!FilteredOrchestrationRequestDefinitions.Any())
                                                         {
                                                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-1">
-                                                                No External orchestration automation targets are available for the selected External orchestration tenant.
+                                                                No NetRatel jobs are available for this connection. Browse jobs to inspect or refresh the catalogue, or create a job.
                                                             </MudAlert>
                                                         }
 
+                                                        @if (automationCapabilities is { } capabilities)
+                                                        {
+                                                            <MudText Typo="Typo.caption">@(capabilities.ContractVersion == 2
+                                                                ? "Authenticated mapping · target-aware catalogue, authoring and aggregate invocation supported"
+                                                                : capabilities.Message ?? "Authenticated mapping · older peer supports fixed-agent jobs; upgrade NetRatel for modern targets")</MudText>
+                                                        }
                                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="request-form-script-picker">
                                                             <MudTextField T="string"
                                                                           Value="@SelectedOrchestrationTargetLabel"
-                                                                          Label="External orchestration Automation Target"
+                                                                          Label="NetRatel job"
                                                                           Variant="Variant.Outlined"
                                                                           Margin="Margin.Dense"
                                                                           Dense="true"
                                                                           ReadOnly="true"
-                                                                          HelperText="Select a live External orchestration automation target from the script library." />
+                                                                          HelperText="Select a NetRatel job from this saved connection." />
                                                             <MudButton Variant="Variant.Outlined"
                                                                        Size="Size.Small"
                                                                        StartIcon="@Icons.Material.Filled.LibraryBooks"
-                                                                       Disabled="@(orchestrationCatalogLoading || !CanCreateTenantScopedOrchestrationTarget || !FilteredOrchestrationRequestDefinitions.Any())"
+                                                                       Disabled="@(orchestrationCatalogLoading || !CanCreateTenantScopedOrchestrationTarget)"
                                                                        @ref="automationBrowseButton" OnClick="OpenOrchestrationScriptLibraryDialogAsync">
-                                                                Browse Library
+                                                                Browse jobs
                                                             </MudButton>
                                                             <MudTooltip Text="Clear selected External orchestration target">
                                                                 <MudIconButton Icon="@Icons.Material.Filled.Clear"
@@ -430,6 +436,11 @@
                                                             </MudAlert>
                                                         }
 
+                                                        @if (SelectedCatalogRequestDefinition?.Target is { } target)
+                                                        {
+                                                            <MudText Typo="Typo.body2">Execution target: @target.Summary</MudText>
+                                                            <MudText Typo="Typo.caption">@OrchestrationCatalogInputResolver.ReadinessLabel(target) · Required inputs: @string.Join(", ", target.RequiredInputs)</MudText>
+                                                        }
                                                         @if (SelectedCatalogRequestDefinition is not null)
                                                         {
                                                             <MudStack Row="true" Spacing="1" Class="request-form-chip-row">
@@ -946,11 +957,11 @@
     private int orchestrationLoadGeneration;
     private bool orchestrationCatalogLoading;
     private string? orchestrationCatalogError;
+    private OrchestrationAutomationCapabilitiesDto? automationCapabilities;
     private AutomationBindingDriftPreviewDto? selectedBindingDriftPreview;
     private bool selectedBindingDriftPreviewLoading;
     private string? selectedBindingDriftPreviewError;
     private const string DefaultOrchestrationTargetFolderPath = "/helpdesk/requests/";
-    private const string DefaultOrchestrationTargetClientIdentity = "helpdesk-automation";
     private const string TaskDropZoneId = "request-form-tasks";
 
     private string? SelectedDraftFieldKey
@@ -1022,7 +1033,7 @@
     private IReadOnlyList<OrchestrationCatalogRequestDefinitionDto> FilteredOrchestrationRequestDefinitions => GetFilteredOrchestrationRequestDefinitions();
     private string? SelectedJobName => GetSelectedJobName();
     private string SelectedOrchestrationTargetLabel => SelectedCatalogRequestDefinition is null
-        ? FirstNonEmpty(SelectedBinding?.OrchestrationRequestDefinitionName, SelectedBinding?.OrchestrationRequestDefinitionId) ?? "No External orchestration target selected"
+        ? FirstNonEmpty(SelectedBinding?.OrchestrationRequestDefinitionName, SelectedBinding?.OrchestrationRequestDefinitionId) ?? "No NetRatel job selected"
         : GetOrchestrationRequestDefinitionLabel(SelectedCatalogRequestDefinition);
     private int? SelectedExpectedRuntimeMinutes => selectedTask?.ExpectedRuntimeMinutes ?? SecondsToMinutes(SelectedCatalogRequestDefinition?.ExpectedRuntimeSeconds);
     private int? SelectedGraceRuntimeMinutes => selectedTask?.GraceRuntimeMinutes ?? 10;
@@ -1525,7 +1536,7 @@
 
     private async Task OpenOrchestrationScriptLibraryDialogAsync()
     {
-        if (SelectedBinding is null || orchestrationCatalogLoading || !CanCreateTenantScopedOrchestrationTarget || !FilteredOrchestrationRequestDefinitions.Any())
+        if (SelectedBinding is null || orchestrationCatalogLoading || !CanCreateTenantScopedOrchestrationTarget)
         {
             return;
         }
@@ -1535,6 +1546,17 @@
         var parameters = new DialogParameters
         {
             [nameof(OrchestrationScriptLibraryDialog.Definitions)] = FilteredOrchestrationRequestDefinitions.ToList(),
+            [nameof(OrchestrationScriptLibraryDialog.Refresh)] = (Func<Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>>>)(async () =>
+            {
+                if (SelectedAutomationConnection?.ConnectionId != originalConnection.ConnectionId || model.OrganizationId != originalConnection.OrganizationId)
+                    throw new InvalidOperationException("The selected connection changed. Reopen Browse jobs for the current connection.");
+                await LoadOrchestrationCatalogAsync();
+                if (!string.IsNullOrWhiteSpace(orchestrationCatalogError)) throw new InvalidOperationException(orchestrationCatalogError);
+                if (SelectedAutomationConnection?.ConnectionId != originalConnection.ConnectionId ||
+                    SelectedAutomationConnection.PeerTenantId != originalConnection.PeerTenantId || model.OrganizationId != originalConnection.OrganizationId)
+                    throw new InvalidOperationException("The automation connection changed while refreshing. Reopen Browse jobs.");
+                return FilteredOrchestrationRequestDefinitions;
+            }),
             [nameof(OrchestrationScriptLibraryDialog.SelectedRequestDefinitionId)] = SelectedBinding.OrchestrationRequestDefinitionId,
             [nameof(OrchestrationScriptLibraryDialog.OrganizationDisplayName)] = SelectedOrganization?.Name,
             [nameof(OrchestrationScriptLibraryDialog.TenantMetadataUnavailable)] = OrchestrationCatalogTenantMetadataUnavailable
@@ -1545,7 +1567,7 @@
             FullWidth = true
         };
 
-        var dialog = await DialogService.ShowAsync<OrchestrationScriptLibraryDialog>("Script Library", parameters, options);
+        var dialog = await DialogService.ShowAsync<OrchestrationScriptLibraryDialog>("NetRatel jobs", parameters, options);
         var result = await dialog.Result;
         if (result.Canceled || result.Data is not OrchestrationCatalogRequestDefinitionDto selectedDefinition)
         {
@@ -1580,14 +1602,13 @@
         {
             [nameof(CreateOrchestrationAutomationTargetDialog.InitialJobName)] = GetDefaultOrchestrationTargetName(),
             [nameof(CreateOrchestrationAutomationTargetDialog.InitialFolderPath)] = DefaultOrchestrationTargetFolderPath,
-            [nameof(CreateOrchestrationAutomationTargetDialog.InitialClientIdentity)] = DefaultOrchestrationTargetClientIdentity,
             [nameof(CreateOrchestrationAutomationTargetDialog.InitialDescription)] = GetDefaultOrchestrationTargetDescription(),
             [nameof(CreateOrchestrationAutomationTargetDialog.TenantId)] = SelectedAutomationConnection!.PeerTenantId,
             [nameof(CreateOrchestrationAutomationTargetDialog.OrganizationId)] = model.OrganizationId,
             [nameof(CreateOrchestrationAutomationTargetDialog.SystemConnectionId)] = SelectedAutomationConnection.ConnectionId
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CreateOrchestrationAutomationTargetDialog>("Create External orchestration Target", parameters, options);
+        var dialog = await DialogService.ShowAsync<CreateOrchestrationAutomationTargetDialog>("Create NetRatel job", parameters, options);
         var result = await dialog.Result;
         if (result.Canceled || result.Data is not OrchestrationCatalogRequestDefinitionDto created)
         {
@@ -1605,11 +1626,13 @@
             return;
         }
 
-        orchestrationRequestDefinitions.Add(created);
-        orchestrationRequestDefinitions = orchestrationRequestDefinitions
-            .OrderBy(x => x.FolderPath, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.RequestDefinitionName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        await LoadOrchestrationCatalogAsync();
+        if (!ReferenceEquals(SelectedBinding, originalBinding) || SelectedAutomationConnection?.ConnectionId != originalConnection.ConnectionId ||
+            SelectedAutomationConnection.PeerTenantId != originalConnection.PeerTenantId || model.OrganizationId != originalConnection.OrganizationId || !FilteredOrchestrationRequestDefinitions.Any(item => item.RequestDefinitionId == created.RequestDefinitionId))
+        {
+            Snackbar.Add("The NetRatel job was created. Refresh this exact connection and review its catalogue before binding.", Severity.Warning);
+            return;
+        }
 
         SelectedBinding.SystemConnectionId = SelectedAutomationConnection.ConnectionId;
         SelectedBinding.OrchestrationRequestDefinitionId = created.RequestDefinitionId;
@@ -2335,6 +2358,7 @@
         loadedOrchestrationSelection = OrchestrationSelectionKey;
         orchestrationCatalogLoading = true;
         orchestrationCatalogError = null;
+        automationCapabilities = null;
         selectedOrchestrationSettings = null;
         orchestrationRequestDefinitions = new();
         orchestrationJobs = new();
@@ -2346,11 +2370,17 @@
             var settings = await Api.GetFromJsonAsync<OrchestrationConnectivitySettingsDto>("api/v1/admin/orchestration/" + query);
             if (!AutomationConnectionSelection.IsVerified(connection, settings))
                 throw new InvalidOperationException("The saved automation mapping no longer matches this connection and organization.");
-            var definitions = await Api.GetFromJsonAsync<List<OrchestrationCatalogRequestDefinitionDto>>(
-                "api/v1/admin/orchestration/catalog/request-definitions" + query) ?? new();
-            var jobs = await Api.GetFromJsonAsync<List<OrchestrationCatalogJobDto>>(
-                "api/v1/admin/orchestration/catalog/jobs" + query) ?? new();
             if (generation != orchestrationLoadGeneration || loadedOrchestrationSelection != OrchestrationSelectionKey) return;
+            selectedOrchestrationSettings = settings;
+            var definitions = await OrchestrationApiErrors.GetAsync<List<OrchestrationCatalogRequestDefinitionDto>>(Api,
+                "api/v1/admin/orchestration/catalog/request-definitions" + query) ?? new();
+            var jobs = await OrchestrationApiErrors.GetAsync<List<OrchestrationCatalogJobDto>>(Api,
+                "api/v1/admin/orchestration/catalog/jobs" + query) ?? new();
+            OrchestrationAutomationCapabilitiesDto? capabilities;
+            try { capabilities = await OrchestrationApiErrors.GetAsync<OrchestrationAutomationCapabilitiesDto>(Api, "api/v1/admin/orchestration/catalog/capabilities" + query); }
+            catch (InvalidOperationException) { capabilities = new() { Message = "Authenticated mapping verified; automation capabilities could not be confirmed. Refresh this connection or upgrade the compatible NetRatel peer." }; }
+            if (generation != orchestrationLoadGeneration || loadedOrchestrationSelection != OrchestrationSelectionKey) return;
+            automationCapabilities = capabilities;
             selectedOrchestrationSettings = settings;
             orchestrationRequestDefinitions = definitions;
             orchestrationJobs = jobs.Where(x => x.TenantId == connection.PeerTenantId).ToList();

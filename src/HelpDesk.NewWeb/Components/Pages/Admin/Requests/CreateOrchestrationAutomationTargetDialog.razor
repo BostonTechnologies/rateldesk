@@ -1,64 +1,80 @@
 @using System.Net.Http.Json
+@using System.Text.Json
 @using Helpdesk.Shared.DTOs.Orchestration
 @using HelpDesk.NewWeb.Services
-
 @inject IHttpClientFactory HttpClientFactory
-@inject ISnackbar Snackbar
 
 <MudDialog>
-    <TitleContent>
-        <MudText Typo="Typo.h6">Create External orchestration Target</MudText>
-    </TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">Create NetRatel job</MudText></TitleContent>
     <DialogContent>
         <MudForm @ref="form" Class="orchestration-target-dialog-form">
-            <MudTextField @bind-Value="jobName"
-                          Label="Job Name"
-                          Required="true"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Dense="true" />
-
-            <MudTextField @bind-Value="folderPath"
-                          Label="Folder Path"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Dense="true" />
-
-            <MudTextField @bind-Value="clientIdentity"
-                          Label="Client Identity"
-                          Required="true"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Dense="true" />
-
-            <MudTextField @bind-Value="description"
-                          Label="Description"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Dense="true"
-                          Lines="2" />
+            @if (!string.IsNullOrWhiteSpace(error))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert>
+            }
+            <MudTextField @bind-Value="jobName" Label="Job name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField @bind-Value="folderPath" Label="Folder path" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField @bind-Value="description" Label="Description" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" />
+            <MudSelect T="string" @bind-Value="targetKind" Label="Execution target" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@NodesKind">Selected nodes</MudSelectItem>
+                <MudSelectItem T="string" Value="@GroupKind">HA group (one eligible worker)</MudSelectItem>
+            </MudSelect>
+            @if (targetKind == NodesKind)
+            {
+                <MudSelect T="string" MultiSelection="true" SelectedValues="selectedNodes" SelectedValuesChanged="OnNodesChanged"
+                           Label="Nodes" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var choice in choices.Where(choice => choice.Kind == NodesKind))
+                    {
+                        <MudSelectItem T="string" Value="@choice.Id">@choice.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudSelect T="string" @bind-Value="selectedGroup" Label="HA group" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var choice in choices.Where(choice => choice.Kind == GroupKind))
+                    {
+                        <MudSelectItem T="string" Value="@choice.Id">@choice.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudNumericField T="int" @bind-Value="threads" Min="1" Max="100" Label="Concurrent node workflows" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudCheckBox T="bool" @bind-Value="continueAfterFailure" Label="Continue remaining nodes after a failure" />
+            <MudSelect T="string" @bind-Value="runner" Label="Command runner" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var value in new[] { "bash", "pwsh", "powershell", "cmd" })
+                {
+                    <MudSelectItem T="string" Value="@value">@value</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="command" Label="Command" Required="true" Lines="5" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          HelperText="Use a runner available on the selected workers. Job inputs can be referenced as @@option.input-name@@." />
+            @foreach (var input in inputs)
+            {
+                <MudPaper Outlined="true" Class="pa-2 my-2" @key="input">
+                    <MudTextField @bind-Value="input.Key" Label="Input key" Required="true" Margin="Margin.Dense" />
+                    <MudTextField @bind-Value="input.Label" Label="Input label" Required="true" Margin="Margin.Dense" />
+                    <MudTextField @bind-Value="input.DefaultValue" Label="Default value" Margin="Margin.Dense" />
+                    <MudCheckBox T="bool" @bind-Value="input.Required" Label="Required input" />
+                    <MudButton Size="Size.Small" OnClick="@(() => inputs.Remove(input))">Remove input</MudButton>
+                </MudPaper>
+            }
+            <MudButton Size="Size.Small" OnClick="AddInput">Add job input</MudButton>
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary"
-                   Variant="Variant.Filled"
-                   Disabled="@creating"
-                   OnClick="CreateAsync">
-            @(creating ? "Creating..." : "Create")
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="@creating">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(creating || loading || choices.Count == 0)" OnClick="CreateAsync">
+            @(creating ? "Creating…" : "Create job")
         </MudButton>
     </DialogActions>
 </MudDialog>
 
-<style>
-    .orchestration-target-dialog-form {
-        min-width: min(420px, 82vw);
-    }
-</style>
+<style>.orchestration-target-dialog-form { min-width: min(480px, 82vw); }</style>
 
 @code {
+    private const string NodesKind = "explicitNodes";
+    private const string GroupKind = "executionGroup";
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
-
     [Parameter] public string? InitialJobName { get; set; }
     [Parameter] public string? InitialFolderPath { get; set; }
     [Parameter] public string? InitialClientIdentity { get; set; }
@@ -66,75 +82,66 @@
     [Parameter] public int? TenantId { get; set; }
     [Parameter] public string? OrganizationId { get; set; }
     [Parameter] public Guid? SystemConnectionId { get; set; }
-
     private MudForm form = default!;
-    private bool creating;
-    private string? jobName;
-    private string? folderPath;
-    private string? clientIdentity;
-    private string? description;
+    private bool creating, loading = true, continueAfterFailure;
+    private string? jobName, folderPath, description, selectedGroup, command, error;
+    private string targetKind = NodesKind, runner = "bash";
+    private int threads = 1;
+    private IReadOnlyCollection<string> selectedNodes = [];
+    private IReadOnlyList<OrchestrationAutomationTargetChoiceDto> choices = [];
+    private readonly List<OrchestrationCatalogInputDefinitionDto> inputs = [];
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         jobName = InitialJobName;
         folderPath = string.IsNullOrWhiteSpace(InitialFolderPath) ? "/helpdesk/requests/" : InitialFolderPath;
-        clientIdentity = string.IsNullOrWhiteSpace(InitialClientIdentity) ? "helpdesk-automation" : InitialClientIdentity;
         description = InitialDescription;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(OrganizationId) || SystemConnectionId is null || TenantId is not > 0)
+                throw new InvalidOperationException("Select a current automation system connection before creating a job.");
+            choices = await OrchestrationApiErrors.GetAsync<List<OrchestrationAutomationTargetChoiceDto>>(Api,
+                "api/v1/admin/orchestration/catalog/target-choices" + AutomationConnectionSelection.Query(OrganizationId, SystemConnectionId.Value)) ?? [];
+            if (choices.Count == 0) error = "This tenant has no current nodes or enabled HA groups. Add an execution target in NetRatel, then reopen Create job.";
+        }
+        catch (Exception failure) when (failure is HttpRequestException or InvalidOperationException or JsonException)
+        { error = failure.Message; }
+        finally { loading = false; }
     }
+
+    private void OnNodesChanged(IEnumerable<string>? values) => selectedNodes = values?.ToArray() ?? [];
+    private void AddInput() => inputs.Add(new() { Order = inputs.Count });
 
     private async Task CreateAsync()
     {
         await form.ValidateAsync();
-        if (!form.IsValid)
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(OrganizationId) || SystemConnectionId is null || TenantId is not > 0)
-        {
-            Snackbar.Add("Select a current automation system connection before creating a target.", Severity.Warning);
-            return;
-        }
-
+        if (!form.IsValid) return;
+        var selected = selectedNodes.ToArray();
+        if (targetKind == NodesKind && (selected.Length == 0 || selected.Any(id => !choices.Any(choice => choice.Id == id && choice.Kind == NodesKind))) ||
+            targetKind == GroupKind && !choices.Any(choice => choice.Id == selectedGroup && choice.Kind == GroupKind))
+        { error = "Choose an execution target from this tenant."; return; }
         creating = true;
+        error = null;
         try
         {
             var dto = new CreateOrchestrationCatalogRequestDefinitionDto
             {
-                Name = jobName!.Trim(),
-                FolderPath = string.IsNullOrWhiteSpace(folderPath) ? "/helpdesk/requests/" : folderPath.Trim(),
-                Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
-                TenantId = TenantId,
-                ClientIdentity = clientIdentity!.Trim()
+                Name = jobName!.Trim(), FolderPath = folderPath?.Trim() ?? "/", Description = description?.Trim(), TenantId = TenantId,
+                Target = targetKind == NodesKind ? new() { Source = 2, AgentIds = selected } : choices.Single(choice => choice.Id == selectedGroup && choice.Kind == GroupKind).Target,
+                ExecutionPolicy = new() { ThreadCount = threads, NodeFailurePolicy = continueAfterFailure ? 1 : 0 },
+                Runner = runner, Command = command, Inputs = inputs
             };
-
             using var response = await Api.PostAsJsonAsync("api/v1/admin/orchestration/catalog/request-definitions"
-                + AutomationConnectionSelection.Query(OrganizationId, SystemConnectionId.Value), dto);
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
-            }
-
-            var created = await response.Content.ReadFromJsonAsync<OrchestrationCatalogRequestDefinitionDto>();
-            if (created is null)
-            {
-                throw new InvalidOperationException("External orchestration did not return the created automation target.");
-            }
-
+                + AutomationConnectionSelection.Query(OrganizationId!, SystemConnectionId!.Value), dto);
+            if (!response.IsSuccessStatusCode) { error = await OrchestrationApiErrors.ReadAsync(response); return; }
+            var created = await response.Content.ReadFromJsonAsync<OrchestrationCatalogRequestDefinitionDto>()
+                ?? throw new InvalidOperationException("NetRatel did not return the created job.");
             Dialog.Close(DialogResult.Ok(created));
         }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to create External orchestration automation target: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            creating = false;
-        }
+        catch (Exception failure) when (failure is HttpRequestException or InvalidOperationException or JsonException)
+        { error = failure.Message; }
+        finally { creating = false; }
     }
-
-    private void Cancel()
-    {
-        Dialog.Cancel();
-    }
+    private void Cancel() => Dialog.Cancel();
 }

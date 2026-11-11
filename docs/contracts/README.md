@@ -20,7 +20,7 @@
   [checksums](rateldesk-incident-create.v1.SHA256SUMS)
 
 These versioned contracts remain distinct from account-owned browser pairing.
-The current catalog is revision `2026-11-08.beta8-contracts-v28`: 390 operations
+The current catalog is revision `2026-11-11.automation-targets-v29`: 390 operations
 on 37 tools. The retained beta.13-to-beta.14 mapping preserves every operation
 identity and records 26 schema changes for numeric-string enum compatibility and
 incomplete draft change updates. The 200-character task-search boundary is

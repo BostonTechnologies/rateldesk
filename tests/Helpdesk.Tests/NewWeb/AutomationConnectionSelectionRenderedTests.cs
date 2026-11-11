@@ -23,7 +23,7 @@ using TargetFilter = NewWeb::HelpDesk.NewWeb.Services.OrchestrationCatalogTarget
 
 namespace Helpdesk.Tests.NewWeb;
 
-public sealed class AutomationConnectionSelectionRenderedTests
+public sealed partial class AutomationConnectionSelectionRenderedTests
 {
     private const string OrganizationId = "synthetic-organization";
     private static readonly Guid TaskId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -374,6 +374,10 @@ public sealed class AutomationConnectionSelectionRenderedTests
         public bool MismatchPeerTenant { get; set; }
         public bool BindingEnabled { get; set; } = true;
         public bool HasBinding { get; set; } = true;
+        public bool FailJobCreation { get; set; }
+        public CreateOrchestrationCatalogRequestDefinitionDto? CreatedJob { get; private set; }
+        public bool EmptyCatalogue { get; set; }
+        public OrchestrationAutomationTargetDto? ModernTarget { get; set; }
         public int FormCreates { get; private set; }
         public int FormUpdates { get; private set; }
         public bool FailBindingUpdates { get; set; }
@@ -407,7 +411,17 @@ public sealed class AutomationConnectionSelectionRenderedTests
                 var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query);
                 body = new OrchestrationConnectivitySettingsDto { Enabled = true, Source = "pairing", SourceKey = query["connectionId"], LocalTenantId = OrganizationId, PeerTenantId = MismatchPeerTenant ? "42" : "17" };
             }
-            else if (path.EndsWith("/catalog/request-definitions", StringComparison.Ordinal)) body = new[] { new OrchestrationCatalogRequestDefinitionDto { RequestDefinitionId = "definition-17", TenantId = 17, RequestDefinitionName = "Synthetic target", ClientIdentity = "synthetic-client" } };
+            else if (path.EndsWith("/catalog/target-choices", StringComparison.Ordinal)) body = new[]
+            { new OrchestrationAutomationTargetChoiceDto { Id = FirstId.ToString("D"), Name = "Synthetic worker", Kind = "explicitNodes", Target = new() { Source = 2, AgentIds = [FirstId.ToString("D")] } } };
+            else if (path.EndsWith("/catalog/request-definitions", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                CreatedJob = await request.Content!.ReadFromJsonAsync<CreateOrchestrationCatalogRequestDefinitionDto>(cancellationToken);
+                if (FailJobCreation) return new(HttpStatusCode.UnprocessableEntity) { Content = JsonContent.Create(new OrchestrationProviderErrorDto("create-job", 422, "target_unavailable", "Choose a current tenant target. Reference: synthetic-ref.", "synthetic-ref")) };
+                body = new OrchestrationCatalogRequestDefinitionDto { RequestDefinitionId = "created-job", OrchestrationJobDefinitionId = "created-job", RequestDefinitionName = CreatedJob!.Name, TenantId = 17 };
+            }
+            else if (path.EndsWith("/catalog/capabilities", StringComparison.Ordinal)) body = new OrchestrationAutomationCapabilitiesDto { ContractVersion = 2, Authoring = true, AggregateExecution = true };
+            else if (path.EndsWith("/catalog/request-definitions", StringComparison.Ordinal) && EmptyCatalogue) body = Array.Empty<OrchestrationCatalogRequestDefinitionDto>();
+            else if (path.EndsWith("/catalog/request-definitions", StringComparison.Ordinal)) body = new[] { new OrchestrationCatalogRequestDefinitionDto { RequestDefinitionId = "definition-17", TenantId = 17, RequestDefinitionName = "Synthetic target", ContractVersion = ModernTarget is null ? 1 : 2, Target = ModernTarget, ClientIdentity = ModernTarget is null ? "synthetic-client" : "" } };
             else if (path == "/api/v1/admin/orchestration/bindings/synthetic-binding" && request.Method == HttpMethod.Put)
             {
                 if (FailBindingUpdates) return new(HttpStatusCode.BadRequest) { Content = new StringContent("") };
