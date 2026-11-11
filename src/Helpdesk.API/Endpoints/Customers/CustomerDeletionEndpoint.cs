@@ -30,6 +30,11 @@ public static class CustomerDeletionEndpoint
                     .AsNoTracking().SingleOrDefaultAsync(ct);
                 if (customer is null) return Results.Problem("Resource not found", statusCode: 404);
             }
+            else if (db.Database.IsRelational() && db.Entry(customer).State != Microsoft.EntityFrameworkCore.EntityState.Detached)
+            {
+                // A prior query in this request may already have tracked an older identity key.
+                await db.Entry(customer).ReloadAsync(ct);
+            }
 
             if (customer.IdentityUserId is not null ||
                 await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == customer.Id, ct))

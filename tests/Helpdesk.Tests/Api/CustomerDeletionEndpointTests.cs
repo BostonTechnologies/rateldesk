@@ -47,6 +47,32 @@ public sealed class CustomerDeletionEndpointTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Fresh_identity_key_is_checked_when_the_request_already_tracked_an_unlinked_customer(bool postgres)
+    {
+        await using var h = await Harness.CreateAsync(postgres);
+        await h.EditAsync(async db =>
+        {
+            db.Customers.Add(new Customer { Id = "stale-contact", Name = "Identity customer", Email = "stale@example.invalid" });
+            await db.SaveChangesAsync();
+            var customers = new EfRepository<Customer>(db);
+            Assert.Null((await customers.GetAsync("stale-contact"))!.IdentityUserId);
+            await h.EditAsync(async current =>
+            {
+                await current.Customers.Where(customer => customer.Id == "stale-contact")
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(customer => customer.IdentityUserId, "retired-user"));
+            });
+
+            var result = await CustomerDeletionEndpoint.DeleteAsync("stale-contact", customers, db, default);
+
+            Assert.Equal(StatusCodes.Status409Conflict, ((IStatusCodeHttpResult)result).StatusCode);
+            db.ChangeTracker.Clear();
+            Assert.Equal("retired-user", (await db.Customers.SingleAsync()).IdentityUserId);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Identity_bound_customer_without_an_auth_link_rejects_repeated_deletion_and_retains_history(bool postgres)
     {
         await using var h = await Harness.CreateAsync(postgres);
