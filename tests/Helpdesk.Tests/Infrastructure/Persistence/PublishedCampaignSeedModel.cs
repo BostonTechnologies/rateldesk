@@ -1,5 +1,9 @@
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
+using Helpdesk.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace Helpdesk.Tests.Infrastructure.Persistence;
 
@@ -21,5 +25,24 @@ internal static class PublishedCampaignSeedModel
         // historical rows must still be seeded through the published shape.
         builder.Entity<User>().Ignore("IsDeleted");
         builder.Entity<User>().Ignore("DeletedAtUtc");
+    }
+}
+
+/// <summary>Seeds published schemas without applying the current model to historical rows.</summary>
+internal class PublishedCampaignSeedContext(HelpdeskDbContext current) : HelpdeskDbContext(
+    (DbContextOptions<HelpdeskDbContext>)current.GetService<IDbContextOptions>(),
+    new AdminTenantContext(), new HttpContextAccessor())
+{
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+        PublishedCampaignSeedModel.Configure(builder);
+    }
+
+    private sealed class AdminTenantContext : ITenantContext
+    {
+        public string? TenantId => null;
+        public string? UserId => null;
+        public bool IsHelpdeskAdmin => true;
     }
 }
