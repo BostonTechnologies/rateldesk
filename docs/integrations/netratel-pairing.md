@@ -112,7 +112,7 @@ continuation resumes eligible work after that release without requiring another
 callback. See [execution timing and recovery](netratel-orchestrator.md) and
 [application user deletion](../security/rbac.md#application-user-deletion).
 
-## Target-aware self-service automation (beta.9 / beta.4)
+## Target-aware self-service automation
 
 For that target-aware repair, the compatible pair is RatelDesk **0.1.3-beta.9** and NetRatel **0.1.5-beta.4**.
 Upgrade NetRatel first, complete its ordinary automatic database migrations and

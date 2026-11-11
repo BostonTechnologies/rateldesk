@@ -1,8 +1,9 @@
 # Campaign #381: premium UX and request execution
 
 Source baseline: `11c8997816833d753caf8df912a8279490da34fb` (11 November 2026).
-All issues and discussions #380–#394 were read before implementation. No open
-concurrent PRs were found at that baseline. This register distinguishes authored
+All issues and discussions #380–#394 were read before implementation. Existing
+dependency PRs were preserved; no parallel campaign feature change was identified.
+This register distinguishes authored
 code, passing acceptance, reviewed merge and verified public distribution.
 
 ## Requirement register
@@ -16,11 +17,11 @@ code, passing acceptance, reviewed merge and verified public distribution.
 | #385 | `codex/384-self-service`: explicit responsive catalog tracks | Sparse and many cards; drawer, mobile and actual 200% zoom | In progress; acceptance incomplete |
 | #386 | `codex/384-self-service`: complete My Requests SQL query/paging | >100 records; full filter/count/sort, ties, stale responses and ownership | In progress; acceptance incomplete |
 | #387 | `codex/387-team-lifecycle`: Team directory and separate retirement/sign-in operations | Both providers; revoked sessions/credentials, retained attribution, reprovision and tenant fences | In progress; acceptance incomplete |
-| #388 | `codex/388-admin-directories`: bounded customer directory/access projection | >100 records, whole-query status filters, bounded request/query count, invitations | Authored; synthetic presentation passed; provider/integrated acceptance pending |
-| #389 | `codex/388-admin-directories`: organization directory | Complete queries, saved mapping/catalog-unavailable truth, delegated views | Authored; synthetic presentation passed; provider/integrated acceptance pending |
+| #388 | `codex/388-admin-directories`: bounded customer directory/access projection | >100 records, whole-query status filters, bounded request/query count, invitations | Implemented; scoped local acceptance passed; integrated CI/review/merge pending |
+| #389 | `codex/388-admin-directories`: organization directory | Complete queries, saved mapping/catalog-unavailable truth, delegated views | Implemented; scoped local acceptance passed; integrated CI/review/merge pending |
 | #390 | `codex/390-operational-cards`: structured connection cards | Saved IDs, pairing/actions and truthful fresh/stale/never-tested state | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
 | #391 | `codex/390-operational-cards`: Service Explorer card geometry | 0/2/20/100 assignments, bounded keyboard-accessible lists/actions | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
-| #392 | `codex/388-admin-directories`: additive category admin query | Exact type versus legacy Service inclusion, full queries and protections | Authored; synthetic presentation passed; provider/integrated acceptance pending |
+| #392 | `codex/388-admin-directories`: additive category admin query | Exact type versus legacy Service inclusion, full queries and protections | Implemented; scoped local acceptance passed; integrated CI/review/merge pending |
 | #393 | `codex/390-operational-cards`: Operations Overview | Dynamic counters/links, all three feeds, roles and partial errors | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
 | #394 | `codex/390-operational-cards`: effective branded search | Branding precedence/fallback, long names, shortcut/focus and responsive shell | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
 
@@ -36,7 +37,9 @@ admission. Provider implementation and paired acceptance remain separate gates.
 - Installed the pinned .NET SDK 10.0.400 into an isolated workspace tool directory.
 - `dotnet restore Helpdesk.sln` completed. Existing package advisories remain
   visible; no warnings or required checks were suppressed.
-- Root release version remains unchanged while implementation is incomplete.
+- Root release preparation now assigns `0.1.3-beta.10` after both tag prefixes,
+  draft/public releases and all three image families were verified unused.
+  NetRatel source preparation assigns the compatible `0.1.5-beta.5`.
 
 ## Completion gates
 
@@ -45,9 +48,59 @@ exact final main SHA must then pass all six again. Optional deep browser/provide
 acceptance runs through the existing dispatch lane and is recorded separately.
 
 No merge, public release, public image/archive verification or complete campaign
-acceptance is claimed by this initial register. Release allocation must recheck
+acceptance is claimed by the source-preparation register. Release allocation checks
 both tag prefixes, every release state and all three registry families. Published
 bytes and stable latest remain immutable. Owner production rollout is separate.
+
+## Integrated source and focused functional verification
+
+The review batches are [PR #395](https://github.com/BostonTechnologies/rateldesk/pull/395)
+for trusted submission/deadlines and
+[PR #396](https://github.com/BostonTechnologies/rateldesk/pull/396) for administration
+queries and account retirement. The premium UI/release-preparation batch is stacked
+on these branches. NetRatel [PR #730](https://github.com/BostonTechnologies/netratel/pull/730)
+implements companion [#729](https://github.com/BostonTechnologies/netratel/issues/729).
+All merges, exact-main checks and public distribution remain pending here.
+
+The functional build completed with no errors using SDK 10.0.400. Its first
+52-case upgraded-contract selection passed 51 and exposed one stale expected
+OpenAPI tag. After correcting that expectation to the canonical **Self-Service**,
+the owning 32-case requester/legacy/OpenAPI selection passed 32/32 with no skips.
+The actual runs cover 67 distinct passing cases; this is not a single 67-case
+aggregate. Earlier failed receipts remain retained. Requester/error/endpoint
+focused coverage is 85.5% line and 70.4% branch.
+
+The deadline provider series executed 190 cases: 188 passed and two old SQLite
+fixtures attempted deliberately unsupported reverse migrations. The fixtures
+were repaired to construct the historical model and migrate forward; all four
+changed SQLite/PostgreSQL upgrade cases then passed, without product relaxation.
+All 190 distinct cases therefore have passing outcomes across the retained runs,
+not a claimed green rerun of the original aggregate. They exercise timing,
+restart, multiworker races, late/old outcomes, operator/approval holds, atomic
+dispatch intent and durable continuation lost-wake recovery. Start-fence coverage
+is 91.1%; the hold policy is 100%. Async API coverage omitted by the exporter is
+not presented as zero or as complete coverage.
+
+Customer deletion guarding passed 19/19 owning cases without failures/skips on
+source `481161be`: both real providers, the optional in-memory provider and actual
+CRUD routes. Managed requester keys/auth links cannot be removed; PostgreSQL
+locks the current contact inside the transaction before eligibility checks.
+Domain/identity deletion, history and reprovision fences remain separate lifecycle
+operations. The standard coverage-derived CRAP value for this focused handler is
+28.98, with 79.48% sequence and 91.66% branch coverage; no suppression was added.
+
+All four real EF model/snapshot checks passed at source
+`fddcb52076941840c90f60f17b7234853b29afa7`, with unchanged model inputs in the
+integrated source. These check both contexts against SQLite and PostgreSQL using
+EF 10.0.13 and SDK 10.0.400. Provider metadata and all 94 snapshot entity hashes
+are retained in the model receipt; no database schema was written for this check.
+
+NetRatel's authenticated receipt/replay regression passed 2/2 with no skips at
+`2b9984e60618f195b672110db425853885c3d093`. The original failure exposed an ingest
+replay projection recovery returned before its transaction committed. The fix
+commits that authorized replay; receipt GET remains strictly read-only. The real
+rendered native pair, exact candidate normal/deep jobs, reviews and publication
+are independent gates and are not inferred from these focused results.
 
 
 ## Initial regression findings
@@ -206,6 +259,39 @@ measurements and asset hashes. Representative Customers
 captures share the same synthetic fixture. Equivalent Organization and Category
 captures are listed in the receipt.
 
-These results establish local synthetic Web behavior. Both-provider owning API
-tests, integrated-source validation, the six normal CI jobs, reviewed merge and
-release/distribution remain separate gates; none is inferred from screenshots.
+The owning API/query series at application source
+`56607e7f69efa6d08bf877c176392e063e56399e` passed 31/31 cases with no failures or
+skips: sixteen directory HTTP cases across SQLite/PostgreSQL, eight legacy
+category HTTP cases across both providers, six data-source cases and one URL
+query-state case. The 133-record customer query and 122-record retirement/orphan
+query each assert at most two SQL reader commands on both databases. Retired or
+missing requester keys cannot advertise Invite; domain-only requester profiles
+remain valid without an application account. The
+[provider receipt](assets/381-directories/provider-acceptance.json) includes all
+outcomes, source/binary hashes and the query-bound assertions; the
+[coverage summary](assets/381-directories/provider-coverage.txt) records 89.6%
+line and 72.8% branch coverage across the four selected endpoint/query classes.
+
+The subsequent rendered UI series passed 20/20 cases with no failures or skips
+on Web source `e20c53efe6ff4035cbc23e46f3b69236938556a1` and test correction
+`d0b018023545f57c80251f10dc567bbeb924d509`. Thirteen new cases cover saved tenant
+ID/name/timestamp retention during unavailable or missing catalogs, truthful
+unknown names/dates, safe empty save errors, retry, selector resilience and late
+lookup responses; the seven existing data-source/query-state cases were rerun.
+These overlap with the seven query cases above rather than adding distinct
+coverage to the total. The [UI receipt](assets/381-directories/ui-acceptance.json)
+and [coverage summary](assets/381-directories/ui-coverage.txt) record 94.8% line
+and 66.6% branch coverage across the four selected UI/query classes. Strict
+Slopwatch reports zero issues, documentation links pass, and authored nullable
+test warnings were corrected without suppressing the remaining baseline/package
+warnings.
+
+The pinned Coverlet OpenCover output omits CRAP scores and incorrectly marks
+ordinary methods as constructors. ReportGenerator therefore has no CRAP score
+column; missing scores are not reported as zero. Coverage, raw complexity and
+source review remain available in the scoped receipts/reports.
+
+These results establish scoped local acceptance. Final integrated-source
+provider/authorization/lifecycle validation, the shared four-route directory
+presentation run, the six normal CI jobs, reviewed merge and release/distribution
+remain campaign gates; none is inferred from screenshots or an earlier binary.
