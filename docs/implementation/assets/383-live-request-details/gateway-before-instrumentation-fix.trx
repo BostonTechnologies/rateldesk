@@ -1,0 +1,213 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="ced49169-50d5-4e68-8ecd-4dc19d9539bb" name="@b8131b995d80 2026-11-11 17:22:20" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-11-11T17:22:20.0217967+00:00" queuing="2026-11-11T17:22:20.0217968+00:00" start="2026-11-11T17:21:44.0868072+00:00" finish="2026-11-11T17:24:28.8960871+00:00" />
+  <TestSettings name="default" id="08244277-322f-466b-a02f-d2d9298b7101">
+    <Deployment runDeploymentRoot="_b8131b995d80_2026-11-11_17_22_20" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="eaa14f73-9f01-4371-b282-a7b984fa9253" testId="a94c152d-38dc-bbfd-3441-5a60cd175dee" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(postgres: True)" computerName="b8131b995d80" duration="00:00:52.4946269" startTime="2026-11-11T17:23:13.9414211+00:00" endTime="2026-11-11T17:24:06.4405896+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="eaa14f73-9f01-4371-b282-a7b984fa9253" />
+    <UnitTestResult executionId="73309516-e61f-4e06-9133-e7509ae10a9a" testId="03d4fee5-9029-0e8c-51d4-dbc35d6d34d3" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: True)" computerName="b8131b995d80" duration="00:00:46.3733691" startTime="2026-11-11T17:22:19.9455929+00:00" endTime="2026-11-11T17:23:06.3336353+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="73309516-e61f-4e06-9133-e7509ae10a9a">
+      <Output>
+        <ErrorInfo>
+          <Message>Bunit.Extensions.WaitForHelpers.WaitForFailedException : The assertion did not pass within the timeout period.
+
+If this test does not fail consistently, the reason may be that
+the wait timeout is too short, and the runtime did not have enough
+time to complete the necessary number of renders of the component under test.
+This can happen on highly utilized or slower hardware, for example.
+
+To determine if this is the cause, compare the check and render count(s) below
+and see if they match what is expected. If they do not,
+consider increasing the timeout, either at the individual
+method call level, e.g. WaitForElement("div", TimeSpan.FromSeconds(15)),
+or via the static TestContext.DefaultWaitTimeout property.
+
+Check count: 109.
+Component render count: 484.
+Total render count across all components: 0.
+---- Assert.All() Failure: 3 out of 3 items in the collection did not pass.
+[0]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+     Error: Assert.Contains() Failure: Sub-string not found
+            String:    "\n                                        "···
+            Not found: "Completed"
+[1]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+     Error: Assert.Contains() Failure: Sub-string not found
+            String:    "\n                                        "···
+            Not found: "Completed"
+[2]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+     Error: Assert.Contains() Failure: Sub-string not found
+            String:    "\n                                        "···
+            Not found: "Completed"</Message>
+          <StackTrace>   at Bunit.RenderedComponentWaitForHelperExtensions.WaitForAssertion[TComponent](IRenderedComponent`1 renderedComponent, Action assertion, Nullable`1 timeout) in /_/src/bunit/Extensions/WaitForHelpers/RenderedComponentWaitForHelperExtensions.WaitForState.cs:line 102
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(Boolean postgres) in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 86
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(Boolean postgres) in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 99
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(Boolean postgres) in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 99
+--- End of stack trace from previous location ---
+----- Inner Stack Trace -----
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.&lt;&gt;c__DisplayClass3_0.&lt;Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow&gt;b__5() in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 88
+   at Bunit.Extensions.WaitForHelpers.WaitForAssertionHelper`1.&lt;&gt;c__DisplayClass6_0.&lt;.ctor&gt;b__0() in /_/src/bunit/Extensions/WaitForHelpers/WaitForAssertionHelper.cs:line 35
+   at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.&lt;&gt;c__DisplayClass32_0.&lt;WrapSynchronousChecker&gt;b__0() in /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs:line 297
+   at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.RunCheckAsync() in /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs:line 226</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="d5fa5ca2-b841-4ea7-88f9-25f66e3d5668" testId="27632b17-9820-873c-5d3b-f020844dcebc" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Reconnect_resynchronizes_a_terminal_result_committed_while_the_stream_was_absent" computerName="b8131b995d80" duration="00:00:06.6358312" startTime="2026-11-11T17:24:14.3007121+00:00" endTime="2026-11-11T17:24:20.9397803+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d5fa5ca2-b841-4ea7-88f9-25f66e3d5668" />
+    <UnitTestResult executionId="ec12de14-45e5-4a58-a445-1776cad04952" testId="e24116dc-933a-75c5-f13b-12b4db7aa0de" testName="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Another_ticket_frame_cannot_reach_a_subscription_and_duplicate_updates_remain_invalidation_signals" computerName="b8131b995d80" duration="00:00:00.2084848" startTime="2026-11-11T17:24:27.9132080+00:00" endTime="2026-11-11T17:24:28.1274364+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ec12de14-45e5-4a58-a445-1776cad04952" />
+    <UnitTestResult executionId="d08f76eb-9fa3-48a1-91f2-2d5fd0d0383e" testId="57fbe8f6-c5cb-fe0d-6cc7-feed5b519a02" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Existing_local_session_is_revoked_before_a_new_private_frame_is_delivered" computerName="b8131b995d80" duration="00:00:03.2063628" startTime="2026-11-11T17:24:11.0900039+00:00" endTime="2026-11-11T17:24:14.3000749+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d08f76eb-9fa3-48a1-91f2-2d5fd0d0383e" />
+    <UnitTestResult executionId="a87fc697-cd4c-45cc-a1cd-ec469e1204d4" testId="2a81c8b0-6a4c-096b-f2e7-a936e9c19a6a" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: False)" computerName="b8131b995d80" duration="00:00:26.4274605" startTime="2026-11-11T17:21:53.4857167+00:00" endTime="2026-11-11T17:22:19.8996234+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a87fc697-cd4c-45cc-a1cd-ec469e1204d4">
+      <Output>
+        <StdOut>Provider=SQLite; Request=live-request; gateway=true; persisted terminal → SSE → rendered convergence=1466 ms</StdOut>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="1628f2ca-9bca-442b-8b01-9a66434807be" testId="93cadc4c-f8e3-0d95-57be-c5ed9c4467bc" testName="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Authorization_denial_pauses_updates_without_an_automatic_retry_loop" computerName="b8131b995d80" duration="00:00:00.0055309" startTime="2026-11-11T17:24:28.1278568+00:00" endTime="2026-11-11T17:24:28.1280203+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1628f2ca-9bca-442b-8b01-9a66434807be" />
+    <UnitTestResult executionId="37f0e600-46d5-4538-9fd9-cd2f5b4c38ed" testId="dd5a70a6-0363-64e4-e060-2d9f44af7845" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Navigating_to_another_request_discards_the_old_snapshot_and_stream_scope" computerName="b8131b995d80" duration="00:00:07.5969155" startTime="2026-11-11T17:23:06.3951777+00:00" endTime="2026-11-11T17:23:13.9403214+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="37f0e600-46d5-4538-9fd9-cd2f5b4c38ed" />
+    <UnitTestResult executionId="53cdb699-fa18-4b07-a406-032616c3ba3b" testId="049faad9-424b-17e2-e5b8-42c497e2a0cc" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(postgres: False)" computerName="b8131b995d80" duration="00:00:04.6478583" startTime="2026-11-11T17:24:06.4414525+00:00" endTime="2026-11-11T17:24:11.0890858+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="53cdb699-fa18-4b07-a406-032616c3ba3b" />
+    <UnitTestResult executionId="e304e88a-fa51-4c5e-98a1-c27d3d80a696" testId="5abaaad8-348e-3055-d489-47fb185bf311" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft" computerName="b8131b995d80" duration="00:00:06.9553240" startTime="2026-11-11T17:24:20.9402662+00:00" endTime="2026-11-11T17:24:27.9001001+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e304e88a-fa51-4c5e-98a1-c27d3d80a696" />
+    <UnitTestResult executionId="bd239003-e3c9-4b84-9fb3-b090ef90fe36" testId="53ec4ee9-a0b9-5e7e-5d5b-b7241c7a9025" testName="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Timeline_and_progress_share_one_stream_and_disposing_activity_preserves_parent_updates" computerName="b8131b995d80" duration="00:00:00.0819648" startTime="2026-11-11T17:24:28.1282924+00:00" endTime="2026-11-11T17:24:28.2437691+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="bd239003-e3c9-4b84-9fb3-b090ef90fe36" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: True)" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="03d4fee5-9029-0e8c-51d4-dbc35d6d34d3">
+      <Execution id="73309516-e61f-4e06-9133-e7509ae10a9a" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Another_ticket_frame_cannot_reach_a_subscription_and_duplicate_updates_remain_invalidation_signals" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="e24116dc-933a-75c5-f13b-12b4db7aa0de">
+      <Execution id="ec12de14-45e5-4a58-a445-1776cad04952" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests" name="Another_ticket_frame_cannot_reach_a_subscription_and_duplicate_updates_remain_invalidation_signals" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Authorization_denial_pauses_updates_without_an_automatic_retry_loop" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="93cadc4c-f8e3-0d95-57be-c5ed9c4467bc">
+      <Execution id="1628f2ca-9bca-442b-8b01-9a66434807be" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests" name="Authorization_denial_pauses_updates_without_an_automatic_retry_loop" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Reconnect_resynchronizes_a_terminal_result_committed_while_the_stream_was_absent" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="27632b17-9820-873c-5d3b-f020844dcebc">
+      <Execution id="d5fa5ca2-b841-4ea7-88f9-25f66e3d5668" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Reconnect_resynchronizes_a_terminal_result_committed_while_the_stream_was_absent" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Navigating_to_another_request_discards_the_old_snapshot_and_stream_scope" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="dd5a70a6-0363-64e4-e060-2d9f44af7845">
+      <Execution id="37f0e600-46d5-4538-9fd9-cd2f5b4c38ed" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Navigating_to_another_request_discards_the_old_snapshot_and_stream_scope" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Existing_local_session_is_revoked_before_a_new_private_frame_is_delivered" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="57fbe8f6-c5cb-fe0d-6cc7-feed5b519a02">
+      <Execution id="d08f76eb-9fa3-48a1-91f2-2d5fd0d0383e" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Existing_local_session_is_revoked_before_a_new_private_frame_is_delivered" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(postgres: False)" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="049faad9-424b-17e2-e5b8-42c497e2a0cc">
+      <Execution id="53cdb699-fa18-4b07-a406-032616c3ba3b" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: False)" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="2a81c8b0-6a4c-096b-f2e7-a936e9c19a6a">
+      <Execution id="a87fc697-cd4c-45cc-a1cd-ec469e1204d4" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(postgres: True)" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="a94c152d-38dc-bbfd-3441-5a60cd175dee">
+      <Execution id="eaa14f73-9f01-4371-b282-a7b984fa9253" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="5abaaad8-348e-3055-d489-47fb185bf311">
+      <Execution id="e304e88a-fa51-4c5e-98a1-c27d3d80a696" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft" />
+    </UnitTest>
+    <UnitTest name="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Timeline_and_progress_share_one_stream_and_disposing_activity_preserves_parent_updates" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="53ec4ee9-a0b9-5e7e-5d5b-b7241c7a9025">
+      <Execution id="bd239003-e3c9-4b84-9fb3-b090ef90fe36" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.NewWeb.TimelineSubscriptionTests" name="Timeline_and_progress_share_one_stream_and_disposing_activity_preserves_parent_updates" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="a94c152d-38dc-bbfd-3441-5a60cd175dee" executionId="eaa14f73-9f01-4371-b282-a7b984fa9253" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="03d4fee5-9029-0e8c-51d4-dbc35d6d34d3" executionId="73309516-e61f-4e06-9133-e7509ae10a9a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="27632b17-9820-873c-5d3b-f020844dcebc" executionId="d5fa5ca2-b841-4ea7-88f9-25f66e3d5668" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e24116dc-933a-75c5-f13b-12b4db7aa0de" executionId="ec12de14-45e5-4a58-a445-1776cad04952" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="57fbe8f6-c5cb-fe0d-6cc7-feed5b519a02" executionId="d08f76eb-9fa3-48a1-91f2-2d5fd0d0383e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="2a81c8b0-6a4c-096b-f2e7-a936e9c19a6a" executionId="a87fc697-cd4c-45cc-a1cd-ec469e1204d4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="93cadc4c-f8e3-0d95-57be-c5ed9c4467bc" executionId="1628f2ca-9bca-442b-8b01-9a66434807be" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="dd5a70a6-0363-64e4-e060-2d9f44af7845" executionId="37f0e600-46d5-4538-9fd9-cd2f5b4c38ed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="049faad9-424b-17e2-e5b8-42c497e2a0cc" executionId="53cdb699-fa18-4b07-a406-032616c3ba3b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="5abaaad8-348e-3055-d489-47fb185bf311" executionId="e304e88a-fa51-4c5e-98a1-c27d3d80a696" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="53ec4ee9-a0b9-5e7e-5d5b-b7241c7a9025" executionId="bd239003-e3c9-4b84-9fb3-b090ef90fe36" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="11" executed="11" passed="10" failed="1" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v4.0.1+0f7d528729 (64-bit .NET 10.0.11)
+[xUnit.net 00:00:02.01]   Discovering: Helpdesk.Tests
+[xUnit.net 00:00:05.42]   Discovered:  Helpdesk.Tests
+[xUnit.net 00:00:05.55]   Starting:    Helpdesk.Tests
+[testcontainers.org 00:00:01.00] Connected to Docker:
+  Host: unix:///var/run/docker.sock
+  Server Version: 28.4.0
+  Kernel Version: 6.18.57
+  API Version: 1.51
+  Operating System: Debian GNU/Linux 13 (trixie) (containerized)
+  Total Memory: 17.59 GB
+[testcontainers.org 00:00:01.51] Docker container 31f1d5139222 created
+[testcontainers.org 00:00:01.60] Start Docker container 31f1d5139222
+[testcontainers.org 00:00:02.00] Wait for Docker container 31f1d5139222 to complete readiness checks
+[testcontainers.org 00:00:03.11] Docker container 31f1d5139222 ready
+[testcontainers.org 00:00:14.23] Docker container 0109242729ca created
+[testcontainers.org 00:00:14.25] Start Docker container 0109242729ca
+[testcontainers.org 00:00:15.51] Wait for Docker container 0109242729ca to complete readiness checks
+[testcontainers.org 00:00:15.57] Execute "pg_isready --host localhost --dbname postgres --username postgres" at Docker container 0109242729ca
+[testcontainers.org 00:00:18.08] Execute "pg_isready --host localhost --dbname postgres --username postgres" at Docker container 0109242729ca
+[testcontainers.org 00:00:18.30] Docker container 0109242729ca ready
+[testcontainers.org 00:00:43.70] Delete Docker container 0109242729ca
+[xUnit.net 00:01:18.57]       Bunit.Extensions.WaitForHelpers.WaitForFailedException : The assertion did not pass within the timeout period.
+[xUnit.net 00:01:18.57]
+[xUnit.net 00:01:18.57]       If this test does not fail consistently, the reason may be that
+[xUnit.net 00:01:18.57]       the wait timeout is too short, and the runtime did not have enough
+[xUnit.net 00:01:18.57]       time to complete the necessary number of renders of the component under test.
+[xUnit.net 00:01:18.57]       This can happen on highly utilized or slower hardware, for example.
+[xUnit.net 00:01:18.57]
+[xUnit.net 00:01:18.57]       To determine if this is the cause, compare the check and render count(s) below
+[xUnit.net 00:01:18.57]       and see if they match what is expected. If they do not,
+[xUnit.net 00:01:18.57]       consider increasing the timeout, either at the individual
+[xUnit.net 00:01:18.57]       method call level, e.g. WaitForElement("div", TimeSpan.FromSeconds(15)),
+[xUnit.net 00:01:18.57]       or via the static TestContext.DefaultWaitTimeout property.
+[xUnit.net 00:01:18.57]
+[xUnit.net 00:01:18.57]       Check count: 109.
+[xUnit.net 00:01:18.57]       Component render count: 484.
+[xUnit.net 00:01:18.57]       Total render count across all components: 0.
+[xUnit.net 00:01:18.57]       ---- Assert.All() Failure: 3 out of 3 items in the collection did not pass.
+[xUnit.net 00:01:18.57]       [0]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+[xUnit.net 00:01:18.57]            Error: Assert.Contains() Failure: Sub-string not found
+[xUnit.net 00:01:18.57]                   String:    "\n                                        "···
+[xUnit.net 00:01:18.57]                   Not found: "Completed"
+[xUnit.net 00:01:18.57]       [1]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+[xUnit.net 00:01:18.57]            Error: Assert.Contains() Failure: Sub-string not found
+[xUnit.net 00:01:18.57]                   String:    "\n                                        "···
+[xUnit.net 00:01:18.57]                   Not found: "Completed"
+[xUnit.net 00:01:18.57]       [2]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+[xUnit.net 00:01:18.57]            Error: Assert.Contains() Failure: Sub-string not found
+[xUnit.net 00:01:18.57]                   String:    "\n                                        "···
+[xUnit.net 00:01:18.57]                   Not found: "Completed"
+[xUnit.net 00:01:18.57]       Stack Trace:
+[xUnit.net 00:01:18.61]         /_/src/bunit/Extensions/WaitForHelpers/RenderedComponentWaitForHelperExtensions.WaitForState.cs(102,0): at Bunit.RenderedComponentWaitForHelperExtensions.WaitForAssertion[TComponent](IRenderedComponent`1 renderedComponent, Action assertion, Nullable`1 timeout)
+[xUnit.net 00:01:18.61]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(86,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(Boolean postgres)
+[xUnit.net 00:01:18.61]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(99,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(Boolean postgres)
+[xUnit.net 00:01:18.61]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(99,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(Boolean postgres)
+[xUnit.net 00:01:18.61]         --- End of stack trace from previous location ---
+[xUnit.net 00:01:18.61]         ----- Inner Stack Trace -----
+[xUnit.net 00:01:18.61]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(88,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.&lt;&gt;c__DisplayClass3_0.&lt;Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow&gt;b__5()
+[xUnit.net 00:01:18.61]         /_/src/bunit/Extensions/WaitForHelpers/WaitForAssertionHelper.cs(35,0): at Bunit.Extensions.WaitForHelpers.WaitForAssertionHelper`1.&lt;&gt;c__DisplayClass6_0.&lt;.ctor&gt;b__0()
+[xUnit.net 00:01:18.61]         /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs(297,0): at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.&lt;&gt;c__DisplayClass32_0.&lt;WrapSynchronousChecker&gt;b__0()
+[xUnit.net 00:01:18.61]         /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs(226,0): at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.RunCheckAsync()
+[testcontainers.org 00:01:23.88] Docker container 1de0a04db386 created
+[testcontainers.org 00:01:23.91] Start Docker container 1de0a04db386
+[testcontainers.org 00:01:25.04] Wait for Docker container 1de0a04db386 to complete readiness checks
+[testcontainers.org 00:01:25.05] Execute "pg_isready --host localhost --dbname postgres --username postgres" at Docker container 1de0a04db386
+[testcontainers.org 00:01:27.32] Execute "pg_isready --host localhost --dbname postgres --username postgres" at Docker container 1de0a04db386
+[testcontainers.org 00:01:28.59] Execute "pg_isready --host localhost --dbname postgres --username postgres" at Docker container 1de0a04db386
+[testcontainers.org 00:01:28.86] Docker container 1de0a04db386 ready
+[testcontainers.org 00:01:44.57] Delete Docker container 1de0a04db386
+[xUnit.net 00:02:40.47]   Finished:    Helpdesk.Tests
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="b8131b995d80" outcome="Error" timestamp="2026-11-11T17:23:06.3917023+00:00">
+        <Text>[xUnit.net 00:01:18.57]     Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: True) [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

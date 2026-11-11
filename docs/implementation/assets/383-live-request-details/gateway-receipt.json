@@ -1,0 +1,97 @@
+{
+  "scope": "Issue383 actual persisted lifecycle \u2192 loopback API \u2192 YARP gateway SSE \u2192 owning rendered components. Controlled lifecycle completion; native provider jobs are separate campaign acceptance.",
+  "sourceCodeRevision": "816046ba8c762ca5b5c09c254b1edc77ebf94afb",
+  "owningTestSourceRevision": "d1245aa13150f6c920c73d3214e31d63905202fa",
+  "command": "dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --no-build --no-restore --filter 'FullyQualifiedName~RequestLiveProgressTests|FullyQualifiedName~TimelineSubscriptionTests'",
+  "project": "normal tests/Helpdesk.Tests project; temporary linked-file diagnostic runner is not the final receipt",
+  "summary": {
+    "passed": 11,
+    "failed": 0,
+    "skipped": 0
+  },
+  "healthyPath": [
+    {
+      "provider": "PostgreSQL",
+      "persistedToRenderedMilliseconds": 1658,
+      "limitMilliseconds": 2000,
+      "actualReadyFrame": true,
+      "actualCommittedInvalidationFrame": true,
+      "gatewayHeaderAsserted": true,
+      "activityMounted": false
+    },
+    {
+      "provider": "SQLite",
+      "persistedToRenderedMilliseconds": 935,
+      "limitMilliseconds": 2000,
+      "actualReadyFrame": true,
+      "actualCommittedInvalidationFrame": true,
+      "gatewayHeaderAsserted": true,
+      "activityMounted": false
+    }
+  ],
+  "cases": [
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:17.0313290"
+    },
+    {
+      "testName": "Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Authorization_denial_pauses_updates_without_an_automatic_retry_loop",
+      "outcome": "Passed",
+      "duration": "00:00:00.0124493"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.5426408"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft",
+      "outcome": "Passed",
+      "duration": "00:00:02.5767343"
+    },
+    {
+      "testName": "Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Another_ticket_frame_cannot_reach_a_subscription_and_duplicate_updates_remain_invalidation_signals",
+      "outcome": "Passed",
+      "duration": "00:00:00.0625859"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Reconnect_resynchronizes_a_terminal_result_committed_while_the_stream_was_absent",
+      "outcome": "Passed",
+      "duration": "00:00:02.9864600"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Existing_local_session_is_revoked_before_a_new_private_frame_is_delivered",
+      "outcome": "Passed",
+      "duration": "00:00:02.1502049"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Navigating_to_another_request_discards_the_old_snapshot_and_stream_scope",
+      "outcome": "Passed",
+      "duration": "00:00:02.1505497"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:11.3232839"
+    },
+    {
+      "testName": "Helpdesk.Tests.Api.RequestLiveProgressTests.Committed_automation_transitions_cross_gateway_SSE_and_update_rendered_tasks_header_and_workflow(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:08.4859116"
+    },
+    {
+      "testName": "Helpdesk.Tests.NewWeb.TimelineSubscriptionTests.Timeline_and_progress_share_one_stream_and_disposing_activity_preserves_parent_updates",
+      "outcome": "Passed",
+      "duration": "00:00:00.0048870"
+    }
+  ],
+  "resultsSha256": "a46cc33aaf2f9307361a59215882e8a0655271d678fe778d15358070aa953085",
+  "investigation": {
+    "before": "gateway-before-instrumentation-fix.trx:10 passed,1 PostgreSQL healthy path missed2s.",
+    "cause": "The test HTTP network decorator captured the Blazor renderer context, delaying actual canonical read completion behind a stale render.",
+    "repair": "d1245aa1 uses ConfigureAwait(false) for network instrumentation. Product source and2s deadline unchanged.",
+    "diagnosticObservation": "Streamed read tracing observed ~1450ms before and ~360ms after the context repair.",
+    "final": "All11 cases passed in the normal project; neither skipped tests nor a relaxed threshold were used."
+  }
+}

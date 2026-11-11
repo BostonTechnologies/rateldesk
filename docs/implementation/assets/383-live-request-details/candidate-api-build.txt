@@ -1,0 +1,11 @@
+/workspace/work/worktrees/live/src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj : warning NU1902: Package 'Microsoft.AspNetCore.WebUtilities' 2.3.12 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-6527-9fp8-r4x6
+/workspace/work/worktrees/live/src/Helpdesk.Infrastructure.SqliteMigrations/Helpdesk.Infrastructure.SqliteMigrations.csproj : warning NU1902: Package 'Microsoft.AspNetCore.WebUtilities' 2.3.12 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-6527-9fp8-r4x6
+
+Build succeeded.
+
+/workspace/work/worktrees/live/src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj : warning NU1902: Package 'Microsoft.AspNetCore.WebUtilities' 2.3.12 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-6527-9fp8-r4x6
+/workspace/work/worktrees/live/src/Helpdesk.Infrastructure.SqliteMigrations/Helpdesk.Infrastructure.SqliteMigrations.csproj : warning NU1902: Package 'Microsoft.AspNetCore.WebUtilities' 2.3.12 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-6527-9fp8-r4x6
+    2 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:57.94

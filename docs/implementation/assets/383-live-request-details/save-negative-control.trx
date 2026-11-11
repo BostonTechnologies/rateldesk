@@ -1,0 +1,123 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="8cd0fd1e-4a76-406f-a32f-092f21c3daad" name="@b8131b995d80 2026-11-11 17:03:36" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-11-11T17:03:36.8438854+00:00" queuing="2026-11-11T17:03:36.8438855+00:00" start="2026-11-11T17:02:26.7124173+00:00" finish="2026-11-11T17:03:36.8739574+00:00" />
+  <TestSettings name="default" id="f45e74b6-546a-4a8f-a6cf-4077811422b2">
+    <Deployment runDeploymentRoot="_b8131b995d80_2026-11-11_17_03_36" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="a82cb6c1-ba40-4e7a-a574-14c109f17f71" testId="5abaaad8-348e-3055-d489-47fb185bf311" testName="Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft" computerName="b8131b995d80" duration="00:00:54.1900453" startTime="2026-11-11T17:02:42.2499093+00:00" endTime="2026-11-11T17:03:36.5122853+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a82cb6c1-ba40-4e7a-a574-14c109f17f71">
+      <Output>
+        <ErrorInfo>
+          <Message>Bunit.Extensions.WaitForHelpers.WaitForFailedException : The assertion did not pass within the timeout period.
+
+If this test does not fail consistently, the reason may be that
+the wait timeout is too short, and the runtime did not have enough
+time to complete the necessary number of renders of the component under test.
+This can happen on highly utilized or slower hardware, for example.
+
+To determine if this is the cause, compare the check and render count(s) below
+and see if they match what is expected. If they do not,
+consider increasing the timeout, either at the individual
+method call level, e.g. WaitForElement("div", TimeSpan.FromSeconds(15)),
+or via the static TestContext.DefaultWaitTimeout property.
+
+Check count: 1.
+Component render count: 893.
+Total render count across all components: 0.
+---- Assert.All() Failure: 3 out of 3 items in the collection did not pass.
+[0]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+     Error: Assert.Contains() Failure: Sub-string not found
+            String:    "\n                                        "···
+            Not found: "Completed"
+[1]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+     Error: Assert.Contains() Failure: Sub-string not found
+            String:    "\n                                        "···
+            Not found: "Completed"
+[2]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+     Error: Assert.Contains() Failure: Sub-string not found
+            String:    "\n                                        "···
+            Not found: "Completed"</Message>
+          <StackTrace>   at Bunit.RenderedComponentWaitForHelperExtensions.WaitForAssertion[TComponent](IRenderedComponent`1 renderedComponent, Action assertion, Nullable`1 timeout) in /_/src/bunit/Extensions/WaitForHelpers/RenderedComponentWaitForHelperExtensions.WaitForState.cs:line 102
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft() in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 206
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft() in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 213
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft() in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 213
+--- End of stack trace from previous location ---
+----- Inner Stack Trace -----
+   at Helpdesk.Tests.Api.RequestLiveProgressTests.&lt;&gt;c__DisplayClass7_0.&lt;Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft&gt;b__9() in /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs:line 208
+   at Bunit.Extensions.WaitForHelpers.WaitForAssertionHelper`1.&lt;&gt;c__DisplayClass6_0.&lt;.ctor&gt;b__0() in /_/src/bunit/Extensions/WaitForHelpers/WaitForAssertionHelper.cs:line 35
+   at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.&lt;&gt;c__DisplayClass32_0.&lt;WrapSynchronousChecker&gt;b__0() in /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs:line 297
+   at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.RunCheckAsync() in /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs:line 226</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft" storage="/workspace/work/worktrees/live/tests/helpdesk.tests/bin/debug/net10.0/helpdesk.tests.dll" id="5abaaad8-348e-3055-d489-47fb185bf311">
+      <Execution id="a82cb6c1-ba40-4e7a-a574-14c109f17f71" />
+      <TestMethod codeBase="/workspace/work/worktrees/live/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Helpdesk.Tests.Api.RequestLiveProgressTests" name="Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="5abaaad8-348e-3055-d489-47fb185bf311" executionId="a82cb6c1-ba40-4e7a-a574-14c109f17f71" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="1" executed="1" passed="0" failed="1" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.03] xUnit.net VSTest Adapter v4.0.1+0f7d528729 (64-bit .NET 10.0.11)
+[xUnit.net 00:00:03.96]   Discovering: Helpdesk.Tests
+[xUnit.net 00:00:10.71]   Discovered:  Helpdesk.Tests
+[xUnit.net 00:00:10.94]   Starting:    Helpdesk.Tests
+[xUnit.net 00:01:05.28]       Bunit.Extensions.WaitForHelpers.WaitForFailedException : The assertion did not pass within the timeout period.
+[xUnit.net 00:01:05.28]
+[xUnit.net 00:01:05.28]       If this test does not fail consistently, the reason may be that
+[xUnit.net 00:01:05.28]       the wait timeout is too short, and the runtime did not have enough
+[xUnit.net 00:01:05.28]       time to complete the necessary number of renders of the component under test.
+[xUnit.net 00:01:05.28]       This can happen on highly utilized or slower hardware, for example.
+[xUnit.net 00:01:05.28]
+[xUnit.net 00:01:05.28]       To determine if this is the cause, compare the check and render count(s) below
+[xUnit.net 00:01:05.28]       and see if they match what is expected. If they do not,
+[xUnit.net 00:01:05.28]       consider increasing the timeout, either at the individual
+[xUnit.net 00:01:05.28]       method call level, e.g. WaitForElement("div", TimeSpan.FromSeconds(15)),
+[xUnit.net 00:01:05.28]       or via the static TestContext.DefaultWaitTimeout property.
+[xUnit.net 00:01:05.28]
+[xUnit.net 00:01:05.28]       Check count: 1.
+[xUnit.net 00:01:05.28]       Component render count: 893.
+[xUnit.net 00:01:05.28]       Total render count across all components: 0.
+[xUnit.net 00:01:05.28]       ---- Assert.All() Failure: 3 out of 3 items in the collection did not pass.
+[xUnit.net 00:01:05.28]       [0]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+[xUnit.net 00:01:05.28]            Error: Assert.Contains() Failure: Sub-string not found
+[xUnit.net 00:01:05.28]                   String:    "\n                                        "···
+[xUnit.net 00:01:05.28]                   Not found: "Completed"
+[xUnit.net 00:01:05.28]       [1]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+[xUnit.net 00:01:05.28]            Error: Assert.Contains() Failure: Sub-string not found
+[xUnit.net 00:01:05.28]                   String:    "\n                                        "···
+[xUnit.net 00:01:05.28]                   Not found: "Completed"
+[xUnit.net 00:01:05.28]       [2]: Item:  HtmlSpanElement { AccessKey = "", AccessKeyLabel = "", AssignedSlot = null, BaseUri = "about:blank", BaseUrl = about:blank, ··· }
+[xUnit.net 00:01:05.28]            Error: Assert.Contains() Failure: Sub-string not found
+[xUnit.net 00:01:05.28]                   String:    "\n                                        "···
+[xUnit.net 00:01:05.28]                   Not found: "Completed"
+[xUnit.net 00:01:05.28]       Stack Trace:
+[xUnit.net 00:01:05.28]         /_/src/bunit/Extensions/WaitForHelpers/RenderedComponentWaitForHelperExtensions.WaitForState.cs(102,0): at Bunit.RenderedComponentWaitForHelperExtensions.WaitForAssertion[TComponent](IRenderedComponent`1 renderedComponent, Action assertion, Nullable`1 timeout)
+[xUnit.net 00:01:05.28]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(206,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft()
+[xUnit.net 00:01:05.28]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(213,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft()
+[xUnit.net 00:01:05.28]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(213,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft()
+[xUnit.net 00:01:05.28]         --- End of stack trace from previous location ---
+[xUnit.net 00:01:05.28]         ----- Inner Stack Trace -----
+[xUnit.net 00:01:05.29]         /workspace/work/worktrees/live/tests/Helpdesk.Tests/Api/RequestLiveProgressTests.cs(208,0): at Helpdesk.Tests.Api.RequestLiveProgressTests.&lt;&gt;c__DisplayClass7_0.&lt;Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft&gt;b__9()
+[xUnit.net 00:01:05.29]         /_/src/bunit/Extensions/WaitForHelpers/WaitForAssertionHelper.cs(35,0): at Bunit.Extensions.WaitForHelpers.WaitForAssertionHelper`1.&lt;&gt;c__DisplayClass6_0.&lt;.ctor&gt;b__0()
+[xUnit.net 00:01:05.29]         /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs(297,0): at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.&lt;&gt;c__DisplayClass32_0.&lt;WrapSynchronousChecker&gt;b__0()
+[xUnit.net 00:01:05.29]         /_/src/bunit/Extensions/WaitForHelpers/WaitForHelper.cs(226,0): at Bunit.Extensions.WaitForHelpers.WaitForHelper`2.RunCheckAsync()
+[xUnit.net 00:01:05.33]   Finished:    Helpdesk.Tests
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="b8131b995d80" outcome="Error" timestamp="2026-11-11T17:03:36.5357607+00:00">
+        <Text>[xUnit.net 00:01:05.28]     Helpdesk.Tests.Api.RequestLiveProgressTests.Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>
