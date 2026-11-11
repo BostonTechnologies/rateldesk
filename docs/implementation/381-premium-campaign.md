@@ -315,16 +315,21 @@ source-bound comparison bundles alongside its newly executed browser artifacts.
 
 ## Final review corrections and hosted verification snapshot
 
-At 18:27 UTC on 11 November, the functional head is
+At 19:36 UTC on 11 November, the functional head is
 `86473186c02da77b2ed81380546096e81cf59fdc` and the administration head is
-`ae29b918aae153b07d4a15bec94d9dd7000399bc`. Independent source reviews and root's
+`60bc754a`. Independent source reviews and root's
 follow-up checks are recorded on PRs #395/#396 and companion NetRatel PR #730.
 The functional normal run is
 [43077718615](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43077718615);
-the administration normal run is
+all six required jobs passed. Its .NET receipt contains **4,014 passed, zero
+failed and eight existing optional skips**; provider acceptance passed **485/485**
+without skips. The earlier administration normal run is
 [43077803948](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43077803948).
-Both are pending in this source-preparation snapshot. Final merge/main/deep and
-public distribution receipts belong to the subsequent campaign delivery comments.
+Its five non-.NET jobs passed, including **485/485** provider cases. The .NET
+receipt contained **4,113 passed, five failed and eight existing optional skips**,
+then exceeded the 45-minute job budget after uploading results. It is retained as
+a failed/canceled run. Final-head reruns, merge/main/deep and public distribution
+receipts belong to the subsequent campaign delivery comments.
 
 The first complete functional run executed 4,015 cases: 3,999 passed, eight failed
 and eight pre-existing optional cases were skipped. It is retained as a failed
@@ -398,3 +403,47 @@ form. Its fixture had left that form InTesting, correctly denying an ordinary
 non-test user. The helper now publishes Production forms, checks real submission
 eligibility and pins FailRequest with no retries for controlled failure/uncertainty
 proof. This partial run does not complete rendered self-service business acceptance.
+
+## Final administration fixture and native-driver corrections
+
+The five administration failures were test setup/expectation defects. Two disabled
+legacy-provider-link cases expected the submission-context GET to reach a later
+200 response after the strengthened access policy correctly returned 403. Their
+GET and POST expectations now both require the early denial, retained disabled
+link and zero request/task writes; the whole owning class passed **7/7**. Three
+managed-contact status cases used the real Identity UserManager while their test
+host replaced only the domain database and skipped startup migrations. The
+captured exception was an attempted connection to an unavailable test PostgreSQL
+Identity database. The fixture now supplies an isolated in-memory Identity store
+while retaining the real UserManager/EF services. The whole class passed **13/13**,
+including fresh-scope checks of the managed identity key, owner retirement state,
+zero application accounts/logins and zero invitation side effects. Product code
+and the existing provider acceptance selections are unchanged.
+
+The complete .NET test step took 42m18s before evidence upload in that hosted
+administration run. Its job budget is now 60 minutes so setup, build, every test
+and upload can finish; no test, assertion or required job was removed. This
+budget and the fixture corrections are integrated into the final administration
+and UX heads.
+
+At UX source `258366d7`, the separate hosted deep run
+[43081489092](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43081489092)
+passed all 22 optional acceptance jobs and five normal jobs, with the full .NET
+job still pending at this snapshot. These include the complete workspace/native
+zoom matrix, default UX, three container builds, seven-archive rehearsal and
+Linux x64/arm64 and Windows x64 archive execution. The final updated head is
+dispatched through the same existing lane again. The complete runtime `src` tree
+remains `0e75a6d32dc60877d53e54e6b4fdb6ec648f4be7`.
+
+Native source-pair run
+[43084679626](https://github.com/BostonTechnologies/netratel/actions/runs/43084679626)
+at NetRatel `7321c02e` and RatelDesk `258366d7` again passed both pairings,
+incident replay and the earlier three native execution modes. Its first new
+rendered self submission failed required-field validation before any form request,
+task or requester link was written. Bounded flags and a masked screenshot showed
+the entered value had been reset. The helper filled the prerendered page without
+waiting for the existing interactive marker, unlike the owning form tests.
+NetRatel `b1736369` adds that readiness wait on each full main-page navigation,
+checks the retained value after blur, and uses the actual MudAlert selector for
+bounded failure diagnostics. This is a browser-driver correction; complete real
+rendered success/failure/on-behalf/deadline recovery acceptance remains required.
