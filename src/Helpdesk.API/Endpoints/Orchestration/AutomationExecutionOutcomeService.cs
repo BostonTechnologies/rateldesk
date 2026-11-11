@@ -204,15 +204,30 @@ public sealed class AutomationExecutionOutcomeService(
         {
             var task = await db.RequestTasks.SingleAsync(task => task.Id == taskId, ct);
             await db.Entry(task).ReloadAsync(ct);
+            var parent = db.Requests.Local.SingleOrDefault(request => request.Id == task.RequestId);
+            if (parent is not null && db.Entry(parent).State == Microsoft.EntityFrameworkCore.EntityState.Unchanged)
+                await db.Entry(parent).ReloadAsync(ct);
             await workflow.RunAsync(task.RequestId, WorkflowRunReason.AutomationCallback, ct);
             await requestTaskState.EvaluateParentRequestState(task.RequestId, ct);
-            await db.RequestTasks.Where(task => task.Id == taskId && task.AutomationAttemptCorrelationId == attempt
-                && task.AutomationReconciliationLeaseId == lease)
+            var evaluatedVersion = task.AutomationStateVersion;
+            var cleared = await db.RequestTasks.Where(task => task.Id == taskId && task.AutomationAttemptCorrelationId == attempt
+                && task.AutomationReconciliationLeaseId == lease && task.AutomationStateVersion == evaluatedVersion)
                 .ExecuteUpdateAsync(updates => updates
                     .SetProperty(task => task.AutomationContinuationPending, false)
                     .SetProperty(task => task.AutomationReconciliationLeaseId, (string?)null)
                     .SetProperty(task => task.AutomationReconciliationLeaseUntilUtcTicks, (long?)null)
                     .SetProperty(task => task.AutomationStateVersion, task => task.AutomationStateVersion + 1), ct);
+            if (cleared == 0)
+            {
+                // A release committed another wake-up after this evaluation.
+                // Free only our lease and leave that durable marker for the next sweep.
+                await db.RequestTasks.Where(task => task.Id == taskId && task.AutomationAttemptCorrelationId == attempt
+                    && task.AutomationReconciliationLeaseId == lease)
+                    .ExecuteUpdateAsync(updates => updates
+                        .SetProperty(task => task.AutomationReconciliationLeaseId, (string?)null)
+                        .SetProperty(task => task.AutomationReconciliationLeaseUntilUtcTicks, (long?)null)
+                        .SetProperty(task => task.AutomationStateVersion, task => task.AutomationStateVersion + 1), ct);
+            }
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.Shared.DTOs.RequestForm;
 using System.Text.Json;
@@ -413,6 +415,82 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             "bulk" => h.AdminAsync(HttpMethod.Post, "/api/v1/requests/bulk/state", new { ids = new[] { requestId }, newState = state }),
             _ => h.AdminAsync(HttpMethod.Post, $"/api/v1/requests/{requestId}/state", new { newState = state })
         };
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task An_operator_release_committed_after_a_held_continuation_evaluation_cannot_be_cleared_by_that_old_worker(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe(); var barrier = new HeldContinuationClear();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureDeadlines(services, clock, probe, connectivity);
+                services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(barrier));
+                services.AddAuthorization(options =>
+                {
+                    options.AddPolicy("RequestAccess", policy => policy.RequireAuthenticatedUser());
+                    options.AddPolicy("RequestManager", policy => policy.RequireAuthenticatedUser());
+                });
+            }, configureApp: app => app.MapRequestEndpoints());
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        var first = Guid.NewGuid(); var second = Guid.NewGuid();
+        await h.EditAsync(async db =>
+        {
+            var schema = new RequestFormSchemaModel { Tasks =
+                [new() { Id = first, Type = "automation" }, new() { Id = second, Type = "manual", Order = 1, DependsOn = [first] }] };
+            var form = new RequestForm { Title = "Release race", OrganizationId = h.OrganizationId,
+                JsonSchema = JsonSerializer.SerializeToDocument(schema, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+            db.RequestForms.Add(form);
+            var parent = await db.Requests.SingleAsync(); parent.RequestFormId = form.Id;
+            parent.OperatorHold = true; parent.State = TicketState.OnHold;
+            parent.WorkflowStatus = RequestHoldPolicy.OperatorStatus; parent.WorkflowBlockReason = RequestHoldPolicy.OperatorReason;
+            var completed = await db.RequestTasks.SingleAsync(); completed.Status = RequestTaskStatus.Completed;
+            completed.LastAutomationStatus = "succeeded"; completed.AutomationContinuationPending = true; completed.TemplateId = first.ToString();
+            db.RequestTasks.Add(new RequestTask { Id = "release-dependent", Title = "Dependent", RequestId = task.RequestId,
+                OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, TemplateId = second.ToString(),
+                Type = RequestTaskType.Manual, Status = RequestTaskStatus.Pending, IsBlocked = true, Order = 1 });
+        });
+        var firstSweep = SweepAsync(h);
+        await barrier.Entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        try
+        {
+            using var release = await SetOperatorStateAsync(h, task.RequestId, "quick", TicketState.InProgress);
+            Assert.Equal(HttpStatusCode.OK, release.StatusCode);
+        }
+        finally { barrier.Release.TrySetResult(); }
+        Assert.Equal(1, await firstSweep);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync(row => row.Id == task.Id);
+            Assert.True(saved.AutomationContinuationPending);
+            Assert.Null(saved.AutomationReconciliationLeaseId);
+            Assert.True((await db.RequestTasks.SingleAsync(row => row.Id == "release-dependent")).IsBlocked);
+        });
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            Assert.False((await db.RequestTasks.SingleAsync(row => row.Id == task.Id)).AutomationContinuationPending);
+            Assert.False((await db.RequestTasks.SingleAsync(row => row.Id == "release-dependent")).IsBlocked);
+            Assert.False((await db.Requests.SingleAsync()).OperatorHold);
+        });
+        Assert.Equal(0, probe.Submissions); Assert.Equal(0, probe.Reads);
+    }
+
+    private sealed class HeldContinuationClear : DbCommandInterceptor
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("\"AutomationContinuationPending\" =", StringComparison.Ordinal)
+                && command.CommandText.Contains("\"AutomationReconciliationLeaseId\" = NULL", StringComparison.Ordinal)
+                && Entered.TrySetResult())
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            return result;
+        }
+    }
 
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Durable_continuation_recomputes_an_approval_only_workflow_without_applying_an_execution_deadline(bool postgres)
