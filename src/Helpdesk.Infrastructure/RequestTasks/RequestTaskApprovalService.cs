@@ -338,7 +338,11 @@ public sealed partial class RequestTaskApprovalService(
 
         foreach (var task in tasksMissingRows)
         {
-            await StartApprovalAsync(task, ct);
+            try { await StartApprovalAsync(task, ct); }
+            catch (RequestProgressionHeldException)
+            {
+                logger.LogInformation("Approval recovery deferred while request {RequestId} is on hold.", task.RequestId);
+            }
         }
     }
 

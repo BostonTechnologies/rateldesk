@@ -493,7 +493,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         clock.Advance(TimeSpan.FromMinutes(3));
         Assert.Equal(1, await SweepAsync(h));
         readyRelease.SetResult(new AutomationBindingDto { Enabled = true, SystemConnectionId = client.MappingId });
-        await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+        await Assert.ThrowsAsync<RequestProgressionHeldException>(() => start);
         // A caller that catches the rejected start cannot persist its stale tracked intent later.
         await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().SaveChangesAsync();
         await h.EditAsync(async db =>

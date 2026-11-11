@@ -55,7 +55,7 @@ public sealed class RequestTaskApprovalStartupProviderTests
             await competing.SaveChangesAsync();
         }
         finally { barrier.Release.TrySetResult(); }
-        await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+        await Assert.ThrowsAsync<RequestProgressionHeldException>(() => start);
         await starting.SaveChangesAsync();
         await using var readback = database.Open();
         Assert.Equal(RequestTaskStatus.Pending, (await readback.RequestTasks.SingleAsync(row => row.Id == "approval")).Status);

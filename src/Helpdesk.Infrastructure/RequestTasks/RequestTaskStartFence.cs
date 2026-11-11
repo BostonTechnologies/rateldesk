@@ -27,12 +27,12 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
                 && parent.WorkflowBlockReason == $"Waiting for approval for task '{task.Name}'.";
             if (RequestHoldPolicy.IsOperatorHeld(parent)
                 || RequestHoldPolicy.BlocksStart(parent) && !ownsExistingApprovalHold)
-                throw new InvalidOperationException("This request is on hold. Resolve its outstanding holds before starting more work.");
+                throw new RequestProgressionHeldException("This request is on hold. Resolve its outstanding holds before starting more work.");
             if (await db.RequestTasks.AsNoTracking().AnyAsync(sibling => sibling.RequestId == task.RequestId
                 && sibling.Type == RequestTaskType.Automation && sibling.LastAutomationStatus != null
                 && (sibling.LastAutomationStatus.ToLower() == "executionunknownmanualreconcile"
                     || sibling.LastAutomationStatus.ToLower() == "submituncertainmanualreconcile"), ct))
-                throw new InvalidOperationException("Reconcile the unresolved automation attempt before starting more work on this request.");
+                throw new RequestProgressionHeldException("Reconcile the unresolved automation attempt before starting more work on this request.");
             var current = await db.RequestTasks.AsNoTracking().Where(row => row.Id == task.Id)
                 .Select(row => new { row.Status, row.IsBlocked, row.AutomationStateVersion }).SingleAsync(ct);
             if ((current.Status != RequestTaskStatus.Pending && !(approval && current.Status == RequestTaskStatus.PendingApproval))

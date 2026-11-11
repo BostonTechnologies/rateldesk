@@ -7,6 +7,8 @@ public interface IRequestTaskStartFence
     Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct);
 }
 
+public sealed class RequestProgressionHeldException(string message) : InvalidOperationException(message);
+
 public sealed record RequestTaskStartIntent(DateTimeOffset StartedAt, string CorrelationId)
 {
     public void Apply(RequestTask task)
