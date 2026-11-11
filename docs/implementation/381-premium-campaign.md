@@ -106,4 +106,3 @@ captures are listed in the receipt.
 These results establish local synthetic Web behavior. Both-provider owning API
 tests, integrated-source validation, the six normal CI jobs, reviewed merge and
 release/distribution remain separate gates; none is inferred from screenshots.
-
