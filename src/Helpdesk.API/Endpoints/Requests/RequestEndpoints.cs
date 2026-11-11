@@ -603,6 +603,9 @@ public static class RequestEndpoints
             }
 
             if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid ticket state.");
+            if (request.State == req.NewState && (req.NewState == TicketState.OnHold
+                    ? request.OperatorHold == true : !RequestHoldPolicy.IsOperatorHeld(request)))
+                return Results.Ok(new { request.Id, State = request.State });
             var previousState = request.State;
             await using var transaction = db.Database.IsRelational()
                 ? await db.Database.BeginTransactionAsync(token) : null;
