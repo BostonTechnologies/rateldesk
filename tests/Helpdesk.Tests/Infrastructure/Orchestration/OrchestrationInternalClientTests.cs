@@ -29,9 +29,10 @@ public sealed class OrchestrationInternalClientTests
             reads++;
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal("/internal/executions/remote-request-1/remote-run-1", request.RequestUri!.AbsolutePath);
-            Assert.Contains("requestId=parent-1", request.RequestUri.Query);
-            Assert.Contains("requestTaskId=task-1", request.RequestUri.Query);
-            Assert.Contains("correlationId=attempt-1", request.RequestUri.Query);
+            Assert.Empty(request.RequestUri.Query);
+            Assert.Equal("parent-1", request.Headers.GetValues("X-RatelDesk-Request-Id").Single());
+            Assert.Equal("task-1", request.Headers.GetValues("X-RatelDesk-Task-Id").Single());
+            Assert.Equal("attempt-1", request.Headers.GetValues("X-Correlation-Id").Single());
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(new

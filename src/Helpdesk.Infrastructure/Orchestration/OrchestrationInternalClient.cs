@@ -180,9 +180,10 @@ public sealed class OrchestrationInternalClient(
         if (settings.Pairing is null || new[] { execution.RequestId, execution.RequestTaskId,
             execution.CorrelationId, execution.OrchestrationRequestId, execution.OrchestrationRunId }.Any(string.IsNullOrWhiteSpace))
             return null;
-        var path = $"/internal/executions/{Uri.EscapeDataString(execution.OrchestrationRequestId)}/{Uri.EscapeDataString(execution.OrchestrationRunId)}"
-            + $"?requestId={Uri.EscapeDataString(execution.RequestId)}&requestTaskId={Uri.EscapeDataString(execution.RequestTaskId)}&correlationId={Uri.EscapeDataString(execution.CorrelationId)}";
+        var path = $"/internal/executions/{Uri.EscapeDataString(execution.OrchestrationRequestId)}/{Uri.EscapeDataString(execution.OrchestrationRunId)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, await BuildAbsoluteUriAsync(settings, path, cancellationToken));
+        request.Headers.Add("X-RatelDesk-Request-Id", execution.RequestId);
+        request.Headers.Add("X-RatelDesk-Task-Id", execution.RequestTaskId);
         request.Headers.Add("X-Correlation-Id", execution.CorrelationId);
         await AttachAuthHeaderAsync(settings, request, cancellationToken);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
