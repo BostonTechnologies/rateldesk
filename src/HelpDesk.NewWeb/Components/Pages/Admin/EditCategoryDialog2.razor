@@ -1,51 +1,91 @@
-@using Helpdesk.Shared.DTOs.Category
-@using Helpdesk.Shared.Enums
+@using System.Text.Json
 @inject IHttpClientFactory HttpClientFactory
 
 <MudDialog>
     <DialogContent>
+        @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
         <MudForm @ref="form">
-            <MudTextField T="string" Label="Name" @bind-Value="model.Name" Required="true" />
+            <MudTextField T="string" Label="Name" @bind-Value="model.Name" Required="true" MaxLength="120" />
             <MudTextField T="string" Label="Description" @bind-Value="model.Description" Lines="3" />
-            <MudSelect T="TicketCategoryType" Label="Type" @bind-Value="model.Type">
-                @foreach (TicketCategoryType type in Enum.GetValues(typeof(TicketCategoryType)))
-                {
-                    <MudSelectItem T="TicketCategoryType" Value="@type">@type</MudSelectItem>
-                }
+            <MudSelect T="TicketCategoryType?" Label="Type" @bind-Value="model.Type" Required="true" RequiredError="Choose a ticket type.">
+                @foreach (var type in Enum.GetValues<TicketCategoryType>())
+                { <MudSelectItem T="TicketCategoryType?" Value="@((TicketCategoryType?)type)">@type</MudSelectItem> }
             </MudSelect>
+            @if (Category is null)
+            {
+                <MudSelect T="string" Label="Scope" @bind-Value="scope">
+                    <MudSelectItem Value="@("global")">Global (read-only after creation)</MudSelectItem>
+                    <MudSelectItem Value="@("organization")">Organization</MudSelectItem>
+                </MudSelect>
+                @if (scope == "organization")
+                { <OrganizationDirectorySelector Value="model.OrganizationId" ValueChanged="@(value => model.OrganizationId = value)" /> }
+                else { <MudText Typo="Typo.body2" Color="Color.Secondary">Global categories become read-only. Choose an organization for an editable custom category.</MudText> }
+            }
             <MudNumericField T="int" Label="Sort order" @bind-Value="model.SortOrder" />
             <MudCheckBox T="bool" Label="Active" @bind-Value="model.IsActive" />
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Dialog.Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync">Save</MudButton>
+        <MudButton OnClick="Dialog.Cancel" Disabled="saving">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="saving">@(saving ? "Saving…" : "Save")</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public TicketCategoryDto? Category { get; set; }
-    [Parameter] public TicketCategoryType DefaultType { get; set; }
-
+    [Parameter] public TicketCategoryType? DefaultType { get; set; } = TicketCategoryType.Request;
+    [Parameter] public string? DefaultOrganizationId { get; set; }
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private MudForm form = default!;
     private EditModel model = new();
-
-    protected override void OnParametersSet() => model = Category is null
-        ? new EditModel { Type = DefaultType, IsActive = true }
-        : new EditModel { Name = Category.Name, Description = Category.Description, Type = Category.Type, SortOrder = Category.SortOrder, IsActive = Category.IsActive };
-
+    private string scope = "global";
+    private string? error;
+    private bool saving;
+    protected override void OnInitialized()
+    {
+        model = Category is null
+            ? new EditModel { Type = DefaultType, OrganizationId = DefaultOrganizationId, IsActive = true }
+            : new EditModel { Name = Category.Name, Description = Category.Description, Type = Category.Type, SortOrder = Category.SortOrder, IsActive = Category.IsActive };
+        scope = string.IsNullOrWhiteSpace(DefaultOrganizationId) ? "global" : "organization";
+    }
     private async Task SaveAsync()
     {
+        if (saving) return;
         await form.ValidateAsync();
-        if (!form.IsValid || string.IsNullOrWhiteSpace(model.Name)) return;
-        var response = Category is null
-            ? await Api.PostAsJsonAsync("api/v1/categories", new CreateTicketCategoryDto { Name = model.Name.Trim(), Description = model.Description, Type = model.Type, SortOrder = model.SortOrder, IsActive = model.IsActive })
-            : await Api.PutAsJsonAsync($"api/v1/categories/{Category.Id}", new UpdateTicketCategoryDto { Name = model.Name.Trim(), Description = model.Description, Type = model.Type, SortOrder = model.SortOrder, IsActive = model.IsActive });
-        Dialog.Close(response.IsSuccessStatusCode ? DialogResult.Ok(true) : DialogResult.Ok(new DialogError(await response.Content.ReadAsStringAsync())));
+        if (!form.IsValid || string.IsNullOrWhiteSpace(model.Name) || !model.Type.HasValue || !Enum.IsDefined(model.Type.Value)) return;
+        Guid? organization = Guid.TryParse(model.OrganizationId, out var parsed) ? parsed : null;
+        if (Category is null && scope == "organization" && organization is null) { error = "Choose a valid organization."; return; }
+        saving = true; error = null;
+        try
+        {
+            using var response = Category is null
+                ? await Api.PostAsJsonAsync("api/v1/categories", new CreateTicketCategoryDto { Name = model.Name.Trim(), Description = model.Description, Type = model.Type.Value, TenantId = scope == "organization" ? organization : null, SortOrder = model.SortOrder, IsActive = model.IsActive })
+                : await Api.PutAsJsonAsync($"api/v1/categories/{Category.Id}", new UpdateTicketCategoryDto { Name = model.Name.Trim(), Description = model.Description, Type = model.Type.Value, SortOrder = model.SortOrder, IsActive = model.IsActive });
+            if (response.IsSuccessStatusCode) Dialog.Close(DialogResult.Ok(true));
+            else error = await ReadErrorAsync(response);
+        }
+        catch (HttpRequestException) { error = "The category service could not be reached. Your values are retained; retry when the connection returns."; }
+        finally { saving = false; }
     }
-
-    private sealed class EditModel { public string Name { get; set; } = string.Empty; public string? Description { get; set; } public TicketCategoryType Type { get; set; } public int SortOrder { get; set; } public bool IsActive { get; set; } }
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response)
+    {
+        var fallback = $"Category could not be saved (HTTP {(int)response.StatusCode}). Review the name, type and organization, then retry.";
+        try
+        {
+            var message = await response.Content.ReadFromJsonAsync<string>();
+            return string.IsNullOrWhiteSpace(message) || message.Length > 400 || message.Contains('<') ? fallback : message;
+        }
+        catch (JsonException) { return fallback; }
+    }
+    private sealed class EditModel
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public TicketCategoryType? Type { get; set; }
+        public string? OrganizationId { get; set; }
+        public int SortOrder { get; set; }
+        public bool IsActive { get; set; }
+    }
     public sealed class DialogError(string message) { public string Message { get; } = message; }
 }

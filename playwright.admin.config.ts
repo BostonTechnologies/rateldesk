@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 const cwd = process.env.HELPDESK_ADMIN_WEB_CWD ?? 'src/HelpDesk.NewWeb';
 const configuration = process.env.HELPDESK_ADMIN_CONFIGURATION ?? 'Debug';
 export default defineConfig({
- testDir: './tests/ux', testMatch: '**/admin-workspaces.fixture.ts', fullyParallel: false, workers: 1, retries: 0, timeout: 60_000,
+ testDir: './tests/ux', testMatch: ['**/admin-workspaces.fixture.ts', '**/admin-directories.spec.ts', '**/team-directory.spec.ts'], fullyParallel: false, workers: 1, retries: 0, timeout: 60_000,
  reporter: [['list'], ['json', { outputFile: 'test-results/admin-results.json' }]],
  use: { baseURL: 'https://127.0.0.1:5180', ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 }, trace: 'off', screenshot: 'only-on-failure' },
  webServer: [

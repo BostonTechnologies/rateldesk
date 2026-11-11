@@ -1,214 +1,119 @@
 @page "/admin/categories"
 @page "/admin/categories0"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
-
-@using Helpdesk.Shared.DTOs.Category
-@using Helpdesk.Shared.DTOs.Organization
-@using Helpdesk.Shared.Enums
-
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject NavigationManager NavigationManager
+@using HelpDesk.NewWeb.Models
 
 <PageTitle>Ticket Categories</PageTitle>
 
-<MudPaper Class="pa-4">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
-        <MudText Typo="Typo.h5">Ticket Categories</MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartCreateAsync">
-            New Category
-        </MudButton>
-    </MudStack>
-
-    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
-        <MudSelect T="TicketCategoryType" Label="Filter by type" Value="@selectedType" ValueChanged="OnTypeChanged" Dense="true">
-            @foreach (TicketCategoryType type in Enum.GetValues(typeof(TicketCategoryType)))
-            {
-                <MudSelectItem T="TicketCategoryType" Value="@type">@type</MudSelectItem>
-            }
+<AdminDirectoryWorkspace Title="Ticket Categories" Subtitle="Manage classification, organization scope and availability."
+                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="source.Error" OnRefresh="ReloadAsync">
+    <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartCreateAsync">New category</MudButton></PrimaryAction>
+    <ToolbarContent>
+        <MudTextField T="string" Value="query.Search" ValueChanged="SearchChangedAsync" Label="Search name or description"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" MaxLength="120" />
+        <MudSelect T="string" Value="@(query.Get("type") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("type", value))" Label="Ticket type" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All types</MudSelectItem>
+            @foreach (var type in Enum.GetValues<TicketCategoryType>()) { <MudSelectItem Value="@(((int)type).ToString())">@type</MudSelectItem> }
         </MudSelect>
-    </MudStack>
-
-    @if (loading)
-    {
-        <MudProgressLinear Indeterminate="true" />
-    }
-    else
-    {
-        <MudTable Items="@categories" Hover="true" Dense="true" T="TicketCategoryDto">
+        <MudSelect T="string" Value="@(query.Get("active") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("active", value))" Label="Availability" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All states</MudSelectItem><MudSelectItem Value="@("true")">Active</MudSelectItem><MudSelectItem Value="@("false")">Inactive</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="string" Value="@(query.Get("scope") ?? string.Empty)" ValueChanged="ScopeChangedAsync" Label="Scope" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All scopes</MudSelectItem><MudSelectItem Value="@("global")">Global</MudSelectItem><MudSelectItem Value="@("organization")">Organization</MudSelectItem>
+        </MudSelect>
+        @if (query.Get("scope") != "global") { <OrganizationDirectorySelector Value="@query.Get("organizationId")" ValueChanged="@(value => FilterChangedAsync("organizationId", value))" /> }
+        <MudSelect T="string" Value="@(query.Get("system") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("system", value))" Label="Category source" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">Built-in and custom</MudSelectItem><MudSelectItem Value="@("true")">Built-in (read-only)</MudSelectItem><MudSelectItem Value="@("false")">Custom</MudSelectItem>
+        </MudSelect>
+        <MudButton OnClick="ClearAsync" Disabled="@(!query.HasFilters)" StartIcon="@Icons.Material.Outlined.FilterAltOff">Clear filters</MudButton>
+    </ToolbarContent>
+    <ChildContent>
+        <MudTable T="TicketCategoryDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
+                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 28rem), 44rem)" Breakpoint="Breakpoint.None">
             <HeaderContent>
-                <MudTh>Name</MudTh>
-                <MudTh>Description</MudTh>
-                <MudTh>Type</MudTh>
-                <MudTh>Sort</MudTh>
-                <MudTh>Scope</MudTh>
-                <MudTh>Active</MudTh>
-                <MudTh></MudTh>
+                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="name" InitialDirection="@query.Direction("name")">Category</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="type" InitialDirection="@query.Direction("type")">Type</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="order" InitialDirection="@query.Direction("order")">Order</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="scope" InitialDirection="@query.Direction("scope")">Scope</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="TicketCategoryDto" SortLabel="active" InitialDirection="@query.Direction("active")">Availability</MudTableSortLabel></MudTh>
+                <MudTh Class="directory-action-column">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Name">@context.Name</MudTd>
-                <MudTd DataLabel="Description">@context.Description</MudTd>
-                <MudTd DataLabel="Type">@context.Type</MudTd>
-                <MudTd DataLabel="Sort">@context.SortOrder</MudTd>
-                <MudTd DataLabel="Scope">@ResolveScope(context)</MudTd>
-                <MudTd DataLabel="Active">@(context.IsActive ? "Yes" : "No")</MudTd>
-                <MudTd>
-                    <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                   Color="Color.Primary"
-                                   Disabled="@context.IsSystem"
-                                   OnClick="@(() => StartEditAsync(context))" />
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                   Color="Color.Error"
-                                   Disabled="@context.IsSystem"
-                                   OnClick="@(() => DeleteAsync(context))" />
-                </MudTd>
+                <MudTd DataLabel="Category"><span class="directory-primary">@context.Name</span><span class="directory-secondary directory-description">@context.Description</span></MudTd>
+                <MudTd DataLabel="Type">@context.Type</MudTd><MudTd DataLabel="Order">@context.SortOrder</MudTd>
+                <MudTd DataLabel="Scope">@(context.TenantId is null ? "Global" : context.TenantName ?? "Organization unavailable")<span class="directory-secondary">@(context.IsSystem ? "Built-in · read-only" : "Custom")</span></MudTd>
+                <MudTd DataLabel="Availability">@(context.IsActive ? "Active" : "Inactive")</MudTd>
+                <MudTd DataLabel="Actions"><div class="directory-actions">
+                    <WorkspaceAction Label="Edit category" Icon="@Icons.Material.Outlined.Edit" Disabled="context.IsSystem" DisabledReason="Built-in categories are read-only" OnClick="() => StartEditAsync(context)" />
+                    <WorkspaceAction Label="Delete category" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Disabled="context.IsSystem" DisabledReason="Built-in categories are read-only" OnClick="() => DeleteAsync(context)" />
+                </div></MudTd>
             </RowTemplate>
+            <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No categories match these filters." : "No categories yet. Create a category to begin.")</MudText></NoRecordsContent>
+            <LoadingContent><MudText>Loading categories…</MudText></LoadingContent>
+            <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" ShowFirstLast="true" /></PagerContent>
         </MudTable>
-    }
-</MudPaper>
+    </ChildContent>
+</AdminDirectoryWorkspace>
 
 @code {
+    [SupplyParameterFromQuery(Name = "search")] public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "type")] public string? QueryType { get; set; }
+    [SupplyParameterFromQuery(Name = "active")] public string? QueryActive { get; set; }
+    [SupplyParameterFromQuery(Name = "scope")] public string? QueryScope { get; set; }
+    [SupplyParameterFromQuery(Name = "organizationId")] public string? QueryOrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "system")] public string? QuerySystem { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? QueryPage { get; set; }
+    [SupplyParameterFromQuery(Name = "pageSize")] public string? QueryPageSize { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "descending")] public string? QueryDescending { get; set; }
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-
-    private List<TicketCategoryDto> categories = new();
-    private Dictionary<Guid, string> tenantLookup = new();
-    private TicketCategoryType selectedType = TicketCategoryType.Request;
-    private bool loading = true;
-
-    protected override async Task OnInitializedAsync()
+    private readonly AdminDirectoryQueryState query = new("type", "active", "scope", "organizationId", "system");
+    private readonly AdminDirectoryDataSource<TicketCategoryDto> source = new();
+    private MudTable<TicketCategoryDto>? table;
+    protected override void OnParametersSet() { if (query.Read(NavigationManager.Uri) && table is not null) _ = table.ReloadServerData(); }
+    private async Task<TableData<TicketCategoryDto>> LoadAsync(TableState state, CancellationToken ct)
     {
-        await LoadTenantLookupAsync();
-        await LoadCategoriesAsync();
+        var loading = source.LoadAsync(HelpdeskApi, query.ApiUrl("api/v1/admin/directories/categories", state), ct);
+        await InvokeAsync(StateHasChanged);
+        var data = await loading;
+        if (source.Error is null) query.Page = source.Page;
+        query.Remember(NavigationManager); await InvokeAsync(StateHasChanged); return data;
     }
-
-    private async Task LoadTenantLookupAsync()
-    {
-        try
-        {
-            var tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-            tenantLookup = tenants
-                .Select(x => new { Tenant = x, Parsed = Guid.TryParse(x.Id, out var id) ? id : Guid.Empty })
-                .Where(x => x.Parsed != Guid.Empty)
-                .ToDictionary(x => x.Parsed, x => x.Tenant.Name);
-        }
-        catch
-        {
-            tenantLookup = new Dictionary<Guid, string>();
-        }
-    }
-
-    private async Task OnTypeChanged(TicketCategoryType type)
-    {
-        selectedType = type;
-        await LoadCategoriesAsync();
-    }
-
-    private async Task LoadCategoriesAsync()
-    {
-        loading = true;
-        try
-        {
-            categories = await HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>(
-                $"api/v1/categories?type={(int)selectedType}&allScopes=true&includeInactive=true") ?? new();
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Could not load categories: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            loading = false;
-        }
-    }
-
+    private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
+    private async Task ResetPageAsync() { query.Page = 0; query.Remember(NavigationManager); if (table is not null) { table.NavigateTo(0); await table.ReloadServerData(); } }
+    private Task SearchChangedAsync(string? value) { query.Search = value; return ResetPageAsync(); }
+    private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
+    private Task ScopeChangedAsync(string? value) { if (value == "global") query.Set("organizationId", null); return FilterChangedAsync("scope", value); }
+    private Task ClearAsync() { query.Clear(); return ResetPageAsync(); }
     private async Task StartCreateAsync()
     {
-        var parameters = new DialogParameters
-        {
-            [nameof(EditCategoryDialog2.DefaultType)] = selectedType
-        };
-
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<EditCategoryDialog2>("Create Category", parameters, options);
-        var result = await dialog.Result;
-
-        if (!result.Canceled)
-        {
-            if (result.Data is EditCategoryDialog2.DialogError err)
-            {
-                Snackbar.Add($"Save failed: {err.Message}", Severity.Error);
-            }
-            else
-            {
-                Snackbar.Add("Category saved.", Severity.Success);
-                await LoadTenantLookupAsync();
-                await LoadCategoriesAsync();
-            }
-        }
+        TicketCategoryType? type = Enum.TryParse<TicketCategoryType>(query.Get("type"), out var parsed) && Enum.IsDefined(parsed) ? parsed : null;
+        var parameters = new DialogParameters { [nameof(EditCategoryDialog2.DefaultType)] = type, [nameof(EditCategoryDialog2.DefaultOrganizationId)] = query.Get("organizationId") };
+        var dialog = await DialogService.ShowAsync<EditCategoryDialog2>("Create Category", parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
     private async Task StartEditAsync(TicketCategoryDto category)
     {
-        var parameters = new DialogParameters
-        {
-            [nameof(EditCategoryDialog2.Category)] = category
-        };
-
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<EditCategoryDialog2>("Edit Category", parameters, options);
-        var result = await dialog.Result;
-
-        if (!result.Canceled)
-        {
-            if (result.Data is EditCategoryDialog2.DialogError err)
-            {
-                Snackbar.Add($"Save failed: {err.Message}", Severity.Error);
-            }
-            else
-            {
-                Snackbar.Add("Category saved.", Severity.Success);
-                await LoadTenantLookupAsync();
-                await LoadCategoriesAsync();
-            }
-        }
+        var dialog = await DialogService.ShowAsync<EditCategoryDialog2>("Edit Category", new DialogParameters { [nameof(EditCategoryDialog2.Category)] = category }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
     private async Task DeleteAsync(TicketCategoryDto category)
     {
-        if (category.IsSystem)
-        {
-            Snackbar.Add("System categories are read-only.", Severity.Warning);
-            return;
-        }
-
+        if (category.IsSystem) return;
+        var confirmed = await DialogService.ShowMessageBoxAsync("Delete category", $"Delete '{category.Name}'? Categories used by tickets or child categories must be made inactive instead.", yesText: "Delete category", cancelText: "Cancel");
+        if (confirmed != true) return;
         try
         {
-            var response = await HelpdeskApi.DeleteAsync($"api/v1/categories/{category.Id}");
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                Snackbar.Add($"Delete failed: {error}", Severity.Error);
-                return;
-            }
-
-            Snackbar.Add("Category deleted.", Severity.Success);
-            await LoadCategoriesAsync();
+            using var response = await HelpdeskApi.DeleteAsync($"api/v1/categories/{category.Id}");
+            if (!response.IsSuccessStatusCode) { Snackbar.Add(response.StatusCode == System.Net.HttpStatusCode.Conflict ? "This category is in use. Make it inactive to preserve existing assignments." : $"Category could not be deleted (HTTP {(int)response.StatusCode}). Refresh and retry.", Severity.Error); return; }
+            Snackbar.Add("Category deleted.", Severity.Success); await ReloadAsync();
         }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Delete failed: {ex.Message}", Severity.Error);
-        }
+        catch (HttpRequestException) { Snackbar.Add("Category service could not be reached. Refresh before retrying.", Severity.Error); }
     }
-
-    private string ResolveScope(TicketCategoryDto category)
-    {
-        if (category.TenantId is null)
-        {
-            return "Global";
-        }
-
-        return tenantLookup.TryGetValue(category.TenantId.Value, out var tenantName)
-            ? tenantName
-            : category.TenantId.Value.ToString();
-    }
+    public void Dispose() => source.Dispose();
 }
