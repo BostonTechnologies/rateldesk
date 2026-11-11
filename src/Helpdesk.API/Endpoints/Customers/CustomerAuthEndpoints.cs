@@ -175,6 +175,8 @@ public static class CustomerAuthEndpoints
         Func<Task<T>> action,
         CancellationToken ct)
     {
+        if (await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == customerId && customer.IdentityUserId != null, ct))
+            return Results.Conflict(new { message = "This contact belongs to an application-managed identity. Manage its sign-in in Team; external invitations cannot replace that identity." });
         var links = await db.CustomerAuthLinks.AsNoTracking()
             .Where(link => link.CustomerId == customerId)
             .Select(link => new { link.AuthProviderType, link.LocalAccountId })
@@ -213,6 +215,25 @@ public static class CustomerAuthEndpoints
             .OrderBy(x => x.AuthProviderType)
             .ThenBy(x => x.Id)
             .ToListAsync(ct);
+
+        if (customer.IdentityUserId is { } managedId)
+        {
+            var activeOwner = await db.Users.AsNoTracking().AnyAsync(owner => owner.Id == managedId && !owner.IsDeleted, ct);
+            var account = await users.FindByIdAsync(managedId);
+            if (!activeOwner || account is { IsDeleted: true } or { IsEnabled: false } || links.Count == 0)
+            {
+                var disabled = !activeOwner || account is { IsDeleted: true } or { IsEnabled: false };
+                return new CustomerAuthStatusDto
+                {
+                    CustomerId = customer.Id,
+                    InviteStatus = disabled ? CustomerInviteStatus.Disabled : CustomerInviteStatus.Failed,
+                    StatusText = disabled ? "Application access unavailable" : "Application sign-in link unavailable",
+                    IsLinkedLogin = links.Count > 0,
+                    AuthProviderType = "Application",
+                    IdentitySummary = "Manage this identity in Team. External invitations cannot replace its application access."
+                };
+            }
+        }
 
         if (links.Count == 0)
         {
