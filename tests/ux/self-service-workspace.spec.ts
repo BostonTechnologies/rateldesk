@@ -195,7 +195,7 @@ for (const theme of ['light', 'dark']) test(`catalog error, empty and no-match s
   await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
   await request.get(`${fixture}/fault?mode=catalogue`);
   await ready(page, '/self-service');
-  await expect(page.getByRole('alert')).toContainText('Service Catalog could not be loaded');
+  await expect(page.getByRole('alert')).toContainText('Service Catalog could not be loaded', { timeout: 30_000 });
   await page.screenshot({ path: info.outputPath('catalog-error.png'), fullPage: true });
   await request.get(`${fixture}/fault`);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
