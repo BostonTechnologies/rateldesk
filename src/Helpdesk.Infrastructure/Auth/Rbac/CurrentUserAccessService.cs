@@ -43,6 +43,11 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var subject = FirstClaim(user, "sub");
         var authentikUserId = FirstClaim(user, "authentik_user_id", "ak_user_id");
         var link = await FindCustomerAuthLinkAsync(claimedLocalAccountId, issuer, subject, authentikUserId, ct);
+        // A domain tombstone remains authoritative when a legacy linked
+        // application account is missing or was disabled independently.
+        if (link is not null && !string.IsNullOrWhiteSpace(link.DomainUserId) &&
+            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == link.DomainUserId && domainUser.IsDeleted, ct))
+            return Empty(false);
         // A linked OIDC subject is not an application user ID. Resolve its
         // persisted application account before evaluating account state or
         // scoped role assignments.
@@ -64,9 +69,6 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             ? await OidcApplicationAccount.FindAsync(_identityDb, issuer, subject, ct) : null;
         if (externalAccount?.IsDeleted == true) return Empty(false);
         if (externalAccount is { IsEnabled: false }) return Empty(true);
-        if (link is not null && !string.IsNullOrWhiteSpace(link.DomainUserId) &&
-            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == link.DomainUserId && domainUser.IsDeleted, ct))
-            return Empty(false);
         if (link is { DisabledAtUtc: not null } || link?.InviteStatus == CustomerInviteStatus.Disabled) return Empty(true);
 
         // Local role claims are an authorization projection, never a source of

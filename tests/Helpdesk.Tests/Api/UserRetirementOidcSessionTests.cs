@@ -28,9 +28,11 @@ namespace Helpdesk.Tests.Api;
 public sealed class UserRetirementOidcSessionTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Retired_oidc_subject_cannot_use_generic_or_fixed_scheme_routes_and_public_routes_remain_anonymous(bool postgres)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Retired_oidc_subject_cannot_use_generic_or_fixed_scheme_routes_and_public_routes_remain_anonymous(bool postgres, bool missingAccount)
     {
         await using var fixture = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
         await using (var db = fixture.Open())
@@ -39,13 +41,15 @@ public sealed class UserRetirementOidcSessionTests
             db.Organizations.Add(new Organization { Id = "organization", Name = "Synthetic organization" });
             db.Customers.Add(new Customer { Id = "contact", OrganizationId = "organization", Name = "Synthetic contact", Email = "contact@example.invalid" });
             db.Users.Add(new User { Id = "retired-profile", Name = "Synthetic OIDC person", OrganizationId = "organization" });
-            db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "contact", DomainUserId = "retired-profile", OidcIssuer = "https://identity.example.invalid/realm", OidcSubject = "verified-subject", InviteStatus = CustomerInviteStatus.Active });
+            db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "contact", DomainUserId = "retired-profile", LocalAccountId = missingAccount ? "missing-account" : null,
+                OidcIssuer = "https://identity.example.invalid/realm", OidcSubject = "verified-subject", InviteStatus = CustomerInviteStatus.Active });
             await db.SaveChangesAsync();
         }
         await using (var identity = fixture.Identity())
         {
             await identity.Database.MigrateAsync();
-            await OidcApplicationAccount.ProvisionAdministratorAsync(identity, "https://identity.example.invalid/realm", "verified-subject", "Synthetic OIDC person");
+            if (!missingAccount)
+                await OidcApplicationAccount.ProvisionAdministratorAsync(identity, "https://identity.example.invalid/realm", "verified-subject", "Synthetic OIDC person");
             identity.Users.Add(new ApplicationUser { Id = "remaining-admin", UserName = "remaining-admin", IsInstanceAdministrator = true });
             await identity.SaveChangesAsync();
         }
@@ -72,10 +76,15 @@ public sealed class UserRetirementOidcSessionTests
         Assert.Equal(HttpStatusCode.OK, (await before.GetAsync("/private")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await before.GetAsync("/fixed-scheme")).StatusCode);
         Assert.Equal(2, privateExecutions);
-        var directory = await before.GetFromJsonAsync<PagedResult<UserDirectoryDto>>("/api/v1/users/query");
-        Assert.Equal(25, directory!.PageSize); Assert.Equal(1, directory.Total);
-        Assert.False(Assert.Single(directory.Items).CanDelete);
-        Assert.Equal(HttpStatusCode.BadRequest, (await before.GetAsync("/api/v1/users/query?pageSize=10")).StatusCode);
+        using var directoryResponse = await before.GetAsync("/api/v1/users/query");
+        Assert.Equal(missingAccount ? HttpStatusCode.Forbidden : HttpStatusCode.OK, directoryResponse.StatusCode);
+        if (!missingAccount)
+        {
+            var directory = await directoryResponse.Content.ReadFromJsonAsync<PagedResult<UserDirectoryDto>>();
+            Assert.Equal(25, directory!.PageSize); Assert.Equal(1, directory.Total);
+            Assert.False(Assert.Single(directory.Items).CanDelete);
+            Assert.Equal(HttpStatusCode.BadRequest, (await before.GetAsync("/api/v1/users/query?pageSize=10")).StatusCode);
+        }
         await using (var db = fixture.Open())
         await using (var identity = fixture.Identity())
         {
