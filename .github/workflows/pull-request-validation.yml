@@ -77,8 +77,9 @@ jobs:
   dotnet:
     name: .NET validation
     runs-on: ubuntu-latest
-    # The full provider suite takes about 33 minutes before setup/build and artifact upload.
-    timeout-minutes: 45
+    # Expanded provider/lifecycle/upgrade tests took 42m18s in run43077803948;
+    # retain every case and leave time for setup, build and evidence upload.
+    timeout-minutes: 60
     steps:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
