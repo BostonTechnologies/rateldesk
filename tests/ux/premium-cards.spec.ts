@@ -125,6 +125,44 @@ test('connection configuration, test freshness and exact saved mapping operation
   expect(afterDelete.mutations[1].path).toBe(`/api/v1/admin/system-connections/${'a'.repeat(64)}/mappings/${targetId}`);
 });
 
+test('sparse connections keep intentional slots and search/status filters retain truthful results', async ({ page, request }) => {
+  for (const count of [0, 1, 2, 6]) {
+    await request.get(`${fixture}/reset?connectionCount=${count}`);
+    await open(page, '/account/integration-credentials?tab=connections');
+    const panel = page.getByTestId('system-connections-panel');
+    await expect(panel.getByTestId('system-connection-row')).toHaveCount(count);
+    if (count === 0) await expect(panel.getByText(/No system connections yet/)).toBeVisible();
+    else {
+      await panel.getByRole('textbox', { name: 'Search system connections', exact: true }).fill('no matching synthetic connection');
+      await expect(panel.getByTestId('system-connection-row')).toHaveCount(0);
+      await expect(panel.getByText('No matching system connections.', { exact: true })).toBeVisible();
+      await panel.getByRole('textbox', { name: 'Search system connections', exact: true }).fill('');
+      await expect(panel.getByTestId('system-connection-row')).toHaveCount(count);
+    }
+    await assertNoHorizontalOverflow(page);
+  }
+  const panel = page.getByTestId('system-connections-panel');
+  await panel.getByRole('combobox', { name: 'Status', exact: true }).click();
+  await page.getByRole('option', { name: 'Test is stale', exact: true }).click();
+  await expect(panel.getByTestId('system-connection-row')).toHaveCount(1);
+  await expect(panel.getByTestId('system-connection-row')).toContainText('Stale snapshot');
+});
+
+test('Service Explorer separates an empty folder from an unavailable query and supports correction/retry', async ({ page, request }) => {
+  await request.get(`${fixture}/reset?serviceCount=0`);
+  await open(page, '/admin/requests/services');
+  await expect(page.getByText(/No items here yet/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Request', exact: true })).toBeDisabled();
+  await request.post(`${fixture}/options`, { data: { mode: 'services-error' } });
+  await open(page, '/admin/requests/services');
+  await expect(page.getByRole('alert')).toContainText('Service Explorer could not be loaded.');
+  await expect(page.getByText(/No items here yet/)).toHaveCount(0);
+  await request.get(`${fixture}/reset`);
+  await page.getByRole('button', { name: 'Retry Service Explorer', exact: true }).click();
+  await expect(page.getByTestId('service-explorer-card')).toHaveCount(4);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('Operations Overview preserves every counter and feed while partial failures stay visible and retryable', async ({ page, request }) => {
   await expect(page.getByTestId('operations-overview')).toBeVisible();
   const summary = page.getByRole('complementary', { name: 'Current workload' });

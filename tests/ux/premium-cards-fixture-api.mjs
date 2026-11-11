@@ -48,7 +48,7 @@ http.createServer(async (request, response) => {
     return reply({ items, total: items.length, totalCount: items.length });
   }
   if (path === '/api/v1/organizations') return reply(organizations);
-  if (path === '/api/v1/service-items' || path === '/api/v1/service-items/service-1') return reply(services);
+  if (path === '/api/v1/service-items' || path === '/api/v1/service-items/service-1') return mode === 'services-error' ? reply({}, 503) : reply(services);
   if (path === '/api/v1/services/service-1') return reply({ id: 'service-1', name: 'Example service 1', depth: 1, allowedOrganizationIds: [] });
   if (path.endsWith('/breadcrumb')) return reply([{ id: 'service-1', name: 'Example service 1' }]);
   if (/^\/api\/v1\/services\/service-\d+$/.test(path) && request.method === 'GET') return reply(services.find(item => path.endsWith(item.id)) ?? {});

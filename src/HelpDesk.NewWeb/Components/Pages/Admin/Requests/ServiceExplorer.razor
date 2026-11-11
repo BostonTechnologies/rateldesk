@@ -14,6 +14,7 @@
 @inject NavigationManager NavigationManager
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject ILogger<ServiceExplorer> Logger
 
 <PageTitle>@(ParentService is not null ? $"Service: {ParentService!.Name}" : "Service Explorer")</PageTitle>
 
@@ -48,13 +49,19 @@
             </MudStack>
         </div>
 
-        @if (!serviceItems.Any())
+        @if (loadError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3" role="alert">@loadError <MudButton Size="Size.Small" OnClick="RetryLoadAsync">Retry Service Explorer</MudButton></MudAlert>
+        }
+        @if (loadError is null && !serviceItems.Any())
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
                 No items here yet. Use the buttons below to add a Service or a Request.
             </MudAlert>
         }
 
+        @if (loadError is null)
+        {
         <div class="service-explorer-grid" data-testid="service-explorer-grid">
             @foreach (var item in serviceItems)
             {
@@ -127,6 +134,7 @@
                 </MudCard>
             }
         </div>
+        }
     }
 
     </div>
@@ -137,6 +145,7 @@
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private bool loading = true;
+    private string? loadError;
 
     private ServiceDto? ParentService;
     private int ParentDepth = 0;
@@ -150,10 +159,16 @@
     protected override async Task OnParametersSetAsync()
     {
         loading = true;
+        loadError = null;
         try { await LoadData(); }
-        catch (Exception ex) { Snackbar.Add($"Failed to load items: {ex.Message}", Severity.Error); }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or IOException or OperationCanceledException)
+        {
+            Logger.LogWarning("Service Explorer could not be loaded ({ExceptionType}).", exception.GetType().Name);
+            loadError = "Service Explorer could not be loaded. Check your access and retry; no service or assignment has changed.";
+        }
         finally { loading = false; }
     }
+    private Task RetryLoadAsync() => OnParametersSetAsync();
 
     private async Task LoadData()
     {
