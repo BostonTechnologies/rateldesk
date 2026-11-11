@@ -14,9 +14,17 @@
 .request-task-details dt { color:var(--mud-palette-text-secondary); }
 .request-task-details dd { margin:0; white-space:pre-wrap; }
 .request-task-error { color:var(--mud-palette-text-primary); }
-@media(max-width:599.98px) {
-    ::deep .request-tasks-table table { table-layout:auto; }
+@media(max-width:960px) {
+    ::deep .request-tasks-table table { display:block; table-layout:auto; width:100%; }
+    ::deep .request-tasks-table colgroup { display:none; }
+    ::deep .request-tasks-table .mud-table-body,
+    ::deep .request-tasks-table .mud-table-body > .mud-table-row { display:block; width:100%; }
+    ::deep .request-tasks-table .mud-table-cell { display:grid; grid-template-columns:5.5rem minmax(0, 1fr); gap:.2rem .5rem; }
+    .request-task-description { grid-column:2; }
+    ::deep .request-task-detail-row > td { display:block; width:100%; padding:0; }
     .request-task-actions { justify-content:flex-start; }
+}
+@media(max-width:599.98px) {
     .request-task-details dl { grid-template-columns:1fr; gap:.25rem; }
     .request-task-details dd { margin-bottom:.5rem; }
 }

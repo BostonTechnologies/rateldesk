@@ -389,6 +389,13 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
     await expect(details).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('region', { name: 'Details for Long harmless automation task with a readable complete disclosure name', exact: true })).toContainText('synthetic-provider-run-0');
     await noOverflow(page);
+    const clipped = await page.getByTestId('request-tasks-table').evaluate(table => {
+      const bounds = table.getBoundingClientRect();
+      return [...table.querySelectorAll('.request-task-name,.request-task-description,.request-task-state,.request-task-details,.request-task-details dd')]
+        .filter(node => { const rect = node.getBoundingClientRect(); return rect.width <= 0 || rect.left < bounds.left - 1 || rect.right > bounds.right + 1; })
+        .map(node => ({ class: node.className, text: node.textContent?.slice(0, 80), bounds: node.getBoundingClientRect().toJSON() }));
+    });
+    expect(clipped).toEqual([]);
     await page.screenshot({ path: info.outputPath(`request-execution-${theme}-${width}.png`), fullPage: false });
     await page.getByRole('tab', { name: 'Workflow', exact: true }).click();
     await noOverflow(page);
