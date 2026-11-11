@@ -13,7 +13,7 @@ public class RecipientResolver(IRepository<User> users) : IRecipientResolver
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var allUsers = await users.GetAllAsync();
         var scopedUsers = allUsers
-            .Where(x => string.Equals(x.OrganizationId, tenantId, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !x.IsDeleted && string.Equals(x.OrganizationId, tenantId, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         foreach (var target in targets)

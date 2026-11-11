@@ -11,4 +11,7 @@ public class User
     public string? HashedPassword { get; set; }
     public string Role { get; set; } = string.Empty;
     public bool IsTestUser { get; set; }
+    // Retain attribution and identity links after application access is retired.
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeletedAtUtc { get; set; }
 }

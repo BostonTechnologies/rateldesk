@@ -763,6 +763,9 @@ public class HelpdeskDbContext(
             .HasIndex(c => c.Email)
             .IsUnique();
 
+        modelBuilder.Entity<User>()
+            .HasIndex(user => new { user.IsDeleted, user.Id });
+
         modelBuilder.Entity<ScopedRoleAssignment>(entity =>
         {
             entity.HasKey(x => x.Id);

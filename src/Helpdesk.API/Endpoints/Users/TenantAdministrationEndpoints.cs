@@ -203,7 +203,7 @@ public static class TenantAdministrationEndpoints
         {
             if (!await CanViewMembersAsync(context, accessService, organizationId, cancellationToken)) return Results.Forbid();
 
-            var members = await db.Users.AsNoTracking()
+            var members = await db.Users.AsNoTracking().Where(user => !user.IsDeleted)
                 .Where(user => user.OrganizationId == organizationId || db.ScopedRoleAssignments.Any(assignment =>
                     assignment.UserId == user.Id && assignment.OrganizationId == organizationId))
                 .OrderBy(user => user.Name)
@@ -425,13 +425,14 @@ public static class TenantAdministrationEndpoints
         UserManager<ApplicationUser> users,
         CancellationToken cancellationToken)
     {
-        if (!await db.Users.AsNoTracking().AnyAsync(user => user.Id == userId && (user.OrganizationId == organizationId ||
+        if (!await db.Users.AsNoTracking().AnyAsync(user => !user.IsDeleted && user.Id == userId && (user.OrganizationId == organizationId ||
                 db.ScopedRoleAssignments.Any(assignment => assignment.UserId == user.Id && assignment.OrganizationId == organizationId)), cancellationToken))
         {
             return null;
         }
 
-        return await users.FindByIdAsync(userId);
+        var account = await users.FindByIdAsync(userId);
+        return account?.IsDeleted == true ? null : account;
     }
 
     private static string ResolveActorId(ClaimsPrincipal user) =>
