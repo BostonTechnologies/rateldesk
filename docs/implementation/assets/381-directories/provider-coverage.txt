@@ -1,0 +1,27 @@
+Summary
+  Generated on: 11/11/2026 - 17:26:40
+  Parser: MultiReport (2x OpenCover)
+  Assemblies: 2
+  Classes: 4
+  Files: 4
+  Line coverage: 89.6%
+  Covered lines: 519
+  Uncovered lines: 60
+  Coverable lines: 579
+  Total lines: 804
+  Branch coverage: 72.8% (364 of 500)
+  Covered branches: 364
+  Total branches: 500
+  Method coverage: 94.1% (32 of 34)
+  Full method coverage: 67.6% (23 of 34)
+  Covered methods: 32
+  Fully covered methods: 23
+  Total methods: 34
+
+Helpdesk.API                                                    88.9%
+  Helpdesk.API.Endpoints.Categories.TicketCategoryEndpoints     84.5%
+  Helpdesk.API.Endpoints.Organization.AdminDirectoryEndpoints   92.6%
+
+HelpDesk.NewWeb                                                   93%
+  HelpDesk.NewWeb.Models.AdminDirectoryQueryState               95.2%
+  HelpDesk.NewWeb.Services.AdminDirectoryDataSource<T>          91.5%
