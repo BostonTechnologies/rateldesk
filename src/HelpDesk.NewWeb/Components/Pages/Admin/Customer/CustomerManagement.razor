@@ -80,7 +80,7 @@
         var loading = source.LoadAsync(HelpdeskApi, query.ApiUrl("api/v1/admin/directories/customers", state), ct);
         await InvokeAsync(StateHasChanged);
         var data = await loading;
-        if (source.Error is null) query.Page = source.Page;
+        if (source.HasLoaded) query.Page = source.Page;
         query.Remember(NavigationManager);
         await InvokeAsync(StateHasChanged);
         return data;

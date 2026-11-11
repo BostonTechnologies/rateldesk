@@ -77,8 +77,13 @@ public static class AdminDirectoryEndpoints
                    };
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term = query.Search.Trim().ToLowerInvariant();
-            rows = rows.Where(row => row.Name.ToLower().Contains(term) || row.Email.ToLower().Contains(term) || row.OrganizationName.ToLower().Contains(term));
+            var term = query.Search.Trim().ToUpperInvariant();
+            if (db.Database.IsSqlite())
+            {
+                SqliteUnicodeSearch.RegisterConnection(db);
+                rows = rows.Where(row => SqliteUnicodeSearch.Fold(row.Name)!.Contains(term) || SqliteUnicodeSearch.Fold(row.Email)!.Contains(term) || SqliteUnicodeSearch.Fold(row.OrganizationName)!.Contains(term));
+            }
+            else rows = rows.Where(row => row.Name.ToUpper().Contains(term) || row.Email.ToUpper().Contains(term) || row.OrganizationName.ToUpper().Contains(term));
         }
         if (!string.IsNullOrWhiteSpace(query.OrganizationId)) rows = rows.Where(row => row.OrganizationId == query.OrganizationId);
         if (query.Enabled.HasValue) rows = rows.Where(row => row.IsEnabled == query.Enabled.Value);
@@ -158,8 +163,13 @@ public static class AdminDirectoryEndpoints
                    };
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term = query.Search.Trim().ToLowerInvariant();
-            rows = rows.Where(row => row.Name.ToLower().Contains(term) || row.DnsName != null && row.DnsName.ToLower().Contains(term) || row.ContactInfo != null && row.ContactInfo.ToLower().Contains(term));
+            var term = query.Search.Trim().ToUpperInvariant();
+            if (db.Database.IsSqlite())
+            {
+                SqliteUnicodeSearch.RegisterConnection(db);
+                rows = rows.Where(row => SqliteUnicodeSearch.Fold(row.Name)!.Contains(term) || row.DnsName != null && SqliteUnicodeSearch.Fold(row.DnsName)!.Contains(term) || row.ContactInfo != null && SqliteUnicodeSearch.Fold(row.ContactInfo)!.Contains(term));
+            }
+            else rows = rows.Where(row => row.Name.ToUpper().Contains(term) || row.DnsName != null && row.DnsName.ToUpper().Contains(term) || row.ContactInfo != null && row.ContactInfo.ToUpper().Contains(term));
         }
         if (query.Enabled.HasValue) rows = rows.Where(row => row.IsEnabled == query.Enabled.Value);
         if (query.Linked.HasValue) rows = rows.Where(row => row.OrchestrationTenantId.HasValue == query.Linked.Value);
@@ -190,8 +200,13 @@ public static class AdminDirectoryEndpoints
         if (!string.IsNullOrWhiteSpace(selectedId)) rows = rows.Where(row => row.Id == selectedId);
         else if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLowerInvariant();
-            rows = rows.Where(row => row.Name.ToLower().Contains(term) || row.DnsName != null && row.DnsName.ToLower().Contains(term));
+            var term = search.Trim().ToUpperInvariant();
+            if (db.Database.IsSqlite())
+            {
+                SqliteUnicodeSearch.RegisterConnection(db);
+                rows = rows.Where(row => SqliteUnicodeSearch.Fold(row.Name)!.Contains(term) || row.DnsName != null && SqliteUnicodeSearch.Fold(row.DnsName)!.Contains(term));
+            }
+            else rows = rows.Where(row => row.Name.ToUpper().Contains(term) || row.DnsName != null && row.DnsName.ToUpper().Contains(term));
         }
         return Results.Ok(await rows.OrderBy(row => row.Name).ThenBy(row => row.Id).Take(50)
             .Select(row => new TenantLookupDto { Id = row.Id, Name = row.Name }).ToListAsync(ct));
@@ -205,8 +220,13 @@ public static class AdminDirectoryEndpoints
         var rows = db.TicketCategories.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term = query.Search.Trim().ToLowerInvariant();
-            rows = rows.Where(row => row.Name.ToLower().Contains(term) || row.Description != null && row.Description.ToLower().Contains(term));
+            var term = query.Search.Trim().ToUpperInvariant();
+            if (db.Database.IsSqlite())
+            {
+                SqliteUnicodeSearch.RegisterConnection(db);
+                rows = rows.Where(row => SqliteUnicodeSearch.Fold(row.Name)!.Contains(term) || row.Description != null && SqliteUnicodeSearch.Fold(row.Description)!.Contains(term));
+            }
+            else rows = rows.Where(row => row.Name.ToUpper().Contains(term) || row.Description != null && row.Description.ToUpper().Contains(term));
         }
         // Exact admin type selection intentionally does not inherit picker Service inclusion.
         if (query.Type.HasValue) rows = rows.Where(row => row.Type == query.Type.Value);
@@ -221,7 +241,7 @@ public static class AdminDirectoryEndpoints
         {
             "type" => query.Descending ? rows.OrderByDescending(row => row.Type) : rows.OrderBy(row => row.Type),
             "order" => query.Descending ? rows.OrderByDescending(row => row.SortOrder) : rows.OrderBy(row => row.SortOrder),
-            "scope" => query.Descending ? rows.OrderByDescending(row => row.TenantId) : rows.OrderBy(row => row.TenantId),
+            "scope" => query.Descending ? rows.OrderByDescending(row => row.TenantId.HasValue).ThenByDescending(row => row.TenantId) : rows.OrderBy(row => row.TenantId.HasValue).ThenBy(row => row.TenantId),
             "active" => query.Descending ? rows.OrderByDescending(row => row.IsActive) : rows.OrderBy(row => row.IsActive),
             _ => query.Descending ? rows.OrderByDescending(row => row.Name) : rows.OrderBy(row => row.Name)
         };

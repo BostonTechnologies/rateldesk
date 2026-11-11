@@ -43,6 +43,11 @@ public sealed class AdminDirectoryDataSource<T> : IDisposable
         {
             throw;
         }
+        catch (OperationCanceledException)
+        {
+            Error = "The directory request timed out. Refresh to try again.";
+            return lastData;
+        }
         catch (HttpRequestException ex)
         {
             if (token.IsCancellationRequested || version != Volatile.Read(ref revision)) throw new OperationCanceledException(token);

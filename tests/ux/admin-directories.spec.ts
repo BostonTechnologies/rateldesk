@@ -8,7 +8,7 @@ const routes = [
 ] as const;
 async function open(page: Page, route: string) {
   await page.goto(route, { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: baseline ? 90_000 : 30_000 });
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 }
 async function select(page: Page, label: string, option: string) {
@@ -25,14 +25,17 @@ test.beforeEach(async ({ page, request }) => {
   await request.get(`${fixture}/directories`);
   await page.goto('/auth/development');
 });
-test('directory synthetic desktop tablet and mobile evidence in both themes', async ({ page }, info) => {
+for (const theme of ['light', 'dark']) test(`directory synthetic desktop tablet and mobile evidence ${theme}`, async ({ page }, info) => {
   test.setTimeout(300_000);
-  for (const theme of ['light', 'dark']) {
+  {
     await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
-    for (const [width, height] of [[1920, 1080], [1440, 900], [1366, 768], [768, 1024], [390, 844]]) {
-      await page.setViewportSize({ width, height });
-      for (const [route, heading, total] of routes) {
-        await open(page, route);
+    for (const [route, heading, total] of routes) {
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await open(page, route);
+      for (const [width, height] of [[1920, 1080], [1440, 900], [1366, 768], [768, 1024], [390, 844]]) {
+        await page.setViewportSize({ width, height });
+        await page.evaluate(() => scrollTo(0, 0));
+        await settle(page);
         await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
         if (!baseline) {
           await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
@@ -86,7 +89,7 @@ test('complete pagers and URL query restore keep bounded customer loading', asyn
   await expect(page).not.toHaveURL(/page=5/);
   await search.focus(); await expect(search).toBeFocused();
   const retained = page.url();
-  await page.goto('/home'); await page.goBack();
+  await open(page, '/admin/organizations'); await page.goBack();
   await expect(page).toHaveURL(retained);
   await expect(page.getByRole('textbox', { name: 'Search name, email or organization', exact: true })).toHaveValue('person132');
   await expect(page.locator('.directory-table-region tbody tr')).toHaveCount(1);

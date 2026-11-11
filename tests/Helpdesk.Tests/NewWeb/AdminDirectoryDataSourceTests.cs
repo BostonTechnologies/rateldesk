@@ -49,6 +49,20 @@ public sealed class AdminDirectoryDataSourceTests
         Assert.False(source.IsLoading);
     }
 
+    [Fact]
+    public async Task Upstream_timeout_is_a_recoverable_directory_error()
+    {
+        using var handler = new ControlledHandler();
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://synthetic.example.invalid/") };
+        using var source = new AdminDirectoryDataSource<string>();
+        var request = source.LoadAsync(client, "directory", CancellationToken.None);
+        (await handler.Pending.Reader.ReadAsync()).SetException(new TaskCanceledException("Synthetic upstream timeout"));
+        var data = await request;
+        Assert.Empty(data.Items);
+        Assert.Contains("timed out", source.Error);
+        Assert.False(source.IsLoading);
+    }
+
     private static HttpResponseMessage Response(string value, int total) => new(HttpStatusCode.OK)
     { Content = JsonContent.Create(new PagedResponse<string> { Page = 0, PageSize = 25, TotalCount = total, Items = [value] }) };
     private sealed class ControlledHandler : HttpMessageHandler

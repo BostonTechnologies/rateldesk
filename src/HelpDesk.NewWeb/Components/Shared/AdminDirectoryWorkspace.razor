@@ -8,7 +8,7 @@
     </div>
     <div class="directory-toolbar">@ToolbarContent</div>
     <div class="directory-result-summary" role="status" aria-live="polite">
-        @(Refreshing ? Loaded ? "Refreshing…" : "Loading…" : $"{TotalCount:N0} results")
+        @(Refreshing ? Loaded ? "Refreshing…" : "Loading…" : Error is not null ? Loaded ? $"Showing previous results · {TotalCount:N0} results" : "Directory unavailable" : $"{TotalCount:N0} results")
     </div>
     @if (!string.IsNullOrEmpty(Error))
     {

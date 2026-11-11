@@ -1,4 +1,5 @@
 @implements IDisposable
+@using System.Text.Json
 @inject IHttpClientFactory HttpClientFactory
 
 <MudAutocomplete T="TenantLookupDto" Label="@Label" Value="selected" ValueChanged="SelectAsync"
@@ -28,6 +29,8 @@
             if (Value == id) selected = rows?.SingleOrDefault() ?? new TenantLookupDto { Id = id, Name = "Saved organization (unavailable)" };
         }
         catch (HttpRequestException) { error = "Organization names are unavailable. The saved filter is retained."; }
+        catch (JsonException) { error = "Organization names returned an invalid response. The saved filter is retained."; }
+        catch (OperationCanceledException) when (!lifetime.IsCancellationRequested) { error = "Organization lookup timed out. The saved filter is retained."; }
     }
 
     private async Task<IEnumerable<TenantLookupDto>> SearchAsync(string? search, CancellationToken cancellationToken)
@@ -39,6 +42,8 @@
                 $"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", cancellationToken) ?? [];
         }
         catch (HttpRequestException) { error = "Organizations could not be loaded. Try searching again."; return []; }
+        catch (JsonException) { error = "Organization lookup returned an invalid response. Try searching again."; return []; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { error = "Organization lookup timed out. Try searching again."; return []; }
     }
     private async Task SelectAsync(TenantLookupDto? value) { selected = value; appliedId = value?.Id; await ValueChanged.InvokeAsync(value?.Id); }
     public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
