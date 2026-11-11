@@ -541,7 +541,10 @@ public sealed class IncidentReceiverTests
                 await db.GetService<IMigrator>().MigrateAsync(priorMigration);
                 db.InstanceInitializations.Add(new() { InstanceId = h.ReceiverId, OperationId = Guid.NewGuid(), SetupVersion = "test", CompletedAtUtc = DateTimeOffset.UtcNow });
                 db.Organizations.Add(new() { Id = h.OrganizationId, Name = "Synthetic organization", IsEnabled = true });
-                db.Customers.Add(new() { Id = h.CustomerId, OrganizationId = h.OrganizationId, Email = "customer@example.test", Name = "Synthetic customer" });
+                await db.SaveChangesAsync();
+                // Seed the actual predecessor schema through its stable columns.
+                // The current EF model also contains the next migration's fields.
+                await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"Customers\" (\"Id\", \"OrganizationId\", \"Email\", \"Name\", \"State\", \"IsEnabled\") VALUES ({h.CustomerId}, {h.OrganizationId}, {"customer@example.test"}, {"Synthetic customer"}, {0}, {true})");
                 db.TicketCategories.Add(new() { Id = h.CategoryId, Name = "Synthetic category", Type = TicketCategoryType.Incident, IsActive = true, CreatedUtc = DateTime.UtcNow });
                 db.EmailTemplates.Add(new() { Name = "NewTicketConfirmation", Subject = "Confirmation {{TicketRef}}", HtmlContent = "<p>{{TicketRef}}</p>" });
                 db.EmailTemplates.Add(new() { Name = "SupportTicketCreatedUnassigned", Subject = "Support {{TicketRef}}", HtmlContent = "<p>{{TicketRef}}</p>" });

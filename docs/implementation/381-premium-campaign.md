@@ -48,3 +48,18 @@ No merge, public release, public image/archive verification or complete campaign
 acceptance is claimed by this initial register. Release allocation must recheck
 both tag prefixes, every release state and all three registry families. Published
 bytes and stable latest remain immutable. Owner production rollout is separate.
+
+
+## Initial regression findings
+
+The first owning self-service run executed 23 cases: 19 passed, four failed,
+none skipped. All four failures demonstrated that the existing global customer
+email index prevented a legitimate identity-bound requester when an unrelated
+contact had the same email. The forward identity-key migration and explicit
+identity resolver address that cause without claiming or moving the contact.
+This failed run is retained as investigation evidence and is not final acceptance.
+
+Rendered error acceptance also exposed automatic retry/circuit-breaker behavior
+in the shared read client. A dedicated no-retry command client now makes a single
+submission attempt and leaves retry to the user. Both repairs require fresh
+owning and integrated acceptance before their checklist entries can complete.

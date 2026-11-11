@@ -59,6 +59,9 @@ internal static class SelfServiceRequesterResolver
             domainUser = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == accountId, ct);
             if (domainUser is null || string.IsNullOrWhiteSpace(domainUser.Email))
                 return Denied("requester_unavailable", "Your account has no eligible requester profile. Ask an administrator to review its organization membership.");
+            customer = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == domainUser.Id, ct);
+            if (customer is not null && !customer.IsEnabled)
+                return Denied("requester_unavailable", "Your requester profile is unavailable. Ask an administrator to review it.");
         }
 
         var organizationId = customer?.OrganizationId ?? domainUser?.OrganizationId;
@@ -73,20 +76,20 @@ internal static class SelfServiceRequesterResolver
     }
 
     public static async Task<Customer> EnsureCustomerAsync(
-        HelpdeskDbContext db, SelfServiceRequester requester, CancellationToken ct)
+        HelpdeskDbContext db, SelfServiceRequester requester, CancellationToken ct, bool localAccount = true)
     {
-        if (requester.Customer is not null) return requester.Customer;
+        if (requester.Customer is not null && requester.DomainUser is null) return requester.Customer;
         var user = requester.DomainUser ?? throw new InvalidOperationException("An eligible requester is required.");
-        var customer = new Customer
+        var customer = requester.Customer ?? new Customer
         {
             Name = user.Name, Email = user.Email.Trim(), OrganizationId = requester.OrganizationId!,
-            State = Helpdesk.Shared.Models.EntityState.Enabled
+            State = Helpdesk.Shared.Models.EntityState.Enabled, IdentityUserId = user.Id
         };
-        db.Customers.Add(customer);
+        if (requester.Customer is null) db.Customers.Add(customer);
         db.CustomerAuthLinks.Add(new CustomerAuthLink
         {
-            CustomerId = customer.Id, DomainUserId = user.Id, LocalAccountId = user.Id,
-            AuthProviderType = "Local", InviteStatus = CustomerInviteStatus.Active
+            CustomerId = customer.Id, DomainUserId = user.Id, LocalAccountId = localAccount ? user.Id : null,
+            AuthProviderType = localAccount ? "Local" : "Domain", InviteStatus = localAccount ? CustomerInviteStatus.Active : CustomerInviteStatus.NotInvited
         });
         await db.SaveChangesAsync(ct);
         return customer;

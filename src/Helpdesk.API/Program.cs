@@ -1462,9 +1462,10 @@ static void MapCrudEndpoints<T>(WebApplication app, string route) where T : clas
         if (entity is Customer requestedCustomer)
         {
             var existingCustomer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(customer => customer.Id == id);
+            requestedCustomer.IdentityUserId = existingCustomer?.IdentityUserId;
             if (existingCustomer is not null &&
                 !string.Equals(existingCustomer.OrganizationId, requestedCustomer.OrganizationId, StringComparison.OrdinalIgnoreCase) &&
-                await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == id))
+                (existingCustomer.IdentityUserId is not null || await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == id)))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {

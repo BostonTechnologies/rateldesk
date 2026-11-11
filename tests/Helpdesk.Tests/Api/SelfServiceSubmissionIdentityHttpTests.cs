@@ -26,7 +26,7 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
         await h.EditAsync(async db =>
         {
             db.Organizations.Add(new Organization { Id = "foreign", Name = "Other organization" });
-            db.Customers.Add(new Customer { Id = "foreign-email", Name = "Unrelated", Email = "owner@example.test", OrganizationId = "foreign" });
+            db.Customers.Add(new Customer { Id = "foreign-email", Name = "Unrelated", Email = "owner@example.test", OrganizationId = administrator ? "foreign" : h.OrganizationId });
             await Task.CompletedTask;
         });
         using var context = await h.AdminAsync(HttpMethod.Get, "/api/v1/self-service/submission-context?requestFormId=self-form");
@@ -51,6 +51,7 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
             Assert.Equal("owner", link.DomainUserId);
             Assert.Equal(h.OrganizationId, customer.OrganizationId);
             Assert.Equal(customer.Id, request.CustomerId);
+            Assert.Equal("owner", customer.IdentityUserId);
             Assert.NotEqual("foreign-email", customer.Id);
             Assert.Equal("owner@example.test", request.RequesterEmail);
             Assert.Equal(dto.SubmissionId!.Value.ToString("N"), request.SelfServiceSubmissionId);

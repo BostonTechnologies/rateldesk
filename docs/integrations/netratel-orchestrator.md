@@ -101,3 +101,32 @@ open with a stage-specific error. Review the bindings and choose Save again. The
 retry updates the same saved form instead of creating another form or binding.
 The earlier form save has already happened; canceling the remaining draft does
 not roll that server-side save back.
+
+
+## Trusted self-service requester identities
+
+Enabled local accounts can submit an eligible form without an existing customer
+login link. The server resolves the persisted account and domain user, shows the
+requester organization, checks its current self-service permission and the form's
+saved automation mapping, and creates an explicit identity-bound requester. It
+never claims an email-matching contact or moves that contact to another tenant.
+Selecting the same domain user on behalf of resolves that same durable identity.
+
+The automatic `BindSelfServiceCustomerIdentity` migration adds a nullable internal
+identity key. Existing contacts retain their IDs, history and legacy email
+uniqueness. An identity-bound requester can retain its real email even when an
+unrelated contact has that email, including in the same organization. The key is
+not an API-editable field. Email-only routing/provisioning continues to use legacy
+contacts and cannot infer ownership of identity-bound records. Existing customer
+and OIDC links keep their authority and precedence. Back up the database before
+upgrade; restoring that backup is required for downgrade after identity contacts
+have been created, since recreating the old global email constraint could lose
+valid requester identities.
+
+Submission uses a persisted per-submitter operation ID. Explicit retries return
+the same request after current access is revalidated; changed retries require the
+user to open the existing request. The Web command client does not automatically
+retry this POST. Failed responses show bounded status/reference guidance and
+retain form values. Automation creation commits a continuation marker with the
+request/tasks before invocation; the deadline worker resumes it after process
+loss through the same leased continuation path used by provider results.
