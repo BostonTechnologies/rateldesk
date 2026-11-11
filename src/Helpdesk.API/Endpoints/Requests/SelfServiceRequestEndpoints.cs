@@ -117,17 +117,7 @@ public static class SelfServiceRequestEndpoints
         await using var tx = await db.Database.BeginTransactionAsync(token);
         if (db.Database.IsNpgsql() && submitterKey is not null)
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({submitterKey}, 0))", token);
-        if (submissionId is not null)
-        {
-            if (submitterKey is null)
-                return SubmissionError(http, 403, "requester_unavailable", "Your account has no eligible requester profile. Sign in again or ask an administrator to review it.");
-            var prior = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x =>
-                x.SelfServiceSubmitterId == submitterKey && x.SelfServiceSubmissionId == submissionId, token);
-            if (prior is not null)
-                return prior.SelfServiceSubmissionHash == submissionHash
-                    ? Results.Ok(new SelfServiceRequestSubmittedDto { RequestId = prior.Id, TrackingId = prior.TrackingId })
-                    : SubmissionError(http, 409, "submission_already_created", "This submission already created a request. Open My Requests to view its progress before starting another request.");
-        }
+
 
         Customer? customer;
         string? requestedForNameResult;
@@ -155,6 +145,18 @@ public static class SelfServiceRequestEndpoints
             return SubmissionError(http, 403, "request_organization_denied", "The requester's organization is unavailable. Ask an administrator to review its access.");
         if (!await IsCompatibleOrganizationAsync(db, requestForm, customer.OrganizationId, token))
             return SubmissionError(http, 409, "request_organization_mismatch", OrganizationMismatchMessage);
+
+        if (submissionId is not null)
+        {
+            if (submitterKey is null)
+                return SubmissionError(http, 403, "requester_unavailable", "Your account has no eligible requester profile. Sign in again or ask an administrator to review it.");
+            var prior = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.SelfServiceSubmitterId == submitterKey && x.SelfServiceSubmissionId == submissionId, token);
+            if (prior is not null)
+                return prior.SelfServiceSubmissionHash == submissionHash
+                    ? Results.Ok(new SelfServiceRequestSubmittedDto { RequestId = prior.Id, TrackingId = prior.TrackingId })
+                    : SubmissionError(http, 409, "submission_already_created", "This submission already created a request. Open My Requests to view its progress before starting another request.");
+        }
 
         var requestedForName = requestedForNameResult ?? customer.Name;
 

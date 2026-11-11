@@ -91,8 +91,8 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
     public async Task Current_account_customer_organization_and_permission_revocation_all_deny_new_work(bool postgres)
     {
         await using var h = await CreateAsync(postgres, false);
-        using var created = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests",
-            new SubmitSelfServiceRequestDto { RequestFormId = "self-form", PayloadJson = "{}" });
+        var submission = new SubmitSelfServiceRequestDto { SubmissionId = Guid.NewGuid(), RequestFormId = "self-form", PayloadJson = "{}" };
+        using var created = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests", submission);
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
         foreach (var condition in new[] { "account", "customer", "organization", "permission" })
         {
@@ -112,6 +112,8 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
                 new SubmitSelfServiceRequestDto { RequestFormId = "self-form", PayloadJson = "{}" });
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
             Assert.False(string.IsNullOrWhiteSpace(await denied.Content.ReadAsStringAsync()));
+            using var replay = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests", submission);
+            Assert.Equal(HttpStatusCode.Forbidden, replay.StatusCode);
         }
         await h.EditAsync(async db => Assert.Single(await db.Requests.IgnoreQueryFilters().ToListAsync()));
     }
