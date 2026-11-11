@@ -299,7 +299,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         WebGatewayConfiguration configuration) : IAsyncDisposable
     {
         public ServiceIdentityMigrationTests.DatabaseFixture Database { get; } = database;
-        public static async Task<Harness> CreateAsync(bool postgres)
+        public static async Task<Harness> CreateAsync(bool postgres, Action<IServiceCollection>? configureServices = null)
         {
             var database = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
             await using (var db = database.Open()) await db.Database.MigrateAsync();
@@ -343,6 +343,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             {
                 foreach (var name in new[] { "RequestAccess", "RequestManager", "SelfService.User" }) options.AddPolicy(name, policy => policy.RequireAuthenticatedUser());
             });
+            configureServices?.Invoke(builder.Services);
             var api = builder.Build();
             api.UseAuthentication(); api.UseAuthorization();
             api.MapRequestEndpoints(); api.MapSelfServiceMyRequestsEndpoints(); api.MapRequestWorkflowTimelineEndpoints();

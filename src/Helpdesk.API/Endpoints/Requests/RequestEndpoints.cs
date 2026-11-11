@@ -421,10 +421,12 @@ public static class RequestEndpoints
             }
 
             var updated = await repo.UpdateAsync(existing);
+            var snapshotChange = new RequestSnapshotChangedEvent(id, existing.OrganizationId,
+                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N"));
+            await RequestSnapshotJournal.StageAsync(db, [snapshotChange], token);
             await db.SaveChangesAsync(token);
             await tx.CommitAsync(token);
-            await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(id, existing.OrganizationId,
-                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
+            await domainEvents.PublishAsync(snapshotChange, token);
 
             if (previousState != TicketState.Resolved && updated!.State == TicketState.Resolved)
             {
@@ -528,11 +530,12 @@ public static class RequestEndpoints
                 }
             }
 
+            var snapshotChanges = requests.Select(changed => new RequestSnapshotChangedEvent(changed.Id, changed.OrganizationId,
+                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N"))).ToArray();
+            await RequestSnapshotJournal.StageAsync(db, snapshotChanges, token);
             await db.SaveChangesAsync(token);
             if (transaction is not null) await transaction.CommitAsync(token);
-            foreach (var changed in requests)
-                await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(changed.Id, changed.OrganizationId,
-                    DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
+            foreach (var change in snapshotChanges) await domainEvents.PublishAsync(change, token);
             foreach (var request in resolvedTransitions.Where(x => string.IsNullOrWhiteSpace(x.RequestFormId)))
             {
                 await SendResolvedNotificationAsync(request, ticketNotificationService, token);
@@ -579,10 +582,12 @@ public static class RequestEndpoints
                 await repo.UpdateAsync(request);
             }
 
+            var snapshotChanges = requests.Select(changed => new RequestSnapshotChangedEvent(changed.Id, changed.OrganizationId,
+                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N"))).ToArray();
+            await RequestSnapshotJournal.StageAsync(db, snapshotChanges, token);
+            await db.SaveChangesAsync(token);
             if (transaction is not null) await transaction.CommitAsync(token);
-            foreach (var changed in requests)
-                await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(changed.Id, changed.OrganizationId,
-                    DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
+            foreach (var change in snapshotChanges) await domainEvents.PublishAsync(change, token);
             return Results.Ok(new { updated = requests.Count });
         })
         .RequireAuthorization("RequestManager")
@@ -629,10 +634,12 @@ public static class RequestEndpoints
             ApplyClosedAtTransition(request, previousState, request.State);
             request.UpdatedAt = DateTime.UtcNow;
             await repo.UpdateAsync(request);
+            var snapshotChange = new RequestSnapshotChangedEvent(id, request.OrganizationId,
+                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N"));
+            await RequestSnapshotJournal.StageAsync(db, [snapshotChange], token);
             await db.SaveChangesAsync(token);
             if (transaction is not null) await transaction.CommitAsync(token);
-            await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(id, request.OrganizationId,
-                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
+            await domainEvents.PublishAsync(snapshotChange, token);
 
             if (request.State == TicketState.Resolved)
             {
