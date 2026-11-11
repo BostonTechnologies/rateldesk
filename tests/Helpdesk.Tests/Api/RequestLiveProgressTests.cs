@@ -224,6 +224,47 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         page.WaitForAssertion(() => Assert.Equal("false", page.Find("[data-testid=request-live-updates]").GetAttribute("aria-busy")), SetupTimeout);
     }
 
+    [Fact]
+    public async Task Navigating_to_another_request_discards_the_old_snapshot_and_stream_scope()
+    {
+        await using var harness = await Harness.CreateAsync(false);
+        await harness.WithDbAsync(async db =>
+        {
+            db.Requests.Add(new Request { Id = "second-request", Title = "Second scoped request", TrackingId = "REQ-SECOND", OrganizationId = "live-org", State = TicketState.New, WorkflowStatus = "InProgress" });
+            db.RequestTasks.Add(new RequestTask { Id = "second-task", RequestId = "second-request", OrganizationId = "live-org", Name = "Second manual task", Type = RequestTaskType.Manual, Status = RequestTaskStatus.Pending, State = TicketState.New });
+            await db.SaveChangesAsync();
+        });
+        var factory = await harness.ClientsAsync("operator");
+        await using var context = Context(factory);
+        context.ComponentFactories.AddStub<Activity>();
+        var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
+        await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        WaitForInitialSnapshot(page, factory);
+        factory.PauseNextSnapshot = true;
+        await harness.CompleteAllAsync();
+        await factory.SnapshotStarted.Task.WaitAsync(SetupTimeout);
+
+        page.Render(p => p.Add(x => x.Id, "second-request"));
+        factory.ReleaseSnapshot.TrySetResult(true);
+        await factory.Frames.Reconnected.Task.WaitAsync(SetupTimeout);
+        page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"), SetupTimeout);
+        await page.InvokeAsync(() => page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new()));
+
+        using var client = factory.CreateClient("HelpdeskApi");
+        using var oldChange = await client.PostAsJsonAsync("api/v1/requests/live-request/state", new { NewState = TicketState.OnHold });
+        oldChange.EnsureSuccessStatusCode();
+        using var currentChange = await client.PostAsJsonAsync("api/v1/requests/second-request/state", new { NewState = TicketState.InProgress });
+        currentChange.EnsureSuccessStatusCode();
+        await factory.Frames.SecondRequestState.Task.WaitAsync(SetupTimeout);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Second scoped request", page.Find("h1").TextContent);
+            Assert.Contains("In progress", page.Find("[data-testid=request-committed-state]").TextContent);
+            Assert.Equal("second-task", Assert.Single(page.FindAll(".request-task-state")).GetAttribute("data-task-id"));
+            Assert.DoesNotContain("Harmless automation", page.Markup);
+        }, SetupTimeout);
+    }
+
     private static BunitContext Context(IHttpClientFactory factory, string role = "HelpdeskAdmin")
     {
         var context = new BunitContext();
@@ -264,6 +305,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             builder.Services.AddSingleton(correlation);
             builder.Services.AddSingleton(Substitute.For<ITicketNotificationService>());
             builder.Services.AddSingleton(Substitute.For<ITicketSlaService>());
+            builder.Services.AddSingleton(Substitute.For<ITicketSlaCompletionService>());
             builder.Services.AddSingleton(Substitute.For<ITicketSlaRepository>());
             builder.Services.AddSingleton(Substitute.For<ISlaClockService>());
             builder.Services.AddSingleton(Substitute.For<ISlaEscalationEvaluator>());
@@ -433,6 +475,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         public TaskCompletionSource<bool> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<bool> Reconnected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<bool> State { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> SecondRequestState { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool GatewayHeaderSeen { get; set; }
         public string Text => string.Concat(text);
         public void Record(ReadOnlySpan<byte> bytes)
@@ -442,6 +485,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             if (all.Contains("event: ready", StringComparison.Ordinal)) Ready.TrySetResult(true);
             if (all.Split("event: ready", StringSplitOptions.None).Length >= 3) Reconnected.TrySetResult(true);
             if (all.Contains("event: request-state", StringComparison.Ordinal)) State.TrySetResult(true);
+            if (all.Contains("\"ticketId\":\"second-request\"", StringComparison.Ordinal)) SecondRequestState.TrySetResult(true);
         }
     }
     private sealed class RecordingHandler(ClientFactory factory) : DelegatingHandler
