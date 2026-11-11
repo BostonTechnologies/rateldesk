@@ -44,6 +44,7 @@ public sealed class AutomationExecutionOutcomeService(
             return true;
         if (dto.CorrelationId is { Length: > 0 } && dto.CorrelationId != task.AutomationAttemptCorrelationId)
             return false;
+        dto.Status = incomingStatus;
 
         var now = clock.GetUtcNow();
         var attempt = task.AutomationAttemptCorrelationId;
