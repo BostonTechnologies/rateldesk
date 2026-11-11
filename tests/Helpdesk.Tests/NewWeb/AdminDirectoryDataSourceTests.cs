@@ -11,8 +11,10 @@ namespace Helpdesk.Tests.NewWeb;
 
 public sealed class AdminDirectoryDataSourceTests
 {
-    [Fact]
-    public async Task Superseded_search_cannot_replace_the_newest_result_even_if_the_handler_completes_late()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Superseded_search_cannot_replace_the_newest_result_even_if_the_handler_completes_late(bool oldRequestFails)
     {
         using var handler = new ControlledHandler();
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://synthetic.example.invalid/") };
@@ -24,7 +26,8 @@ public sealed class AdminDirectoryDataSourceTests
         newRequest.SetResult(Response("new result", 133));
         var current = await newLoad;
         Assert.Equal("new result", Assert.Single(current.Items));
-        oldRequest.SetResult(Response("stale result", 1000));
+        if (oldRequestFails) oldRequest.SetException(new BrokenCircuitException("private superseded failure"));
+        else oldRequest.SetResult(Response("stale result", 1000));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => oldLoad);
         Assert.Equal(133, source.TotalCount);
         Assert.Null(source.Error);

@@ -52,11 +52,13 @@ public sealed class AdminDirectoryDataSource<T> : IDisposable
         }
         catch (BrokenCircuitException)
         {
+            if (token.IsCancellationRequested || version != Volatile.Read(ref revision)) throw new OperationCanceledException(token);
             Error = "The directory service is temporarily unavailable. Wait briefly, then refresh to retry.";
             return lastData;
         }
         catch (TimeoutRejectedException)
         {
+            if (token.IsCancellationRequested || version != Volatile.Read(ref revision)) throw new OperationCanceledException(token);
             Error = "The directory request timed out. Refresh to try again.";
             return lastData;
         }
