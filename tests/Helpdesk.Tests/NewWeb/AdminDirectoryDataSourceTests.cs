@@ -25,7 +25,8 @@ public sealed class AdminDirectoryDataSourceTests
         var newRequest = await handler.Pending.Reader.ReadAsync();
         newRequest.SetResult(Response("new result", 133));
         var current = await newLoad;
-        Assert.Equal("new result", Assert.Single(current.Items));
+        var currentItems = current.Items; Assert.NotNull(currentItems);
+        Assert.Equal("new result", Assert.Single(currentItems));
         if (oldRequestFails) oldRequest.SetException(new BrokenCircuitException("private superseded failure"));
         else oldRequest.SetResult(Response("stale result", 1000));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => oldLoad);
@@ -46,7 +47,8 @@ public sealed class AdminDirectoryDataSourceTests
         (await handler.Pending.Reader.ReadAsync()).SetResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
         { Content = new StringContent("<html>private upstream exception</html>") });
         var result = await refresh;
-        Assert.Equal("retained", Assert.Single(result.Items));
+        var retainedItems = result.Items; Assert.NotNull(retainedItems);
+        Assert.Equal("retained", Assert.Single(retainedItems));
         Assert.Equal(120, result.TotalItems);
         Assert.Contains("HTTP 503", source.Error);
         Assert.DoesNotContain("private", source.Error);
@@ -63,7 +65,7 @@ public sealed class AdminDirectoryDataSourceTests
         var request = source.LoadAsync(client, "directory", CancellationToken.None);
         (await handler.Pending.Reader.ReadAsync()).SetException(new TaskCanceledException("Synthetic upstream timeout"));
         var data = await request;
-        Assert.Empty(data.Items);
+        var items = data.Items; Assert.NotNull(items); Assert.Empty(items);
         Assert.Contains("timed out", source.Error);
         Assert.False(source.IsLoading);
     }
@@ -81,7 +83,7 @@ public sealed class AdminDirectoryDataSourceTests
             ? new BrokenCircuitException("private upstream circuit details")
             : new TimeoutRejectedException("private timeout details"));
         var data = await request;
-        Assert.Empty(data.Items);
+        var items = data.Items; Assert.NotNull(items); Assert.Empty(items);
         Assert.NotNull(source.Error); Assert.Contains("refresh", source.Error, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("private", source.Error); Assert.False(source.IsLoading);
     }

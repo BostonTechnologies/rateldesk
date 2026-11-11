@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Channels;
 using Bunit;
-using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.Organization;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
