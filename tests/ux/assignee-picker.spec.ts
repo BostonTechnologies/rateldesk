@@ -263,6 +263,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
 test('change participant searches keep duplicate-label approver chips and reset scope without losing draft text', async ({ page, request }) => {
   await grid(page, 'changes'); await page.getByRole('button', { name: 'Create', exact: true }).click();
   const dialog = page.getByRole('dialog').first();
+  await expect(dialog.locator('.mud-focus-trap > .fixed[tabindex="-1"]')).toBeFocused();
   await dialog.getByRole('textbox', { name: /^Title\*?$/ }).fill('Retain this draft');
   const organization = dialog.getByRole('combobox', { name: /^Organization\*?$/ });
   await organization.fill('Customer organization');
@@ -277,11 +278,20 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await expect(approvers).toBeEditable();
   await expect(approvers).toBeFocused();
   await expect(approvers).toHaveValue('');
+  // Reopen the cleared picker and wait for its current unfiltered menu. The
+  // previous Duplicate options can still be visible during the closing render;
+  // ArrowDown on that closed picker opens the menu instead of advancing it.
+  await approvers.click();
+  await expect(approvers).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('option')).toHaveCount(20);
   await page.keyboard.type('Duplicate');
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await expect(approvers).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('option', { name: /one@example.test/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('option', { name: /two@example.test/ })).toBeVisible();
-  await page.keyboard.press('ArrowDown');
+  await approvers.press('ArrowDown');
   await expect(page.getByRole('option', { name: /two@example.test/ })).toHaveAttribute('aria-selected', 'true');
-  await page.keyboard.press('Enter');
+  await approvers.press('Enter');
   const selected = dialog.getByLabel('Selected approvers', { exact: true });
   await expect(selected).toContainText('one@example.test'); await expect(selected).toContainText('two@example.test');
   await approvers.fill('no match');
