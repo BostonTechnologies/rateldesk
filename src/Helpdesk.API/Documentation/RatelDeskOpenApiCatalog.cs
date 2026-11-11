@@ -51,6 +51,7 @@ public static class RatelDeskOpenApiCatalog
         new("NetRatel Incident Receiver", "Automation & Integrations", "Authenticated incident-create v1 capability, target validation and immutable receipt reconciliation."),
         new("NetRatel Source Administration", "Automation & Integrations", "Administrator-approved stable incident source namespaces and audited credential rotation."),
         new("Organizations", "Organizations & Customers", "Application tenant organizations."),
+        new("Administration Directories", "Organizations & Customers", "Paged instance administration directories; legacy lookup arrays remain compatible."),
         new("Customers", "Organizations & Customers", "Contacts; a customer is not the application tenant."),
         new("Tenant Administration", "Organizations & Customers", "Tenant-scoped administration."),
         new("Tenant Settings", "Organizations & Customers", "Tenant configuration."),
@@ -71,6 +72,7 @@ public static class RatelDeskOpenApiCatalog
 
     private static readonly IReadOnlyDictionary<string, string> CanonicalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
+        ["Admin directories"] = "Administration Directories",
         ["Integration credential pairing"] = "Integration Credential Pairing",
         ["MCP deployment approval"] = "MCP Deployment Approval",
         ["System pairing"] = "System Pairing", ["System connections"] = "System Connections", ["Local authentication"] = "Local Authentication", ["Role definitions"] = "Role Definitions", ["Tenant administration"] = "Tenant Administration", ["Tenant settings"] = "Tenant Settings", ["Ticketing"] = "Ticket Lookups", ["Captcha"] = "CAPTCHA", ["SLA"] = "SLA Policies", ["Email"] = "Email Processing", ["Workflow Ops"] = "Workflow Operations", ["AutomationRules"] = "Automation Rules", ["Branding"] = "Instance Branding", ["AI Agent Ops"] = "AI Agent Operations", ["Ops"] = "Background Jobs", ["Admin"] = "Tenant Administration", ["AiAssistant Chat"] = "AI Assistant Chat", ["AiAssistant Webhooks"] = "AI Assistant Webhooks", ["External orchestration"] = "External Orchestration", ["Orchestration provider"] = "Orchestration Provider", ["Self Service"] = "Self-Service"

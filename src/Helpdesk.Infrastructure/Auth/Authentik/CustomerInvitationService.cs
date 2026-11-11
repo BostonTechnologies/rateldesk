@@ -40,7 +40,7 @@ public sealed class CustomerInvitationService(
         var customer = await FindCustomerAsync(customerId, ct);
         var link = await FindLinkAsync(customerId, ct);
         var status = ToStatus(customer, link);
-        if (await IsRetiredAsync(link, ct))
+        if (await IsRetiredCustomerAsync(customer, ct) || await IsRetiredAsync(link, ct))
         {
             status.InviteStatus = CustomerInviteStatus.Disabled;
             status.StatusText = "Application access deleted";
@@ -238,6 +238,10 @@ public sealed class CustomerInvitationService(
 
     private async Task<CustomerAuthLink> FindOrCreateLinkAsync(Customer customer, CancellationToken ct)
     {
+        if (await IsRetiredCustomerAsync(customer, ct))
+            throw new InvalidOperationException("Application access has been deleted. A retired identity cannot be invited or reactivated.");
+        if (await _db.CustomerAuthLinks.AnyAsync(link => link.CustomerId == customer.Id && link.AuthProviderType == "Local", ct))
+            throw new InvalidOperationException("This contact uses an application-managed sign-in. Manage that account separately.");
         var link = await FindLinkAsync(customer.Id, ct);
         if (link is not null)
         {
@@ -372,6 +376,14 @@ public sealed class CustomerInvitationService(
         }
 
         return rendered;
+    }
+
+    private async Task<bool> IsRetiredCustomerAsync(Customer customer, CancellationToken ct)
+    {
+        if (customer.IdentityUserId is not null && !await _db.Users.AsNoTracking()
+            .AnyAsync(user => user.Id == customer.IdentityUserId && !user.IsDeleted, ct)) return true;
+        return await _db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == customer.Id &&
+            _db.Users.Any(user => user.IsDeleted && (user.Id == link.DomainUserId || user.Id == link.LocalAccountId)), ct);
     }
 
     private Task<bool> IsRetiredAsync(CustomerAuthLink? link, CancellationToken ct) => link is null

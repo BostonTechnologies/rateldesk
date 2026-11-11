@@ -19,10 +19,10 @@ public static class AdminDirectoryEndpoints
     {
         var group = app.MapGroup("/api/v1/admin/directories")
             .WithTags("Admin directories").RequireAuthorization("HelpdeskAdmin");
-        group.MapGet("/customers", GetCustomers);
-        group.MapGet("/organizations", GetOrganizations);
-        group.MapGet("/organizations/lookup", LookupOrganizations);
-        group.MapGet("/categories", GetCategories);
+        group.MapGet("/customers", GetCustomers).WithName("QueryAdminCustomers").WithSummary("Search and page the complete authorized customer directory with bounded access status");
+        group.MapGet("/organizations", GetOrganizations).WithName("QueryAdminOrganizations").WithSummary("Search and page organization administration records");
+        group.MapGet("/organizations/lookup", LookupOrganizations).WithName("LookupAdminDirectoryOrganizations").WithSummary("Search a bounded organization selector or resolve its selected identity");
+        group.MapGet("/categories", GetCategories).WithName("QueryAdminTicketCategories").WithSummary("Search exact category types and scopes without changing legacy picker semantics");
     }
 
     private static async Task<IResult> GetCustomers(HelpdeskDbContext db,

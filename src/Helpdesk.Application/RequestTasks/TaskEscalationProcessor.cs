@@ -48,7 +48,7 @@ public sealed class TaskEscalationProcessor(
             .Where(request => requestIds.Contains(request.Id))
             .ToDictionary(request => request.Id, StringComparer.OrdinalIgnoreCase);
 
-        var allUsers = (await _users.GetAllAsync()).ToList();
+        var allUsers = (await _users.GetAllAsync()).Where(user => !user.IsDeleted).ToList();
 
         var escalatedCount = 0;
         var breachedCount = 0;
