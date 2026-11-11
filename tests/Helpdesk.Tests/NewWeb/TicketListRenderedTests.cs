@@ -329,14 +329,24 @@ public sealed class TicketListRenderedTests
         Assert.Contains("assignedToMe=false", api.Requests[0]);
         Assert.Contains("pageSize=25", api.Requests[0]);
         dashboard.Find("button[aria-label='Next page']").Click();
-        dashboard.WaitForAssertion(() => Assert.Contains("page=2", api.Requests.Last()));
+        dashboard.WaitForAssertion(() =>
+        {
+            Assert.Contains("page=2", api.Requests.Last());
+            Assert.Contains(dashboard.FindAll("tbody tr a"), link => link.TextContent.Trim() == "REQ-25");
+        });
         var assignment = dashboard.FindComponents<MudSwitch<bool>>().Single(x => x.Instance.Label == "Assigned to me");
         assignment.Find("input").Change(true);
-        dashboard.WaitForAssertion(() => Assert.Contains("assignedToMe=true", api.Requests.Last()));
-        Assert.Contains("page=1", api.Requests.Last());
-        Assert.Contains("Running", dashboard.Markup);
-        Assert.DoesNotContain(dashboard.FindAll("button"), x => x.TextContent.Trim() == "Running");
-        Assert.NotEmpty(dashboard.FindAll("button[aria-label='Start task']"));
+        dashboard.WaitForAssertion(() =>
+        {
+            Assert.Contains("assignedToMe=true", api.Requests.Last());
+            Assert.Contains("page=1", api.Requests.Last());
+            Assert.Equal(25, dashboard.FindAll("tbody tr").Count);
+            var running = dashboard.FindAll("tbody tr").Single(row => row.QuerySelector("a")?.TextContent.Trim() == "REQ-1");
+            Assert.Contains("In progress", running.TextContent);
+            Assert.Contains("External: running", running.TextContent);
+            Assert.DoesNotContain(dashboard.FindAll("button"), x => x.TextContent.Trim() is "In progress" or "running");
+            Assert.NotEmpty(dashboard.FindAll("button[aria-label='Start task']"));
+        });
     }
 
     [Theory]
@@ -423,9 +433,15 @@ public sealed class TicketListRenderedTests
                 var size = int.Parse(query["pageSize"].ToString());
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new
                 {
-                    items = Enumerable.Range((page - 1) * size, Math.Min(size, 76 - (page - 1) * size)).Select(i => new
-                    { id = $"task-{i}", requestId = "request", requestTrackingId = $"REQ-{i}", requestTitle = "Synthetic request", name = "Synthetic task",
-                        organizationId = "org", type = i % 2 + 1, status = i % 5 + 1, automationReadyToStart = true }), totalCount = 76
+                    items = Enumerable.Range((page - 1) * size, Math.Min(size, 76 - (page - 1) * size)).Select(i =>
+                    {
+                        var type = (RequestTaskType)(i % 2 + 1);
+                        var status = (RequestTaskStatus)(i % 5 + 1);
+                        return new
+                        { id = $"task-{i}", requestId = "request", requestTrackingId = $"REQ-{i}", requestTitle = "Synthetic request", name = "Synthetic task",
+                            organizationId = "org", type, status, automationReadyToStart = true,
+                            lastAutomationStatus = type == RequestTaskType.Automation && status == RequestTaskStatus.InProgress ? "running" : null };
+                    }), totalCount = 76
                 }) });
             }
             if (request.RequestUri.AbsolutePath.EndsWith("/filter-options"))
