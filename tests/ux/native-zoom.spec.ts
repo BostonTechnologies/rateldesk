@@ -37,7 +37,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
   test(`${suite} ${theme} native browser zoom 200 percent at ${width}px`, async ({ baseURL, request }, info) => {
     await request.get(`http://127.0.0.1:${ports[suite]}/fixture/reset`);
     if (suite === 'operations') await request.get('http://127.0.0.1:18400/fixture/premium');
-    if (suite === 'details') await request.post('http://127.0.0.1:18600/fixture/request-tasks', { data: { count: 3 } });
+    if (suite === 'details') await request.post('http://127.0.0.1:18600/fixture/request-tasks', { data: { count: 30 } });
     if (suite === 'directories') {
       await request.get('http://127.0.0.1:18500/fixture/directories');
       await request.get('http://127.0.0.1:18500/fixture/team');
@@ -121,11 +121,11 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         }
         if (suite === 'details' && route.startsWith('/requests/')) {
           await page.getByRole('tab', { name: /^Tasks/ }).click();
-          await expect(page.locator('.request-task-state')).toHaveCount(3);
+          await expect(page.locator('.request-task-state')).toHaveCount(30);
           await expect(page.getByRole('button', { name: 'Running', exact: true })).toHaveCount(0);
           const actionGroups = page.locator('.request-task-actions');
-          await expect(actionGroups).toHaveCount(3);
-          for (let index = 0; index < 3; index++) {
+          await expect(actionGroups).toHaveCount(30);
+          for (let index = 0; index < 30; index++) {
             const tops = await actionGroups.nth(index).locator('button').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().top));
             expect(tops.length).toBeGreaterThan(0);
             expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
@@ -133,6 +133,15 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           const details = page.getByRole('button', { name: /^Task details/ }).first();
           await details.focus();
           await page.keyboard.press('Enter');
+          await expect(details).toHaveAttribute('aria-expanded', 'true');
+          const containment = await page.locator('.request-tasks-table').evaluate(table => {
+            const bounds = table.getBoundingClientRect();
+            return [...table.querySelectorAll('.request-task-name, .request-task-state, .request-task-details')]
+              .every(element => { const box = element.getBoundingClientRect(); return box.left >= bounds.left - 2 && box.right <= bounds.right + 2; });
+          });
+          expect(containment).toBe(true);
+          await page.getByRole('tab', { name: 'Workflow', exact: true }).click();
+          await page.getByRole('tab', { name: /^Tasks/ }).click();
           await expect(details).toHaveAttribute('aria-expanded', 'true');
         }
         if (suite === 'premium-cards') {
