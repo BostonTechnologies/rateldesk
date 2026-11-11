@@ -160,7 +160,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             ("/api/v1/ticketing/organizations/search", "get", "SearchCreationOrganizations", "Ticket Lookups"),
             ("/api/v1/ticketing/customers/search", "get", "SearchCreationCustomers", "Ticket Lookups"),
             ("/api/v1/ticketing/change-participants/search", "get", "SearchCreationChangeParticipants", "Ticket Lookups"),
-            ("/api/v1/self-service/submission-context", "get", "GetSelfServiceSubmissionContext", "Self Service"),
+            ("/api/v1/self-service/submission-context", "get", "GetSelfServiceSubmissionContext", "Self-Service"),
             ("/api/v1/changes/{id}/lifecycle-options", "get", "GetChangeLifecycleOptions", "Changes"),
             ("/api/v1/resources/datasets/create-requests/{requestId}", "get", "ReconcileDatasetCreation", "Resources"),
             ("/api/v1/resources/datasets/graph-settings/test", "post", "TestGraphDatasetConnection", "Resources"),
