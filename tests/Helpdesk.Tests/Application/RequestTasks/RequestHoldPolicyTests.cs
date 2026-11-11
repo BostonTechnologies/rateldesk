@@ -5,6 +5,12 @@ namespace Helpdesk.Tests.Application.RequestTasks;
 
 public sealed class RequestHoldPolicyTests
 {
+    [Theory][InlineData("blocked")][InlineData("FAILED")][InlineData("Cancelled")][InlineData("needSReconciliation")][InlineData("onhold")]
+    public void Existing_status_casing_cannot_bypass_the_start_fence(string status)
+    {
+        Assert.True(RequestHoldPolicy.BlocksStart(new Request { WorkflowStatus = status }));
+    }
+
     [Fact]
     public void An_operator_hold_survives_owned_reconciliation_metadata()
     {

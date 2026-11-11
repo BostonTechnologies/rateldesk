@@ -7,13 +7,14 @@ public static class RequestHoldPolicy
     public const string OperatorStatus = "OnHold";
     public const string OperatorReason = "Request paused by an operator.";
 
-    public static bool OwnsReconciliationHold(Request request) => request.WorkflowStatus == "NeedsReconciliation"
+    public static bool OwnsReconciliationHold(Request request) => IsStatus(request, "NeedsReconciliation")
         && request.WorkflowBlockReason == AutomationTaskStatuses.ReconciliationHoldReason;
 
-    public static bool OwnsOperatorMetadata(Request request) => request.WorkflowStatus == OperatorStatus
+    public static bool OwnsOperatorMetadata(Request request) => IsStatus(request, OperatorStatus)
         && request.WorkflowBlockReason == OperatorReason;
 
-    public static bool HasUnrelatedWorkflowHold(Request request) => request.WorkflowStatus is "Blocked" or "Failed" or "Cancelled"
+    public static bool HasUnrelatedWorkflowHold(Request request) => IsStatus(request, "Blocked")
+        || IsStatus(request, "Failed") || IsStatus(request, "Cancelled")
         || !string.IsNullOrWhiteSpace(request.WorkflowBlockReason)
             && !OwnsReconciliationHold(request) && !OwnsOperatorMetadata(request);
 
@@ -22,5 +23,8 @@ public static class RequestHoldPolicy
             && !OwnsReconciliationHold(request) && !HasUnrelatedWorkflowHold(request);
 
     public static bool BlocksStart(Request request) => IsOperatorHeld(request) || HasUnrelatedWorkflowHold(request)
-        || request.WorkflowStatus == "NeedsReconciliation";
+        || IsStatus(request, "NeedsReconciliation") || IsStatus(request, OperatorStatus);
+
+    private static bool IsStatus(Request request, string status)
+        => string.Equals(request.WorkflowStatus, status, StringComparison.OrdinalIgnoreCase);
 }
