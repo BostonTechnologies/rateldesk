@@ -14,37 +14,56 @@
     private TenantLookupDto? selected;
     private string? appliedId;
     private string? error;
+    private long selectionVersion;
+    private long searchVersion;
     private readonly CancellationTokenSource lifetime = new();
 
     protected override async Task OnParametersSetAsync()
     {
         if (Value == appliedId) return;
         appliedId = Value;
+        var version = Interlocked.Increment(ref selectionVersion);
+        Interlocked.Increment(ref searchVersion);
+        error = null;
         if (string.IsNullOrWhiteSpace(Value)) { selected = null; return; }
         var id = Value;
+        var cancellationToken = lifetime.Token;
+        selected = new TenantLookupDto { Id = id, Name = "Saved organization (unavailable)" };
         try
         {
             var rows = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<TenantLookupDto>>(
-                $"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(id)}", lifetime.Token);
-            if (Value == id) selected = rows?.SingleOrDefault() ?? new TenantLookupDto { Id = id, Name = "Saved organization (unavailable)" };
+                $"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(id)}", cancellationToken);
+            if (version == selectionVersion && Value == id) selected = rows?.SingleOrDefault() ?? selected;
         }
-        catch (HttpRequestException) { error = "Organization names are unavailable. The saved filter is retained."; }
-        catch (JsonException) { error = "Organization names returned an invalid response. The saved filter is retained."; }
-        catch (OperationCanceledException) when (!lifetime.IsCancellationRequested) { error = "Organization lookup timed out. The saved filter is retained."; }
+        catch (Exception ex) when (IsReadFailure(ex, cancellationToken))
+        {
+            if (version == selectionVersion) error = "Organization names are unavailable. The saved filter is retained; try searching again.";
+        }
     }
 
     private async Task<IEnumerable<TenantLookupDto>> SearchAsync(string? search, CancellationToken cancellationToken)
     {
+        var version = Interlocked.Increment(ref searchVersion);
         error = null;
+        await InvokeAsync(StateHasChanged);
         try
         {
             return await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<TenantLookupDto>>(
                 $"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", cancellationToken) ?? [];
         }
-        catch (HttpRequestException) { error = "Organizations could not be loaded. Try searching again."; return []; }
-        catch (JsonException) { error = "Organization lookup returned an invalid response. Try searching again."; return []; }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { error = "Organization lookup timed out. Try searching again."; return []; }
+        catch (Exception ex) when (IsReadFailure(ex, cancellationToken))
+        {
+            if (version == searchVersion)
+            {
+                error = "Organizations could not be loaded. Try searching again.";
+                await InvokeAsync(StateHasChanged);
+            }
+            return [];
+        }
     }
-    private async Task SelectAsync(TenantLookupDto? value) { selected = value; appliedId = value?.Id; await ValueChanged.InvokeAsync(value?.Id); }
-    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
+    private static bool IsReadFailure(Exception exception, CancellationToken cancellationToken) =>
+        exception is HttpRequestException or JsonException or Polly.CircuitBreaker.BrokenCircuitException or Polly.Timeout.TimeoutRejectedException ||
+        exception is OperationCanceledException && !cancellationToken.IsCancellationRequested;
+    private async Task SelectAsync(TenantLookupDto? value) { Interlocked.Increment(ref selectionVersion); Interlocked.Increment(ref searchVersion); error = null; selected = value; appliedId = value?.Id; await ValueChanged.InvokeAsync(value?.Id); }
+    public void Dispose() { Interlocked.Increment(ref selectionVersion); Interlocked.Increment(ref searchVersion); lifetime.Cancel(); lifetime.Dispose(); }
 }

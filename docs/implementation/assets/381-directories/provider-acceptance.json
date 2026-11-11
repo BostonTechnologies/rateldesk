@@ -1,0 +1,244 @@
+{
+  "apiSource": "56607e7f69efa6d08bf877c176392e063e56399e",
+  "buildTimestampUtc": "2026-11-11T17:08:49Z",
+  "scope": "Owning directory provider tests against API DLL emitted before later admin integration edits; final integrated head requires its own acceptance. The selected endpoint tests use minimal HTTP TestServer harnesses with actual SQL providers; global application authorization/lifecycle acceptance remains separate.",
+  "counters": {
+    "total": "31",
+    "executed": "31",
+    "passed": "31",
+    "failed": "0",
+    "error": "0",
+    "timeout": "0",
+    "aborted": "0",
+    "inconclusive": "0",
+    "passedButRunAborted": "0",
+    "notRunnable": "0",
+    "notExecuted": "0",
+    "disconnected": "0",
+    "warning": "0",
+    "completed": "0",
+    "inProgress": "0",
+    "pending": "0"
+  },
+  "tests": [
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Resilience_pipeline_failures_offer_a_safe_retry_without_leaking_exceptions(circuitOpen: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0119905"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Hybrid_external_logins_do_not_require_a_local_password_and_disabled_links_override_accounts(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:38.3844979"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Concurrent_normalized_creation_selects_one_catalogue_entry_in_each_scope(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:02.2915916"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Directory_contracts_reject_bad_queries_and_delegated_or_ordinary_actors(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.4962820"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Superseded_search_cannot_replace_the_newest_result_even_if_the_handler_completes_late(oldRequestFails: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0300277"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Deleting_the_only_final_page_row_clamps_the_preserved_query(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:18.7077522"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryQueryStateTests.Full_query_survives_navigation_and_preserves_delegated_route_context",
+      "outcome": "Passed",
+      "duration": "00:00:00.1913750"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Compact_organization_ID_supports_scoped_category_CRUD(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.5067653"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Directory_contracts_reject_bad_queries_and_delegated_or_ordinary_actors(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:20.1433006"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Deleting_the_only_final_page_row_clamps_the_preserved_query(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.1898277"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Organizations_search_filter_sort_and_clamp_over_full_dataset(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:02.0821857"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Search_is_bounded_and_hydration_preserves_inactive_scoped_ids(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:44.3636772"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Customers_query_complete_dataset_and_account_state_in_bounded_queries(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.6753948"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Retired_or_orphaned_customer_identities_filter_in_SQL_and_managed_profiles_cannot_be_invited(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.9128975"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Category_admin_exact_filters_and_all_preserve_legacy_picker_service_inclusion(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.8159933"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Organizations_search_filter_sort_and_clamp_over_full_dataset(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:32.8652371"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Compact_organization_ID_supports_scoped_category_CRUD(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:21.1188675"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Creation_enforces_permission_validation_and_inactive_duplicate_state(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:21.2147128"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Search_is_bounded_and_hydration_preserves_inactive_scoped_ids(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.8296095"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Retired_or_orphaned_customer_identities_filter_in_SQL_and_managed_profiles_cannot_be_invited(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:19.0201281"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Superseded_search_cannot_replace_the_newest_result_even_if_the_handler_completes_late(oldRequestFails: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0571276"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Hybrid_external_logins_do_not_require_a_local_password_and_disabled_links_override_accounts(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.5726172"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Category_admin_exact_filters_and_all_preserve_legacy_picker_service_inclusion(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:19.8593538"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Resilience_pipeline_failures_offer_a_safe_retry_without_leaking_exceptions(circuitOpen: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0516201"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Category_delete_preserves_historical_assignments_and_child_dependencies(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:02.1133753"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Creation_enforces_permission_validation_and_inactive_duplicate_state(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.4129310"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Refresh_failure_retains_the_committed_rows_and_exposes_a_safe_recoverable_error",
+      "outcome": "Passed",
+      "duration": "00:00:00.0445346"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Upstream_timeout_is_a_recoverable_directory_error",
+      "outcome": "Passed",
+      "duration": "00:00:00.0177730"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.TicketCategoryEndpointsTests.Concurrent_normalized_creation_selects_one_catalogue_entry_in_each_scope(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:18.0439206"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Customers_query_complete_dataset_and_account_state_in_bounded_queries(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:20.9565893"
+    },
+    {
+      "name": "Helpdesk.Tests.Api.AdminDirectoryEndpointsTests.Category_delete_preserves_historical_assignments_and_child_dependencies(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:26.3577845"
+    }
+  ],
+  "assertedCustomerReaderCommandRange": [
+    1,
+    2
+  ],
+  "queryBoundScenarios": {
+    "Customers_query_complete_dataset_and_account_state_in_bounded_queries": {
+      "records": 133,
+      "pageSize": 25,
+      "returnedLastPage": 8,
+      "providers": [
+        "SQLite",
+        "PostgreSQL"
+      ]
+    },
+    "Retired_or_orphaned_customer_identities_filter_in_SQL_and_managed_profiles_cannot_be_invited": {
+      "records": 122,
+      "pageSize": 25,
+      "returnedLastPage": 22,
+      "providers": [
+        "SQLite",
+        "PostgreSQL"
+      ]
+    }
+  },
+  "inputSha256": {
+    "/workspace/work/admin-batch/src/Helpdesk.API/Endpoints/Organizations/AdminDirectoryEndpoints.cs": "07312a17f6ddc8e76832856577654ae9c6e84d4c0abe99f748322c4235075b6c",
+    "/workspace/work/admin-batch/tests/Helpdesk.Tests/Api/AdminDirectoryEndpointsTests.cs": "237951d94cc84935bc61950a6837793cfdf09b2e687deab6dbf41c2306927d36",
+    "/workspace/work/admin-batch/src/Helpdesk.API/bin/Debug/net10.0/Helpdesk.API.dll": "7c581f72dbb7093b14b47ab3b239a1bb96ec934a83bd65e2adc808044870c199",
+    "/workspace/work/admin-batch/src/Helpdesk.Infrastructure/bin/Debug/net10.0/Helpdesk.Infrastructure.dll": "8491821cecbfd52a15f0e600a6fd04e53e03f4741b147b842b9348adca9bf1ef",
+    "/workspace/work/admin-batch/src/Helpdesk.Shared/bin/Debug/net10.0/Helpdesk.Shared.dll": "58063700e1ed72b1847733bac9e3929c493d84608feea73d93c273ee3838dad1",
+    "/workspace/work/admin-batch/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll": "f446de9c7facaaa5183709d5a58ad5fe901a08993983bb4eaefa3818950b138e"
+  },
+  "trxSha256": "26073c2efcaad7e71c6ac303d67ca069b9ad6a50fc22c11fc73f9e76800d3ecd",
+  "openCoverSha256": "b6cfdb578a3731bff706b3d9ce2471bcd85ef3082bf9caca22037be45cbfc299",
+  "coverageSummary": {
+    "generatedon": "2026-11-11T17:26:40Z",
+    "parser": "MultiReport (2x OpenCover)",
+    "assemblies": 2,
+    "classes": 4,
+    "files": 4,
+    "coveredlines": 519,
+    "uncoveredlines": 60,
+    "coverablelines": 579,
+    "totallines": 804,
+    "linecoverage": 89.6,
+    "coveredbranches": 364,
+    "totalbranches": 500,
+    "branchcoverage": 72.8,
+    "coveredmethods": 32,
+    "fullcoveredmethods": 23,
+    "totalmethods": 34,
+    "methodcoverage": 94.1,
+    "fullmethodcoverage": 67.6
+  },
+  "crapLimitation": "Pinned Coverlet output contains no crapScore attributes and flags all methods isConstructor=True, including ordinary Read/Dispose/ToCustomerDto methods. ReportGenerator supplies coverage and complexity but no CRAP scores; absence is not a zero score.",
+  "command": "DOTNET_PROCESSOR_COUNT=2 dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --no-build --no-restore --filter 'FullyQualifiedName~AdminDirectoryEndpointsTests|FullyQualifiedName~TicketCategoryEndpointsTests|FullyQualifiedName~AdminDirectoryDataSourceTests|FullyQualifiedName~AdminDirectoryQueryStateTests' --settings /workspace/work/directories.coverage.runsettings --collect 'XPlat Code Coverage' --logger 'trx;LogFileName=admin-directories.trx' --results-directory /workspace/work/results/directories-admin-56607e7f",
+  "runsettingsSha256": "92226be29ec73af582b118f82a5fec312e00f1c83e133489f99bc2f7fba7bb44",
+  "buildWarnings": {
+    "total": 27,
+    "errors": 0,
+    "authoredDataSourceTestNullableWarnings": 4,
+    "followupAssertionFix": "d0b018023545f57c80251f10dc567bbeb924d509",
+    "suppressed": false
+  }
+}
