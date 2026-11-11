@@ -1,7 +1,7 @@
 {
-  "schemaHash": "29efc652cd58595a23534adfbdb60465f738500c8b7b980059e695827ab311b7",
-  "catalogRevision": "2026-11-08.beta8-contracts-v28",
-  "catalogHash": "b314388665136c980641273791341247df0297692a4f7f0e92f7ac430ab8b56b",
+  "schemaHash": "fe1980171d87aea366163d3624e97ff30899e80cea3230428e2a8bffb4e84e87",
+  "catalogRevision": "2026-11-11.automation-targets-v29",
+  "catalogHash": "f66469c7f059b8b33ce722522f5e2d6134646d8cbb2c4f94b213aa19a79859ef",
   "operationCount": 390,
   "operations": [
     {
@@ -14090,6 +14090,112 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+              "target": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "source": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": []
+              },
+              "executionPolicy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "threadCount": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "nodeFailurePolicy": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": []
+              },
+              "runner": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 262144
+              },
+              "command": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 262144
+              },
+              "inputs": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "maxLength": 262144
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 262144
+                    },
+                    "type": {
+                      "type": "string",
+                      "maxLength": 262144
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "defaultValue": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 262144
+                    },
+                    "helpText": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 262144
+                    },
+                    "optionsJson": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 262144
+                    },
+                    "order": {
+                      "type": "integer",
+                      "minimum": -2147483648,
+                      "maximum": 2147483647
+                    }
+                  },
+                  "required": []
+                }
+              },
               "name": {
                 "type": "string",
                 "maxLength": 262144
@@ -14119,8 +14225,7 @@
               }
             },
             "required": [
-              "name",
-              "clientIdentity"
+              "name"
             ]
           }
         },
@@ -38081,8 +38186,7 @@
           "operation": "create_request_definition",
           "request": {
             "body": {
-              "name": "Example",
-              "clientIdentity": "Example"
+              "name": "Example"
             }
           },
           "confirm": true
@@ -38091,8 +38195,7 @@
           "operation": "create_request_definition",
           "request": {
             "body": {
-              "name": "Example",
-              "clientIdentity": "Example"
+              "name": "Example"
             }
           },
           "confirm": false
@@ -38101,8 +38204,7 @@
           "operation": "not_a_supported_operation",
           "request": {
             "body": {
-              "name": "Example",
-              "clientIdentity": "Example"
+              "name": "Example"
             }
           },
           "confirm": true
@@ -49249,6 +49351,112 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                      "target": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "version": {
+                            "type": "integer",
+                            "minimum": -2147483648,
+                            "maximum": 2147483647
+                          },
+                          "source": {
+                            "type": "integer",
+                            "minimum": -2147483648,
+                            "maximum": 2147483647
+                          }
+                        },
+                        "required": []
+                      },
+                      "executionPolicy": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "threadCount": {
+                            "type": "integer",
+                            "minimum": -2147483648,
+                            "maximum": 2147483647
+                          },
+                          "nodeFailurePolicy": {
+                            "type": "integer",
+                            "minimum": -2147483648,
+                            "maximum": 2147483647
+                          }
+                        },
+                        "required": []
+                      },
+                      "runner": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 262144
+                      },
+                      "command": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 262144
+                      },
+                      "inputs": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "maxLength": 262144
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 262144
+                            },
+                            "type": {
+                              "type": "string",
+                              "maxLength": 262144
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "defaultValue": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 262144
+                            },
+                            "helpText": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 262144
+                            },
+                            "optionsJson": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 262144
+                            },
+                            "order": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            }
+                          },
+                          "required": []
+                        }
+                      },
                       "name": {
                         "type": "string",
                         "maxLength": 262144
@@ -49278,8 +49486,7 @@
                       }
                     },
                     "required": [
-                      "name",
-                      "clientIdentity"
+                      "name"
                     ]
                   }
                 },

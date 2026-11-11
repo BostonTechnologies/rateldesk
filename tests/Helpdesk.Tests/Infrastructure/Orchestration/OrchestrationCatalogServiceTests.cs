@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
 using Helpdesk.Application.Orchestration;
+using Helpdesk.Shared.DTOs.Orchestration;
+using System.Text.Json;
 using Helpdesk.Infrastructure.Orchestration;
 using Helpdesk.Infrastructure.Pairing;
 using NSubstitute;
@@ -61,9 +63,52 @@ public sealed class OrchestrationCatalogServiceTests
         Assert.Equal(17, Assert.Single(tenants).TenantId);
     }
 
-    private static OrchestrationCatalogService CreateSut(string responseBody)
+    [Theory]
+    [InlineData("executionGroup", 1)]
+    [InlineData("explicitNodes", 2)]
+    [InlineData("nodeFilter", 3)]
+    [InlineData("runtimeInput", 4)]
+    public async Task Modern_targets_validate_without_legacy_identity_and_preserve_large_canonical_ids(string kind, int source)
     {
-        var handler = new FixedResponseHandler(responseBody);
+        var target = new OrchestrationJobTargetDefinitionDto { Source = source };
+        if (source == 1) target.ExecutionGroupId = "11111111-1111-1111-1111-111111111111";
+        if (source == 2) target.AgentIds = ["22222222-2222-2222-2222-222222222222"];
+        if (source == 3) target.Filter = "tag = 'synthetic'";
+        if (source == 4) target.RuntimeInput = new() { Kind = 2, Name = "workers" };
+        var sut = CreateSut(JsonSerializer.Serialize(new[] { new
+        {
+            contractVersion = 2, requestDefinitionId = "9007199254740993", netRatelJobDefinitionId = "9007199254740993",
+            requestDefinitionName = "Canonical job", tenantId = 17, clientIdentity = "", inputs = Array.Empty<object>(),
+            target = new OrchestrationAutomationTargetDto { Version = 1, Kind = kind, Summary = "Synthetic execution target",
+                Readiness = "worker-check-at-run", Definition = target }
+        } }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var definition = Assert.Single(await sut.ListRequestDefinitionsAsync());
+        Assert.Equal("9007199254740993", definition.RequestDefinitionId);
+        Assert.Equal(definition.RequestDefinitionId, definition.OrchestrationJobDefinitionId);
+        Assert.Equal(kind, definition.Target!.Kind);
+        Assert.Empty(definition.ClientIdentity);
+    }
+
+    [Fact]
+    public async Task Unknown_target_contract_is_explicit_and_provider_errors_keep_sanitized_operation_code_and_reference()
+    {
+        var sut = CreateSut("""
+            [{"contractVersion":2,"requestDefinitionId":"41","requestDefinitionName":"Synthetic job","tenantId":17,
+              "inputs":[],"target":{"version":99,"kind":"future","summary":"Future target"}}]
+            """);
+        var error = await Assert.ThrowsAsync<OrchestrationProviderException>(() => sut.ListRequestDefinitionsAsync());
+        Assert.Equal("unsupported_contract", error.Error.Code);
+        var denied = CreateSut("""{"code":"target_invalid","detail":"Choose a current tenant node","correlationId":"synthetic-reference"}""", HttpStatusCode.UnprocessableEntity);
+        error = await Assert.ThrowsAsync<OrchestrationProviderException>(() => denied.ListRequestDefinitionsAsync());
+        Assert.Equal(422, error.Error.Status);
+        Assert.Equal("catalogue", error.Error.Operation);
+        Assert.Equal("target_invalid", error.Error.Code);
+        Assert.Equal("synthetic-reference", error.Error.CorrelationId);
+    }
+
+    private static OrchestrationCatalogService CreateSut(string responseBody, HttpStatusCode status = HttpStatusCode.OK)
+    {
+        var handler = new FixedResponseHandler(responseBody, status);
         var factory = Substitute.For<IHttpClientFactory>();
         factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
 
@@ -88,14 +133,14 @@ public sealed class OrchestrationCatalogServiceTests
         return new OrchestrationCatalogService(factory, tokenService, connectivity);
     }
 
-    private sealed class FixedResponseHandler(string body) : HttpMessageHandler
+    private sealed class FixedResponseHandler(string body, HttpStatusCode status) : HttpMessageHandler
     {
         private readonly string _body = body;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
-            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            => Task.FromResult(new HttpResponseMessage(status)
             {
                 Content = new StringContent(_body, Encoding.UTF8, "application/json")
             });

@@ -235,8 +235,17 @@ public interface IOrchestrationProtectedDiagnosticsClient
         bool useTokenCache = true);
 }
 
+public sealed class OrchestrationProviderException(OrchestrationProviderErrorDto error) : InvalidOperationException(error.Message)
+{
+    public OrchestrationProviderErrorDto Error { get; } = error;
+}
+
 public interface IOrchestrationCatalogService
 {
+    Task<OrchestrationAutomationCapabilitiesDto> GetCapabilitiesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)
+        => Task.FromResult(new OrchestrationAutomationCapabilitiesDto { Message = "This peer supports fixed-agent jobs. Upgrade NetRatel for target-based authoring and aggregate execution." });
+    Task<IReadOnlyList<OrchestrationAutomationTargetChoiceDto>> ListTargetChoicesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)
+        => throw new OrchestrationProviderException(new("target-choices", 501, "unsupported_contract", "Upgrade NetRatel to create jobs using tenant target choices.", null));
     Task<IReadOnlyList<OrchestrationCatalogJobDto>> ListJobsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OrchestrationCatalogTenantDto>> ListTenantsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>> ListRequestDefinitionsAsync(CancellationToken cancellationToken = default);

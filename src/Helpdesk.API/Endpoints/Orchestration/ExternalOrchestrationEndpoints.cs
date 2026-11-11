@@ -45,6 +45,21 @@ public static class ExternalOrchestrationEndpoints
             .WithName("TestOrchestrationConnectivity")
             .WithSummary("Tests the configured orchestration peer without submitting automation work");
 
+        group.MapGet("/catalog/capabilities", async ([FromQuery] string? organizationId, [FromQuery] Guid? connectionId,
+            IOrchestrationCatalogService catalog, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await catalog.GetCapabilitiesAsync(organizationId, connectionId, ct)); }
+            catch (OrchestrationProviderException error) { return Results.Json(error.Error, statusCode: error.Error.Status); }
+            catch (PairingFailure error) { return Results.Json(new { code = error.Code, message = error.Message }, statusCode: error.Status); }
+        });
+        group.MapGet("/catalog/target-choices", async ([FromQuery] string? organizationId, [FromQuery] Guid? connectionId,
+            IOrchestrationCatalogService catalog, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await catalog.ListTargetChoicesAsync(organizationId, connectionId, ct)); }
+            catch (OrchestrationProviderException error) { return Results.Json(error.Error, statusCode: error.Error.Status); }
+            catch (PairingFailure error) { return Results.Json(new { code = error.Code, message = error.Message }, statusCode: error.Status); }
+        });
+
         group.MapGet("/catalog/jobs", async (
             [FromQuery] string? organizationId,
             [FromQuery] Guid? connectionId,
@@ -58,7 +73,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -79,7 +96,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -100,7 +119,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -122,7 +143,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -161,7 +184,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -194,7 +219,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -233,7 +260,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -278,7 +307,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -298,7 +329,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -318,7 +351,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -338,7 +373,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)
@@ -358,7 +395,9 @@ public static class ExternalOrchestrationEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return ex is PairingFailure failure
+                return ex is OrchestrationProviderException provider
+                    ? Results.Json(provider.Error, statusCode: provider.Error.Status)
+                    : ex is PairingFailure failure
                     ? Results.Json(new { code = failure.Code, message = failure.Message }, statusCode: failure.Status)
                     : ex is IntegrationProviderConfigurationConflictException conflict
                         ? Results.Json(new { code = conflict.Code, message = conflict.Message }, statusCode: StatusCodes.Status409Conflict)

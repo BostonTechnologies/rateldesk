@@ -1,5 +1,15 @@
 # Releases
 
+## 0.1.3-beta.9 candidate — canonical NetRatel job automation
+
+[Release notes](../release-notes/0.1.3-beta.9.md) describe target-aware browsing,
+real job authoring and final aggregate outcomes with NetRatel 0.1.5-beta.4.
+Retain existing paired connections and upgrade NetRatel first. Publication uses
+the existing hosted workflow after reviewed merge and all **six** normal checks
+on exact final main, including the Offline HTTP MCP campaign harness. Verify
+the staged draft, public archives/checksums and all three image families before
+claiming distribution completion; stable latest remains unchanged.
+
 ## 0.1.3-beta.8 candidate — operations and change workspaces
 
 [Release notes and owner walkthrough](../release-notes/0.1.3-beta.8.md) cover
