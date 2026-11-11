@@ -77,7 +77,8 @@ Old Running rows enter the same bounded sweep without manual SQL. A trusted
 stored start and runtime snapshot determine their deadline. An active legacy
 row without a trusted start is routed immediately to visible reconciliation;
 missing attempt or remote identity prevents provider lookup and resubmission.
-Manual and approval tasks are never changed by this execution sweep. Callback
+Execution deadlines never fail or cancel manual or approval tasks. Persisted
+workflow continuations can still resume eligible tasks of each type. Callback
 and sweep races commit state, audit and queued observable effects together;
 duplicate terminal results cannot create another job, worklog or failure
 incident. Interrupted post-commit workflow continuation resumes durably.
