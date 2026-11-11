@@ -368,3 +368,33 @@ healthy single visible notification, rollback and duplicate staging are covered.
 The local test used source `a4594d65` and explicitly reused matching prerequisite
 binaries carrying beta.9 metadata; it establishes bounded behavior, not a beta.10
 release build. The final hosted integrated run rebuilds all beta.10 projects.
+
+## Integrated browser-driver corrections
+
+The first integrated deep run at `bb07f72a` exposed stale driver assumptions:
+Operations expected the old Running label; Integrations expected old connection
+prose, stacking and result placement; the generic config discovered 29 cases
+without their dedicated fixtures; and cached approver menus could satisfy a
+visibility wait before the current query was ready. A navigation locator also
+matched the recent-incidents heading instead of the primary workspace heading.
+
+The corrected real-Web owning cases passed without retries: Operations **1/1**,
+Integrations **7/7**, primary navigation **3/3**, and approver selection **10/10**
+(five normal plus five with 150 ms lookup latency). Query/paging/actions, exact
+saved mappings, duplicate stable-ID selections, scope reset and retained drafts
+remain asserted. Generic discovery retains all 34 non-fixture cases; all 29
+fixture-owned cases remain unchanged in dedicated admin/premium discovery.
+No required case was removed from its owning lane or changed to an expected skip.
+The first failed/flaky and superseded diagnostic runs are retained.
+
+These corrections change test drivers/configuration only. The complete `src`
+tree is byte-identical to `bb07f72a` (tree `0e75a6d32dc60877d53e54e6b4fdb6ec648f4be7`).
+A fresh exact-head normal/deep dispatch and native source-pair repeat remain
+required before merge; their run identities are recorded on PR #397 and #381.
+
+The second native-pair run proved both rendered pairings, incident response-loss
+replay and three native execution modes, then stopped at the ordinary self-service
+form. Its fixture had left that form InTesting, correctly denying an ordinary
+non-test user. The helper now publishes Production forms, checks real submission
+eligibility and pins FailRequest with no retries for controlled failure/uncertainty
+proof. This partial run does not complete rendered self-service business acceptance.
