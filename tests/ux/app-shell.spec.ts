@@ -277,7 +277,6 @@ test('mobile navigation auto-closes the drawer and can be reopened', async ({ br
 
   await page.getByTestId('navigation-toggle').click();
   await expectDrawerOpen(page);
-  await page.getByTestId('app-navigation-drawer').getByText('Portal', { exact: true }).click();
   const selfServiceLink = page.getByTestId('app-navigation-drawer').getByRole('link', { name: 'Self Service' });
   await expect(selfServiceLink).toBeVisible();
   await selfServiceLink.click();

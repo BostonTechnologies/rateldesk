@@ -17,7 +17,7 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     await search.fill('hardware');
     await expect(page.locator('.self-service-catalog-card')).toHaveCount(1);
     await search.fill('missing synthetic option');
-    await expect(page.getByText('No items found.')).toBeVisible();
+    await expect(page.getByText('No services or requests match your search.')).toBeVisible();
     await page.getByRole('button', { name: 'Clear', exact: true }).click();
     await expect(page.locator('.self-service-catalog-card')).toHaveCount(2);
     const bounds = await page.locator('.self-service-toolbar').boundingBox();

@@ -94,3 +94,35 @@ exact request/service IDs remain under Advanced. Local task status, binding
 health and external orchestration/reconciliation are distinct. Running is a
 status. Start, Complete, Retry and Recovery icons retain eligibility and
 permission checks; uncertain execution still requires reconciliation.
+
+## Self Service
+
+Use the single **Self Service** navigation entry. **Service Catalog** opens the
+eligible service folders and request forms; **My Requests** tracks submitted
+requests. Existing `/self-service` folder/form links and
+`/self-service/my-requests` detail links still work directly. Each section keeps
+its most recent list URL while moving between sections or opening a detail.
+Normal browser Back returns to the query that opened the detail.
+
+The catalog keeps three desktop slots even when a search finds only one or two
+cards. It reflows to two or one column based on the available content width,
+including the drawer and browser zoom. Card names and descriptions remain in
+their accessible labels. An empty folder, a search with no matches and a failed
+load have different messages; **Retry** does not change the audience or launch
+authority of a form.
+
+My Requests searches tracking IDs and titles and filters by request status,
+release stage and created/updated date ranges. Date filters are calendar dates
+in UTC; **through** includes that entire day. Displayed record timestamps use
+the current display culture and local time with their exact UTC value available.
+Request status and **In testing / Production** release stage have separate
+meanings. Ordinary users see their own eligible requests; the existing instance
+administrator exception is preserved.
+
+Column headings sort the complete authorized query on the server. The native
+pager starts at 25 rows with 25/50/100 choices. Search/filter changes return to
+the first page; a refresh clamps a page that no longer exists. Query, sort and
+page are URL-backed, so reload, detail return and section navigation retain the
+deliberate selection. A failed refresh keeps the query and last loaded rows
+with a visible retry message. **Clear filters** retains the chosen sort and page
+size. Open the explicit tracking-ID link by mouse or keyboard to view a request.

@@ -11,7 +11,7 @@ using System.Security.Claims;
 
 namespace Helpdesk.API.Endpoints.Requests;
 
-public static class SelfServiceMyRequestsEndpoints
+public static partial class SelfServiceMyRequestsEndpoints
 {
     public static void MapSelfServiceMyRequestsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -43,10 +43,34 @@ public static class SelfServiceMyRequestsEndpoints
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         [FromQuery] string? q,
+        [FromQuery] TicketState? state,
+        [FromQuery] RequestFormReleaseStatus? releaseStage,
+        [FromQuery] DateTime? createdFromUtc,
+        [FromQuery] DateTime? createdBeforeUtc,
+        [FromQuery] DateTime? updatedFromUtc,
+        [FromQuery] DateTime? updatedBeforeUtc,
+        [FromQuery] string? sortBy,
+        [FromQuery] bool? descending,
         CancellationToken token)
     {
         var resolvedPage = Math.Max(page ?? 1, 1);
-        var resolvedPageSize = Math.Clamp(pageSize ?? 10, 1, 100);
+        var resolvedPageSize = Math.Clamp(pageSize ?? 25, 1, 100);
+        createdFromUtc = NormalizeUtcQueryDate(createdFromUtc);
+        createdBeforeUtc = NormalizeUtcQueryDate(createdBeforeUtc);
+        updatedFromUtc = NormalizeUtcQueryDate(updatedFromUtc);
+        updatedBeforeUtc = NormalizeUtcQueryDate(updatedBeforeUtc);
+        var sort = (sortBy ?? "created").Trim().ToLowerInvariant();
+        if (sort is not ("created" or "updated" or "trackingid" or "title" or "state") ||
+            (state.HasValue && !Enum.IsDefined(state.Value)) ||
+            (releaseStage.HasValue && !Enum.IsDefined(releaseStage.Value)) ||
+            (createdFromUtc.HasValue && createdBeforeUtc.HasValue && createdFromUtc >= createdBeforeUtc) ||
+            (updatedFromUtc.HasValue && updatedBeforeUtc.HasValue && updatedFromUtc >= updatedBeforeUtc))
+        {
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid request filters",
+                detail: "Choose a supported sort, status and release stage, with a start date before the end date.");
+        }
+
         var access = await accessService.ResolveAsync(user, token);
         var isAdmin = access.IsHelpdeskAdmin;
         var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
@@ -57,7 +81,7 @@ public static class SelfServiceMyRequestsEndpoints
         {
             return Results.Ok(new PagedResponse<MyRequestListItemDto>
             {
-                Page = resolvedPage,
+                Page = 1,
                 PageSize = resolvedPageSize,
                 TotalCount = 0,
                 Items = []
@@ -95,15 +119,36 @@ public static class SelfServiceMyRequestsEndpoints
 
         if (!string.IsNullOrWhiteSpace(q))
         {
-            var like = $"%{q.Trim()}%";
+            var like = $"%{q.Trim().ToLowerInvariant().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_")}%";
             query = query.Where(r =>
-                EF.Functions.Like(r.Request.TrackingId, like) ||
-                EF.Functions.Like(r.Request.Title, like));
+                EF.Functions.Like(r.Request.TrackingId.ToLower(), like, "\\") ||
+                EF.Functions.Like(r.Request.Title.ToLower(), like, "\\"));
         }
 
+        if (state.HasValue) query = query.Where(r => r.Request.State == state.Value);
+        if (releaseStage.HasValue) query = query.Where(r => r.ReleaseStatus == releaseStage.Value);
+        if (createdFromUtc.HasValue) query = query.Where(r => r.Request.CreatedAt >= createdFromUtc.Value);
+        if (createdBeforeUtc.HasValue) query = query.Where(r => r.Request.CreatedAt < createdBeforeUtc.Value);
+        if (updatedFromUtc.HasValue) query = query.Where(r => (r.Request.UpdatedAt ?? r.Request.CreatedAt) >= updatedFromUtc.Value);
+        if (updatedBeforeUtc.HasValue) query = query.Where(r => (r.Request.UpdatedAt ?? r.Request.CreatedAt) < updatedBeforeUtc.Value);
+
         var totalCount = await query.CountAsync(token);
-        var items = await query
-            .OrderByDescending(r => r.Request.CreatedAt)
+        resolvedPage = Math.Min(resolvedPage, Math.Max(1, (int)Math.Ceiling(totalCount / (double)resolvedPageSize)));
+        var reverse = descending ?? true;
+        var ordered = (sort, reverse) switch
+        {
+            ("updated", true) => query.OrderByDescending(r => r.Request.UpdatedAt ?? r.Request.CreatedAt),
+            ("updated", false) => query.OrderBy(r => r.Request.UpdatedAt ?? r.Request.CreatedAt),
+            ("trackingid", true) => query.OrderByDescending(r => r.Request.TrackingId),
+            ("trackingid", false) => query.OrderBy(r => r.Request.TrackingId),
+            ("title", true) => query.OrderByDescending(r => r.Request.Title),
+            ("title", false) => query.OrderBy(r => r.Request.Title),
+            ("state", true) => query.OrderByDescending(r => r.Request.State),
+            ("state", false) => query.OrderBy(r => r.Request.State),
+            (_, false) => query.OrderBy(r => r.Request.CreatedAt),
+            _ => query.OrderByDescending(r => r.Request.CreatedAt)
+        };
+        var items = await ordered.ThenBy(r => r.Request.Id)
             .Skip((resolvedPage - 1) * resolvedPageSize)
             .Take(resolvedPageSize)
             .Select(r => new MyRequestListItemDto
@@ -140,6 +185,10 @@ public static class SelfServiceMyRequestsEndpoints
             Items = items
         });
     }
+
+    private static DateTime? NormalizeUtcQueryDate(DateTime? value) => value is null ? null
+        : value.Value.Kind == DateTimeKind.Local ? value.Value.ToUniversalTime()
+        : DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);
 
     private static async Task<IResult> GetMyRequestDetail(
         [FromRoute] string id,

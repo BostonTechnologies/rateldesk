@@ -1,137 +1,90 @@
 @page "/self-service/my-requests"
-
+@layout SelfServiceLayout
 @attribute [Authorize(Roles = "SelfService.User,HelpdeskAdmin")]
-
-@using System.Net.Http.Json
-@using Helpdesk.Shared.DTOs
 @using Helpdesk.Shared.DTOs.Request
-
-@inject IHttpClientFactory HttpClientFactory
-@inject NavigationManager Navigation
 
 <PageTitle>My Requests</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="helpdesk-page self-service-records-page">
-    <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Class="helpdesk-page-header">
-            <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">My Requests</MudText>
-            <MudSpacer />
-            <MudTextField @bind-Value="searchText"
-                          Placeholder="Search tracking ID or title"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.Search"
-                          Immediate="true"
-                          OnKeyUp="@(async _ => await DebouncedReloadAsync())"
-                          Margin="Margin.Dense"
-                          Variant="Variant.Outlined"
-                          Class="self-service-records-search" />
-        </MudStack>
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="helpdesk-page">
+  <section class="my-requests-workspace" aria-label="My Requests">
+    <header class="my-requests-heading">
+        <div>
+            <MudText Typo="Typo.h4" HtmlTag="h1">My Requests</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Track your submitted requests and their progress.</MudText>
+        </div>
+        <MudButton Href="@(SectionNavigation?.CatalogUrl ?? "/self-service")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">Browse services</MudButton>
+    </header>
 
-        <MudTable T="MyRequestListItemDto"
-                  @ref="table"
-                  Hover="true"
-                  Dense="true"
-                  ServerData="LoadData"
-                  OnRowClick="OnRowClick"
-                  Breakpoint="Breakpoint.Sm"
-                  Class="helpdesk-table">
-            <HeaderContent>
-                <MudTh>Tracking ID</MudTh>
-                <MudTh>Title</MudTh>
-                <MudTh>Release</MudTh>
-                <MudTh>Status</MudTh>
-                <MudTh>Created</MudTh>
-                <MudTh>Updated</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Tracking ID">@context.TrackingId</MudTd>
-                <MudTd DataLabel="Title">@context.Title</MudTd>
-                <MudTd DataLabel="Release">
-                    @if (context.ReleaseStatus.HasValue)
-                    {
-                        <MudChip T="string"
-                                 Size="Size.Small"
-                                 Variant="Variant.Outlined"
-                                 Color="@(context.ReleaseStatus == Helpdesk.Shared.Models.RequestFormReleaseStatus.Production ? Color.Success : Color.Warning)">
-                            @(context.ReleaseStatus == Helpdesk.Shared.Models.RequestFormReleaseStatus.Production ? "Production" : "In Testing")
-                        </MudChip>
-                    }
-                </MudTd>
-                <MudTd DataLabel="Status">@context.State</MudTd>
-                <MudTd DataLabel="Created">@context.CreatedAt.LocalDateTime.ToString("g")</MudTd>
-                <MudTd DataLabel="Updated">@((context.UpdatedAt ?? context.CreatedAt).LocalDateTime.ToString("g"))</MudTd>
-            </RowTemplate>
-            <NoRecordsContent>
-                <MudText Typo="Typo.body2">No requests found.</MudText>
-            </NoRecordsContent>
-        </MudTable>
-    </MudPaper>
-</MudContainer>
-
-<style>
-    .self-service-records-search {
-        width: min(100%, 360px);
-    }
-
-    @@media (max-width: 600px) {
-        .self-service-records-search {
-            width: 100%;
-        }
-    }
-</style>
-
-@code {
-    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
-    private MudTable<MyRequestListItemDto>? table;
-    private string? searchText;
-    private CancellationTokenSource? debounceCts;
-
-    private async Task<TableData<MyRequestListItemDto>> LoadData(TableState state, CancellationToken token)
-    {
-        var page = state.Page + 1;
-        var pageSize = state.PageSize <= 0 ? 10 : state.PageSize;
-
-        var url = $"api/v1/self-service/requests?page={page}&pageSize={pageSize}";
-        if (!string.IsNullOrWhiteSpace(searchText))
-        {
-            url += $"&q={Uri.EscapeDataString(searchText.Trim())}";
-        }
-
-        var response = await Api.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>(url, token)
-            ?? new PagedResponse<MyRequestListItemDto>();
-
-        return new TableData<MyRequestListItemDto>
-        {
-            Items = response.Items ?? new List<MyRequestListItemDto>(),
-            TotalItems = response.TotalCount
-        };
-    }
-
-    private void OnRowClick(TableRowClickEventArgs<MyRequestListItemDto> args)
-    {
-        if (args.Item is null)
-        {
-            return;
-        }
-
-        Navigation.NavigateTo($"/self-service/my-requests/{args.Item.Id}");
-    }
-
-    private async Task DebouncedReloadAsync()
-    {
-        debounceCts?.Cancel();
-        debounceCts = new CancellationTokenSource();
-
-        try
-        {
-            await Task.Delay(300, debounceCts.Token);
-            if (table is not null)
+    <MudPaper Class="helpdesk-content-surface" Elevation="0">
+      <div class="my-requests-toolbar" role="search" aria-label="Filter My Requests">
+        <MudTextField T="string" Value="_search" ValueChanged="SearchChangedAsync" Label="Search tracking ID or title" Clearable="true"
+                      Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Margin="Margin.Dense" Variant="Variant.Outlined" Class="my-requests-search" />
+        <MudSelect T="int?" @bind-Value="_state" @bind-Value:after="FiltersChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+            <MudSelectItem T="int?" Value="@((int?)null)">All statuses</MudSelectItem>
+            @foreach (var status in Enum.GetValues<TicketState>())
             {
-                await table.ReloadServerData();
+                <MudSelectItem T="int?" Value="@((int?)status)">@StatusText(status)</MudSelectItem>
             }
-        }
-        catch (TaskCanceledException)
-        {
-        }
-    }
-}
+        </MudSelect>
+        <MudSelect T="int?" @bind-Value="_release" @bind-Value:after="FiltersChanged" Label="Release stage" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+            <MudSelectItem T="int?" Value="@((int?)null)">All release stages</MudSelectItem>
+            <MudSelectItem T="int?" Value="@((int?)RequestFormReleaseStatus.Production)">Production</MudSelectItem>
+            <MudSelectItem T="int?" Value="@((int?)RequestFormReleaseStatus.InTesting)">In testing</MudSelectItem>
+        </MudSelect>
+        <div class="my-requests-toolbar-actions">
+            <MudButton OnClick="ClearFilters" Disabled="@(!HasFilters)" StartIcon="@Icons.Material.Filled.FilterAltOff">Clear filters</MudButton>
+            <MudTooltip Text="Refresh requests"><MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Refresh requests" OnClick="RefreshAsync" Disabled="_loading" /></MudTooltip>
+        </div>
+      </div>
+      <MudExpansionPanels Elevation="0" Class="my-requests-date-panel">
+        <MudExpansionPanel Text="@DateFilterLabel" Dense="true">
+          <div class="my-requests-dates">
+            <MudDatePicker @bind-Date="_createdFrom" @bind-Date:after="FiltersChanged" Label="Created from (UTC)" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudDatePicker @bind-Date="_createdThrough" @bind-Date:after="FiltersChanged" Label="Created through (UTC)" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudDatePicker @bind-Date="_updatedFrom" @bind-Date:after="FiltersChanged" Label="Updated from (UTC)" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudDatePicker @bind-Date="_updatedThrough" @bind-Date:after="FiltersChanged" Label="Updated through (UTC)" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+          </div>
+        </MudExpansionPanel>
+      </MudExpansionPanels>
+      <div class="my-requests-result-summary" role="status" aria-live="polite">
+        @ResultsSummary
+      </div>
+      @if (_loadError is not null)
+      {
+          <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" role="alert">
+              @_loadError <MudButton OnClick="RefreshAsync" Size="Size.Small">Retry</MudButton>
+          </MudAlert>
+      }
+      <div class="my-requests-table-region">
+        <MudTable T="MyRequestListItemDto" @ref="_table" ServerData="LoadDataAsync" Hover="true" Dense="true" AllowUnsorted="false"
+                  RowsPerPage="_pageSize" RowsPerPageChanged="PageSizeChanged" CurrentPage="_currentPage" CurrentPageChanged="PageChanged"
+                  FixedHeader="true" FixedFooter="true" Height="clamp(12rem, calc(100dvh - 31rem), 44rem)" Breakpoint="Breakpoint.None" Class="helpdesk-table my-requests-table">
+          <HeaderContent>
+              <MudTh Class="my-requests-tracking" aria-sort="@AriaSortFor("trackingId")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("trackingId")" aria-label="Sort by tracking ID" OnClick="@(() => ToggleSortAsync("trackingId"))">Tracking ID</MudButton></MudTh>
+              <MudTh aria-sort="@AriaSortFor("title")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("title")" aria-label="Sort by title" OnClick="@(() => ToggleSortAsync("title"))">Title</MudButton></MudTh>
+              <MudTh>Release stage</MudTh>
+              <MudTh aria-sort="@AriaSortFor("state")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("state")" aria-label="Sort by status" OnClick="@(() => ToggleSortAsync("state"))">Status</MudButton></MudTh>
+              <MudTh aria-sort="@AriaSortFor("created")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("created")" aria-label="Sort by created time" OnClick="@(() => ToggleSortAsync("created"))">Created</MudButton></MudTh>
+              <MudTh aria-sort="@AriaSortFor("updated")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("updated")" aria-label="Sort by updated time" OnClick="@(() => ToggleSortAsync("updated"))">Updated</MudButton></MudTh>
+          </HeaderContent>
+          <RowTemplate>
+              <MudTd DataLabel="Tracking ID" Class="my-requests-tracking"><a href="@($"/self-service/my-requests/{Uri.EscapeDataString(context.Id)}")" aria-label="@($"Open request {context.TrackingId}: {context.Title}")">@context.TrackingId</a></MudTd>
+              <MudTd DataLabel="Title"><span class="my-requests-title" title="@context.Title">@context.Title</span></MudTd>
+              <MudTd DataLabel="Release stage"><span class="my-requests-metadata">@(context.ReleaseStatus is null ? "—" : context.ReleaseStatus == RequestFormReleaseStatus.Production ? "Production" : "In testing")</span></MudTd>
+              <MudTd DataLabel="Status"><span class="my-requests-status">@StatusText(context.State)</span></MudTd>
+              <MudTd DataLabel="Created"><time datetime="@context.CreatedAt.ToString("O")" title="@context.CreatedAt.ToString("O")">@context.CreatedAt.LocalDateTime.ToString("g")</time></MudTd>
+              <MudTd DataLabel="Updated"><time datetime="@((context.UpdatedAt ?? context.CreatedAt).ToString("O"))" title="@((context.UpdatedAt ?? context.CreatedAt).ToString("O"))">@((context.UpdatedAt ?? context.CreatedAt).LocalDateTime.ToString("g"))</time></MudTd>
+          </RowTemplate>
+          <NoRecordsContent>
+              @if (_loadError is null)
+              {
+                  <MudText Class="pa-6">@(HasFilters ? "No requests match these filters. Try clearing a filter." : "You have no submitted requests. Browse the Service Catalog to get started.")</MudText>
+              }
+          </NoRecordsContent>
+          <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" ShowFirstLast="true" aria-label="My Requests pagination" /></PagerContent>
+        </MudTable>
+      </div>
+    </MudPaper>
+  </section>
+</MudContainer>

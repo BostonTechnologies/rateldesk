@@ -4,10 +4,7 @@
     <HelpdeskNavLink Href="home" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home" Title="Home">Home</HelpdeskNavLink>
 
     <AuthorizeView Roles="SelfService.User,HelpdeskAdmin">
-        <HelpdeskNavGroup Title="Portal" RoutePrefixes="@PortalRoutes" Icon="@Icons.Material.Filled.Apps">
-            <HelpdeskNavLink Href="self-service" Match="NavLinkMatch.Prefix" ExcludedRoutes="@MyRequestRoutes" Icon="@Icons.Material.Filled.Storefront" Title="Self Service">Self Service</HelpdeskNavLink>
-            <HelpdeskNavLink Href="self-service/my-requests" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ReceiptLong" Title="My Requests">My Requests</HelpdeskNavLink>
-        </HelpdeskNavGroup>
+        <HelpdeskNavLink Href="self-service" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Storefront" Title="Self Service">Self Service</HelpdeskNavLink>
     </AuthorizeView>
 
     <AuthorizeView Roles="Incident.User,Incident.Read,Incident.Write,Incident.Manager,Request.User,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.User,Change.Read,Change.Write,Change.Manager,DataManagement.Admin,HelpdeskAdmin">
@@ -127,8 +124,6 @@
 </nav>
 
 @code {
-    private static readonly string[] PortalRoutes = ["self-service"];
-    private static readonly string[] MyRequestRoutes = ["self-service/my-requests"];
     private static readonly string[] WorkspaceRoutes = ["incidents", "requests", "tasks", "changes"];
     private static readonly string[] OperationsRoutes = ["ops", "notifications", "ai/chat", "ai/ops", "ai/prompts"];
     private static readonly string[] AiRoutes = ["ai/chat", "ai/ops", "ai/prompts"];

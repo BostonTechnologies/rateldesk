@@ -1,0 +1,45 @@
+.self-service-workspace {
+    min-width: 0;
+}
+
+.self-service-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0 auto 1rem;
+    padding: 0 1.5rem;
+    max-width: 96rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.self-service-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 3px solid transparent;
+    color: var(--mud-palette-text-secondary);
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.self-service-tab.active {
+    color: var(--mud-palette-primary);
+    border-bottom-color: var(--mud-palette-primary);
+}
+
+.self-service-tab:hover {
+    background: var(--mud-palette-action-default-hover);
+}
+
+.self-service-tab:focus-visible {
+    outline: 2px solid var(--mud-palette-primary);
+    outline-offset: -3px;
+}
+
+@media (max-width: 599px) {
+    .self-service-tabs { padding: 0 0.5rem; }
+    .self-service-tab { flex: 1 1 0; padding-inline: 0.5rem; }
+}

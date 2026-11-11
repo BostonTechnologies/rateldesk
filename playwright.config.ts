@@ -19,7 +19,7 @@ export default defineConfig({
   // dedicated configurations run in the workspace-ux acceptance job.
   testIgnore: [...testIgnore, '**/login-presentation.spec.ts', '**/assignee-picker.spec.ts',
     '**/email-display.spec.ts', '**/ticket-filters.spec.ts', '**/ticket-customer-layout.spec.ts', '**/ticket-details.spec.ts', '**/ticket-details-roles.spec.ts',
-    '**/operations-workspace.spec.ts', '**/request-editor.spec.ts', '**/pending-mail.spec.ts', '**/native-zoom.spec.ts'],
+    '**/operations-workspace.spec.ts', '**/request-editor.spec.ts', '**/pending-mail.spec.ts', '**/native-zoom.spec.ts', '**/self-service-workspace.spec.ts', '**/self-service-submission.spec.ts'],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

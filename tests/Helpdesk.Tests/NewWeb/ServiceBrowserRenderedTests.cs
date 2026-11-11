@@ -31,7 +31,7 @@ public sealed class ServiceBrowserRenderedTests
         search.Input("hardware");
         page.WaitForAssertion(() => Assert.Equal("Hardware", Assert.Single(page.FindAll(".self-service-card-title")).TextContent));
         page.Find("input").Input("unmatched synthetic term");
-        page.WaitForAssertion(() => Assert.Contains("No items found.", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("No services or requests match your search.", page.Markup));
         page.Find("button[aria-label='Clear']").Click();
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".self-service-catalog-card").Count));
         Assert.Contains("3 requests", page.Markup);

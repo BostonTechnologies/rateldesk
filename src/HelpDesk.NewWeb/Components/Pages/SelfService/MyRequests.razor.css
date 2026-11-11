@@ -1,0 +1,28 @@
+.my-requests-workspace { min-width: 0; }
+.my-requests-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.my-requests-toolbar { display: grid; grid-template-columns: minmax(15rem, 2fr) minmax(10rem, 1fr) minmax(10rem, 1fr) auto; gap: 0.75rem; align-items: center; padding: 1rem; }
+.my-requests-toolbar ::deep .mud-input-control { margin-top: 0; }
+.my-requests-toolbar-actions { display: flex; align-items: center; white-space: nowrap; }
+.my-requests-dates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+.my-requests-result-summary { padding: 0.5rem 1rem; color: var(--mud-palette-text-secondary); font-size: 0.875rem; }
+.my-requests-table-region { min-width: 0; }
+.my-requests-table-region ::deep .mud-table-container { overscroll-behavior: contain; }
+.my-requests-table-region ::deep table { min-width: 57rem; }
+.my-requests-table-region ::deep th { background: var(--mud-palette-surface); }
+.my-requests-table-region ::deep .my-requests-sort { padding: 0.25rem 0; text-transform: none; white-space: nowrap; font-size: 0.875rem; }
+.my-requests-table-region ::deep td { font-size: 0.875rem; }
+.my-requests-table-region ::deep .my-requests-tracking { width: 11rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.my-requests-table-region ::deep time, .my-requests-status, .my-requests-metadata { white-space: nowrap; }
+.my-requests-title { display: block; min-width: 12rem; max-width: 32rem; overflow-wrap: anywhere; }
+.my-requests-metadata { color: var(--mud-palette-text-secondary); }
+.my-requests-table-region ::deep .mud-table-pagination { flex-wrap: nowrap; overflow-x: auto; }
+.my-requests-table-region ::deep a:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+@media (max-width: 1199px) {
+    .my-requests-toolbar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .my-requests-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 599px) {
+    .my-requests-heading { align-items: flex-start; flex-direction: column; }
+    .my-requests-toolbar { grid-template-columns: minmax(0, 1fr); }
+    .my-requests-dates { grid-template-columns: minmax(0, 1fr); }
+}
