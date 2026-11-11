@@ -1,57 +1,67 @@
 @page "/admin/organizations"
 @attribute [Authorize(Roles = "Tenant.Roles.Assign,Tenant.Settings.Manage,HelpdeskAdmin")]
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationState
-
-@using Helpdesk.Shared.DTOs.Orchestration
-@using Helpdesk.Shared.DTOs.Organization
+@using HelpDesk.NewWeb.Models
 @using HelpDesk.NewWeb.Components.Pages.Admin.User
-@using MudBlazor
 
-<PageTitle>Organization Management</PageTitle>
+<PageTitle>Organizations</PageTitle>
 
 <AuthorizeView Roles="HelpdeskAdmin" Context="instanceAdmin">
 <Authorized Context="instanceAdministrator">
-<MudPaper Class="pa-4">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <MudText Typo="Typo.h5">Organization Management</MudText>
-        <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateDialog">Create</MudButton>
-    </MudStack>
-
-    <MudTextField @bind-Value="searchText" Label="Search organizations" Variant="Variant.Outlined"
-                  Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                  Class="mb-4" Style="min-width: 260px;" />
-
-    <MudTable Items="FilteredOrganizations" Hover="true" Dense="true" T="OrganizationDto">
-        <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Contact Info</MudTh>
-            <MudTh>MSP</MudTh>
-            <MudTh>State</MudTh>
-            <MudTh>External orchestration Tenant</MudTh>
-            <MudTh class="text-end"></MudTh>
-        </HeaderContent>
-        <RowTemplate Context="row">
-            <MudTd DataLabel="Name">@row.Name</MudTd>
-            <MudTd DataLabel="Contact Info">@row.ContactInfo</MudTd>
-            <MudTd DataLabel="MSP">@GetMspOrganizationName(row.ItSupportOrganizationId)</MudTd>
-            <MudTd DataLabel="State">
-                <MudChip T="string" Color="@(row.IsEnabled ? Color.Success : Color.Error)" Variant="Variant.Outlined" Dense="true">
-                    @(row.IsEnabled ? "Enabled" : "Disabled")
-                </MudChip>
-            </MudTd>
-            <MudTd DataLabel="External orchestration Tenant">@GetOrchestrationTenantDisplayName(row)</MudTd>
-            <MudTd Class="text-end">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" Size="Size.Small" aria-label="Edit organization" OnClick="() => OpenEditDialog(row)" />
-                <MudIconButton Icon="@Icons.Material.Filled.SupportAgent" Color="Color.Info" Size="Size.Small" aria-label="Support routing" OnClick="() => OpenSupportRouting(row)" />
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" aria-label="Delete organization" OnClick="() => OpenDeleteDialog(row)" />
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-</MudPaper>
+<AdminDirectoryWorkspace Title="Organizations" Subtitle="Review customer organizations, support routing and saved orchestration mappings."
+                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="source.Error" OnRefresh="ReloadAsync">
+    <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create organization</MudButton></PrimaryAction>
+    <ToolbarContent>
+        <MudTextField T="string" Value="query.Search" ValueChanged="SearchChangedAsync" Label="Search name, DNS or contact"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" MaxLength="120" />
+        <MudSelect T="string" Value="@(query.Get("enabled") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("enabled", value))" Label="State" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All states</MudSelectItem><MudSelectItem Value="@("true")">Enabled</MudSelectItem><MudSelectItem Value="@("false")">Disabled</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="string" Value="@(query.Get("linked") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("linked", value))" Label="Orchestration mapping" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All mappings</MudSelectItem><MudSelectItem Value="@("true")">Linked</MudSelectItem><MudSelectItem Value="@("false")">Not linked</MudSelectItem>
+        </MudSelect>
+        @if (query.Get("supportOrganizationId") != "self")
+        { <OrganizationDirectorySelector Label="Support organization" Value="@query.Get("supportOrganizationId")" ValueChanged="@(value => FilterChangedAsync("supportOrganizationId", value))" /> }
+        <MudCheckBox T="bool" Value="@(query.Get("supportOrganizationId") == "self")" ValueChanged="@(value => FilterChangedAsync("supportOrganizationId", value ? "self" : null))" Label="Self-managed only" />
+        <MudButton OnClick="ClearAsync" Disabled="@(!query.HasFilters)" StartIcon="@Icons.Material.Outlined.FilterAltOff">Clear filters</MudButton>
+    </ToolbarContent>
+    <ChildContent>
+        <MudTable T="OrganizationDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
+                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
+            <HeaderContent>
+                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="name" InitialDirection="@query.Direction("name")">Organization</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="contact" InitialDirection="@query.Direction("contact")">Contact</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="support" InitialDirection="@query.Direction("support")">Support organization</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="state" InitialDirection="@query.Direction("state")">State</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="OrganizationDto" SortLabel="orchestration" InitialDirection="@query.Direction("orchestration")">Orchestration</MudTableSortLabel></MudTh>
+                <MudTh Class="directory-action-column">Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Organization"><span class="directory-primary">@context.Name</span><span class="directory-secondary">@context.DnsName</span></MudTd>
+                <MudTd DataLabel="Contact"><span class="directory-description">@(context.ContactInfo ?? "—")</span></MudTd>
+                <MudTd DataLabel="Support organization">@(string.IsNullOrWhiteSpace(context.ItSupportOrganizationId) ? "Self-managed" : context.SupportOrganizationName ?? "Saved support organization (unavailable)")</MudTd>
+                <MudTd DataLabel="State">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
+                <MudTd DataLabel="Orchestration">
+                    @if (context.OrchestrationTenantId is { } tenantId)
+                    { <span title="@($"Saved tenant {tenantId}; linked {context.OrchestrationTenantLinkedAtUtc:O}")">@(context.OrchestrationTenantName ?? "Saved tenant (name unavailable)")</span><span class="directory-secondary">Saved mapping · tenant @tenantId</span> }
+                    else { <span>Not linked</span> }
+                </MudTd>
+                <MudTd DataLabel="Actions"><div class="directory-actions">
+                    <WorkspaceAction Label="Edit organization" Icon="@Icons.Material.Outlined.Edit" OnClick="() => OpenEditDialog(context)" />
+                    <WorkspaceAction Label="Support routing" Icon="@Icons.Material.Outlined.SupportAgent" OnClick="() => OpenSupportRouting(context)" />
+                    <WorkspaceAction Label="Delete organization" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="() => OpenDeleteDialog(context)" />
+                </div></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No organizations match these filters." : "No organizations yet. Create an organization to begin.")</MudText></NoRecordsContent>
+            <LoadingContent><MudText>Loading organizations…</MudText></LoadingContent>
+            <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" ShowFirstLast="true" /></PagerContent>
+        </MudTable>
+    </ChildContent>
+</AdminDirectoryWorkspace>
 </Authorized>
 <NotAuthorized Context="delegatedAdministrator">
     <MudTabs ActivePanelIndex="@DelegatedTabIndex">
@@ -62,82 +72,57 @@
 </AuthorizeView>
 
 @code {
-    [SupplyParameterFromQuery(Name = "search")]
-    public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "search")] public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "enabled")] public string? QueryEnabled { get; set; }
+    [SupplyParameterFromQuery(Name = "linked")] public string? QueryLinked { get; set; }
+    [SupplyParameterFromQuery(Name = "supportOrganizationId")] public string? QuerySupportOrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? QueryPage { get; set; }
+    [SupplyParameterFromQuery(Name = "pageSize")] public string? QueryPageSize { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "descending")] public string? QueryDescending { get; set; }
     [SupplyParameterFromQuery(Name = "section")] public string? Section { get; set; }
     [SupplyParameterFromQuery(Name = "organizationId")] public string? OrganizationId { get; set; }
-
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private List<OrganizationDto> organizations = new();
-    private List<OrchestrationCatalogTenantDto> orchestrationTenants = new();
-    private string searchText = string.Empty;
-    private bool isInstanceAdministrator;
+    private readonly AdminDirectoryQueryState query = new("enabled", "linked", "supportOrganizationId");
+    private readonly AdminDirectoryDataSource<OrganizationDto> source = new();
+    private MudTable<OrganizationDto>? table;
     private bool canAssignTenantRoles;
-    private int DelegatedTabIndex => string.Equals(Section, "settings", StringComparison.OrdinalIgnoreCase)
-        ? 0
-        : string.Equals(Section, "members", StringComparison.OrdinalIgnoreCase) || canAssignTenantRoles ? 1 : 0;
-
-    private IEnumerable<OrganizationDto> FilteredOrganizations => organizations
-        .Where(org => string.IsNullOrWhiteSpace(searchText)
-            || (org.Name?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)
-            || (org.DnsName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)
-            || (org.ContactInfo?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .OrderBy(org => org.Name, StringComparer.OrdinalIgnoreCase);
-
+    private int DelegatedTabIndex => string.Equals(Section, "settings", StringComparison.OrdinalIgnoreCase) ? 0 : string.Equals(Section, "members", StringComparison.OrdinalIgnoreCase) || canAssignTenantRoles ? 1 : 0;
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
-        isInstanceAdministrator = user.IsInRole("HelpdeskAdmin");
-        canAssignTenantRoles = user.IsInRole("Tenant.Roles.Assign") || isInstanceAdministrator;
-        if (!isInstanceAdministrator) return;
-        searchText = QuerySearch ?? string.Empty;
-        await LoadOrganizations();
+        canAssignTenantRoles = user.IsInRole("Tenant.Roles.Assign") || user.IsInRole("HelpdeskAdmin");
     }
-
-    private async Task LoadOrganizations()
+    protected override void OnParametersSet() { if (query.Read(NavigationManager.Uri) && table is not null) _ = table.ReloadServerData(); }
+    private async Task<TableData<OrganizationDto>> LoadAsync(TableState state, CancellationToken ct)
     {
-        organizations = await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new();
-        try
-        {
-            orchestrationTenants = await HelpdeskApi.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>(
-                "api/v1/admin/orchestration/catalog/tenants") ?? new();
-        }
-        catch
-        {
-            orchestrationTenants = new();
-        }
+        var loading = source.LoadAsync(HelpdeskApi, query.ApiUrl("api/v1/admin/directories/organizations", state), ct);
+        await InvokeAsync(StateHasChanged);
+        var data = await loading;
+        if (source.Error is null) query.Page = source.Page;
+        query.Remember(NavigationManager); await InvokeAsync(StateHasChanged); return data;
     }
-
-    private string GetMspOrganizationName(string? organizationId) => string.IsNullOrWhiteSpace(organizationId)
-        ? "Self-managed"
-        : organizations.FirstOrDefault(org => string.Equals(org.Id, organizationId, StringComparison.OrdinalIgnoreCase))?.Name ?? organizationId;
-
-    private string GetOrchestrationTenantDisplayName(OrganizationDto organization)
-    {
-        if (organization.OrchestrationTenantId is not { } tenantId) return "Not linked";
-        return orchestrationTenants.FirstOrDefault(tenant => tenant.TenantId == tenantId)?.Name
-            ?? organization.OrchestrationTenantName
-            ?? $"Tenant {tenantId}";
-    }
-
+    private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
+    private async Task ResetPageAsync() { query.Page = 0; query.Remember(NavigationManager); if (table is not null) { table.NavigateTo(0); await table.ReloadServerData(); } }
+    private Task SearchChangedAsync(string? value) { query.Search = value; return ResetPageAsync(); }
+    private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
+    private Task ClearAsync() { query.Clear(); return ResetPageAsync(); }
     private async Task OpenCreateDialog()
     {
         var dialog = await DialogService.ShowAsync<CreateOrganizationDialog>("Create Organization", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
-        if (!(await dialog.Result).Canceled) await LoadOrganizations();
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
     private async Task OpenEditDialog(OrganizationDto organization)
     {
+        var organizations = await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
         var dialog = await DialogService.ShowAsync<EditOrganizationDialog>("Edit Organization", new DialogParameters { ["Organization"] = organization, ["Organizations"] = organizations }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
-        if (!(await dialog.Result).Canceled) await LoadOrganizations();
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
     private async Task OpenDeleteDialog(OrganizationDto organization)
     {
         var dialog = await DialogService.ShowAsync<DeleteOrganizationDialog>("Delete Organization", new DialogParameters { ["Organization"] = organization }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall });
-        if (!(await dialog.Result).Canceled) await LoadOrganizations();
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
-    private void OpenSupportRouting(OrganizationDto organization)
-        => NavigationManager.NavigateTo($"/admin/support-routing?organizationId={Uri.EscapeDataString(organization.Id)}");
+    private void OpenSupportRouting(OrganizationDto organization) => NavigationManager.NavigateTo($"/admin/support-routing?organizationId={Uri.EscapeDataString(organization.Id)}");
+    public void Dispose() => source.Dispose();
 }

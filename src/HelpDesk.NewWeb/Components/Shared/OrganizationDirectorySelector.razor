@@ -1,0 +1,45 @@
+@implements IDisposable
+@inject IHttpClientFactory HttpClientFactory
+
+<MudAutocomplete T="TenantLookupDto" Label="@Label" Value="selected" ValueChanged="SelectAsync"
+                 SearchFunc="SearchAsync" ToStringFunc="@(row => row?.Name ?? string.Empty)"
+                 Clearable="true" ResetValueOnEmptyText="true" CoerceText="false" MinCharacters="0" MaxItems="50"
+                 DebounceInterval="300" Variant="Variant.Outlined" Margin="Margin.Dense" Error="@(error is not null)" ErrorText="@error" />
+
+@code {
+    [Parameter] public string Label { get; set; } = "Organization";
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    private TenantLookupDto? selected;
+    private string? appliedId;
+    private string? error;
+    private readonly CancellationTokenSource lifetime = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Value == appliedId) return;
+        appliedId = Value;
+        if (string.IsNullOrWhiteSpace(Value)) { selected = null; return; }
+        var id = Value;
+        try
+        {
+            var rows = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<TenantLookupDto>>(
+                $"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(id)}", lifetime.Token);
+            if (Value == id) selected = rows?.SingleOrDefault() ?? new TenantLookupDto { Id = id, Name = "Saved organization (unavailable)" };
+        }
+        catch (HttpRequestException) { error = "Organization names are unavailable. The saved filter is retained."; }
+    }
+
+    private async Task<IEnumerable<TenantLookupDto>> SearchAsync(string? search, CancellationToken cancellationToken)
+    {
+        error = null;
+        try
+        {
+            return await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<TenantLookupDto>>(
+                $"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", cancellationToken) ?? [];
+        }
+        catch (HttpRequestException) { error = "Organizations could not be loaded. Try searching again."; return []; }
+    }
+    private async Task SelectAsync(TenantLookupDto? value) { selected = value; appliedId = value?.Id; await ValueChanged.InvokeAsync(value?.Id); }
+    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
+}

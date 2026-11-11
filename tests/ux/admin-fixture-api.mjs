@@ -1,10 +1,13 @@
 // Synthetic loopback fixture. Real authorization and provider persistence are tested separately.
 import http from 'node:http';
+import { handleDirectoryRequest, resetDirectories } from './admin-directories-fixture.mjs';
+import { handleTeamDirectory, resetTeamDirectory } from './team-directory-fixture.mjs';
 const organizations = [{ id: 'org-1', name: 'Atlas Tenant', itSupportOrganizationId: 'provider' }, { id: 'org-2', name: 'Birch Tenant', itSupportOrganizationId: 'provider' }, { id: 'provider', name: 'Support Provider' }];
 const users = [{ id: 'user-1', name: 'Synthetic Operator', email: 'operator@example.test', organizationId: 'org-1' }];
 let roles, datasets, calendars, subscriptions, settings, graph, coverage, saves, reads, fault, createResults, credentials, graphTests, importStatuses, graphRows, attempts, creationOrganizations;
 const clone = value => JSON.parse(JSON.stringify(value));
 function reset() {
+ resetDirectories(); resetTeamDirectory();
  saves = []; reads = []; attempts = []; graphTests = []; fault = ''; createResults = new Map(); credentials = new Map(); importStatuses = {}; graphRows = {}; creationOrganizations = clone(organizations);
  roles = [{ id: 'built', key: 'builtin-reader', name: 'Identical display name', scope: 1, ownerOrganizationId: null, isBuiltIn: true, isProtected: true, permissions: ['Incident.Read'], assignmentCount: 1250 },
  { id: 'custom', key: 'synthetic-custom', name: 'Identical display name', scope: 1, ownerOrganizationId: 'org-1', isBuiltIn: false, isProtected: false, permissions: ['Incident.Read', 'Request.Read'], assignmentCount: 1 }];
@@ -24,6 +27,8 @@ http.createServer(async (req, res) => {
  if (path === '/fixture/reset') { reset(); return reply({ ok: true }); }
  if (path === '/fixture/state') return reply({ saves, reads, roles, datasets, settings, subscriptions, graph, graphTests, importStatuses, attempts, credentials: Object.fromEntries(credentials) });
  if (path === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; if(fault==='no-datasets')datasets=[]; if(fault==='many-organizations')creationOrganizations.push(...Array.from({length:40},(_,i)=>({id:`many-org-${i}`,name:`Synthetic organization ${String(i).padStart(2,'0')}`}))); if(fault==='built-in-zero'||fault==='unknown-graph-count'){datasets.push(...[1,2,3,4].map(type=>({...clone(datasets[0]),id:`graph-${type}`,name:`Graph source ${type}`,sourceType:type})));Object.assign(graph['org-1'],{enableUsers:true,enableDevices:true,enableGroups:true,enableSharePointSites:true});} if(fault==='graph-existing'){graph['org-1']={...graph['org-1'],tenantId:'existing-tenant',clientId:'existing-client',hasStoredSecret:true,credentialRevision:'stored-revision',enableUsers:true,backgroundSyncEnabled:true,backgroundSyncCronExpression:'0 2 * * *'};} if (fault === 'no-custom') roles = roles.filter(x => x.isBuiltIn); if (fault === 'many-roles') roles.push(...Array.from({ length: 60 }, (_, i) => ({ ...roles.find(x => !x.isBuiltIn), id: `many-${i}`, key: `many-${i}`, name: `Custom role ${String(i).padStart(2, '0')}`, assignmentCount: 0 }))); return reply({ ok: true }); }
+ if (await handleTeamDirectory(req, res, url)) return;
+ if (await handleDirectoryRequest(req, res, url)) return;
  if (path.endsWith('/system/token')) {
   const mode = req.headers['x-system-secret'];
   const permissions = mode === 'admin-fixture-reader' ? ['Incident.Read'] : mode === 'admin-fixture-delegate' ? ['Tenant.Roles.Assign', 'DataManagement.Admin'] : ['HelpdeskAdmin'];
