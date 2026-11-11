@@ -29,9 +29,51 @@ The provider can retry the same callback; RatelDesk does not learn remote IDs
 from an early callback. Stale attempts, foreign mappings and conflicting or
 partial identities remain denied.
 
-Upgrade both products and pair afresh. Previous manual/deployment NetRatel
-connection profiles are retired; the new pairing model is the sole setup path.
+When upgrading from retired manual/deployment NetRatel profiles, upgrade both
+products and use system pairing. Existing saved paired connections retain their
+IDs and mappings; the deadline and self-submission repairs do not require
+re-pairing or another credential.
 The independent Netclaw integration and API/MCP credentials are unchanged.
+
+## Durable execution deadlines and recovery
+
+An automation attempt persists its start, correlation identity and deadline
+before contacting the saved connection. The positive snapshotted hard timeout
+is the maximum local attempt window. If a legacy hard timeout is missing or
+invalid, use its positive expected runtime plus nonnegative grace; missing or
+invalid values fall back to the existing 30-minute runtime and 10-minute grace.
+These limits are separate from task SLA, approval due dates and pending local
+task wait time. An admitted provider operation still queued or running at the
+local limit is **unknown**, not proof of remote cancellation or failure.
+
+The existing Hangfire runtime checks indexed batches of at most 50 attempts on
+startup and every minute, using a persisted replica lease and optimistic task
+and parent versions. It checks the recorded organization, exact saved mapping,
+peer and revision, current attempt, and external request/run through the
+provider's authenticated read-only execution endpoint. It never replays ingest
+to discover an outcome. Before the deadline it checks at one-minute intervals;
+unresolved outcomes back off to five minutes. An older provider without the
+execution-read contract remains safely reconcilable through its authenticated
+callback path.
+
+At the deadline, an unconfirmed outcome becomes **Timed out — outcome unknown**
+with **Needs reconciliation** on the parent. The UI retains the original
+attempt and provider identifiers, deadline, last actual provider update and
+Recovery access. This hold blocks dependent work, ordinary failure/Continue
+policy, failure incidents and automatic or manual retry. A later confirmed
+result for the same attempt atomically records the real outcome, recomputes
+parent/dependency state and removes only its uncertainty hold. Independent
+operator/approval/failure holds remain. Historical timeout evidence remains
+after reconciliation; an earlier attempt cannot update a later attempt.
+
+Old Running rows enter the same bounded sweep without manual SQL. A trusted
+stored start and runtime snapshot determine their deadline. An active legacy
+row without a trusted start is routed immediately to visible reconciliation;
+missing attempt or remote identity prevents provider lookup and resubmission.
+Manual and approval tasks are never changed by this execution sweep. Callback
+and sweep races commit state, audit and queued observable effects together;
+duplicate terminal results cannot create another job, worklog or failure
+incident. Interrupted post-commit workflow continuation resumes durably.
 
 ## Edit request workflows
 

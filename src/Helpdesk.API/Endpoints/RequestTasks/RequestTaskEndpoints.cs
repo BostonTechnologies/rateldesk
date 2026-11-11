@@ -20,6 +20,7 @@ public static class RequestTaskEndpoints
     public static void MapRequestTaskEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/request-tasks")
+            .AddEndpointFilter<RequestStateConcurrencyFilter>()
             .WithTags("Request Tasks")
             .RequireAuthorization();
 
@@ -28,6 +29,7 @@ public static class RequestTaskEndpoints
 
         // Legacy route kept for backward compatibility.
         var legacyGroup = app.MapGroup("/api/v1/requestTasks")
+            .AddEndpointFilter<RequestStateConcurrencyFilter>()
             .WithTags("Request Tasks")
             .RequireAuthorization()
             .ExcludeFromDescription();
@@ -206,6 +208,13 @@ public static class RequestTaskEndpoints
                         ExpectedRuntimeSeconds = x.Task.ExpectedRuntimeSeconds,
                         GraceSeconds = x.Task.GraceSeconds,
                         HardTimeoutSeconds = x.Task.HardTimeoutSeconds,
+                        LastAutomationUpdatedAt = x.Task.LastAutomationUpdatedAt,
+                        AutomationDeadlineUtcTicks = x.Task.AutomationDeadlineUtcTicks,
+                        AutomationTimedOutAt = x.Task.AutomationTimedOutAt,
+                        AutomationTimedOutAttemptId = x.Task.AutomationTimedOutAttemptId,
+                        AutomationAttemptCorrelationId = x.Task.AutomationAttemptCorrelationId,
+                        OrchestrationLinkId = x.Task.OrchestrationLinkId,
+                        OrchestrationLinkRevision = x.Task.OrchestrationLinkRevision,
                         TimeoutIncidentId = x.Task.TimeoutIncidentId,
                         AutomationBindingEnabled = bindingState?.Enabled,
                         AutomationBindingSyncState = bindingState?.SyncState,
@@ -921,6 +930,10 @@ public static class RequestTaskEndpoints
         ExpectedRuntimeSeconds = task.ExpectedRuntimeSeconds,
         GraceSeconds = task.GraceSeconds,
         HardTimeoutSeconds = task.HardTimeoutSeconds,
+        AutomationDeadlineUtcTicks = task.AutomationDeadlineUtcTicks,
+        AutomationTimedOutAt = task.AutomationTimedOutAt,
+        AutomationTimedOutAttemptId = task.AutomationTimedOutAttemptId,
+        AutomationAttemptCorrelationId = task.AutomationAttemptCorrelationId,
         TimeoutIncidentId = task.TimeoutIncidentId,
         OrchestratorExecutionId = task.OrchestratorExecutionId,
         OrchestrationLinkId = task.OrchestrationLinkId,

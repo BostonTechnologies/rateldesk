@@ -20,7 +20,8 @@ public sealed class RequestTaskLifecycleService(
     IFailurePolicyEngine failurePolicyEngine,
     IDomainEventPublisher domainEvents,
     ICorrelationContext correlationContext,
-    ILogger<RequestTaskLifecycleService> logger) : IRequestTaskLifecycleService
+    ILogger<RequestTaskLifecycleService> logger,
+    IRequestTaskReadStore? requestTaskReadStore = null) : IRequestTaskLifecycleService
 {
     private readonly IRepository<RequestTask> _requestTasks = requestTasks;
     private readonly IRepository<Request> _requests = requests;
@@ -53,9 +54,9 @@ public sealed class RequestTaskLifecycleService(
             throw new InvalidOperationException("Approval tasks are started by the approval workflow.");
         }
 
-        var requestTasks = (await _requestTasks.GetAllAsync())
-            .Where(x => x.RequestId == task.RequestId)
-            .ToList();
+        var requestTasks = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, task.RequestId, ct);
+        if (requestTasks.Any(sibling => AutomationTaskStatuses.RequiresManualReconciliation(sibling.LastAutomationStatus)))
+            throw new InvalidOperationException("Reconcile the unresolved automation attempt before starting more work on this request.");
         if (RequestTaskApprovalGate.IsBlockedByEarlierApproval(task, requestTasks))
         {
             throw new InvalidOperationException("Task is blocked by an earlier approval step.");
@@ -73,6 +74,8 @@ public sealed class RequestTaskLifecycleService(
         task.Status = RequestTaskStatus.InProgress;
         task.State = TicketState.InProgress;
         task.StartedAt = DateTimeOffset.UtcNow;
+        if (task.Type == RequestTaskType.Automation)
+            AutomationExecutionDeadlinePolicy.StartAttempt(task, task.StartedAt.Value);
         task.UpdatedAt = DateTime.UtcNow;
 
         if (task.TaskSlaMinutes is > 0)
@@ -444,6 +447,13 @@ public sealed class RequestTaskLifecycleService(
         task.Status = RequestTaskStatus.Pending;
         task.State = TicketState.New;
         task.StartedAt = null;
+        task.AutomationDeadlineUtcTicks = null;
+        task.AutomationNextCheckUtcTicks = null;
+        task.AutomationTimedOutAt = null;
+        task.AutomationTimedOutAttemptId = null;
+        task.AutomationReconciliationLeaseId = null;
+        task.AutomationReconciliationLeaseUntilUtcTicks = null;
+        task.AutomationContinuationPending = false;
         task.CompletedAt = null;
         task.SlaStartedAt = null;
         task.DueAt = null;
@@ -467,7 +477,7 @@ public sealed class RequestTaskLifecycleService(
 
         if (parent is not null && (parent.WorkflowStatus is "Blocked" or "Failed"))
         {
-            var siblings = (await _requestTasks.GetAllAsync()).Where(x => x.RequestId == task.RequestId).ToList();
+            var siblings = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, task.RequestId, ct);
             var taskFailureBlock = siblings.Any(x => parent.WorkflowBlockReason == $"Task '{x.Name}' failed."
                 || parent.WorkflowBlockReason == $"Critical task '{x.Name}' failed.");
             if (taskFailureBlock && !siblings.Any(x => x.Status is RequestTaskStatus.Failed or RequestTaskStatus.Cancelled))

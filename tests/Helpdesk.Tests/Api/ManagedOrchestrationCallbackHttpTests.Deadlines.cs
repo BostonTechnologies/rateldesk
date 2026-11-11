@@ -1,0 +1,361 @@
+using System.Net;
+using System.Text.Json;
+using Helpdesk.API.Background;
+using Helpdesk.Application.Orchestration;
+using Helpdesk.Application.RequestTasks;
+using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.DTOs.Orchestration;
+using Helpdesk.Shared.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using NSubstitute;
+
+namespace Helpdesk.Tests.Api;
+
+public sealed partial class ManagedOrchestrationCallbackHttpTests
+{
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Deadline_schema_upgrade_preserves_existing_attempt_and_parent_history_on_both_providers(bool postgres)
+    {
+        await using var fixture = await Helpdesk.Tests.Infrastructure.Persistence.ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
+        var started = new DateTimeOffset(2026, 10, 25, 12, 0, 0, TimeSpan.Zero);
+        await using (var seed = fixture.Open())
+        {
+            await seed.Database.MigrateAsync();
+            seed.Requests.Add(new Request { Id = "upgrade-parent", Title = "Legacy request", TrackingId = "REQ-UPGRADE", State = TicketState.InProgress, WorkflowStatus = "InProgress" });
+            seed.RequestTasks.Add(new RequestTask { Id = "upgrade-task", RequestId = "upgrade-parent", Title = "Legacy running task", TrackingId = "TSK-UPGRADE",
+                Type = RequestTaskType.Automation, Status = RequestTaskStatus.InProgress, StartedAt = started,
+                HardTimeoutSeconds = 120, AutomationAttemptCorrelationId = "retained-attempt", AutomationAttemptHistoryJson = "[]",
+                OrchestrationExternalRequestId = "retained-request", OrchestrationExternalRunId = "retained-run" });
+            await seed.SaveChangesAsync();
+            var migrations = seed.Database.GetMigrations().ToArray();
+            var index = Array.FindIndex(migrations, id => id.EndsWith("_AddAutomationExecutionDeadlines", StringComparison.Ordinal));
+            Assert.True(index > 0);
+            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
+        }
+        await using var upgraded = fixture.Open();
+        await upgraded.Database.MigrateAsync();
+        await upgraded.Database.MigrateAsync();
+        Assert.False(upgraded.Database.HasPendingModelChanges());
+        var task = await upgraded.RequestTasks.SingleAsync();
+        Assert.Equal(started, task.StartedAt);
+        Assert.Equal("retained-attempt", task.AutomationAttemptCorrelationId);
+        Assert.Equal("retained-request", task.OrchestrationExternalRequestId);
+        Assert.Equal("retained-run", task.OrchestrationExternalRunId);
+        Assert.Equal("[]", task.AutomationAttemptHistoryJson);
+        Assert.Null(task.AutomationDeadlineUtcTicks);
+        Assert.False(task.AutomationContinuationPending);
+        Assert.Equal(0, task.AutomationStateVersion);
+        Assert.Equal(0, (await upgraded.Requests.SingleAsync()).WorkflowStateVersion);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Legacy_running_repair_uses_bounded_indexed_batches_beyond_one_hundred_rows(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        await h.EditAsync(async db =>
+        {
+            (await db.RequestTasks.SingleAsync()).StartedAt = clock.GetUtcNow().AddDays(-30);
+            for (var index = 0; index < 100; index++)
+                db.RequestTasks.Add(new RequestTask { Id = Guid.NewGuid().ToString("N"), Title = $"Legacy attempt {index}",
+                    RequestId = task.RequestId, OrganizationId = h.OrganizationId, CustomerId = h.CustomerId,
+                    Type = RequestTaskType.Automation, Status = RequestTaskStatus.InProgress,
+                    StartedAt = clock.GetUtcNow().AddDays(-30), HardTimeoutSeconds = 2400 });
+        });
+        Assert.Equal(50, await SweepAsync(h));
+        Assert.Equal(50, await SweepAsync(h));
+        Assert.Equal(1, await SweepAsync(h));
+        Assert.Equal(0, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal(101, await db.RequestTasks.CountAsync(row => row.LastAutomationStatus == AutomationTaskStatuses.ExecutionUnknownManualReconcile));
+            Assert.Equal(101, await db.WorkLogs.CountAsync());
+            var sql = postgres
+                ? "SELECT indexname AS \"Value\" FROM pg_indexes WHERE tablename = 'Tickets'"
+                : "SELECT name AS Value FROM sqlite_master WHERE type = 'index' AND tbl_name = 'Tickets'";
+            var indexes = await db.Database.SqlQueryRaw<string>(sql).ToListAsync();
+            Assert.Contains("IX_Tickets_Type_AutomationNextCheckUtcTicks", indexes);
+            Assert.Contains("IX_Tickets_Type_AutomationContinuationPending", indexes);
+        });
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory]
+    [InlineData(false, "succeeded")][InlineData(true, "succeeded")]
+    [InlineData(false, "failed")][InlineData(true, "failed")]
+    [InlineData(false, "cancelled")][InlineData(true, "cancelled")]
+    public async Task Missing_callback_reconciles_confirmed_results_before_deadline_and_applies_failure_policy_only_to_known_failure(bool postgres, string outcome)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        await SeedDeadlineAsync(h, client, clock, connectivity);
+        probe.Response = query => Task.FromResult<OrchestrationCallbackDto?>(ReadResult(query, outcome));
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(1, await SweepAsync(h));
+        Assert.Equal(0, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(outcome == "succeeded" ? RequestTaskStatus.Completed : RequestTaskStatus.Failed, saved.Status);
+            Assert.Equal(outcome, saved.LastAutomationStatus);
+            Assert.Null(saved.AutomationTimedOutAt);
+            Assert.Equal(outcome == "succeeded" ? 0 : 1, saved.RetryCount);
+            Assert.Equal(outcome != "succeeded", saved.NextRetryAt.HasValue);
+            Assert.False(saved.AutomationContinuationPending);
+        });
+        Assert.Equal(1, probe.Reads);
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Changed_saved_mapping_revision_cannot_be_used_to_reconcile_an_earlier_admitted_attempt(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        await SeedDeadlineAsync(h, client, clock, connectivity);
+        connectivity.GetResolvedOrchestrationSettingsAsync(h.OrganizationId, client.MappingId, Arg.Any<CancellationToken>())
+            .Returns(new OrchestrationResolvedSettings { Enabled = true, Pairing = new(h.OrganizationId, "synthetic-peer-tenant", client.PeerId, client.MappingId.ToString("D"), 2) });
+        probe.Response = query => Task.FromResult<OrchestrationCallbackDto?>(ReadResult(query, "succeeded"));
+        clock.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db => Assert.Equal(AutomationTaskStatuses.ExecutionUnknownManualReconcile,
+            (await db.RequestTasks.SingleAsync()).LastAutomationStatus));
+        Assert.Equal(0, probe.Reads);
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Durable_deadline_holds_unknown_without_retry_or_failure_policy_and_late_success_recovers_only_its_hold(bool postgres)
+    {
+        var clock = new DeadlineClock();
+        var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        probe.Response = query => Task.FromResult<OrchestrationCallbackDto?>(ReadResult(query, "running"));
+        clock.Advance(TimeSpan.FromSeconds(119));
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db => Assert.Equal(RequestTaskStatus.InProgress, (await db.RequestTasks.SingleAsync()).Status));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.Failed, saved.Status);
+            Assert.Equal(AutomationTaskStatuses.ExecutionUnknownManualReconcile, saved.LastAutomationStatus);
+            Assert.Equal(clock.GetUtcNow(), saved.AutomationTimedOutAt);
+            Assert.Equal("deadline-attempt", saved.AutomationTimedOutAttemptId);
+            Assert.Null(saved.NextRetryAt);
+            Assert.Equal(0, saved.RetryCount);
+            Assert.Equal("NeedsReconciliation", (await db.Requests.SingleAsync()).WorkflowStatus);
+            Assert.Equal(TicketState.OnHold, (await db.Requests.SingleAsync()).State);
+            Assert.Equal(1, await db.WorkLogs.CountAsync());
+            Assert.Equal(0, await db.Incidents.CountAsync());
+        });
+        Assert.Equal(0, await SweepAsync(h));
+        await h.RestartAsync();
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        var callback = Callback(task);
+        callback.CorrelationId = "deadline-attempt";
+        using var completed = await PairingBusinessFixture.SendAsync(h, token, HttpMethod.Post, "/api/v1/orchestration/provider/callback", callback);
+        Assert.Equal(HttpStatusCode.NoContent, completed.StatusCode);
+        using var duplicate = await PairingBusinessFixture.SendAsync(h, token, HttpMethod.Post, "/api/v1/orchestration/provider/callback", callback);
+        Assert.Equal(HttpStatusCode.NoContent, duplicate.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.Completed, saved.Status);
+            Assert.NotNull(saved.AutomationTimedOutAt);
+            Assert.Equal("deadline-attempt", saved.AutomationAttemptCorrelationId);
+            Assert.Equal("Completed", (await db.Requests.SingleAsync()).WorkflowStatus);
+            Assert.Equal(TicketState.Resolved, (await db.Requests.SingleAsync()).State);
+            Assert.Equal(2, await db.WorkLogs.CountAsync());
+        });
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Restart_and_competing_deadline_workers_transition_once_and_preserve_an_unrelated_parent_hold(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            parent.WorkflowStatus = "Blocked"; parent.WorkflowBlockReason = "Independent operator hold"; parent.State = TicketState.OnHold;
+            var saved = await db.RequestTasks.SingleAsync();
+            saved.AutomationReconciliationLeaseId = "abandoned-worker";
+            saved.AutomationReconciliationLeaseUntilUtcTicks = clock.GetUtcNow().AddSeconds(121).UtcTicks;
+        });
+        clock.Advance(TimeSpan.FromSeconds(120));
+        await h.RestartAsync();
+        Assert.Equal(0, await SweepAsync(h));
+        clock.Advance(TimeSpan.FromSeconds(2));
+        var results = await Task.WhenAll(SweepAsync(h), SweepAsync(h));
+        Assert.Equal(1, results.Sum());
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var completed = await PairingBusinessFixture.SendAsync(h, token, HttpMethod.Post, "/api/v1/orchestration/provider/callback", Callback(task));
+        Assert.Equal(HttpStatusCode.NoContent, completed.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal(RequestTaskStatus.Completed, (await db.RequestTasks.SingleAsync()).Status);
+            var parent = await db.Requests.SingleAsync();
+            Assert.Equal("Blocked", parent.WorkflowStatus);
+            Assert.Equal("Independent operator hold", parent.WorkflowBlockReason);
+            Assert.Equal(TicketState.OnHold, parent.State);
+            Assert.Equal(2, await db.WorkLogs.CountAsync());
+        });
+        Assert.Equal(1, probe.Reads);
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Callback_winning_a_watchdog_race_cannot_be_overwritten_or_duplicate_its_committed_effects(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        var readStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        probe.Response = async query =>
+        {
+            readStarted.SetResult();
+            await releaseRead.Task;
+            return ReadResult(query, "running");
+        };
+        clock.Advance(TimeSpan.FromMinutes(3));
+        var sweep = SweepAsync(h);
+        await readStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var completed = await PairingBusinessFixture.SendAsync(h, token, HttpMethod.Post, "/api/v1/orchestration/provider/callback", Callback(task));
+        Assert.Equal(HttpStatusCode.NoContent, completed.StatusCode);
+        releaseRead.SetResult();
+        await sweep;
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.Completed, saved.Status);
+            Assert.Equal("succeeded", saved.LastAutomationStatus);
+            Assert.Null(saved.AutomationTimedOutAt);
+            Assert.Equal(1, await db.WorkLogs.CountAsync());
+            Assert.Equal(TicketState.Resolved, (await db.Requests.SingleAsync()).State);
+        });
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Missing_legacy_timing_is_reconciled_but_manual_and_approval_clocks_are_not_execution_deadlines(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            saved.StartedAt = null; saved.ExpectedRuntimeSeconds = null; saved.GraceSeconds = null; saved.HardTimeoutSeconds = null;
+            saved.AutomationAttemptCorrelationId = null;
+            foreach (var type in new[] { RequestTaskType.Manual, RequestTaskType.Approval })
+                db.RequestTasks.Add(new RequestTask { Id = Guid.NewGuid().ToString("N"), RequestId = task.RequestId,
+                    OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, Type = type,
+                    Status = RequestTaskStatus.InProgress, StartedAt = clock.GetUtcNow().AddDays(-90),
+                    DueAt = clock.GetUtcNow().AddDays(-1), Title = $"Long human {type}" });
+        });
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal(2, await db.RequestTasks.CountAsync(row => row.Type != RequestTaskType.Automation && row.Status == RequestTaskStatus.InProgress));
+            Assert.Equal(AutomationTaskStatuses.ExecutionUnknownManualReconcile, (await db.RequestTasks.SingleAsync(row => row.Id == task.Id)).LastAutomationStatus);
+        });
+        Assert.Equal(0, probe.Reads);
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    private static void ConfigureDeadlines(IServiceCollection services, DeadlineClock clock, DeadlineProbe probe, IOrchestrationConnectivityService connectivity)
+    {
+        services.RemoveAll<TimeProvider>(); services.AddSingleton<TimeProvider>(clock);
+        services.RemoveAll<IOrchestrationInternalClient>(); services.AddSingleton<IOrchestrationInternalClient>(probe);
+        services.RemoveAll<IOrchestrationConnectivityService>(); services.AddSingleton(connectivity);
+    }
+
+    private static async Task<RequestTask> SeedDeadlineAsync(IncidentReceiverTests.Harness h, PairingBusinessFixture.Client client,
+        DeadlineClock clock, IOrchestrationConnectivityService connectivity)
+    {
+        var task = await SeedAsync(h, client);
+        connectivity.GetResolvedOrchestrationSettingsAsync(h.OrganizationId, client.MappingId, Arg.Any<CancellationToken>())
+            .Returns(new OrchestrationResolvedSettings { Enabled = true, Pairing = new(h.OrganizationId, "synthetic-peer-tenant", client.PeerId, client.MappingId.ToString("D"), 1) });
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            saved.StartedAt = clock.GetUtcNow(); saved.ExpectedRuntimeSeconds = 90; saved.GraceSeconds = 30; saved.HardTimeoutSeconds = 120;
+            saved.AutomationAttemptCorrelationId = "deadline-attempt"; saved.OrchestrationExternalRunId = Execution;
+            saved.FailurePolicy = "FailRequest"; saved.IsCritical = true; saved.MaxRetries = 3;
+            var parent = await db.Requests.SingleAsync(); parent.State = TicketState.InProgress; parent.WorkflowStatus = "InProgress";
+        });
+        return task;
+    }
+
+    private static async Task<int> SweepAsync(IncidentReceiverTests.Harness h)
+    {
+        await using var scope = h.App.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AutomationExecutionDeadlineProcessor>().ProcessAsync(default);
+    }
+
+    private static OrchestrationCallbackDto ReadResult(OrchestrationExecutionQuery query, string status) => new()
+    {
+        RequestTaskId = query.RequestTaskId, RequestId = query.OrchestrationRequestId, CorrelationId = query.CorrelationId,
+        OrchestrationRequestId = query.OrchestrationRequestId, OrchestrationRunId = query.OrchestrationRunId,
+        ExecutionId = query.OrchestrationRunId, Status = status
+    };
+
+    private sealed class DeadlineClock : TimeProvider
+    {
+        private DateTimeOffset now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        public override DateTimeOffset GetUtcNow() => now;
+        public void Advance(TimeSpan amount) => now += amount;
+    }
+
+    private sealed class DeadlineProbe : IOrchestrationInternalClient
+    {
+        public int Reads;
+        public int Submissions;
+        public Func<OrchestrationExecutionQuery, Task<OrchestrationCallbackDto?>> Response { get; set; } = _ => Task.FromResult<OrchestrationCallbackDto?>(null);
+        public Task<OrchestrationHealthResult> HealthAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken = default, bool useTokenCache = true)
+            => Task.FromResult(new OrchestrationHealthResult { Success = true });
+        public Task<OrchestrationIngestResult> IngestAsync(OrchestrationResolvedSettings settings, OrchestrationIngestRequest request, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref Submissions);
+            throw new InvalidOperationException("The deadline worker must never submit executions.");
+        }
+        public Task<OrchestrationCallbackDto?> ReadExecutionAsync(OrchestrationResolvedSettings settings, OrchestrationExecutionQuery execution, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref Reads);
+            return Response(execution);
+        }
+    }
+}

@@ -30,9 +30,11 @@ public static class RequestEndpoints
     public static void MapRequestEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/requests")
+            .AddEndpointFilter<Helpdesk.API.Endpoints.RequestTasks.RequestStateConcurrencyFilter>()
             .WithTags("Requests")
             .RequireAuthorization("RequestAccess");
         var staffGroup = app.MapGroup("/api/v1/requests")
+            .AddEndpointFilter<Helpdesk.API.Endpoints.RequestTasks.RequestStateConcurrencyFilter>()
             .WithTags("Requests")
             .RequireAuthorization("RequestManager");
 
@@ -185,6 +187,12 @@ public static class RequestEndpoints
                     ExpectedRuntimeSeconds = t.ExpectedRuntimeSeconds,
                     GraceSeconds = t.GraceSeconds,
                     HardTimeoutSeconds = t.HardTimeoutSeconds,
+                    AutomationDeadlineUtcTicks = t.AutomationDeadlineUtcTicks,
+                    AutomationTimedOutAt = t.AutomationTimedOutAt,
+                    AutomationTimedOutAttemptId = t.AutomationTimedOutAttemptId,
+                    AutomationAttemptCorrelationId = t.AutomationAttemptCorrelationId,
+                    OrchestrationLinkId = t.OrchestrationLinkId,
+                    OrchestrationLinkRevision = t.OrchestrationLinkRevision,
                     TimeoutIncidentId = t.TimeoutIncidentId,
                     AutomationBindingEnabled = bindingState?.Enabled,
                     AutomationBindingSyncState = bindingState?.SyncState,

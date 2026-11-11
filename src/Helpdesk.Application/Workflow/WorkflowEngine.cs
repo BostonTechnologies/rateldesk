@@ -18,7 +18,8 @@ public sealed class WorkflowEngine(
     IRequestTaskStateService requestStateEvaluator,
     IDomainEventPublisher domainEvents,
     ICorrelationContext correlationContext,
-    ILogger<WorkflowEngine> logger) : IWorkflowEngine
+    ILogger<WorkflowEngine> logger,
+    IRequestTaskReadStore? requestTaskReadStore = null) : IWorkflowEngine
 {
     private readonly IWorkflowDependencyEvaluator _dependencyEvaluator = dependencyEvaluator;
     private readonly IWorkflowConditionEvaluator _conditionEvaluator = conditionEvaluator;
@@ -51,28 +52,29 @@ public sealed class WorkflowEngine(
         }
         var correlationId = GetCorrelationId();
         var isRequestProgressionBlocked = string.Equals(request.WorkflowStatus, "Blocked", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.WorkflowStatus, "NeedsReconciliation", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "Failed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "Cancelled", StringComparison.OrdinalIgnoreCase);
 
         ct.ThrowIfCancellationRequested();
-        _ = (await _requestTasks.GetAllAsync())
-            .Where(x => x.RequestId == requestIdText)
-            .OrderBy(x => x.Order)
-            .ToList();
+        var currentTasks = (await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestIdText, ct))
+            .OrderBy(x => x.Order).ToList();
+
+        isRequestProgressionBlocked |= currentTasks.Any(task =>
+            AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus));
 
         var dependencyResult = await _dependencyEvaluator.EvaluateAsync(requestIdText, ct);
         var unblockedCount = dependencyResult.UnblockedCount;
 
         ct.ThrowIfCancellationRequested();
-        var tasksAfterDependencies = (await _requestTasks.GetAllAsync())
-            .Where(x => x.RequestId == requestIdText)
-            .OrderBy(x => x.Order)
-            .ToList();
+        var tasksAfterDependencies = (await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestIdText, ct))
+            .OrderBy(x => x.Order).ToList();
         var skippedCount = 0;
         var skipTimestamp = DateTimeOffset.UtcNow;
 
         foreach (var task in tasksAfterDependencies)
         {
+            if (isRequestProgressionBlocked) break;
             if (task.Status != RequestTaskStatus.Pending
                 || task.IsBlocked
                 || string.IsNullOrWhiteSpace(task.ConditionExpression))
@@ -110,10 +112,8 @@ public sealed class WorkflowEngine(
             var secondDependencyResult = await _dependencyEvaluator.EvaluateAsync(requestIdText, ct);
             unblockedCount += secondDependencyResult.UnblockedCount;
 
-            tasksAfterDependencies = (await _requestTasks.GetAllAsync())
-                .Where(x => x.RequestId == requestIdText)
-                .OrderBy(x => x.Order)
-                .ToList();
+            tasksAfterDependencies = (await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestIdText, ct))
+                .OrderBy(x => x.Order).ToList();
         }
 
         var autoStartedCount = 0;
