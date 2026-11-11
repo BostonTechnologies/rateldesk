@@ -3,7 +3,12 @@ import http from 'node:http';
 let requests = [], mutations = [], fault = '', enabled = true, premium = false, receipts = new Set();
 const streams = new Set();
 const uid = n => `56000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const originalTasks = Array.from({ length: 76 }, (_, i) => ({ id: `task-${i}`, requestId: `request-${i}`, requestTrackingId: `REQ-${String(i).padStart(4, '0')}`, requestTitle: 'Long synthetic request title for regional workstation and access readiness', name: `Task ${i}: verify preparation with a realistic long operational name`, organizationId: 'org-synthetic', type: i % 2 + 1, status: i % 5 + 1, assignedToId: i % 2 ? 'other' : 'synthetic-operator', assignedToDisplayName: i % 2 ? 'Another operator' : 'Synthetic operator', createdAt: '2026-11-01T12:00:00Z', automationReadyToStart: i % 3 !== 0, automationBindingSyncState: i % 5, automationBlockReason: i % 3 === 0 ? 'Binding needs review' : null, lastAutomationStatus: i % 7 === 0 ? 'ExecutionUnknownManualReconcile' : null, orchestrationExternalRunId: i % 7 === 0 ? `run-${i}` : null }));
+const originalTasks = Array.from({ length: 76 }, (_, i) => {
+  const type = i % 2 + 1, status = i % 5 + 1;
+  const healthyRunning = type === 2 && status === 2 && i % 7 !== 0;
+  return { id: `task-${i}`, requestId: `request-${i}`, requestTrackingId: `REQ-${String(i).padStart(4, '0')}`, requestTitle: 'Long synthetic request title for regional workstation and access readiness', name: `Task ${i}: verify preparation with a realistic long operational name`, organizationId: 'org-synthetic', type, status, assignedToId: i % 2 ? 'other' : 'synthetic-operator', assignedToDisplayName: i % 2 ? 'Another operator' : 'Synthetic operator', createdAt: '2026-11-01T12:00:00Z', automationReadyToStart: i % 3 !== 0, automationBindingSyncState: i % 5, automationBlockReason: i % 3 === 0 ? 'Binding needs review' : null, lastAutomationStatus: i % 7 === 0 ? 'ExecutionUnknownManualReconcile' : healthyRunning ? 'running' : null, orchestrationExternalRunId: i % 7 === 0 ? `run-${i}` : null,
+    ...(healthyRunning ? { startedAt: new Date(Date.now() - 120_000).toISOString(), lastAutomationUpdatedAt: new Date(Date.now() - 60_000).toISOString() } : {}) };
+});
 let tasks = structuredClone(originalTasks);
 let events = [];
 const originalRules = Array.from({ length: 64 }, (_, i) => ({ id: `rule-${i}`, name: `Rule ${i}: synthetic inbound support routing`, description: 'A long synthetic description retained in details', scopeType: i >= 60 ? 1 : 0, tenantId: i >= 60 ? 'org-synthetic' : null, mailboxId: null, priority: i, enabled: i % 2 === 0, stopProcessing: i % 2 === 0, conditions: [], actions: [], createdAtUtc: '2026-11-01T12:00:00Z', updatedAtUtc: '2026-11-01T12:00:00Z' }));
@@ -128,4 +133,4 @@ http.createServer(async (req, res) => {
   if (url.pathname.includes('summary') || url.pathname.includes('status')) return reply({});
   if (url.pathname.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }
   return reply([]);
-}).listen(18400, '127.0.0.1', () => console.log('Operations fixture listening on loopback :18400'));
+}).listen(Number(process.env.HELPDESK_OPERATIONS_FIXTURE_PORT ?? 18400), '127.0.0.1', () => console.log('Operations fixture listening on loopback'));

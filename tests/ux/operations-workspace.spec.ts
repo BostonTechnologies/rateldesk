@@ -1,11 +1,12 @@
 import { expect, test, Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
-const fixture = 'http://127.0.0.1:18400/fixture';
+const fixture = `http://127.0.0.1:${process.env.HELPDESK_OPERATIONS_FIXTURE_PORT ?? 18400}/fixture`;
+const webPort = Number(process.env.HELPDESK_OPERATIONS_WEB_PORT ?? 5170);
 async function ready(page: Page, route: string) {
   await page.goto(route);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
 }
-async function signIn(page: Page, port = 5170) { await page.goto(`https://127.0.0.1:${port}/auth/development`); }
+async function signIn(page: Page, port = webPort) { await page.goto(`https://127.0.0.1:${port}/auth/development`); }
 test.beforeEach(async ({ request, page }) => { await request.get(`${fixture}/reset`); await signIn(page); });
 
 for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024, 1440, 1920]) {
@@ -74,7 +75,7 @@ test('legacy bookmarks, categories, metrics, Back/Forward and job proxy remain u
   expect(Math.round((Date.parse(compliance.query.toUtc) - Date.parse(compliance.query.fromUtc)) / 86400000)).toBe(7);
 });
 
-for (const [port, role] of [[5171, 'sla'], [5172, 'workflow'], [5173, 'notifications']] as const) {
+for (const [port, role] of [[webPort + 1, 'sla'], [webPort + 2, 'workflow'], [webPort + 3, 'notifications']] as const) {
   test(`${role} keeps independent console and notification permissions`, async ({ page, request }) => {
     await signIn(page, port); await ready(page, `https://127.0.0.1:${port}/notifications`);
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
@@ -193,8 +194,21 @@ test('task dashboard starts with all authorized assignments and pages before opt
   expect(state.requests.filter((x: any) => x.path === '/api/v1/request-tasks').at(-1).query).toMatchObject({ page: '1', assignedToMe: 'true' });
   await page.getByRole('switch', { name: 'Assigned to me', exact: true }).uncheck();
   await expect(page.getByRole('link', { name: 'REQ-0001', exact: true })).toBeVisible();
-  expect(await page.getByRole('button', { name: 'Running', exact: true }).count()).toBe(0);
-  await expect(page.getByText('Running', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Running|In progress|External: running)$/ })).toHaveCount(0);
+  const runningRow = page.locator('.task-workspace tbody tr').filter({ has: page.getByRole('link', { name: 'REQ-0001', exact: true }) });
+  await expect(runningRow.getByText('In progress', { exact: true })).toBeVisible();
+  await runningRow.getByText('Execution timing', { exact: true }).press('Enter');
+  const timing = runningRow.locator('details.task-execution-timing');
+  await expect(timing).toHaveAttribute('open', '');
+  await expect(timing.getByText(/^Started:/)).toBeVisible();
+  await expect(timing.getByText(/^Time since start at refresh:/)).toBeVisible();
+  await expect(timing.getByText(/^Last provider update:/)).toBeVisible();
+  await expect(timing).not.toContainText('Not confirmed');
+  await expect(runningRow.getByText('External: running', { exact: true })).toBeVisible();
+  const unknownRow = page.locator('.task-workspace tbody tr').filter({ has: page.getByRole('link', { name: 'REQ-0007', exact: true }) });
+  await expect(unknownRow.getByText('Needs reconciliation', { exact: true })).toBeVisible();
+  await expect(unknownRow.getByRole('button', { name: 'Retry task', exact: true })).toHaveCount(0);
+  await expect(unknownRow.getByRole('link', { name: 'Open recovery', exact: true })).toHaveAttribute('href', /search=run-7/);
   await expect(page.getByRole('link', { name: 'Open recovery', exact: true }).first()).toHaveAttribute('href', /notifications/);
   const firstRow = page.locator('.task-workspace tbody tr').filter({ has: page.getByRole('link', { name: 'REQ-0000', exact: true }) });
   await firstRow.getByRole('button', { name: 'Start task', exact: true }).evaluate((button: HTMLElement) => { button.click(); button.click(); });
