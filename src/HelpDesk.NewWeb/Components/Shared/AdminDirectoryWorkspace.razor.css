@@ -21,3 +21,4 @@
 .directory-table-region ::deep .directory-sort { padding:.25rem; text-transform:none; font-size:inherit; white-space:nowrap; }
 .directory-table-region ::deep .mud-table-pagination { display:block; max-width:100%; }
 .directory-table-region ::deep .mud-table-pagination-toolbar { flex-wrap:nowrap; min-width:max-content; white-space:nowrap; }
+.directory-table-region ::deep .mud-table-head .mud-table-cell { font-size:.9375rem; }

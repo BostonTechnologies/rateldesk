@@ -9,7 +9,7 @@ export default defineConfig({
   { command: 'node tests/ux/admin-fixture-api.mjs', url: 'http://127.0.0.1:18500/fixture/health', reuseExistingServer: !process.env.CI },
   ...['admin', 'delegate', 'reader'].map((mode, index) => ({
    command: `dotnet bin/${configuration}/net10.0/HelpDesk.NewWeb.dll`, cwd, url: `https://127.0.0.1:${5180 + index}/health`, ignoreHTTPSErrors: true, timeout: 120_000, reuseExistingServer: !process.env.CI,
-   env: { ASPNETCORE_ENVIRONMENT: 'Development', ASPNETCORE_URLS: `https://127.0.0.1:${5180 + index}`, ApiBaseUrl: 'http://127.0.0.1:18500/', DevelopmentOperator__Enabled: 'true', SYSTEM_TOKEN_SECRET: `admin-fixture-${mode}`, Authentication__Authentik__ClientId: 'ux-local', AUTHENTIK_CLIENT_SECRET: 'ux-local', Authentication__Authentik__ApiScope: 'helpdesk' }
+   env: { ASPNETCORE_ENVIRONMENT: 'Development', ASPNETCORE_URLS: `https://127.0.0.1:${5180 + index}`, ApiBaseUrl: 'http://127.0.0.1:18500/', DevelopmentOperator__Enabled: 'true', Authentication__Mode: 'Hybrid', SYSTEM_TOKEN_SECRET: `admin-fixture-${mode}`, Authentication__Authentik__ClientId: 'ux-local', AUTHENTIK_CLIENT_SECRET: 'ux-local', Authentication__Authentik__ApiScope: 'helpdesk' }
   }))
  ]
 });
