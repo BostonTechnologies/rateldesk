@@ -6,6 +6,7 @@ using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -267,7 +268,9 @@ public sealed class UserRetirementProviderTests
         parameters.PageSize = 100; parameters.Page = 1; parameters.Role = "Technician";
         var technicians = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(parameters, db, Actor("administrator"), default)).Value!;
         Assert.Equal(22, technicians.Total); Assert.Equal("user-129", technicians.Items[0].Id);
-        Assert.IsType<ValidationProblem>(await UserDirectoryQuery.ReadAsync(new() { PageSize = 1000 }, db, Actor("administrator"), default));
+        var invalid = Assert.IsType<ProblemHttpResult>(await UserDirectoryQuery.ReadAsync(new() { PageSize = 1000 }, db, Actor("administrator"), default));
+        Assert.Equal(StatusCodes.Status400BadRequest, invalid.StatusCode);
+        Assert.NotEmpty(Assert.IsType<HttpValidationProblemDetails>(invalid.ProblemDetails).Errors["query"]);
     }
 
     private static ClaimsPrincipal Actor(string id, bool local = false) => new(new ClaimsIdentity(new[]

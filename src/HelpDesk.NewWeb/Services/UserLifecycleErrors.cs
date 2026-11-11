@@ -1,9 +1,14 @@
 using System.Text.Json;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 namespace HelpDesk.NewWeb.Services;
 
 public static class UserLifecycleErrors
 {
+    public static bool IsUnavailable(Exception exception) => exception is HttpRequestException or IOException or
+        OperationCanceledException or TimeoutException or TimeoutRejectedException or BrokenCircuitException;
+
     public static async Task<string> ReadAsync(HttpResponseMessage response, string fallback)
     {
         try

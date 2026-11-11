@@ -32,16 +32,10 @@ public sealed class UserAccessClaimsMiddleware(RequestDelegate next)
             var access = await accessService.ResolveAsync(context.User, context.RequestAborted);
             if (!access.IsAuthenticated)
             {
-                RemoveApplicationAccessClaims(identity);
-                context.User = new ClaimsPrincipal(new ClaimsIdentity());
-                if (context.Features.Get<IAuthenticateResultFeature>() is { } authentication)
-                    authentication.AuthenticateResult = AuthenticateResult.NoResult();
-                var endpoint = context.GetEndpoint();
+                ClearRevokedPrincipal(context, identity);
                 // A fixed-scheme authorization policy can otherwise authenticate the
                 // already cached upstream ticket again after this local revocation.
-                if (endpoint is not null && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null &&
-                    (endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count > 0 ||
-                     endpoint.Metadata.GetMetadata<AuthorizationPolicy>() is not null))
+                if (IsProtectedRequest(context.GetEndpoint()))
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;
@@ -70,6 +64,18 @@ public sealed class UserAccessClaimsMiddleware(RequestDelegate next)
 
         await next(context);
     }
+
+    private static void ClearRevokedPrincipal(HttpContext context, ClaimsIdentity identity)
+    {
+        RemoveApplicationAccessClaims(identity);
+        context.User = new ClaimsPrincipal(new ClaimsIdentity());
+        if (context.Features.Get<IAuthenticateResultFeature>() is { } authentication)
+            authentication.AuthenticateResult = AuthenticateResult.NoResult();
+    }
+
+    private static bool IsProtectedRequest(Endpoint? endpoint) => endpoint is not null &&
+        endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null &&
+        (endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count > 0 || endpoint.Metadata.GetMetadata<AuthorizationPolicy>() is not null);
 
     private static void RemoveApplicationAccessClaims(ClaimsIdentity identity)
     {
