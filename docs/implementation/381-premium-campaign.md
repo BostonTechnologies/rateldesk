@@ -18,11 +18,11 @@ code, passing acceptance, reviewed merge and verified public distribution.
 | #387 | `codex/387-team-lifecycle`: Team directory and separate retirement/sign-in operations | Both providers; revoked sessions/credentials, retained attribution, reprovision and tenant fences | In progress; acceptance incomplete |
 | #388 | `codex/388-admin-directories`: bounded customer directory/access projection | >100 records, whole-query status filters, bounded request/query count, invitations | In progress; acceptance incomplete |
 | #389 | `codex/388-admin-directories`: organization directory | Complete queries, saved mapping/catalog-unavailable truth, delegated views | In progress; acceptance incomplete |
-| #390 | `codex/390-operational-cards`: structured connection cards | Saved IDs, pairing/actions and truthful fresh/stale/never-tested state | In progress; acceptance incomplete |
-| #391 | `codex/390-operational-cards`: Service Explorer card geometry | 0/2/20/100 assignments, bounded keyboard-accessible lists/actions | In progress; acceptance incomplete |
+| #390 | `codex/390-operational-cards`: structured connection cards | Saved IDs, pairing/actions and truthful fresh/stale/never-tested state | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
+| #391 | `codex/390-operational-cards`: Service Explorer card geometry | 0/2/20/100 assignments, bounded keyboard-accessible lists/actions | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
 | #392 | `codex/388-admin-directories`: additive category admin query | Exact type versus legacy Service inclusion, full queries and protections | In progress; acceptance incomplete |
-| #393 | `codex/390-operational-cards`: Operations Overview | Dynamic counters/links, all three feeds, roles and partial errors | In progress; acceptance incomplete |
-| #394 | `codex/390-operational-cards`: effective branded search | Branding precedence/fallback, long names, shortcut/focus and responsive shell | In progress; acceptance incomplete |
+| #393 | `codex/390-operational-cards`: Operations Overview | Dynamic counters/links, all three feeds, roles and partial errors | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
+| #394 | `codex/390-operational-cards`: effective branded search | Branding precedence/fallback, long names, shortcut/focus and responsive shell | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
 
 The companion NetRatel issue #729
 adds an authenticated read-only exact-attempt receipt. Its source baseline is
@@ -123,3 +123,46 @@ not claimed as a clean complete baseline build. Matching before images are
 copied beside generated after images by the owning browser/native tests so the
 existing hosted deep artifact upload publishes both. Early mixed-network and
 reused-server runs remain excluded from the fresh-runtime result above.
+
+## Operational cards, overview and branded search: local acceptance
+
+Issues #390, #391, #393 and #394 have passing isolated presentation and owning
+regression acceptance at application source
+`42d676f641231dce809e6a88b21dbf65e75a4c8c`. Evidence commit
+`d37aee99e08496483fd8e3cad4293a9086bacc19` adds the accepted after screenshots
+and the [exact-source receipt](assets/381-premium-cards/after-receipt.json).
+The matching before screenshots use baseline
+`11c8997816833d753caf8df912a8279490da34fb`; each receipt records frame hashes,
+physical dimensions, theme, route and source identity.
+
+- #390 separates saved configuration from never-tested, recent, stale and failed
+  test snapshots, with anchored horizontal actions and retained saved IDs.
+  Browser acceptance exposed card reordering after Test; `42d676f6` replaces the
+  matching saved card in place, with a rendered order regression assertion.
+- #391 verifies complete 0/2/20/100 organization assignments, bounded keyboard
+  scrolling, equal row heights, anchored actions, complete description access,
+  assignment search/retention, and distinct load errors with retry.
+- #393 retains every dynamic state counter and filtered link, all three recent
+  feeds, non-administrator variants, partial failures/retry and truthful manual
+  freshness.
+- #394 verifies effective branding and fallback, full accessible search names,
+  long-name truncation, responsive layout, Shift+S typing exclusions, Escape,
+  focus return and navigation focus. Four existing branding-provider cases also
+  pass against the real environment-over-database/default resolution service.
+
+Accepted executions contain no failed, skipped or flaky cases: 36 owning
+rendered .NET cases, four branding-provider cases, 17 ordinary Playwright cases
+and four native 200% Playwright cases. The viewport matrix captures 1920×1080,
+1440×900, 1366×768, 768×1024 and 390×844 in light/dark themes. Native zoom uses
+the official pinned Chrome, asserts `chrome.tabs.getZoom() == 2` and the halved
+layout width at physical widths 1280/1920, and records physical CDP screenshots.
+Together these provide 42 matching before/after frames across Home, Service
+Explorer and system connections. The native driver is unchanged shared source
+`45458ab1bf280cbe54c29c50f69448fe29934041`; its hash and exact commands are in
+the receipt. Documentation, public-disclosure, layout and slopwatch checks pass.
+
+These executions use synthetic loopback presentation fixtures plus owning
+rendered/service tests. Reviewed merges, all six required jobs on each final PR
+and the exact final main SHA, integrated provider/upgrade acceptance, and public
+release/distribution verification remain campaign gates. This local evidence
+does not claim those gates or owner production rollout are complete.
