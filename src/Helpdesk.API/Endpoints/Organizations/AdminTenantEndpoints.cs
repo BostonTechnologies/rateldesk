@@ -8,6 +8,7 @@ public static class AdminTenantEndpoints
 {
     public static void MapAdminTenantEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapAdminDirectoryEndpoints();
         var group = app.MapGroup("/api/v1/admin")
             .WithTags("Admin")
             .RequireAuthorization("HelpdeskAdmin");

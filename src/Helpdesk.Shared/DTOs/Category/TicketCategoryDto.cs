@@ -9,6 +9,7 @@ public class TicketCategoryDto
     public string? Description { get; set; }
     public TicketCategoryType Type { get; set; }
     public Guid? TenantId { get; set; }
+    public string? TenantName { get; set; }
     public Guid? ParentCategoryId { get; set; }
     public int SortOrder { get; set; }
     public bool IsActive { get; set; }
