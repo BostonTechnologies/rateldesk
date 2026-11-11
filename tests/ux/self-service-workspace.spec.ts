@@ -209,6 +209,6 @@ for (const theme of ['light', 'dark']) test(`catalog error, empty and no-match s
   await first.focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/self-service\/service-0/);
-  await expect(page.getByText('Synthetic hardware folder', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Synthetic hardware folder', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 });
