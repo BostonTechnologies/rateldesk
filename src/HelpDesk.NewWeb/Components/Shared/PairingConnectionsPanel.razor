@@ -403,8 +403,10 @@
     private void Upsert(PairingConnectionDto connection)
     {
         if (Deleted(connection)) return;
-        connections.RemoveAll(c => c.Id == connection.Id || c.PairId == connection.PairId && c.Mapping is null);
-        connections.Add(connection);
+        var index = connections.FindIndex(c => c.Id == connection.Id);
+        if (index < 0) index = connections.FindIndex(c => c.PairId == connection.PairId && c.Mapping is null);
+        if (index >= 0) connections[index] = connection;
+        else connections.Add(connection);
     }
     private bool Current(long value) => !disposed && value == generation;
     private void ClearMessages() { error = null; errorReference = null; notice = null; }

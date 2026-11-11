@@ -269,7 +269,9 @@ public sealed class PairingConnectionsPageTests
         await using var view = await RenderAsync(api);
         await view.InvokeAsync("TestAsync", api.Rows[0]);
         Assert.Equal(1, api.TestCount);
-        Assert.Contains("Current mapping and permissions verified", await view.HtmlAsync());
+        var testedHtml = await view.HtmlAsync();
+        Assert.Contains("Current mapping and permissions verified", testedHtml);
+        Assert.Equal(new[] { selected.Id, other.Id }, Regex.Matches(testedHtml, "data-connection-id=\"([^\"]+)\"").Select(match => match.Groups[1].Value));
         await view.InvokeAsync("DeleteAsync", api.Rows[0]);
         Assert.Equal(selected.Id, Assert.Single(api.DeletedMappingIds));
         var remaining = Assert.Single(ReadField<List<PairingConnectionDto>>(view.Panel, "connections"));
