@@ -114,33 +114,29 @@ public sealed class PairingUpgradeTests
         {
             var baseline = db.Database.GetMigrations().Single(x => x.EndsWith("_AddManagedServiceIdentitySettings", StringComparison.Ordinal));
             await db.GetService<IMigrator>().MigrateAsync(baseline);
-            db.Organizations.Add(new() { Id = "preserved-org", Name = "Existing organization" });
-            db.Customers.Add(new() { Id = "preserved-customer", OrganizationId = "preserved-org", Name = "Existing customer", Email = "customer@example.test" });
-            db.InstanceInitializations.Add(new() { InstanceId = installation, OperationId = Guid.NewGuid(), SetupVersion = "existing", CompletedAtUtc = now });
-            db.Set<ServiceIdentityConfiguration>().Add(new() { InstanceId = publishedInstallation.ToString("D"), Enabled = true,
+            await using var seed = new HistoricalTaskContext(
+                (DbContextOptions<HelpdeskDbContext>)db.GetService<IDbContextOptions>(),
+                new AdminTenantContext(), new HttpContextAccessor());
+            seed.Organizations.Add(new() { Id = "preserved-org", Name = "Existing organization" });
+            seed.Customers.Add(new() { Id = "preserved-customer", OrganizationId = "preserved-org", Name = "Existing customer", Email = "customer@example.test" });
+            seed.InstanceInitializations.Add(new() { InstanceId = installation, OperationId = Guid.NewGuid(), SetupVersion = "existing", CompletedAtUtc = now });
+            seed.Set<ServiceIdentityConfiguration>().Add(new() { InstanceId = publishedInstallation.ToString("D"), Enabled = true,
                 WebBaseUrl = "https://desk.example.test", ApiBaseUrl = "https://api.example.test", Issuer = "https://existing.example/services" });
-            db.Incidents.Add(new() { Id = "preserved-incident", TrackingId = "INC-PRESERVED", Title = "Existing incident", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
-            db.Requests.Add(new() { Id = "preserved-request", TrackingId = "REQ-PRESERVED", Title = "Existing request", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
-            db.Set<NetclawConnectivitySettings>().Add(new() { Enabled = true, ProtectedDeviceToken = netclawToken, ProfileFingerprint = "unchanged-netclaw", Revision = 7 });
-            db.Set<ServiceSigningKey>().Add(new() { Kid = "preserved-signing-key", Issuer = "https://existing.example/services", ProtectedPrivateKey = signingKey,
+            seed.Incidents.Add(new() { Id = "preserved-incident", TrackingId = "INC-PRESERVED", Title = "Existing incident", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
+            seed.Requests.Add(new() { Id = "preserved-request", TrackingId = "REQ-PRESERVED", Title = "Existing request", OrganizationId = "preserved-org", CustomerId = "preserved-customer" });
+            seed.Set<NetclawConnectivitySettings>().Add(new() { Enabled = true, ProtectedDeviceToken = netclawToken, ProfileFingerprint = "unchanged-netclaw", Revision = 7 });
+            seed.Set<ServiceSigningKey>().Add(new() { Kid = "preserved-signing-key", Issuer = "https://existing.example/services", ProtectedPrivateKey = signingKey,
                 PublicModulus = "unchanged-modulus", PublicExponent = "AQAB", ActiveSlot = 1, CreatedAtUtc = now });
             foreach (var source in new[] { (apiNamespace, apiProducer), (oldNamespace, oldProducer) })
-                db.IncidentReceiverSources.Add(new() { SourceNamespaceId = source.Item1, SourceInstanceId = source.Item2, OrganizationId = "preserved-org", CustomerId = "preserved-customer",
+                seed.IncidentReceiverSources.Add(new() { SourceNamespaceId = source.Item1, SourceInstanceId = source.Item2, OrganizationId = "preserved-org", CustomerId = "preserved-customer",
                     CreatedBy = "preserved-owner", UpdatedBy = "preserved-owner", CreatedAtUtc = now, UpdatedAtUtc = now });
-            db.IncidentReceiverPrincipalBindings.Add(new() { SourceNamespaceId = apiNamespace, PrincipalKind = "api_credential", PrincipalId = apiCredential.ToString("N"), IsEnabled = true });
-            db.IncidentCreateReceipts.Add(new() { Id = receiptId, SourceNamespaceId = oldNamespace, Key = "original-key", Fingerprint = new string('a', 64), IncidentId = "preserved-incident",
+            seed.IncidentReceiverPrincipalBindings.Add(new() { SourceNamespaceId = apiNamespace, PrincipalKind = "api_credential", PrincipalId = apiCredential.ToString("N"), IsEnabled = true });
+            seed.IncidentCreateReceipts.Add(new() { Id = receiptId, SourceNamespaceId = oldNamespace, Key = "original-key", Fingerprint = new string('a', 64), IncidentId = "preserved-incident",
                 OrganizationId = "preserved-org", CustomerId = "preserved-customer", Location = "api/v1/incidents/preserved-incident", AcceptedJson = accepted, CommittedAtUtc = now });
-            await db.SaveChangesAsync();
+            await seed.SaveChangesAsync();
 
-            // Seed the shipped task shape, without columns introduced after
-            // this historical baseline. The current context verifies them after upgrade.
-            await using (var historical = new HistoricalTaskContext(
-                (DbContextOptions<HelpdeskDbContext>)db.GetService<IDbContextOptions>(),
-                new AdminTenantContext(), new HttpContextAccessor()))
-            {
-                historical.RequestTasks.Add(new() { Id = "preserved-task", TrackingId = "TASK-PRESERVED", RequestId = "preserved-request", OrganizationId = "preserved-org", OrchestrationExternalRunId = "original-run" });
-                await historical.SaveChangesAsync();
-            }
+            seed.RequestTasks.Add(new() { Id = "preserved-task", TrackingId = "TASK-PRESERVED", RequestId = "preserved-request", OrganizationId = "preserved-org", OrchestrationExternalRunId = "original-run" });
+            await seed.SaveChangesAsync();
 
             // Seed the actual shipped schema. No discarded runtime or parser is needed to upgrade malformed state.
             foreach (var status in new[] { "active", "pending", "failed", "verified" })
@@ -228,6 +224,7 @@ public sealed class PairingUpgradeTests
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            PublishedCampaignSeedModel.Configure(modelBuilder);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.AutoStart);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptCorrelationId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptHistoryJson);

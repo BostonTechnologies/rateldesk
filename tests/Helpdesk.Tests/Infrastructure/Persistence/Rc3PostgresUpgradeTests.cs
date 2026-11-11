@@ -107,6 +107,7 @@ public sealed class Rc3PostgresUpgradeTests
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            PublishedCampaignSeedModel.Configure(modelBuilder);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationPeerInstanceId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.OrchestrationLinkRevision);

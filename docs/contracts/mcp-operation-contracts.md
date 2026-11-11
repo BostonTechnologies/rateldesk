@@ -7,7 +7,7 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The current catalog revision `2026-11-11.automation-targets-v29` contains 390
+The current catalog revision `2026-11-11.trusted-requesters-v30` contains 390
 operations on 37 tools. The retained [inventory delta](mcp-operation-inventory-delta-beta13.json)
 compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
 with beta.11 at revision `2026-10-25.beta11-contracts-v25`: all 389 prior
@@ -17,6 +17,13 @@ while preserving delivery and rule audit history. The
 [retained beta.8 mapping](mcp-operation-inventory-delta-beta8.json) records the
 earlier operator expansion. These source mappings remain distinct from fresh
 runtime acceptance evidence.
+
+Self-service creation resolves the requester from an enabled login link or
+trusted persisted account and domain-user membership. Its organization must be
+compatible with the form and saved automation bindings. An email match does not
+establish ownership. Optional `request.submissionId` is a stable UUID: repeat an
+identical submission with that UUID to recover the original receipt; changed
+content returns a conflict. Every retry revalidates current eligibility.
 
 In 0.1.3-beta.8, Change creation accepts optional `request.saveAsDraft=true`;
 bulk creation accepts the same field on each `request.items` entry. Omitting it
