@@ -122,7 +122,9 @@ jobs:
   incident-receiver:
     name: Incident receiver HTTP and provider acceptance
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Both-provider deadline, hold, restart and approval races extend the existing
+    # acceptance selection. The previous 15-minute job expired during that suite.
+    timeout-minutes: 25
     steps:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
