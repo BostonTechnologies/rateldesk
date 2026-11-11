@@ -15,7 +15,8 @@
 .my-requests-table-region ::deep time, .my-requests-status, .my-requests-metadata { white-space: nowrap; }
 .my-requests-title { display: block; min-width: 12rem; max-width: 32rem; overflow-wrap: anywhere; }
 .my-requests-metadata { color: var(--mud-palette-text-secondary); }
-.my-requests-table-region ::deep .mud-table-pagination { flex-wrap: nowrap; overflow-x: auto; }
+.my-requests-table-region ::deep .mud-table-pagination { display: block; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+.my-requests-table-region ::deep .mud-table-pagination-toolbar { flex-wrap: nowrap; min-width: max-content; white-space: nowrap; }
 .my-requests-table-region ::deep a:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
 @media (max-width: 1199px) {
     .my-requests-toolbar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

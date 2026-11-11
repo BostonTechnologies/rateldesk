@@ -6,6 +6,8 @@ using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 namespace HelpDesk.NewWeb.Components.Pages.SelfService;
 
@@ -95,7 +97,8 @@ public partial class MyRequests : IDisposable
             return _lastData;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested || generation != _generation) { throw; }
-        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or
+            OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
             if (generation == _generation)
                 _loadError = "Requests could not be loaded. Check your filters and retry. Your current filters have been kept.";

@@ -56,6 +56,11 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
     expect(Math.abs(footerAfter!.y - footerBefore!.y)).toBeLessThan(2);
     await page.locator('.mud-table-pagination').scrollIntoViewIfNeeded();
     await expect(page.locator('.mud-table-pagination')).toBeInViewport({ ratio: 1 });
+    const pagerCenters = await page.locator('.mud-table-pagination-toolbar').evaluate(element => [...element.children]
+      .filter(child => child.getBoundingClientRect().width > 0)
+      .map(child => { const box = child.getBoundingClientRect(); return box.y + box.height / 2; }));
+    expect(pagerCenters.length).toBeGreaterThan(1);
+    expect(Math.max(...pagerCenters) - Math.min(...pagerCenters)).toBeLessThan(2);
     await assertNoHorizontalOverflow(page);
     await page.screenshot({ path: info.outputPath('my-requests-after.png'), fullPage: true });
     await copyFile(path.resolve(`docs/implementation/assets/381-self-service/my-requests-${width}x${height}-${theme}.png`), info.outputPath('my-requests-before.png'));
@@ -171,7 +176,7 @@ test('superseded query, errors, no matches and page clamping remain truthful', a
   await page.screenshot({ path: info.outputPath('my-requests-no-matches.png'), fullPage: true });
   await request.get(`${fixture}/fault?mode=requests`);
   await page.getByRole('button', { name: 'Refresh requests', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Requests could not be loaded');
+  await expect(page.getByRole('alert')).toContainText('Requests could not be loaded', { timeout: 30_000 });
   await expect(search).toHaveValue('absent synthetic record');
   await page.screenshot({ path: info.outputPath('my-requests-error.png'), fullPage: true });
   await request.get(`${fixture}/fault`);
