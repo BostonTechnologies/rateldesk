@@ -5,6 +5,7 @@ namespace Helpdesk.Application.RequestTasks;
 public interface IRequestTaskStartFence
 {
     Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct);
+    Task PersistApprovalAsync(RequestTask task, RequestTaskApprovalStartIntent intent, CancellationToken ct);
 }
 
 public sealed class RequestProgressionHeldException(string message) : InvalidOperationException(message);
