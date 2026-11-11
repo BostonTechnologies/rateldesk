@@ -1,0 +1,348 @@
+{
+  "purpose": "Synthetic Team presentation and behavior evidence only; no merged/main, public release, or real-database lifecycle claim.",
+  "capturedAtUtc": "2026-11-11T17:11:51.476447+00:00",
+  "teamViewSourceCommit": "b74159b1d007c7f7a4f90f21876724faf8c41a35",
+  "driverSourceCommit": "ae67d337c34939f593f8ace774f83c190ea1a428",
+  "webBinarySha256": "257714fb164102110bac68e4191de2d5a80c9502084d62cf7c6567d1b8626c35",
+  "webBuildBoundary": "Frozen owning Web binary completed before these runs. Team Razor/CSS content is identical to b74159b1 and ae67d337. The later legacy-customer-dialog guard is outside the shown Team view and was not part of this browser binary.",
+  "baselineShownViewSource": "11c8997816833d753caf8df912a8279490da34fb",
+  "baselineBinarySha256": "4db367fa0ed6e7ecd5addd7687e47e84d15c275797cc0f176a4a8d824210b12b",
+  "baselineBuildBoundary": "Full Web project graph built from clean exact 11c8997816833d753caf8df912a8279490da34fb with SDK10.0.400. This replaces every provisional pre-UX-root before capture; no unrelated draft form edits are present in the retained before binary.",
+  "fixture": "137 synthetic identities; owning candidate API18530/Web5193 Hybrid and Web5194 Oidc at their recorded run times. Clean baseline API18587/Web5297; live_details ports5190/5193/18600 were kept separate during the later clean capture. No production data or credentials.",
+  "ordinary": {
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 114.215,
+    "viewports": [
+      [
+        1920,
+        1080
+      ],
+      [
+        1440,
+        900
+      ],
+      [
+        1366,
+        768
+      ],
+      [
+        768,
+        1024
+      ],
+      [
+        390,
+        844
+      ]
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "cases": [
+      "Full themed geometry: actual sticky th and pager positions,25 action groups on one horizontal row,no document overflow,pager reachability,long readable identity/role.",
+      "Search beyond100; no per-row status HTTP;25/50/100 native sizes; keyboard sort and final-page URL refresh.",
+      "Explicit Delete and Disable routes/dialogs; rejected Delete stays open and retries.",
+      "Combined state/cohort/role/organization filters,count,selected-ID hydration,reload,clear.",
+      "Superseded response rejection; recoverable503 and retained query; no matches.",
+      "Final-page deletion clamps6to5 and returns focus to directory.",
+      "Separate Oidc-only host preserves Delete,retains external-provider account,and exposes no unavailable local credential/sign-in controls."
+    ],
+    "rawResultSha256": "7621dd38ff88fcc463e02c3f74bc025dbc0fa19847531e4efe00db093bef1a6f"
+  },
+  "beforeCapture": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 23.007,
+    "rawResultSha256": "14bdac5b5aade197b329884886f7a8b0be5f69a660a07986e3d3833e621d33de",
+    "boundary": "Capture of the original layout only; not an acceptance claim for the new layout."
+  },
+  "nativeZoom": {
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "browser": "Official Playwright Chromium1248",
+    "method": "Existing native-zoom.spec.ts copied without changing zoom/assertion logic; directories routes narrowed to /admin/users and isolated API port18530. chrome.tabs.setZoom=2 and innerWidth=physicalWidth/2; physical CDP viewport capture with no CSS clip.",
+    "physicalViewports": [
+      [
+        1280,
+        1000
+      ],
+      [
+        1920,
+        1000
+      ]
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "beforeComparison": "Complete: see nativeZoomBefore and before-team-*-native-200.png.",
+    "seconds": 61.739,
+    "rawResultSha256": "3de7a503cbfe224139979c7d733862cce432eb7807fbe48e8f40152a45d71dfc",
+    "derivedDriverSha256": "e399448c802bc90d433ec757b9bc552fafd65156f0a8d170322da0a232496650"
+  },
+  "sourceInputs": [
+    {
+      "file": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/UserManagement.razor",
+      "sha256": "f4391fa4854d432686d48367e3b32b3b6912462a88fbcd116b34b5750c1c0320"
+    },
+    {
+      "file": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/UserManagement.razor.css",
+      "sha256": "51d9eed6f06c722ee9ead6f8bdf235c1f42ed0ea620de785ace9ee74995f9d18"
+    },
+    {
+      "file": "tests/ux/team-directory-fixture.mjs",
+      "sha256": "27b2067e525d130dbf7cbf82f3d55a9b0af4c0c44a2be4ad5694b935f6e3288e"
+    },
+    {
+      "file": "tests/ux/team-directory.spec.ts",
+      "sha256": "c3d30cf24f9d9ed730b3535eb94fd63d8a2034c1e4bf78c30c976f88a1f2865a"
+    },
+    {
+      "file": "tests/ux/team-oidc-mode.spec.ts",
+      "sha256": "2ba36c2b5a62663ccae39f01d03f0946e9209a1c7de183303aa51af81bf0465a"
+    }
+  ],
+  "pngCount": 28,
+  "files": [
+    {
+      "file": "after-team-dark-1280-native-200.png",
+      "bytes": 111843,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "f5ed5e2f4a33885b205dba912156883f9b636368786789ac843e796bf5df4ad0"
+    },
+    {
+      "file": "after-team-dark-1366.png",
+      "bytes": 118221,
+      "width": 1366,
+      "height": 794,
+      "sha256": "b386531a36fdb02cf4e0e67e5f9f69bcb36c75ce02175545c3a8efab8ae0aa16"
+    },
+    {
+      "file": "after-team-dark-1440.png",
+      "bytes": 141571,
+      "width": 1440,
+      "height": 900,
+      "sha256": "ce1978ad487bf2eb1837445ab3794b6175be7c668798deb7d3b4f3a0e4f03f49"
+    },
+    {
+      "file": "after-team-dark-1920-native-200.png",
+      "bytes": 158309,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "71ae5840cd56c8b6655d285ceb1955182046f4a53c8010ad50776fb3b61d9421"
+    },
+    {
+      "file": "after-team-dark-1920.png",
+      "bytes": 182066,
+      "width": 1920,
+      "height": 1080,
+      "sha256": "f34e87b31c9b148493262c0c7f1f804d5ac120fc5f71bd8393449c155af6be01"
+    },
+    {
+      "file": "after-team-dark-390.png",
+      "bytes": 52460,
+      "width": 390,
+      "height": 1201,
+      "sha256": "6a3f5f84bdc490dfa3fc379e646c85b9cd3adda4e225d3a831fb71be6e80b30f"
+    },
+    {
+      "file": "after-team-dark-768.png",
+      "bytes": 85251,
+      "width": 768,
+      "height": 1104,
+      "sha256": "6626616ba9d8581ea1603e09403a20c959b52ec569ac7b612bbc8576d19d3791"
+    },
+    {
+      "file": "after-team-light-1280-native-200.png",
+      "bytes": 110154,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "f4fca346d6abb9d3de7af98f8efe2862cb6e6f59e55d61a0eb07450ca63ae2b2"
+    },
+    {
+      "file": "after-team-light-1366.png",
+      "bytes": 116851,
+      "width": 1366,
+      "height": 794,
+      "sha256": "c78bf812592091febfd879cd612c9c8f85ee397dd8f84ee6eb34abe78db162de"
+    },
+    {
+      "file": "after-team-light-1440.png",
+      "bytes": 140054,
+      "width": 1440,
+      "height": 900,
+      "sha256": "fc8f0499712a3c9cb5b55ebd9148d3e80ede5cd122d2e60ffc5dbc738c67875f"
+    },
+    {
+      "file": "after-team-light-1920-native-200.png",
+      "bytes": 155921,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "7d56dbb3067d6042d7f84068c804032c97886580f5fef81b301b34a83417a53c"
+    },
+    {
+      "file": "after-team-light-1920.png",
+      "bytes": 179907,
+      "width": 1920,
+      "height": 1080,
+      "sha256": "2992ba32970f35f952f6eb861ba4b5c1f6912eb6d997f87db72ca5903ea7c0b2"
+    },
+    {
+      "file": "after-team-light-390.png",
+      "bytes": 52137,
+      "width": 390,
+      "height": 1201,
+      "sha256": "0c9aba5757c193955632c8940e56178b5097a8a52d9403fe79969ab941baa0cb"
+    },
+    {
+      "file": "after-team-light-768.png",
+      "bytes": 83821,
+      "width": 768,
+      "height": 1104,
+      "sha256": "e094f3c3e08f0c3ceec71c9bede7ae5afa1e253f46afdc1c56a324236d16d7c1"
+    },
+    {
+      "file": "before-team-dark-1280-native-200.png",
+      "bytes": 75868,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "431a1011a76cd177b947cc527033444090881ecd3d734657b91c9657c123d1b5"
+    },
+    {
+      "file": "before-team-dark-1366.png",
+      "bytes": 973105,
+      "width": 1366,
+      "height": 9176,
+      "sha256": "ae9426609049043884c5a43ba3a2a766ddf285f370b6916c299587e16e31c6e4"
+    },
+    {
+      "file": "before-team-dark-1440.png",
+      "bytes": 992327,
+      "width": 1440,
+      "height": 9176,
+      "sha256": "9b110785f4b9d2bf0fa5f754b5071342154f81d665bb8236025186944206bfb6"
+    },
+    {
+      "file": "before-team-dark-1920-native-200.png",
+      "bytes": 97349,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "6d2a14c4222f99922d07ac9f8e686e037f248b4a9527525badb4388d79f9c269"
+    },
+    {
+      "file": "before-team-dark-1920.png",
+      "bytes": 799421,
+      "width": 1920,
+      "height": 5614,
+      "sha256": "b0bdbeee4afb619bbc3b5b60849016be3276f9371195aff7d9584edfdb60b0e0"
+    },
+    {
+      "file": "before-team-dark-390.png",
+      "bytes": 1614989,
+      "width": 390,
+      "height": 28343,
+      "sha256": "66572952e6f8f00a989d3482f518073d54e21c00408073f382e0b988136efba1"
+    },
+    {
+      "file": "before-team-dark-768.png",
+      "bytes": 1701393,
+      "width": 768,
+      "height": 28323,
+      "sha256": "39a1ede0e751d21ea820e75936567eeed09cdc11f7df7d986a6fd9ecba8b1745"
+    },
+    {
+      "file": "before-team-light-1280-native-200.png",
+      "bytes": 74868,
+      "width": 1280,
+      "height": 1000,
+      "sha256": "4ccf4b3734568fb005feefccc040a382e4bef42072284e8d6a9760f3293f6dac"
+    },
+    {
+      "file": "before-team-light-1366.png",
+      "bytes": 962771,
+      "width": 1366,
+      "height": 9176,
+      "sha256": "a936b1d4f555b28d29f04d86e4695fb52f33269c4e3ad5a928314de8a8a4c7b8"
+    },
+    {
+      "file": "before-team-light-1440.png",
+      "bytes": 984967,
+      "width": 1440,
+      "height": 9176,
+      "sha256": "cb4e24f38a893ecca2bcf22b74e2923dab5530b8c18f407f30fa75adc0a6ff21"
+    },
+    {
+      "file": "before-team-light-1920-native-200.png",
+      "bytes": 96529,
+      "width": 1920,
+      "height": 1000,
+      "sha256": "34d36e813476ae50e27ebde94866aa8c794e52b83d6c474fe9cd5363bd0c2d83"
+    },
+    {
+      "file": "before-team-light-1920.png",
+      "bytes": 795368,
+      "width": 1920,
+      "height": 5614,
+      "sha256": "796dd7d207b646af8e7d72a2a39f9f1c8294d1bbcac7b12caf7596eef42cd2f1"
+    },
+    {
+      "file": "before-team-light-390.png",
+      "bytes": 1577899,
+      "width": 390,
+      "height": 28343,
+      "sha256": "14071cbdc8baf25c5c6e867b8a197502407c894e8d541a166a055b1434280256"
+    },
+    {
+      "file": "before-team-light-768.png",
+      "bytes": 1675029,
+      "width": 768,
+      "height": 28323,
+      "sha256": "5f1a3a3f4225e7a9a75abd0353b2da38f59d1da1d1084b091001c237939a79b2"
+    }
+  ],
+  "commands": {
+    "ordinary": "PLAYWRIGHT_BROWSERS_PATH=/workspace/work/playwright-browsers HELPDESK_TEAM_FIXTURE_BASE=http://127.0.0.1:18530/fixture/team HELPDESK_TEAM_OIDC_BASE_URL=https://127.0.0.1:5194 node /workspace/rateldesk/node_modules/@playwright/test/cli.js test --config=/workspace/work/team.playwright.config.mjs",
+    "nativeAfter": "HELPDESK_NATIVE_ZOOM_SUITE=directories HELPDESK_E2E_CHROMIUM_PATH=/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome PLAYWRIGHT_BROWSERS_PATH=/workspace/work/playwright-browsers node /workspace/rateldesk/node_modules/@playwright/test/cli.js test --config=/workspace/work/team-native.config.mjs",
+    "before": "PLAYWRIGHT_BROWSERS_PATH=/workspace/work/playwright-browsers HELPDESK_TEAM_FIXTURE_BASE=http://127.0.0.1:18587/fixture/team HELPDESK_ADMIN_BASELINE=true node /workspace/rateldesk/node_modules/@playwright/test/cli.js test --config=/workspace/work/team-clean-before.config.mjs --grep \"synthetic before\"",
+    "portableCurrentSuite": "npx playwright test --config=playwright.admin.config.ts tests/ux/team-directory.spec.ts tests/ux/team-oidc-mode.spec.ts",
+    "portableIntegratedNative": "HELPDESK_NATIVE_ZOOM_SUITE=directories npx playwright test --config=playwright.native-zoom.config.ts",
+    "nativeBefore": "HELPDESK_NATIVE_ZOOM_SUITE=directories HELPDESK_E2E_CHROMIUM_PATH=/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome PLAYWRIGHT_BROWSERS_PATH=/workspace/work/playwright-browsers node /workspace/rateldesk/node_modules/@playwright/test/cli.js test --config=/workspace/work/team-clean-native-before.config.mjs"
+  },
+  "configBoundary": "Actual isolated configs use the same owning fixture and built Web plus private ports. Portable commands require integrated shared admin/native registration (including f28823a2) and run every selected case with no skips.",
+  "baselineBuildReceipt": "clean-baseline-build.json",
+  "baselineShownSourceHashes": {
+    "src/HelpDesk.NewWeb/Components/Pages/Admin/User/UserManagement.razor": "321198c02a28641e1f1ff64b1f9e46ebe616af84de26ec3ce094908540885a23",
+    "src/HelpDesk.NewWeb/Components/Layout/MainLayout.razor": "a80bc6ec54a61f3efa7e7db2027a1d4983a7afa0456f61524edef47bec8c11bb",
+    "src/HelpDesk.NewWeb/wwwroot/css/app.css": "405945961810c0ce59900e42ad20b7c8e2d510bfd7d77ddd24533768673c385b"
+  },
+  "nativeZoomBefore": {
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 21.993,
+    "rawResultSha256": "7ff40f47088a577940b681e5e50be6b1139cc35e77b6a93a4725c3fd76b96513",
+    "boundary": "Capture of the original layout only; not an acceptance claim for the new layout.",
+    "method": "Existing native extension/CDP driver narrowed to Team. Verified chrome.tabs.setZoom=2, actual innerWidth=physicalWidth/2 and full physical screenshot dimensions; all137 synthetic rows loaded. Original-layout overflow is observed rather than accepted as a new-layout postcondition.",
+    "driverSha256": "6a6be25195d220800e71ab8c42ee82b31a3e46c096c71758096251afb78a1ec6",
+    "physicalViewports": [
+      [
+        1280,
+        1000
+      ],
+      [
+        1920,
+        1000
+      ]
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ]
+  },
+  "recordedAtUtc": "2026-11-11T17:54:52.029362+00:00"
+}

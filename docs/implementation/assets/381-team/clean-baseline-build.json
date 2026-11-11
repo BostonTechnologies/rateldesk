@@ -1,0 +1,7 @@
+{
+  "sourceRevision": "11c8997816833d753caf8df912a8279490da34fb",
+  "buildTimestamp": "2026-11-11T17:14:29Z",
+  "configuration": "Debug",
+  "sdk": "10.0.400",
+  "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore -m:1 -nodeReuse:false -p:UseSharedCompilation=false -p:BuildTimestamp=<recorded> -p:SourceRevisionId=<recorded>"
+}
