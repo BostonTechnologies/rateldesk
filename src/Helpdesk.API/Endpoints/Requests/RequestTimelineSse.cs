@@ -20,7 +20,11 @@ internal static class RequestTimelineSse
             // Subscribe first. The ready frame then requests a canonical snapshot, so a transition
             // between the initial page fetch and subscription cannot leave the page stale.
             var cursor = await ReadCommittedCursorAsync(db, id, ct);
-            if (!await IsAuthorizedAsync()) return;
+            if (!await IsAuthorizedAsync())
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
             context.Response.Headers.CacheControl = "no-cache, no-store";
             context.Response.Headers.Append("X-Accel-Buffering", "no");
             context.Response.ContentType = "text/event-stream";

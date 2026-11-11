@@ -150,6 +150,9 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         }
         await harness.CompleteAllAsync();
         Assert.Null(await reader.ReadLineAsync(cancellation.Token));
+        using var reopened = await client.GetAsync("api/v1/requests/live-request/timeline/stream", HttpCompletionOption.ResponseHeadersRead, cancellation.Token);
+        Assert.Equal(HttpStatusCode.Forbidden, reopened.StatusCode);
+        Assert.Empty(await reopened.Content.ReadAsStringAsync(cancellation.Token));
         Assert.DoesNotContain("event: request-state", factory.Frames.Text);
     }
 
