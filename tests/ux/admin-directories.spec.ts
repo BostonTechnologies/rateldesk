@@ -48,6 +48,8 @@ for (const theme of ['light', 'dark']) test(`directory synthetic desktop tablet 
           expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
           await page.locator('.mud-table-pagination').scrollIntoViewIfNeeded();
           await expect(page.locator('.mud-table-pagination')).toBeInViewport({ ratio: 0.95 });
+          const pagerTops = await page.locator('.mud-table-pagination-toolbar button').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
+          expect(Math.max(...pagerTops) - Math.min(...pagerTops)).toBeLessThanOrEqual(1);
           const container = page.locator('.directory-table-region .mud-table-container');
           const headerBefore = await container.locator('th').first().boundingBox();
           const footerBefore = await page.locator('.mud-table-pagination').boundingBox();
