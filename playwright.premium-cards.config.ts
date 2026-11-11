@@ -7,7 +7,7 @@ export default defineConfig({
   use: { baseURL: 'https://127.0.0.1:5250', ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 }, trace: 'off', screenshot: 'only-on-failure', launchOptions: process.env.HELPDESK_E2E_CHROMIUM_PATH ? { executablePath: process.env.HELPDESK_E2E_CHROMIUM_PATH } : undefined },
   webServer: [
     { command: 'node tests/ux/premium-cards-fixture-api.mjs', url: 'http://127.0.0.1:18720/fixture/health', reuseExistingServer: false },
-    { command: published ? 'dotnet HelpDesk.NewWeb.dll' : 'dotnet bin/Debug/net10.0/HelpDesk.NewWeb.dll', cwd, url: 'https://127.0.0.1:5250/health', ignoreHTTPSErrors: true, timeout: 120_000, reuseExistingServer: false,
+    { command: published ? 'dotnet HelpDesk.NewWeb.dll' : `dotnet bin/${process.env.HELPDESK_CARDS_CONFIGURATION === 'Release' ? 'Release' : 'Debug'}/net10.0/HelpDesk.NewWeb.dll`, cwd, url: 'https://127.0.0.1:5250/health', ignoreHTTPSErrors: true, timeout: 120_000, reuseExistingServer: false,
       env: { ASPNETCORE_ENVIRONMENT: 'Development', ASPNETCORE_URLS: 'https://127.0.0.1:5250', ApiBaseUrl: 'http://127.0.0.1:18720/', DevelopmentOperator__Enabled: 'true', SYSTEM_TOKEN_SECRET: 'premium-cards-fixture', Authentication__Authentik__ClientId: 'ux-local', AUTHENTIK_CLIENT_SECRET: 'ux-local', Authentication__Authentik__ApiScope: 'helpdesk' } }
   ]
 });

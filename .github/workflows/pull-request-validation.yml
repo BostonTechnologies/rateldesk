@@ -239,7 +239,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [assignee, email, ticket-filters, details, operations, admin, request-editor, pending-mail, integrations]
+        suite: [assignee, email, ticket-filters, details, operations, admin, request-editor, pending-mail, integrations, self-service, premium-cards]
     env:
       HELPDESK_ASSIGNEE_CONFIGURATION: Release
       HELPDESK_EMAIL_CONFIGURATION: Release
@@ -250,6 +250,8 @@ jobs:
       HELPDESK_EDITOR_CONFIGURATION: Release
       HELPDESK_INTEGRATIONS_CONFIGURATION: Release
       HELPDESK_PENDING_MAIL_CONFIGURATION: Release
+      HELPDESK_SELF_SERVICE_CONFIGURATION: Release
+      HELPDESK_CARDS_CONFIGURATION: Release
     steps:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -293,6 +295,14 @@ jobs:
         run: >-
           npx playwright test --config playwright.native-zoom.config.ts
           --output=artifacts/e2e/workspace-${{ matrix.suite }}/native-zoom
+
+      - name: Verify administration directories and Team at native 200 percent zoom
+        if: matrix.suite == 'admin'
+        env:
+          HELPDESK_NATIVE_ZOOM_SUITE: directories
+        run: >-
+          npx playwright test --config playwright.native-zoom.config.ts
+          --output=artifacts/e2e/workspace-admin/directories-native-zoom
 
       - name: Verify contributor and manager ticket ownership controls
         if: matrix.suite == 'details'
