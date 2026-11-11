@@ -865,7 +865,9 @@ else
             task.OrchestrationExternalRunId,
             task.OrchestrationExternalRequestId,
             task.OrchestratorExecutionId,
-            task.AutomationBindingId);
+            task.AutomationBindingId,
+            task.AutomationAttemptCorrelationId,
+            task.Id);
 
     private async Task ExecuteTaskActionAsync(string taskId, string action, string successMessage)
     {

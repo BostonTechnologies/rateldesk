@@ -1,4 +1,5 @@
 @page "/self-service/my-requests/{Id}"
+@layout SelfServiceLayout
 @implements IDisposable
 @using HelpDesk.NewWeb.Models
 
@@ -143,6 +144,7 @@
 
 @code {
     [Parameter] public string Id { get; set; } = string.Empty;
+    [CascadingParameter] public SelfServiceNavigationState? SelfServiceNavigation { get; set; }
 
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private bool loading = true;
@@ -209,7 +211,7 @@
 
     private void GoBack()
     {
-        Navigation.NavigateTo("/self-service/my-requests");
+        Navigation.NavigateTo(SelfServiceNavigation?.MyRequestsUrl ?? "/self-service/my-requests");
     }
 
     private static IReadOnlyList<PayloadRow> ParsePayloadRows(string? payloadJson)

@@ -327,7 +327,7 @@ public static class SelfServiceRequestEndpoints
             .Where(x => isAdmin || visibleOrganizationIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.Name, token);
 
-        var usersQuery = db.Users.AsNoTracking();
+        var usersQuery = db.Users.AsNoTracking().Where(x => !x.IsDeleted);
         if (!isAdmin)
         {
             usersQuery = usersQuery.Where(x => x.OrganizationId != null && visibleOrganizationIds.Contains(x.OrganizationId));
@@ -459,7 +459,8 @@ public static class SelfServiceRequestEndpoints
     {
         var customer = await db.Customers
             .FirstOrDefaultAsync(x => x.Id == id && x.State == Helpdesk.Shared.Models.EntityState.Enabled, token);
-        if (customer is null || !CanUseOrganization(customer.OrganizationId, visibleOrganizationIds, isAdmin))
+        if (customer is null || (customer.IdentityUserId is not null && !await db.Users.AnyAsync(x => x.Id == customer.IdentityUserId && !x.IsDeleted, token))
+            || !CanUseOrganization(customer.OrganizationId, visibleOrganizationIds, isAdmin))
         {
             return (null, null);
         }
@@ -476,7 +477,7 @@ public static class SelfServiceRequestEndpoints
         CancellationToken token)
     {
         var selectedUser = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
-        if (selectedUser is null
+        if (selectedUser is null || selectedUser.IsDeleted
             || string.IsNullOrWhiteSpace(selectedUser.OrganizationId)
             || string.IsNullOrWhiteSpace(selectedUser.Email)
             || !CanUseOrganization(selectedUser.OrganizationId, visibleOrganizationIds, isAdmin))
