@@ -12,6 +12,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
 {
     private readonly HelpdeskDbContext _db;
     private readonly RatelDeskIdentityDbContext? _identityDb;
+    private readonly Dictionary<(string Issuer, string Subject), string> _observedExternalAccounts = new();
 
     public CurrentUserAccessService(HelpdeskDbContext db)
         : this(db, null)
@@ -43,6 +44,12 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var subject = FirstClaim(user, "sub");
         var authentikUserId = FirstClaim(user, "authentik_user_id", "ak_user_id");
         var link = await FindCustomerAuthLinkAsync(claimedLocalAccountId, issuer, subject, authentikUserId, ct);
+        // A domain tombstone remains authoritative when a legacy linked
+        // application account is missing or was disabled independently.
+        var retirementDomainId = link?.DomainUserId ?? claimedLocalAccountId ?? link?.LocalAccountId;
+        if (!string.IsNullOrWhiteSpace(retirementDomainId) &&
+            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == retirementDomainId && domainUser.IsDeleted, ct))
+            return Empty(false);
         // A linked OIDC subject is not an application user ID. Resolve its
         // persisted application account before evaluating account state or
         // scoped role assignments.
@@ -59,14 +66,16 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             }
         }
 
-        var externalAccount = _identityDb is not null && string.IsNullOrWhiteSpace(localAccountId) &&
-                              !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject)
-            ? await OidcApplicationAccount.FindAsync(_identityDb, issuer, subject, ct) : null;
+        ApplicationUser? externalAccount = null;
+        if (_identityDb is not null && string.IsNullOrWhiteSpace(localAccountId) &&
+            !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject))
+        {
+            var external = await ReadExternalAccountAsync(issuer, subject, ct);
+            if (external.Removed) return Empty(false);
+            externalAccount = external.Account;
+        }
         if (externalAccount?.IsDeleted == true) return Empty(false);
         if (externalAccount is { IsEnabled: false }) return Empty(true);
-        if (link is not null && !string.IsNullOrWhiteSpace(link.DomainUserId) &&
-            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == link.DomainUserId && domainUser.IsDeleted, ct))
-            return Empty(false);
         if (link is { DisabledAtUtc: not null } || link?.InviteStatus == CustomerInviteStatus.Disabled) return Empty(true);
 
         // Local role claims are an authorization projection, never a source of
@@ -434,6 +443,21 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
                 permissions.Add(permission);
             }
         }
+    }
+
+    private async Task<(ApplicationUser? Account, bool Removed)> ReadExternalAccountAsync(string issuer, string subject, CancellationToken ct)
+    {
+        var key = (issuer.TrimEnd('/'), subject);
+        var account = await OidcApplicationAccount.FindAsync(_identityDb!, issuer, subject, ct);
+        if (_observedExternalAccounts.TryGetValue(key, out var observedId) && (account is null || account.Id != observedId))
+            return (null, true);
+        if (account is null) return (null, false);
+        _observedExternalAccounts[key] = account.Id;
+        // A stream keeps this context for its lifetime. Refresh identity state
+        // before using it, while retaining tracking for provider-role projection.
+        var entry = _identityDb!.Entry(account);
+        await entry.ReloadAsync(ct);
+        return entry.State == Microsoft.EntityFrameworkCore.EntityState.Detached ? (null, true) : (account, false);
     }
 
     private static IEnumerable<string> ClaimValues(ClaimsPrincipal user, params string[] claimTypes) =>

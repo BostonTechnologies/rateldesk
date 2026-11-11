@@ -13,6 +13,42 @@ namespace Helpdesk.Tests.Infrastructure;
 
 public class CurrentUserAccessServiceTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Deleted_domain_rejects_linkless_local_and_linked_oidc_principals_with_missing_or_disabled_accounts(bool linkedOidc, bool missingAccount)
+    {
+        await using var db = CreateDb();
+        await using var identity = CreateIdentityDb();
+        db.Users.Add(new User { Id = "retired-domain", Name = "Retired person", IsDeleted = true });
+        var accountId = linkedOidc ? "linked-account" : "retired-domain";
+        if (!missingAccount)
+            identity.Users.Add(new ApplicationUser { Id = accountId, UserName = "retired@example.invalid", IsEnabled = false });
+        if (linkedOidc)
+        {
+            db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "retained-contact", DomainUserId = "retired-domain", LocalAccountId = accountId,
+                OidcIssuer = "https://id.example.com/application/o/rateldesk", OidcSubject = "retired-subject", InviteStatus = CustomerInviteStatus.Active });
+        }
+        await db.SaveChangesAsync(); await identity.SaveChangesAsync();
+        var principal = linkedOidc ? User("retired@example.invalid", "retired-subject", HelpdeskPermissions.HelpdeskAdmin) :
+            new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, accountId), new Claim("auth_mode", "local")], "Local"));
+        var service = new CurrentUserAccessService(db, identity);
+        var access = await service.ResolveAsync(principal);
+        Assert.False(access.IsAuthenticated); Assert.False(access.IsHelpdeskAdmin);
+        Assert.Empty(access.Permissions); Assert.Empty(access.AllowedOrganizationIds);
+        var publicReached = false;
+        var context = new DefaultHttpContext { User = principal };
+        await new UserAccessClaimsMiddleware(http =>
+        {
+            publicReached = true;
+            Assert.False(http.User.Identity?.IsAuthenticated);
+            return Task.CompletedTask;
+        }).InvokeAsync(context, service);
+        Assert.True(publicReached);
+    }
+
     [Fact]
     public async Task Linked_active_customer_gets_default_user_permissions_and_tenant()
     {

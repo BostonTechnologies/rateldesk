@@ -1,6 +1,7 @@
 using Helpdesk.API.Bootstrap;
 using Helpdesk.Infrastructure;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.Tests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection;
@@ -777,54 +778,57 @@ public sealed class BootstrapStateStoreTests
             Assert.Empty(await fresh.InstanceInitializations.ToListAsync());
         }
 
-        await using var established = new Helpdesk.Infrastructure.Persistence.HelpdeskDbContext(
-            options,
-            new TestTenantContext(),
-            new HttpContextAccessor());
-        await established.Database.ExecuteSqlRawAsync("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-
-        var establishedMigrator = established.GetService<IMigrator>();
-        await establishedMigrator.MigrateAsync("20260912082029_AddRoleDefinitions");
         var organization = new Organization { Name = "Established organization" };
-        // The historical target still requires EnableAiIntake, removed from
-        // the rc.7 entity model. Seed that legacy shape before exercising the
-        // upgrade path with current entities.
-        await established.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "Organizations" ("Id", "Name", "EnableAiIntake", "State")
-            VALUES ({organization.Id}, {organization.Name}, {false}, {(int)organization.State});
-            """);
         var customer = new Customer
         {
             Name = "Established OIDC customer",
             Email = "customer@example.test",
             OrganizationId = organization.Id
         };
-        established.Customers.Add(customer);
-        established.Users.Add(new User
-        {
-            Name = "Established administrator",
-            Email = "admin@example.test",
-            OrganizationId = organization.Id,
-            Role = "HelpdeskAdmin"
-        });
-        await established.SaveChangesAsync();
         var legacyLinkId = Guid.NewGuid().ToString("N");
         var inviteAcceptedAtUtc = DateTimeOffset.UtcNow;
-        await established.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "CustomerAuthLinks" (
-                "Id", "CustomerId", "AuthProviderType", "OidcIssuer", "OidcSubject",
-                "AuthentikUserId", "AuthentikUsername", "AuthentikEmail", "InviteStatus", "InviteAcceptedAtUtc")
-            VALUES (
-                {legacyLinkId}, {customer.Id}, {"Oidc"}, {"https://id.example.test"}, {"established-subject"},
-                {"established-provider-user"}, {"established.customer"}, {customer.Email}, {(int)CustomerInviteStatus.Active}, {inviteAcceptedAtUtc});
-            """);
+        await using (var previous = new Helpdesk.Infrastructure.Persistence.HelpdeskDbContext(
+            options, new TestTenantContext(), new HttpContextAccessor()))
+        {
+            await previous.Database.ExecuteSqlRawAsync("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+            await previous.GetService<IMigrator>().MigrateAsync("20260912082029_AddRoleDefinitions");
+            // The historical target requires EnableAiIntake and predates the
+            // managed requester key. Seed its published shape before upgrading.
+            await previous.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "Organizations" ("Id", "Name", "EnableAiIntake", "State")
+                VALUES ({organization.Id}, {organization.Name}, {false}, {(int)organization.State});
+                """);
+            await using var seed = new PublishedCampaignSeedContext(previous);
+            seed.Customers.Add(customer);
+            seed.Users.Add(new User
+            {
+                Name = "Established administrator",
+                Email = "admin@example.test",
+                OrganizationId = organization.Id,
+                Role = "HelpdeskAdmin"
+            });
+            await seed.SaveChangesAsync();
+            await previous.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "CustomerAuthLinks" (
+                    "Id", "CustomerId", "AuthProviderType", "OidcIssuer", "OidcSubject",
+                    "AuthentikUserId", "AuthentikUsername", "AuthentikEmail", "InviteStatus", "InviteAcceptedAtUtc")
+                VALUES (
+                    {legacyLinkId}, {customer.Id}, {"Oidc"}, {"https://id.example.test"}, {"established-subject"},
+                    {"established-provider-user"}, {"established.customer"}, {customer.Email}, {(int)CustomerInviteStatus.Active}, {inviteAcceptedAtUtc});
+                """);
+        }
 
+        await using var established = new Helpdesk.Infrastructure.Persistence.HelpdeskDbContext(
+            options, new TestTenantContext(), new HttpContextAccessor());
+        var establishedMigrator = established.GetService<IMigrator>();
         await establishedMigrator.MigrateAsync();
         Assert.Equal(LegacyInstallationAdoptionResult.Adopted,
             await adoption.AdoptAsync(established, CancellationToken.None));
+        await establishedMigrator.MigrateAsync();
         Assert.Equal(LegacyInstallationAdoptionResult.AlreadyMarked,
             await adoption.AdoptAsync(established, CancellationToken.None));
         Assert.Single(await established.InstanceInitializations.ToListAsync());
+        Assert.Empty(await established.Database.GetPendingMigrationsAsync());
 
         var preservedLink = await established.CustomerAuthLinks.AsNoTracking().SingleAsync();
         var preservedCustomer = await established.Customers.AsNoTracking().SingleAsync();
