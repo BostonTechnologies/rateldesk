@@ -472,12 +472,14 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             {
                 factory.RejectNextSave = false;
                 factory.SaveStarted.TrySetResult(true);
-                await factory.ReleaseSave.Task.WaitAsync(ct);
+                await factory.ReleaseSave.Task.WaitAsync(ct).ConfigureAwait(false);
                 // This UI regression deliberately rejects the command. State changes and
                 // invalidation frames still come from the real committed API lifecycle.
                 return new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("Another operation changed this request.") };
             }
-            var response = await base.SendAsync(request, ct);
+            // Network instrumentation must not queue its completion behind the
+            // renderer and add an artificial delay to canonical HTTP reads.
+            var response = await base.SendAsync(request, ct).ConfigureAwait(false);
             if (factory.DiagnoseReads && request.Method == HttpMethod.Get)
             {
                 var prefix = $"GET {request.RequestUri?.PathAndQuery}; status={(int)response.StatusCode}";
@@ -485,7 +487,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
                 if (response.IsSuccessStatusCode && request.RequestUri?.AbsolutePath.StartsWith("/api/v1/requests/", StringComparison.Ordinal) == true)
                 {
                     var original = response.Content;
-                    var trace = new ReadTraceStream(await original.ReadAsStreamAsync(ct), body =>
+                    var trace = new ReadTraceStream(await original.ReadAsStreamAsync(ct).ConfigureAwait(false), body =>
                         factory.Reads.Enqueue($"{DateTimeOffset.UtcNow:O} {prefix}; readMs={started.Elapsed.TotalMilliseconds:F0}; body={body}"));
                     var content = new StreamContent(trace);
                     foreach (var header in original.Headers) content.Headers.TryAddWithoutValidation(header.Key, header.Value);
@@ -499,7 +501,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
                 {
                     factory.PauseNextSnapshot = false;
                     factory.SnapshotStarted.TrySetResult(true);
-                    await factory.ReleaseSnapshot.Task.WaitAsync(ct);
+                    await factory.ReleaseSnapshot.Task.WaitAsync(ct).ConfigureAwait(false);
                 }
             }
             return response;
@@ -512,7 +514,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         public override long Length => throw new NotSupportedException(); public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
         public override int Read(byte[] buffer, int offset, int count) { var read = inner.Read(buffer, offset, count); record(Encoding.UTF8.GetString(buffer, offset, read)); return read; }
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
-        { var read = await inner.ReadAsync(buffer, ct); record(Encoding.UTF8.GetString(buffer.Span[..read])); return read; }
+        { var read = await inner.ReadAsync(buffer, ct).ConfigureAwait(false); record(Encoding.UTF8.GetString(buffer.Span[..read])); return read; }
         public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); base.Dispose(disposing); }
