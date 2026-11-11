@@ -19,8 +19,11 @@ public static class UserRetirement
     {
         // Runtime identity and domain contexts use one database. Share its connection and
         // serializable transaction so a failed revocation/audit cannot leave a partial deletion.
-        var relational = db.Database.IsRelational();
-        if (relational != identityDb.Database.IsRelational())
+        // Test hosts may retain old relational option extensions while replacing
+        // the actual provider with InMemory. Inspect the active provider first.
+        var relational = !db.Database.IsInMemory() && db.Database.IsRelational();
+        var identityRelational = !identityDb.Database.IsInMemory() && identityDb.Database.IsRelational();
+        if (relational != identityRelational)
             throw new InvalidOperationException("User retirement requires matching application and identity database providers.");
         var originalIdentityConnection = relational ? identityDb.Database.GetDbConnection() : null;
         if (relational && (db.Database.ProviderName != identityDb.Database.ProviderName ||

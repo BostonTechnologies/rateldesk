@@ -234,6 +234,8 @@ public sealed class UserRetirementProviderTests
         var parameters = new UserDirectoryQuery.Parameters { Page = 6, PageSize = 25 };
         var page = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(parameters, db, Actor("administrator"), default)).Value!;
         Assert.Equal(133, page.Total); Assert.Equal(6, page.Page); Assert.Equal(8, page.Items.Count); Assert.Equal("user-125", page.Items[0].Id);
+        var oidcOnly = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(new(), db, Actor("administrator"), false, default)).Value!;
+        Assert.All(oidcOnly.Items, user => { Assert.False(user.CanManageAccount); Assert.False(user.CanChangeSignIn); Assert.True(user.CanDelete); });
         parameters.Search = "user132"; parameters.State = "Enabled"; parameters.IsTestUser = true;
         var filtered = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(parameters, db, Actor("administrator"), default)).Value!;
         Assert.Equal(1, filtered.Total); Assert.Equal(1, filtered.Page); Assert.Equal("user-132", Assert.Single(filtered.Items).Id);

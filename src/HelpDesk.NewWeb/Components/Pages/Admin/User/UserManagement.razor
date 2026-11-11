@@ -4,6 +4,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+@inject HelpDesk.NewWeb.Models.WebAuthenticationMode AuthenticationMode
 @using Helpdesk.Shared.DTOs
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.User
@@ -58,8 +59,8 @@
             <MudTd DataLabel="Access"><span>@StateLabel(context.AccountState)</span><span class="team-access-summary" title="@context.IdentitySummary">@context.IdentitySummary</span></MudTd>
             <MudTd DataLabel="Actions"><div class="team-row-actions">
                 <MudTooltip Text="Edit user and roles"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-label="Edit user" OnClick="() => OpenEditDialog(context)" /></MudTooltip>
-                @if (context.CanManageAccount) { <MudTooltip Text="Manage local credentials"><MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small" aria-label="Manage local account" OnClick="() => OpenResetDialog(context)" /></MudTooltip> }
-                @if (context.AccountId is not null)
+                @if (AuthenticationMode.SupportsLocalAccounts && context.CanManageAccount) { <MudTooltip Text="Manage local credentials"><MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small" aria-label="Manage local account" OnClick="() => OpenResetDialog(context)" /></MudTooltip> }
+                @if (AuthenticationMode.SupportsLocalAccounts && context.AccountId is not null)
                 {
                     <MudTooltip Text="@(context.CanChangeSignIn ? (AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in") : context.DeleteBlockedReason)"><span><MudIconButton Icon="@(AccountEnabled(context) ? Icons.Material.Outlined.Block : Icons.Material.Outlined.CheckCircle)" Size="Size.Small" Disabled="@(!context.CanChangeSignIn)"
                         aria-label="@(AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in")" OnClick="() => OpenSignInDialog(context)" /></span></MudTooltip>
@@ -154,13 +155,18 @@
             loadError = null; total = page.Total; pageIndex = page.Page - 1;
             lastData = new() { Items = page.Items, TotalItems = page.Total };
             WriteLocation();
+            await InvokeAsync(StateHasChanged);
             if (state.Page != pageIndex && table is not null) table.NavigateTo(pageIndex);
             return lastData;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return lastData; }
         catch (Exception exception) when (exception is HttpRequestException or JsonException)
         {
-            if (current == generation && !disposed) loadError = "Team members could not be loaded. Your query is retained; retry when the service is available.";
+            if (current == generation && !disposed)
+            {
+                loadError = "Team members could not be loaded. Your query is retained; retry when the service is available.";
+                await InvokeAsync(StateHasChanged);
+            }
             return new() { Items = [], TotalItems = 0 };
         }
     }

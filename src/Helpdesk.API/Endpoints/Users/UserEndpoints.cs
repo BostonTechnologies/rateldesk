@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Helpdesk.API.Services.Users;
 using System.Data.Common;
+using Helpdesk.API.Endpoints.Authentication;
 
 namespace Helpdesk.API.Endpoints.Users;
 
@@ -19,6 +20,8 @@ public static class UserEndpoints
 {
     public static void MapUserEndpoints(this IEndpointRouteBuilder app)
     {
+        var supportsLocalAccounts = (app.ServiceProvider.GetRequiredService<IConfiguration>()
+            .GetSection(LocalAuthenticationOptions.SectionName).Get<LocalAuthenticationOptions>() ?? new()).SupportsLocalAccounts;
         var group = app.MapGroup("/api/v1/users")
             .WithTags("Users")
             .RequireAuthorization("HelpdeskAdmin");
@@ -26,7 +29,8 @@ public static class UserEndpoints
         group.MapGet("/", async ([FromServices] IRepository<User> repo) =>
             (await repo.GetAllAsync()).Where(user => !user.IsDeleted).Select(ToDto));
 
-        group.MapGet("/query", UserDirectoryQuery.ReadAsync)
+        group.MapGet("/query", ([AsParameters] UserDirectoryQuery.Parameters query, HelpdeskDbContext db,
+                ClaimsPrincipal principal, CancellationToken ct) => UserDirectoryQuery.ReadAsync(query, db, principal, supportsLocalAccounts, ct))
             .WithName("SearchAdminUsers")
             .WithSummary("Searches, filters, sorts and pages the active Team directory.");
 
