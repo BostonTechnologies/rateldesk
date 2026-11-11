@@ -202,6 +202,7 @@ public static class DependencyInjection
         services.AddScoped<ITaskEscalationProcessor, TaskEscalationProcessor>();
         services.AddScoped<IRequestTaskRetryProcessor, RequestTaskRetryProcessor>();
         services.AddScoped<IRequestTaskStateService, RequestTaskStateService>();
+        services.AddScoped<IRequestTaskReadStore, RequestTaskReadStore>();
         services.AddScoped<IWorkflowDependencyEvaluator, WorkflowDependencyEvaluator>();
         services.AddScoped<IWorkflowConditionEvaluator, WorkflowConditionEvaluator>();
         services.AddScoped<IFailurePolicyEngine, FailurePolicyEngine>();

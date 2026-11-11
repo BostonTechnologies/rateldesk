@@ -10,7 +10,8 @@ public sealed class WorkflowDependencyEvaluator(
     IRepository<RequestTask> requestTasks,
     IRequestFormSchemaParser schemaParser,
     IDomainEventPublisher domainEvents,
-    ICorrelationContext correlationContext) : IWorkflowDependencyEvaluator
+    ICorrelationContext correlationContext,
+    IRequestTaskReadStore? requestTaskReadStore = null) : IWorkflowDependencyEvaluator
 {
     private readonly IRepository<Request> _requests = requests;
     private readonly IRepository<RequestForm> _requestForms = requestForms;
@@ -54,9 +55,7 @@ public sealed class WorkflowDependencyEvaluator(
 
         ct.ThrowIfCancellationRequested();
 
-        var tasks = (await _requestTasks.GetAllAsync())
-            .Where(x => x.RequestId == requestId)
-            .ToList();
+        var tasks = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestId, ct);
 
         if (tasks.Count == 0)
         {

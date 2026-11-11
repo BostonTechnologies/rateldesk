@@ -225,6 +225,9 @@ public interface IOrchestrationInternalClient
         CancellationToken cancellationToken = default,
         bool useTokenCache = true);
     Task<OrchestrationIngestResult> IngestAsync(OrchestrationResolvedSettings settings, OrchestrationIngestRequest request, CancellationToken cancellationToken = default);
+    Task<OrchestrationCallbackDto?> ReadExecutionAsync(OrchestrationResolvedSettings settings,
+        OrchestrationExecutionQuery execution, CancellationToken cancellationToken = default)
+        => Task.FromResult<OrchestrationCallbackDto?>(null);
 }
 
 public interface IOrchestrationProtectedDiagnosticsClient

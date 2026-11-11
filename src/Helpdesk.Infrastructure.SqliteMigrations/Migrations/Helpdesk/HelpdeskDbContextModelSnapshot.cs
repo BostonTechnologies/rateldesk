@@ -4487,6 +4487,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<string>("WorkflowBlockReason")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("WorkflowStateVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0L);
+
                     b.Property<string>("WorkflowStatus")
                         .HasColumnType("TEXT");
 
@@ -4504,6 +4510,36 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
             modelBuilder.Entity("Helpdesk.Shared.Models.RequestTask", b =>
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
+
+                    b.Property<bool>("AutomationContinuationPending")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
+                    b.Property<long?>("AutomationDeadlineUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("AutomationNextCheckUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AutomationReconciliationLeaseId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("AutomationReconciliationLeaseUntilUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("AutomationStateVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTimeOffset?>("AutomationTimedOutAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AutomationTimedOutAttemptId")
+                        .HasColumnType("TEXT");
 
                     b.Property<bool?>("AutoStart")
                         .ValueGeneratedOnAdd()
@@ -4661,6 +4697,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.Property<DateTimeOffset?>("UnblockedAt")
                         .HasColumnType("TEXT");
+
+                    b.HasIndex("Type", "AutomationContinuationPending");
+
+                    b.HasIndex("Type", "AutomationNextCheckUtcTicks");
 
                     b.HasIndex("RequestId");
 

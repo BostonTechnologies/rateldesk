@@ -4460,6 +4460,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("WorkflowBlockReason")
                         .HasColumnType("text");
 
+                    b.Property<long>("WorkflowStateVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<string>("WorkflowStatus")
                         .HasColumnType("text");
 
@@ -4477,6 +4483,36 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Helpdesk.Shared.Models.RequestTask", b =>
                 {
                     b.HasBaseType("Helpdesk.Shared.Models.Ticket");
+
+                    b.Property<bool>("AutomationContinuationPending")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<long?>("AutomationDeadlineUtcTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("AutomationNextCheckUtcTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AutomationReconciliationLeaseId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long?>("AutomationReconciliationLeaseUntilUtcTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("AutomationStateVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTimeOffset?>("AutomationTimedOutAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AutomationTimedOutAttemptId")
+                        .HasColumnType("text");
 
                     b.Property<bool?>("AutoStart")
                         .ValueGeneratedOnAdd()
@@ -4624,6 +4660,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("UnblockedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.HasIndex("Type", "AutomationContinuationPending");
+
+                    b.HasIndex("Type", "AutomationNextCheckUtcTicks");
 
                     b.HasIndex("RequestId");
 

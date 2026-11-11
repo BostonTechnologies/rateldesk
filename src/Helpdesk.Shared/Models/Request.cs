@@ -19,4 +19,5 @@ public class Request : Ticket
     public string? WorkflowStatus { get; set; }
     public string? WorkflowBlockReason { get; set; }
     public DateTimeOffset? WorkflowUpdatedAt { get; set; }
+    public long WorkflowStateVersion { get; set; }
 }

@@ -50,6 +50,15 @@ public class RequestTask : Ticket
     public int? ExpectedRuntimeSeconds { get; set; }
     public int? GraceSeconds { get; set; }
     public int? HardTimeoutSeconds { get; set; }
+    // UTC ticks make the durable scheduler query identical and indexed on both providers.
+    public long? AutomationDeadlineUtcTicks { get; set; }
+    public long? AutomationNextCheckUtcTicks { get; set; }
+    public DateTimeOffset? AutomationTimedOutAt { get; set; }
+    public string? AutomationTimedOutAttemptId { get; set; }
+    public string? AutomationReconciliationLeaseId { get; set; }
+    public long? AutomationReconciliationLeaseUntilUtcTicks { get; set; }
+    public bool AutomationContinuationPending { get; set; }
+    public long AutomationStateVersion { get; set; }
     public string? TimeoutIncidentId { get; set; }
     public string? OrchestratorExecutionId { get; set; }
     public string? OrchestrationLinkId { get; set; }

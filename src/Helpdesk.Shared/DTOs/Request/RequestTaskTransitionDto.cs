@@ -64,6 +64,10 @@ public sealed class RequestTaskTransitionDto
     public int? ExpectedRuntimeSeconds { get; init; }
     public int? GraceSeconds { get; init; }
     public int? HardTimeoutSeconds { get; init; }
+    public long? AutomationDeadlineUtcTicks { get; init; }
+    public DateTimeOffset? AutomationTimedOutAt { get; init; }
+    public string? AutomationTimedOutAttemptId { get; init; }
+    public string? AutomationAttemptCorrelationId { get; init; }
     public string? TimeoutIncidentId { get; init; }
     public string? OrchestratorExecutionId { get; init; }
     public string? OrchestrationLinkId { get; init; }

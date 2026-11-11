@@ -51,6 +51,16 @@ public sealed class FailurePolicyEngine(
         var correlationId = GetCorrelationId();
         var policy = ResolveFailurePolicy(task.FailurePolicy, task.IsCritical);
 
+        if (AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus))
+        {
+            return new FailurePolicyResult
+            {
+                Decision = "NeedsReconciliation",
+                RetryScheduled = false,
+                RequestStateChanged = false
+            };
+        }
+
         if (task.Status == RequestTaskStatus.Failed
             && task.NextRetryAt.HasValue
             && task.MaxRetries.HasValue
@@ -252,6 +262,10 @@ public sealed class FailurePolicyEngine(
         string blockReason,
         CancellationToken ct)
     {
+        if (request.State == TicketState.OnHold && !string.IsNullOrWhiteSpace(request.WorkflowBlockReason)
+            && request.WorkflowBlockReason != AutomationTaskStatuses.ReconciliationHoldReason
+            && request.WorkflowBlockReason != blockReason)
+            return false;
         var changed = request.WorkflowStatus != workflowStatus
             || request.WorkflowBlockReason != blockReason
             || request.State != TicketState.OnHold;
