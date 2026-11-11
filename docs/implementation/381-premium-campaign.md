@@ -57,8 +57,8 @@ bytes and stable latest remain immutable. Owner production rollout is separate.
 The review batches are [PR #395](https://github.com/BostonTechnologies/RatelDesk/pull/395)
 for trusted submission/deadlines and
 [PR #396](https://github.com/BostonTechnologies/RatelDesk/pull/396) for administration
-queries and account retirement. The premium UI/release-preparation batch is stacked
-on these branches. NetRatel PR #730
+queries and account retirement. [PR #397](https://github.com/BostonTechnologies/RatelDesk/pull/397) contains the
+premium UI/release-preparation batch stacked on these branches. NetRatel PR #730
 implements companion #729.
 All merges, exact-main checks and public distribution remain pending here.
 
@@ -304,3 +304,11 @@ gateway cases, including 935 ms SQLite and 1,658 ms PostgreSQL convergence, and
 68/68 owning cases plus the complete ordinary/native baseline comparison. These
 are isolated source receipts; final integrated CI and paired execution remain
 separate gates.
+
+The [complete baseline directory receipt](assets/381-directories/baseline-complete-receipt.json)
+adds 30 exact ordinary viewport and 12 physical native-zoom frames from the clean
+full baseline, totaling 5.5 MB. Original representative evidence is retained.
+The [supplemental request-detail matrix](383-live-request-details-visual-matrix.md)
+completes ordinary and actual 200% before/after comparisons without changing the
+frozen application binaries or original evidence. The deep lane publishes these
+source-bound comparison bundles alongside its newly executed browser artifacts.
