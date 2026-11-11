@@ -1,4 +1,6 @@
 using System.Net;
+using Microsoft.AspNetCore.Http;
+using Helpdesk.Shared.Services;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Helpdesk.API.Endpoints.Requests;
@@ -26,19 +28,21 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
     {
         await using var fixture = await Helpdesk.Tests.Infrastructure.Persistence.ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
         var started = new DateTimeOffset(2026, 10, 25, 12, 0, 0, TimeSpan.Zero);
-        await using (var seed = fixture.Open())
+        DbContextOptions<HelpdeskDbContext> options;
+        await using (var setup = fixture.Open())
         {
-            await seed.Database.MigrateAsync();
+            await setup.GetService<IMigrator>().MigrateAsync(postgres
+                ? "20261108173602_AddPendingEmailOperations" : "20261108173712_AddPendingEmailOperations");
+            options = HistoricalSeedOptions(setup, postgres);
+        }
+        await using (var seed = new PreDeadlineSeedContext(options))
+        {
             seed.Requests.Add(new Request { Id = "upgrade-parent", Title = "Legacy request", TrackingId = "REQ-UPGRADE", State = TicketState.InProgress, WorkflowStatus = "InProgress" });
             seed.RequestTasks.Add(new RequestTask { Id = "upgrade-task", RequestId = "upgrade-parent", Title = "Legacy running task", TrackingId = "TSK-UPGRADE",
                 Type = RequestTaskType.Automation, Status = RequestTaskStatus.InProgress, StartedAt = started,
                 HardTimeoutSeconds = 120, AutomationAttemptCorrelationId = "retained-attempt", AutomationAttemptHistoryJson = "[]",
                 OrchestrationExternalRequestId = "retained-request", OrchestrationExternalRunId = "retained-run" });
             await seed.SaveChangesAsync();
-            var migrations = seed.Database.GetMigrations().ToArray();
-            var index = Array.FindIndex(migrations, id => id.EndsWith("_AddAutomationExecutionDeadlines", StringComparison.Ordinal));
-            Assert.True(index > 0);
-            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
         }
         await using var upgraded = fixture.Open();
         await upgraded.Database.MigrateAsync();
@@ -60,20 +64,22 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
     public async Task Operator_hold_migration_preserves_ambiguous_historic_holds_without_adopting_timeout_or_failure_holds(bool postgres)
     {
         await using var fixture = await Helpdesk.Tests.Infrastructure.Persistence.ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
-        await using (var seed = fixture.Open())
+        DbContextOptions<HelpdeskDbContext> options;
+        await using (var setup = fixture.Open())
         {
-            await seed.Database.MigrateAsync();
+            await setup.GetService<IMigrator>().MigrateAsync("20261111161000_AddAutomationExecutionDeadlines");
+            options = HistoricalSeedOptions(setup, postgres);
+        }
+        await using (var seed = new PreOperatorHoldSeedContext(options))
+        {
             seed.Requests.AddRange(
                 new Request { Id = "old-operator", State = TicketState.OnHold, TrackingId = "REQ-OPERATOR", PayloadJson = "retained-input" },
                 new Request { Id = "old-timeout", State = TicketState.OnHold, WorkflowStatus = "NeedsReconciliation", WorkflowBlockReason = AutomationTaskStatuses.ReconciliationHoldReason },
                 new Request { Id = "old-failure", State = TicketState.OnHold, WorkflowStatus = "Blocked", WorkflowBlockReason = "Preserved independent reason" });
             await seed.SaveChangesAsync();
-            var migrations = seed.Database.GetMigrations().ToArray();
-            var index = Array.FindIndex(migrations, id => id.EndsWith("_TrackRequestOperatorHolds", StringComparison.Ordinal));
-            Assert.True(index > 0);
-            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
         }
         await using var upgraded = fixture.Open();
+        await upgraded.Database.MigrateAsync();
         await upgraded.Database.MigrateAsync();
         Assert.False(upgraded.Database.HasPendingModelChanges());
         var oldOperator = await upgraded.Requests.SingleAsync(row => row.Id == "old-operator");
@@ -645,6 +651,55 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             Assert.Equal(0, saved.RetryCount); Assert.Null(saved.NextRetryAt);
         });
         Assert.Equal(0, probe.Submissions);
+    }
+
+    private static DbContextOptions<HelpdeskDbContext> HistoricalSeedOptions(HelpdeskDbContext current, bool postgres)
+    {
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>();
+        if (postgres) options.UseNpgsql(current.Database.GetConnectionString());
+        else options.UseSqlite(current.Database.GetConnectionString(), sqlite => sqlite.MigrationsAssembly("Helpdesk.Infrastructure.SqliteMigrations"));
+        return options.Options;
+    }
+
+    private class PreOperatorHoldSeedContext(DbContextOptions<HelpdeskDbContext> options)
+        : HelpdeskDbContext(options, new UpgradeTenant(), new HttpContextAccessor())
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            builder.Entity<Request>().Ignore(request => request.OperatorHold);
+            builder.Entity<Customer>().Ignore("IdentityUserId");
+            if (Database.IsSqlite())
+            {
+                // SQLite's retirement migration follows the fixed deadline schema.
+                builder.Entity<User>().Ignore("IsDeleted");
+                builder.Entity<User>().Ignore("DeletedAtUtc");
+            }
+        }
+    }
+
+    private sealed class PreDeadlineSeedContext(DbContextOptions<HelpdeskDbContext> options) : PreOperatorHoldSeedContext(options)
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            foreach (var name in new[] { "SelfServiceSubmissionId", "SelfServiceSubmitterId", "SelfServiceSubmissionHash", nameof(Request.WorkflowStateVersion) })
+                builder.Entity<Request>().Ignore(name);
+            foreach (var name in new[] { nameof(RequestTask.AutomationDeadlineUtcTicks), nameof(RequestTask.AutomationNextCheckUtcTicks),
+                nameof(RequestTask.AutomationTimedOutAt), nameof(RequestTask.AutomationTimedOutAttemptId),
+                nameof(RequestTask.AutomationReconciliationLeaseId), nameof(RequestTask.AutomationReconciliationLeaseUntilUtcTicks),
+                nameof(RequestTask.AutomationContinuationPending), nameof(RequestTask.AutomationStateVersion) })
+                builder.Entity<RequestTask>().Ignore(name);
+            builder.Entity<User>().Ignore("IsDeleted");
+            builder.Entity<User>().Ignore("DeletedAtUtc");
+        }
+    }
+
+    private sealed class UpgradeTenant : ITenantContext
+    {
+        public string? TenantId => null;
+        public string? UserId => null;
+        public bool IsHelpdeskAdmin => true;
     }
 
     private static void ConfigureDeadlines(IServiceCollection services, DeadlineClock clock, DeadlineProbe probe, IOrchestrationConnectivityService connectivity)
