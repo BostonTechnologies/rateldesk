@@ -315,7 +315,7 @@ source-bound comparison bundles alongside its newly executed browser artifacts.
 
 ## Final review corrections and hosted verification snapshot
 
-At 19:36 UTC on 11 November, the functional head is
+At the final fixture-correction snapshot on 11 November, the functional head is
 `86473186c02da77b2ed81380546096e81cf59fdc` and the administration head is
 `60bc754a`. Independent source reviews and root's
 follow-up checks are recorded on PRs #395/#396 and companion NetRatel PR #730.
