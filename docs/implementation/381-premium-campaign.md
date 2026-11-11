@@ -24,7 +24,7 @@ code, passing acceptance, reviewed merge and verified public distribution.
 | #393 | `codex/390-operational-cards`: Operations Overview | Dynamic counters/links, all three feeds, roles and partial errors | In progress; acceptance incomplete |
 | #394 | `codex/390-operational-cards`: effective branded search | Branding precedence/fallback, long names, shortcut/focus and responsive shell | In progress; acceptance incomplete |
 
-The companion [NetRatel #729](https://github.com/BostonTechnologies/netratel/issues/729)
+The companion NetRatel issue #729
 adds an authenticated read-only exact-attempt receipt. Its source baseline is
 `99322844929aece494c42480fe4a19642646b152`. The existing internal contract had
 catalogue/admission but no outcome read; watchdog reconciliation must never replay
