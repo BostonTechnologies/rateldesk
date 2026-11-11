@@ -42,6 +42,19 @@ for (const theme of ['light', 'dark']) test(`directory synthetic desktop tablet 
           await expect(page.locator('.directory-workspace .mud-alert')).toHaveCount(0);
           await expect(page.getByRole('status').filter({ hasText: `${total} results` })).toBeVisible();
           await expect(page.locator('.directory-table-region tbody tr')).toHaveCount(25);
+          const typography = await page.locator('.directory-workspace').evaluate(element => ({
+            heading: parseFloat(getComputedStyle(element.querySelector('h1')!).fontSize),
+            header: parseFloat(getComputedStyle(element.querySelector('th')!).fontSize),
+            headerButton: parseFloat(getComputedStyle(element.querySelector('th button')!).fontSize),
+            body: parseFloat(getComputedStyle(element.querySelector('tbody td')!).fontSize),
+            padding: parseFloat(getComputedStyle(element).paddingLeft)
+          }));
+          expect(typography.heading).toBeGreaterThanOrEqual(28);
+          expect(typography.header).toBeGreaterThanOrEqual(14);
+          expect(typography.headerButton).toBeGreaterThanOrEqual(14);
+          expect(typography.body).toBeGreaterThanOrEqual(14);
+          expect(typography.padding).toBeGreaterThanOrEqual(16);
+          await info.attach(`typography-${route.split('/').at(-1)}-${width}`, { body: JSON.stringify(typography), contentType: 'application/json' });
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
           expect(overflow).toBeLessThanOrEqual(2);
           const actions = page.locator('.directory-actions').first();
