@@ -278,13 +278,13 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await expect(approvers).toBeEditable();
   await expect(approvers).toBeFocused();
   await expect(approvers).toHaveValue('');
-  // Reopen the cleared picker and wait for its current unfiltered menu. The
-  // previous Duplicate options can still be visible during the closing render;
-  // ArrowDown on that closed picker opens the menu instead of advancing it.
-  await approvers.click();
+  // A late lookup can reopen the previous Duplicate menu after the clear.
+  // Establish a different query before searching for those same labels again,
+  // so cached options cannot satisfy the keyboard navigation preconditions.
+  await approvers.fill('Alpha');
   await expect(approvers).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('option')).toHaveCount(20);
-  await page.keyboard.type('Duplicate');
+  await approvers.fill('Duplicate');
   await expect(page.getByRole('option')).toHaveCount(2);
   await expect(approvers).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('option', { name: /one@example.test/ })).toHaveAttribute('aria-selected', 'true');
