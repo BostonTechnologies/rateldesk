@@ -1,5 +1,7 @@
 .directory-workspace { padding:1.5rem; border:1px solid var(--mud-palette-lines-default); border-radius:12px; min-width:0; }
 .directory-heading { display:flex; gap:1rem; justify-content:space-between; align-items:center; margin-bottom:1rem; }
+.directory-heading ::deep h1 { font-size:1.875rem; line-height:1.2; font-weight:600; }
+.directory-heading ::deep .directory-subtitle { color:var(--mud-palette-text-secondary); font-size:.9375rem; }
 .directory-heading-actions { display:flex; flex-wrap:nowrap; gap:.5rem; align-items:center; }
 .directory-toolbar { display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; }
 .directory-toolbar ::deep > * { flex:1 1 11rem; min-width:9rem; max-width:20rem; }

@@ -103,7 +103,7 @@ public sealed class AdminDirectoryEndpointsTests
         await h.Seed(async (db, identity) =>
         {
             db.Organizations.Add(new Organization { Id = "hybrid-org", Name = "Hybrid organization" });
-            db.Customers.AddRange(Enumerable.Range(0, 6).Select(i => new Customer { Id = $"hybrid-{i}", Name = $"Hybrid {i}", OrganizationId = "hybrid-org" }));
+            db.Customers.AddRange(Enumerable.Range(0, 6).Select(i => new Customer { Id = $"hybrid-{i}", Name = $"Hybrid {i}", Email = $"hybrid{i}@example.invalid", OrganizationId = "hybrid-org" }));
             identity.Users.AddRange(
                 new ApplicationUser { Id = "local-label-external", UserName = "linked-oidc", IsEnabled = true, PasswordHash = null, EmailConfirmed = false },
                 new ApplicationUser { Id = "external-active", UserName = "external", IsEnabled = true, PasswordHash = null, EmailConfirmed = false },
