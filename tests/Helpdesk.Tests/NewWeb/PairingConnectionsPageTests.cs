@@ -462,7 +462,7 @@ public sealed class PairingConnectionsPageTests
         Assert.Equal(0, api.TestCount);
         await view.ChangeSelectionAsync("connection-status-filter", "stale");
         html = await view.HtmlAsync();
-        Assert.Equal(1, Regex.Matches(html, "data-testid=\"system-connection-row\"").Count);
+        Assert.Single(Regex.Matches(html, "data-testid=\"system-connection-row\""));
         Assert.Contains(stale.Name, html);
         Assert.DoesNotContain(recent.Name, html);
         await view.ChangeSelectionAsync("connection-status-filter", "never-tested");

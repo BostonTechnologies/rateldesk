@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Json;
 using Bunit;
 using Bunit.TestDoubles;
+using Helpdesk.Shared.DTOs.Dashboard;
+using Helpdesk.Shared.Models;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor.Services;
 using Overview = NewWeb::HelpDesk.NewWeb.Components.Pages.Home;
@@ -100,7 +102,12 @@ public sealed class OperationsOverviewRenderedTests
             Paths.Add(path); Queries[path] = request.RequestUri.Query;
             if (path == FailedPath) return Task.FromResult(new HttpResponseMessage(Malformed ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable) { Content = new StringContent("Synthetic invalid response; never expose this body.") });
             object result = path.EndsWith("admin-summary", StringComparison.Ordinal)
-                ? new { incidentCountsByState = new { New = 2, InProgress = 3 }, requestCountsByState = new { New = 2, OnHold = 1 }, changeCountsByState = new { Draft = 1, PendingApproval = 2 }, pendingChanges = 2 }
+                ? new AdminDashboardDto
+                {
+                    IncidentCountsByState = new() { [TicketState.New] = 2, [TicketState.InProgress] = 3 },
+                    RequestCountsByState = new() { ["New"] = 2, ["OnHold"] = 1 },
+                    ChangeCountsByState = new() { ["Draft"] = 1, ["PendingApproval"] = 2 }, PendingChanges = 2
+                }
                 : new { items = new[] { new { id = "example-" + path.Split('/').Last(), trackingId = "EXAMPLE-001", subject = "Example incident", title = path.EndsWith("requests", StringComparison.Ordinal) ? "Example request" : "Example change", state = 3, lifecycleState = 2, updatedAt = "2026-11-11T09:00:00Z" } }, totalCount = 1, total = 1 };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(result) });
         }

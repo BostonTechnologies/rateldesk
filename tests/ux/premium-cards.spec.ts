@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { copyFile } from 'node:fs/promises';
+import path from 'node:path';
 import { assertNoHorizontalOverflow } from './auth';
 
 const fixture = 'http://127.0.0.1:18720/fixture';
@@ -48,7 +50,8 @@ for (const theme of ['light', 'dark'] as const) {
           for (const row of rows) expect(Math.max(...row) - Math.min(...row)).toBeLessThanOrEqual(2);
         }
         await assertNoHorizontalOverflow(page);
-        await page.screenshot({ path: info.outputPath(`after-${name}-${width}x${height}-${theme}.png`), fullPage: true, animations: 'disabled' });
+        await copyFile(path.resolve(`docs/implementation/assets/381-premium-cards/${name}-${width}x${height}-${theme}.png`), info.outputPath(`before-${name}-${width}x${height}-${theme}.png`));
+        await page.screenshot({ path: info.outputPath(`after-${name}-${width}x${height}-${theme}.png`), fullPage: false, animations: 'disabled' });
       }
     });
   }
@@ -174,6 +177,8 @@ test('Operations Overview preserves every counter and feed while partial failure
     const feed = page.getByRole('region', { name: `Recent ${kind}`, exact: true });
     await expect(feed.locator('tbody tr')).toHaveCount(5);
     await expect(feed.getByRole('link', { name: `View all ${kind}`, exact: true })).toHaveAttribute('href', `/${kind}`);
+    await feed.getByRole('link', { name: `View all ${kind}`, exact: true }).scrollIntoViewIfNeeded();
+    await expect(feed.getByRole('link', { name: `View all ${kind}`, exact: true })).toBeInViewport();
     await expect(feed.locator('time').first()).toHaveAttribute('title', /2026-11-11T09:00:00/);
   }
   await request.post(`${fixture}/options`, { data: { mode: 'incidents-error' } });
@@ -232,6 +237,10 @@ test('branded global search encodes long names, keeps shortcuts and returns focu
   await request.post(`${fixture}/options`, { data: { mode: 'branding-unavailable' } });
   await open(page, '/home');
   await expect(page.getByTestId('global-search-trigger')).toHaveAccessibleName('Search RatelDesk');
+  await page.getByTestId('global-search-trigger').click();
+  await page.getByRole('dialog', { name: 'Search RatelDesk', exact: true }).getByRole('button', { name: 'Requests', exact: true }).click();
+  await expect(page).toHaveURL(/\/requests$/);
+  await expect(page.getByRole('heading', { name: 'Requests', exact: true })).toBeFocused();
   await page.evaluate(() => { const input = document.createElement('input'); input.id = 'synthetic-typing-field'; input.setAttribute('aria-label', 'Synthetic typing field'); document.body.append(input); });
   await page.getByRole('textbox', { name: 'Synthetic typing field', exact: true }).focus();
   await page.keyboard.press('Shift+S');
