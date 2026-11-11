@@ -1072,7 +1072,13 @@ public static class RequestEndpoints
             var continuation = await db.RequestTasks.Where(task => task.RequestId == request.Id)
                 .OrderBy(task => task.Type == RequestTaskType.Automation ? 0 : 1)
                 .ThenBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(ct);
-            if (continuation is not null) continuation.AutomationContinuationPending = true;
+            if (continuation is not null)
+            {
+                continuation.AutomationContinuationPending = true;
+                // A fresh wake-up must advance the version even when an older
+                // worker already owns this same true marker.
+                db.Entry(continuation).Property(task => task.AutomationStateVersion).IsModified = true;
+            }
         }
     }
 
