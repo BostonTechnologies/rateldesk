@@ -1069,8 +1069,9 @@ public static class RequestEndpoints
         {
             // Reuse the durable continuation worker after an operator releases
             // a known outcome; no callback has to arrive a second time.
-            var continuation = await db.RequestTasks.Where(task => task.RequestId == request.Id
-                && task.Type == RequestTaskType.Automation).OrderBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(ct);
+            var continuation = await db.RequestTasks.Where(task => task.RequestId == request.Id)
+                .OrderBy(task => task.Type == RequestTaskType.Automation ? 0 : 1)
+                .ThenBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(ct);
             if (continuation is not null) continuation.AutomationContinuationPending = true;
         }
     }

@@ -415,6 +415,33 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         };
 
     [Theory][InlineData(false)][InlineData(true)]
+    public async Task Durable_continuation_recomputes_an_approval_only_workflow_without_applying_an_execution_deadline(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        await SeedDeadlineAsync(h, client, clock, connectivity);
+        await h.EditAsync(async db =>
+        {
+            var task = await db.RequestTasks.SingleAsync();
+            task.Type = RequestTaskType.Approval; task.Status = RequestTaskStatus.Completed;
+            task.AutomationContinuationPending = true; task.AutomationAttemptCorrelationId = null;
+            task.AutomationDeadlineUtcTicks = null; task.LastAutomationStatus = null;
+        });
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal(TicketState.Resolved, (await db.Requests.SingleAsync()).State);
+            var task = await db.RequestTasks.SingleAsync();
+            Assert.False(task.AutomationContinuationPending); Assert.Null(task.AutomationDeadlineUtcTicks);
+            Assert.Null(task.AutomationTimedOutAt); Assert.Equal(RequestTaskStatus.Completed, task.Status);
+        });
+        Assert.Equal(0, probe.Reads); Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
     public async Task A_successful_start_commits_its_parent_fence_attempt_and_deadline_before_remote_dispatch_can_finish(bool postgres)
     {
         var clock = new DeadlineClock(); var probe = new DeadlineProbe();
@@ -448,7 +475,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             var saved = await db.RequestTasks.SingleAsync();
             Assert.Equal(RequestTaskStatus.InProgress, saved.Status);
             Assert.NotNull(saved.StartedAt); Assert.False(string.IsNullOrWhiteSpace(saved.AutomationAttemptCorrelationId));
-            Assert.Equal(saved.StartedAt.Value.AddSeconds(120).UtcTicks, saved.AutomationDeadlineUtcTicks);
+            Assert.InRange(saved.AutomationDeadlineUtcTicks!.Value - saved.StartedAt.Value.UtcTicks,
+                120 * TimeSpan.TicksPerSecond, 120 * TimeSpan.TicksPerSecond + TimeSpan.TicksPerMicrosecond - 1);
             Assert.True(saved.AutomationStateVersion > 0);
             Assert.True((await db.Requests.SingleAsync()).WorkflowStateVersion > 0);
         });
@@ -492,7 +520,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         clock.Advance(TimeSpan.FromMinutes(3));
         Assert.Equal(1, await SweepAsync(h));
         readyRelease.SetResult(new AutomationBindingDto { Enabled = true, SystemConnectionId = client.MappingId });
-        await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+        await Assert.ThrowsAsync<RequestProgressionHeldException>(() => start);
         // A caller that catches the rejected start cannot persist its stale tracked intent later.
         await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().SaveChangesAsync();
         await h.EditAsync(async db =>

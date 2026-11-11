@@ -151,6 +151,56 @@ public sealed class RequestTaskApprovalDecisionProviderTests
         await fixture.AssertStoredAsync(RequestTaskApprovalStatus.Expired, 0, 0, 0);
     }
 
+    [Theory]
+    [InlineData(false, false)][InlineData(false, true)]
+    [InlineData(true, false)][InlineData(true, true)]
+    public async Task An_accepted_approval_clears_only_its_own_hold_and_preserves_operator_or_unknown_execution_holds(bool postgres, bool operatorHold)
+    {
+        await using var fixture = await Fixture.CreateAsync(postgres);
+        await using var db = fixture.Database.Open();
+        var parent = await db.Requests.SingleAsync();
+        parent.State = TicketState.OnHold; parent.OperatorHold = operatorHold;
+        parent.WorkflowStatus = operatorHold ? "PendingApproval" : "NeedsReconciliation";
+        var task = await db.RequestTasks.SingleAsync();
+        parent.WorkflowBlockReason = operatorHold ? $"Waiting for approval for task '{task.Name}'." : AutomationTaskStatuses.ReconciliationHoldReason;
+        if (!operatorHold) db.RequestTasks.Add(new RequestTask { Id = "uncertain", RequestId = RequestId,
+            Type = RequestTaskType.Automation, Status = RequestTaskStatus.Failed,
+            LastAutomationStatus = AutomationTaskStatuses.ExecutionUnknownManualReconcile });
+        await db.SaveChangesAsync();
+        Assert.True((await fixture.ReviewAsync(fixture.Service(db), false, true, default)).Success);
+        await using var readback = fixture.Database.Open();
+        var held = await readback.Requests.SingleAsync();
+        Assert.Equal(TicketState.OnHold, held.State);
+        Assert.Equal(operatorHold, held.OperatorHold);
+        Assert.Equal(operatorHold ? RequestHoldPolicy.OperatorStatus : "NeedsReconciliation", held.WorkflowStatus);
+        Assert.Equal(operatorHold ? RequestHoldPolicy.OperatorReason : AutomationTaskStatuses.ReconciliationHoldReason, held.WorkflowBlockReason);
+        Assert.Equal(RequestTaskStatus.Completed, (await readback.RequestTasks.SingleAsync(row => row.Id == TaskId)).Status);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Approval_cancellation_does_not_invent_a_terminal_outcome_for_running_or_unknown_remote_attempts(bool postgres)
+    {
+        await using var fixture = await Fixture.CreateAsync(postgres);
+        await using var db = fixture.Database.Open();
+        foreach (var status in new[] { RequestTaskStatus.InProgress, RequestTaskStatus.Failed })
+            db.RequestTasks.Add(new RequestTask { Id = $"remote-{status}", RequestId = RequestId,
+                Type = RequestTaskType.Automation, Status = status, StartedAt = DateTimeOffset.UtcNow,
+                LastAutomationStatus = status == RequestTaskStatus.Failed ? AutomationTaskStatuses.ExecutionUnknownManualReconcile : "running",
+                AutomationAttemptCorrelationId = $"attempt-{status}", OrchestrationExternalRequestId = $"request-{status}", OrchestrationExternalRunId = $"run-{status}" });
+        await db.SaveChangesAsync();
+        Assert.True((await fixture.ReviewAsync(fixture.Service(db), false, false, default)).Success);
+        await using var readback = fixture.Database.Open();
+        Assert.Equal("Cancelled", (await readback.Requests.SingleAsync()).WorkflowStatus);
+        foreach (var status in new[] { RequestTaskStatus.InProgress, RequestTaskStatus.Failed })
+        {
+            var remote = await readback.RequestTasks.SingleAsync(row => row.Id == $"remote-{status}");
+            Assert.Equal(status, remote.Status);
+            Assert.Equal($"attempt-{status}", remote.AutomationAttemptCorrelationId);
+            Assert.Equal($"run-{status}", remote.OrchestrationExternalRunId);
+            Assert.Equal($"request-{status}", remote.OrchestrationExternalRequestId);
+        }
+    }
+
     private sealed class HeldCommit : DbTransactionInterceptor
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
