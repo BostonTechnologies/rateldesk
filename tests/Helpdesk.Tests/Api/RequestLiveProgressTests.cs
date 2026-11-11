@@ -66,6 +66,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
     {
         await using var harness = await Harness.CreateAsync(postgres);
         var factory = await harness.ClientsAsync("operator");
+        factory.DiagnoseReads = true;
         await using var context = Context(factory);
         // The Activity component is deliberately absent. Tasks must own its subscription.
         context.ComponentFactories.AddStub<Activity>();
@@ -83,14 +84,30 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         await harness.CompleteAllAsync();
         var elapsed = Stopwatch.StartNew();
         await factory.Frames.State.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        page.WaitForAssertion(() =>
+        try
         {
-            Assert.All(page.FindAll(".request-task-state"), row => Assert.Contains("Completed", row.TextContent));
-            Assert.Contains("Resolved", page.Find(".ticket-header-status-chip").TextContent);
-            Assert.Contains("Completed", page.Find("[data-testid=request-workflow-summary]").TextContent);
-            Assert.Contains("3 / 3", page.Find("[data-testid=request-workflow-summary]").TextContent);
-            Assert.Single(page.FindAll(".request-task-details"));
-        }, TimeSpan.FromSeconds(2));
+            page.WaitForAssertion(() =>
+            {
+                Assert.All(page.FindAll(".request-task-state"), row => Assert.Contains("Completed", row.TextContent));
+                Assert.Contains("Resolved", page.Find(".ticket-header-status-chip").TextContent);
+                Assert.Contains("Completed", page.Find("[data-testid=request-workflow-summary]").TextContent);
+                Assert.Contains("3 / 3", page.Find("[data-testid=request-workflow-summary]").TextContent);
+                Assert.Single(page.FindAll(".request-task-details"));
+            }, TimeSpan.FromSeconds(2));
+        }
+        catch
+        {
+            output.WriteLine($"Failure at {DateTimeOffset.UtcNow:O}; elapsed={elapsed.Elapsed}; live={page.Find("[data-testid=request-live-updates]").TextContent.Trim()}; busy={page.Find("[data-testid=request-live-updates]").GetAttribute("aria-busy")}; header={page.Find("[data-testid=request-committed-state]").TextContent.Trim()}; workflow={page.Find("[data-testid=request-workflow-summary]").TextContent.Trim()}; rows={string.Join(" | ", page.FindAll(".request-task-state").Select(row => row.TextContent.Trim()))}");
+            output.WriteLine("Canonical HTTP reads:\n" + string.Join("\n", factory.Reads));
+            output.WriteLine("Actual stream:\n" + factory.Frames.Text);
+            await harness.WithDbAsync(async db =>
+            {
+                foreach (var task in await db.RequestTasks.AsNoTracking().ToListAsync()) output.WriteLine($"Durable task {task.Id}={task.Status}");
+                var request = await db.Requests.AsNoTracking().SingleAsync();
+                output.WriteLine($"Durable request={request.State}/{request.WorkflowStatus}");
+            });
+            throw;
+        }
         Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Gateway/frame/render convergence took {elapsed.Elapsed}.");
         output.WriteLine($"Provider={(postgres ? "PostgreSQL" : "SQLite")}; Request=live-request; gateway=true; persisted terminal → SSE → rendered convergence={elapsed.Elapsed.TotalMilliseconds:F0} ms");
         Assert.Contains("event: request-state", factory.Frames.Text);
@@ -421,6 +438,8 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
     internal sealed class ClientFactory(WebApplication gateway, string cookie) : IHttpClientFactory
     {
         private int requestSnapshots;
+        public bool DiagnoseReads { get; set; }
+        public ConcurrentQueue<string> Reads { get; } = new();
         public FrameRecorder Frames { get; } = new();
         public int RequestSnapshots => Volatile.Read(ref requestSnapshots);
         public void RecordRequestSnapshot() => Interlocked.Increment(ref requestSnapshots);
@@ -446,6 +465,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            var started = Stopwatch.StartNew();
             if (request.Method == HttpMethod.Put && factory.RejectNextSave)
             {
                 factory.RejectNextSave = false;
@@ -456,6 +476,20 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
                 return new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("Another operation changed this request.") };
             }
             var response = await base.SendAsync(request, ct);
+            if (factory.DiagnoseReads && request.Method == HttpMethod.Get)
+            {
+                var prefix = $"GET {request.RequestUri?.PathAndQuery}; status={(int)response.StatusCode}";
+                factory.Reads.Enqueue($"{DateTimeOffset.UtcNow:O} {prefix}; headersMs={started.Elapsed.TotalMilliseconds:F0}");
+                if (response.IsSuccessStatusCode && request.RequestUri?.AbsolutePath.StartsWith("/api/v1/requests/", StringComparison.Ordinal) == true)
+                {
+                    var original = response.Content;
+                    var trace = new ReadTraceStream(await original.ReadAsStreamAsync(ct), body =>
+                        factory.Reads.Enqueue($"{DateTimeOffset.UtcNow:O} {prefix}; readMs={started.Elapsed.TotalMilliseconds:F0}; body={body}"));
+                    var content = new StreamContent(trace);
+                    foreach (var header in original.Headers) content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                    response.Content = content;
+                }
+            }
             if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath is "/api/v1/requests/live-request" or "/api/v1/self-service/requests/live-request")
             {
                 factory.RecordRequestSnapshot();
@@ -468,6 +502,19 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             }
             return response;
         }
+    }
+
+    private sealed class ReadTraceStream(Stream inner, Action<string> record) : Stream
+    {
+        public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException(); public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) { var read = inner.Read(buffer, offset, count); record(Encoding.UTF8.GetString(buffer, offset, read)); return read; }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        { var read = await inner.ReadAsync(buffer, ct); record(Encoding.UTF8.GetString(buffer.Span[..read])); return read; }
+        public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); base.Dispose(disposing); }
+        public override async ValueTask DisposeAsync() { await inner.DisposeAsync(); GC.SuppressFinalize(this); }
     }
     internal sealed class FrameRecorder
     {
