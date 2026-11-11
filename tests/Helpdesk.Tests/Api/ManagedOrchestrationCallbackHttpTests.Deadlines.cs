@@ -415,6 +415,50 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         };
 
     [Theory][InlineData(false)][InlineData(true)]
+    public async Task A_successful_start_commits_its_parent_fence_attempt_and_deadline_before_remote_dispatch_can_finish(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        var payloads = Substitute.For<IRequestTaskPayloadBuilder>();
+        payloads.BuildAsync(Arg.Any<RequestTask>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(RequestTaskPayloadBuildResult.Succeeded("Synthetic job", "{}"));
+        var dispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acknowledgement = new TaskCompletionSource<OrchestrationIngestResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        probe.SubmissionResponse = _ => { dispatched.TrySetResult(); return acknowledgement.Task; };
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureDeadlines(services, clock, probe, connectivity);
+                services.RemoveAll<IRequestTaskPayloadBuilder>(); services.AddSingleton(payloads);
+            });
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        await h.EditAsync(async db =>
+        {
+            var pending = await db.RequestTasks.SingleAsync();
+            pending.Status = RequestTaskStatus.Pending; pending.State = TicketState.New;
+            pending.StartedAt = null; pending.AutomationAttemptCorrelationId = null;
+            pending.OrchestrationExternalRequestId = null; pending.OrchestrationExternalRunId = null; pending.OrchestratorExecutionId = null;
+        });
+        await using var scope = h.App.Services.CreateAsyncScope();
+        var start = scope.ServiceProvider.GetRequiredService<IRequestTaskLifecycleService>().StartAsync(task.Id, default);
+        await dispatched.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.InProgress, saved.Status);
+            Assert.NotNull(saved.StartedAt); Assert.False(string.IsNullOrWhiteSpace(saved.AutomationAttemptCorrelationId));
+            Assert.Equal(saved.StartedAt.Value.AddSeconds(120).UtcTicks, saved.AutomationDeadlineUtcTicks);
+            Assert.True(saved.AutomationStateVersion > 0);
+            Assert.True((await db.Requests.SingleAsync()).WorkflowStateVersion > 0);
+        });
+        acknowledgement.SetResult(new OrchestrationIngestResult { RequestId = ExternalRequest, RunId = Execution, ExecutionId = Execution,
+            Status = "running", Disposition = OrchestrationSubmissionDisposition.Admitted, Outcome = OrchestrationExecutionOutcome.Processing });
+        Assert.Equal(RequestTaskStatus.InProgress, (await start).Status);
+        Assert.Equal(1, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
     public async Task A_hold_committed_while_binding_readiness_is_awaited_fences_the_start_before_any_provider_submission(bool postgres)
     {
         var clock = new DeadlineClock(); var probe = new DeadlineProbe();
@@ -545,13 +589,15 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
     {
         public int Reads;
         public int Submissions;
+        public Func<OrchestrationIngestRequest, Task<OrchestrationIngestResult>>? SubmissionResponse { get; set; }
         public Func<OrchestrationExecutionQuery, Task<OrchestrationCallbackDto?>> Response { get; set; } = _ => Task.FromResult<OrchestrationCallbackDto?>(null);
         public Task<OrchestrationHealthResult> HealthAsync(OrchestrationResolvedSettings settings, CancellationToken cancellationToken = default, bool useTokenCache = true)
             => Task.FromResult(new OrchestrationHealthResult { Success = true });
         public Task<OrchestrationIngestResult> IngestAsync(OrchestrationResolvedSettings settings, OrchestrationIngestRequest request, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref Submissions);
-            throw new InvalidOperationException("The deadline worker must never submit executions.");
+            return SubmissionResponse is not null ? SubmissionResponse(request)
+                : throw new InvalidOperationException("The deadline worker must never submit executions.");
         }
         public Task<OrchestrationCallbackDto?> ReadExecutionAsync(OrchestrationResolvedSettings settings, OrchestrationExecutionQuery execution, CancellationToken cancellationToken = default)
         {
