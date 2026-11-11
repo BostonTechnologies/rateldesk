@@ -6,6 +6,7 @@ using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Request;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,11 +16,13 @@ namespace Helpdesk.Tests.Api;
 public sealed class SelfServiceSubmissionIdentityHttpTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Unlinked_local_admin_uses_durable_identity_and_retries_one_submission(bool postgres)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Unlinked_local_account_uses_durable_identity_and_retries_one_submission(bool postgres, bool administrator)
     {
-        await using var h = await CreateAsync(postgres);
+        await using var h = await CreateAsync(postgres, administrator);
         await h.EditAsync(async db =>
         {
             db.Organizations.Add(new Organization { Id = "foreign", Name = "Other organization" });
@@ -82,7 +85,38 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
         Assert.Equal(HttpStatusCode.OK, corrected.StatusCode);
     }
 
-    private static async Task<IncidentReceiverTests.Harness> CreateAsync(bool postgres)
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Current_account_customer_organization_and_permission_revocation_all_deny_new_work(bool postgres)
+    {
+        await using var h = await CreateAsync(postgres, false);
+        using var created = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests",
+            new SubmitSelfServiceRequestDto { RequestFormId = "self-form", PayloadJson = "{}" });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        foreach (var condition in new[] { "account", "customer", "organization", "permission" })
+        {
+            await using (var scope = h.App.Services.CreateAsyncScope())
+            {
+                var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+                (await identity.Users.SingleAsync(x => x.Id == "owner")).IsEnabled = condition != "account";
+                await identity.SaveChangesAsync();
+                var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                var link = await db.CustomerAuthLinks.SingleAsync(x => x.LocalAccountId == "owner");
+                (await db.Customers.SingleAsync(x => x.Id == link.CustomerId)).IsEnabled = condition != "customer";
+                (await db.Organizations.SingleAsync(x => x.Id == h.OrganizationId)).IsEnabled = condition != "organization";
+                if (condition == "permission") db.ScopedRoleAssignments.RemoveRange(await db.ScopedRoleAssignments.Where(x => x.UserId == "owner").ToListAsync());
+                await db.SaveChangesAsync();
+            }
+            using var denied = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests",
+                new SubmitSelfServiceRequestDto { RequestFormId = "self-form", PayloadJson = "{}" });
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            Assert.False(string.IsNullOrWhiteSpace(await denied.Content.ReadAsStringAsync()));
+        }
+        await h.EditAsync(async db => Assert.Single(await db.Requests.IgnoreQueryFilters().ToListAsync()));
+    }
+
+    private static async Task<IncidentReceiverTests.Harness> CreateAsync(bool postgres, bool administrator = true)
     {
         var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
             configureServices: services =>
@@ -93,6 +127,7 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
         await h.EditAsync(async db =>
         {
             db.Users.Add(new User { Id = "owner", Name = "Synthetic local owner", Email = "owner@example.test", OrganizationId = h.OrganizationId });
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "owner", OrganizationId = h.OrganizationId, RoleKey = ScopedRoleCatalog.SelfServiceUser });
             db.RequestForms.Add(new RequestForm
             {
                 Id = "self-form", Title = "Synthetic self request", OrganizationId = h.OrganizationId,
@@ -101,6 +136,13 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
             });
             await Task.CompletedTask;
         });
+        if (!administrator)
+        {
+            await using var scope = h.App.Services.CreateAsyncScope();
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            (await identity.Users.SingleAsync(x => x.Id == "owner")).IsInstanceAdministrator = false;
+            await identity.SaveChangesAsync();
+        }
         return h;
     }
 }
