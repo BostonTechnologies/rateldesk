@@ -11,6 +11,7 @@ public class OrganizationDto
     public bool EnableAiIntake { get; set; }
     public string? ContactInfo { get; set; }
     public string? ItSupportOrganizationId { get; set; }
+    public string? SupportOrganizationName { get; set; }
     public int? OrchestrationTenantId { get; set; }
     public string? OrchestrationTenantName { get; set; }
     public DateTimeOffset? OrchestrationTenantLinkedAtUtc { get; set; }
