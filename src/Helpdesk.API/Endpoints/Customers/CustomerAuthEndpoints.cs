@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.Infrastructure.Auth.Authentik;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
@@ -15,6 +16,8 @@ public static class CustomerAuthEndpoints
 {
     public static void MapCustomerAuthEndpoints(this IEndpointRouteBuilder app)
     {
+        var supportsLocalAccounts = (app.ServiceProvider.GetRequiredService<IConfiguration>()
+            .GetSection(LocalAuthenticationOptions.SectionName).Get<LocalAuthenticationOptions>() ?? new()).SupportsLocalAccounts;
         var group = app.MapGroup("/api/v1/customers/{customerId}/auth")
             .WithTags("Customer Authentication")
             .RequireAuthorization("HelpdeskAdmin");
@@ -70,11 +73,16 @@ public static class CustomerAuthEndpoints
             [FromServices] UserManager<ApplicationUser> users,
             CancellationToken ct) =>
         {
+            if (!supportsLocalAccounts)
+                return Results.Conflict(new { message = "Local credentials are unavailable in the configured authentication mode." });
             var links = await db.CustomerAuthLinks.AsNoTracking().Where(link => link.CustomerId == customerId).ToArrayAsync(ct);
             if (links.Length != 1 || !string.Equals(links[0].AuthProviderType, "Local", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(links[0].LocalAccountId))
                 return Results.Conflict(new { message = "A single linked local account is required to generate an activation token." });
             var account = await users.FindByIdAsync(links[0].LocalAccountId);
-            if (account is null || !account.IsEnabled) return Results.Conflict(new { message = "The linked local account is unavailable." });
+            if (account is null || !account.IsEnabled || account.IsDeleted || await IsLinkDisabledAsync(links[0], db, ct))
+                return Results.Conflict(new { message = "The linked application access is disabled, deleted or unavailable." });
+            if (string.IsNullOrEmpty(account.PasswordHash) && (await users.GetLoginsAsync(account)).Count != 0)
+                return Results.Conflict(new { message = "This account signs in through an external identity provider. Local credential activation is unavailable." });
             context.Response.Headers.CacheControl = "no-store";
             return Results.Ok(new LocalActivationTokenResponse(account.Id, account.Email ?? string.Empty, await users.GeneratePasswordResetTokenAsync(account)));
         });
@@ -230,7 +238,7 @@ public static class CustomerAuthEndpoints
         if (string.Equals(link.AuthProviderType, "Local", StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(link.LocalAccountId))
         {
-            return await GetLocalAccountStatusAsync(customer.Id, link, users);
+            return await GetLocalAccountStatusAsync(customer.Id, link, users, db, ct);
         }
 
         // Existing external flows remain owned by the invitation provider. The
@@ -242,13 +250,18 @@ public static class CustomerAuthEndpoints
     private static async Task<CustomerAuthStatusDto> GetLocalAccountStatusAsync(
         string customerId,
         CustomerAuthLink link,
-        UserManager<ApplicationUser> users)
+        UserManager<ApplicationUser> users,
+        HelpdeskDbContext db,
+        CancellationToken ct)
     {
         var account = await users.FindByIdAsync(link.LocalAccountId!);
-        var status = account switch
+        var externalLogin = account is not null && string.IsNullOrEmpty(account.PasswordHash) &&
+                            (await users.GetLoginsAsync(account)).Count != 0;
+        var status = await IsLinkDisabledAsync(link, db, ct) ? CustomerInviteStatus.Disabled : account switch
         {
             null => CustomerInviteStatus.Failed,
-            { IsEnabled: false } => CustomerInviteStatus.Disabled,
+            { IsEnabled: false } or { IsDeleted: true } => CustomerInviteStatus.Disabled,
+            _ when externalLogin => CustomerInviteStatus.Active,
             { EmailConfirmed: false } or { PasswordHash: null or "" } => CustomerInviteStatus.Pending,
             _ => CustomerInviteStatus.Active
         };
@@ -264,18 +277,25 @@ public static class CustomerAuthEndpoints
                 CustomerInviteStatus.Disabled => "Login disabled",
                 _ => "Linked local account unavailable"
             },
-            AuthProviderType = "Local",
+            AuthProviderType = externalLogin ? "OIDC" : "Local",
             LocalAccountId = link.LocalAccountId,
             DomainUserId = link.DomainUserId,
-            IdentitySummary = account is null ? "The linked local account no longer exists." : account.Email,
+            IdentitySummary = account is null ? "The linked local account no longer exists." :
+                externalLogin ? "External application account" : account.Email,
             IsLinkedLogin = true,
-            DisabledAtUtc = account?.DisabledAtUtc,
+            DisabledAtUtc = link.DisabledAtUtc ?? account?.DeletedAtUtc ?? account?.DisabledAtUtc,
             LastAuthError = account is null ? "The linked local account could not be found." : null,
             CanInvite = false,
             CanResend = false,
             CanDisableLogin = false
         };
     }
+
+    private static Task<bool> IsLinkDisabledAsync(CustomerAuthLink link, HelpdeskDbContext db, CancellationToken ct) =>
+        link.DisabledAtUtc is not null || link.InviteStatus == CustomerInviteStatus.Disabled
+            ? Task.FromResult(true)
+            : string.IsNullOrWhiteSpace(link.DomainUserId) ? Task.FromResult(false)
+            : db.Users.AsNoTracking().AllAsync(user => user.Id != link.DomainUserId || user.IsDeleted, ct);
 
     private static CustomerAuthStatusDto NoLinkedLogin(string customerId, bool canInvite) => new()
     {

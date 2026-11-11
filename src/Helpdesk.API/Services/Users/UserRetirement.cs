@@ -69,6 +69,10 @@ public static class UserRetirement
                     link.DomainUserId != null && link.DomainUserId != userId && db.Users.Any(user => user.Id == link.DomainUserId && !user.IsDeleted), ct))
                 return new(true, "shared_identity_dependency", "This sign-in identity is linked to another active application user. An instance administrator must resolve that identity link before deleting either user's access.");
 
+            if (links.Any(link => string.IsNullOrWhiteSpace(link.LocalAccountId) && !string.IsNullOrWhiteSpace(link.AuthentikUserId) &&
+                (string.IsNullOrWhiteSpace(link.OidcIssuer) || string.IsNullOrWhiteSpace(link.OidcSubject))))
+                return new(true, "external_identity_link_incomplete", "The external identity link needs its verified sign-in subject before all application credentials can be retired. Have the user sign in once through the configured provider, then retry Delete.");
+
             var accounts = await identityDb.Users.Where(account => accountIds.Contains(account.Id)).ToListAsync(ct);
             var retiringAdministrators = accounts.Count(account => account.IsInstanceAdministrator && account.IsEnabled && !account.IsDeleted);
             if (retiringAdministrators > 0 && await identityDb.Users.CountAsync(account => account.IsInstanceAdministrator && account.IsEnabled && !account.IsDeleted, ct) <= retiringAdministrators)

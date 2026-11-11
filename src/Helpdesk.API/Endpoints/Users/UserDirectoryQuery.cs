@@ -61,6 +61,8 @@ public static class UserDirectoryQuery
                        IsAccountDeleted = account.Id != null && account.IsDeleted,
                        CanManageCredentials = account.Id != null && account.CanManageCredentials,
                        HasDisabledLink = disabledLink,
+                       IncompleteExternalIdentity = db.CustomerAuthLinks.Any(link => link.DomainUserId == user.Id && link.LocalAccountId == null && link.AuthentikUserId != null &&
+                           (link.OidcIssuer == null || link.OidcIssuer == "" || link.OidcSubject == null || link.OidcSubject == "")),
                        State = disabledLink ? "Disabled" : account.Id != null ? (account.IsEnabled && !account.IsDeleted ? "Enabled" : "Disabled") :
                            db.CustomerAuthLinks.Any(link => link.DomainUserId == user.Id && (link.OidcSubject != null || link.AuthentikUserId != null)) ? "External" : "Profile"
                    };
@@ -123,9 +125,10 @@ public static class UserDirectoryQuery
                     row.CanManageCredentials ? "Local application account" : "External application account",
                 CanManageAccount = supportsLocalAccounts && row.AccountId != null && !row.IsAccountDeleted && row.CanManageCredentials,
                 CanChangeSignIn = supportsLocalAccounts && row.AccountId != null && !row.IsAccountDeleted && !self && !lastAdministrator,
-                CanDelete = !self && !lastAdministrator,
+                CanDelete = !self && !lastAdministrator && !row.IncompleteExternalIdentity,
                 DeleteBlockedReason = self ? "You cannot delete your own application access." :
-                    lastAdministrator ? "The last enabled instance administrator must remain active." : null
+                    lastAdministrator ? "The last enabled instance administrator must remain active." :
+                    row.IncompleteExternalIdentity ? "The user must sign in once through the configured provider to establish their verified identity link before deletion." : null
             };
         }).ToList();
         return Results.Ok(new PagedResult<UserDirectoryDto> { Page = page, PageSize = pageSize, Total = total, Items = items });

@@ -52,10 +52,11 @@ public sealed class UserRetirementProviderTests
         await using var db = fixture.Open(); await db.Database.MigrateAsync();
         await using var identity = fixture.Identity(); await identity.Database.MigrateAsync();
         db.Organizations.Add(new Organization { Id = "organization", Name = "Synthetic team" });
-        db.Users.AddRange(new User { Id = "target", Name = "Target" }, new User { Id = "other", Name = "Other" }, new User { Id = "profile", Name = "Unlinked profile" });
-        db.Customers.AddRange(new Customer { Id = "one", Name = "One", Email = "one@example.invalid", OrganizationId = "organization" }, new Customer { Id = "two", Name = "Two", Email = "two@example.invalid", OrganizationId = "organization" });
-        db.CustomerAuthLinks.AddRange(new CustomerAuthLink { Id = "one", CustomerId = "one", DomainUserId = "target", LocalAccountId = "target" },
-            new CustomerAuthLink { Id = "two", CustomerId = "two", DomainUserId = "other", LocalAccountId = "target" });
+        db.Users.AddRange(new User { Id = "target", Name = "Target" }, new User { Id = "other", Name = "Other" }, new User { Id = "profile", Name = "Unlinked profile" }, new User { Id = "legacy", Name = "Legacy provider profile" });
+        db.Customers.AddRange(new Customer { Id = "one", Name = "One", Email = "one@example.invalid", OrganizationId = "organization" }, new Customer { Id = "two", Name = "Two", Email = "two@example.invalid", OrganizationId = "organization" }, new Customer { Id = "legacy", Name = "Legacy", Email = "legacy@example.invalid", OrganizationId = "organization" });
+        db.CustomerAuthLinks.AddRange(new CustomerAuthLink { Id = "one", CustomerId = "one", DomainUserId = "target" },
+            new CustomerAuthLink { Id = "two", CustomerId = "two", DomainUserId = "other", LocalAccountId = "target" },
+            new CustomerAuthLink { Id = "legacy", CustomerId = "legacy", DomainUserId = "legacy", AuthentikUserId = "provider-only-id" });
         identity.Users.Add(new ApplicationUser { Id = "target", UserName = "target" });
         await db.SaveChangesAsync(); await identity.SaveChangesAsync();
         Assert.Equal("shared_identity_dependency", (await UserRetirement.RetireAsync("target", Actor("administrator"), db, identity)).Error);
@@ -63,7 +64,9 @@ public sealed class UserRetirementProviderTests
         Assert.True((await identity.Users.SingleAsync()).IsEnabled);
         Assert.Null((await UserRetirement.RetireAsync("profile", Actor("administrator"), db, identity)).Error);
         Assert.True((await db.Users.SingleAsync(user => user.Id == "profile")).IsDeleted);
-        Assert.Equal(2, await db.Customers.CountAsync());
+        Assert.Equal("external_identity_link_incomplete", (await UserRetirement.RetireAsync("legacy", Actor("administrator"), db, identity)).Error);
+        Assert.False((await db.Users.SingleAsync(user => user.Id == "legacy")).IsDeleted);
+        Assert.Equal(3, await db.Customers.CountAsync());
         Assert.Single(await identity.Users.AsNoTracking().ToListAsync());
     }
 

@@ -5,6 +5,7 @@ using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Auth;
+using Helpdesk.Shared.DTOs.Customer;
 using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.Models;
 using Microsoft.AspNetCore.Identity;
@@ -16,6 +17,39 @@ namespace Helpdesk.Tests.Api;
 
 public sealed partial class LocalAuthenticationEndpointsTests
 {
+    [Theory]
+    [InlineData("pending", CustomerInviteStatus.Pending, true)]
+    [InlineData("external", CustomerInviteStatus.Active, false)]
+    [InlineData("deleted-account", CustomerInviteStatus.Disabled, false)]
+    [InlineData("deleted-domain", CustomerInviteStatus.Disabled, false)]
+    [InlineData("disabled-link", CustomerInviteStatus.Disabled, false)]
+    [InlineData("missing-domain", CustomerInviteStatus.Disabled, false)]
+    public async Task Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(string shape, CustomerInviteStatus expected, bool canActivate)
+    {
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var account = new ApplicationUser { Id = "linked-account", UserName = "linked@example.invalid", Email = "linked@example.invalid", IsEnabled = true, IsDeleted = shape == "deleted-account" };
+            Assert.True((await users.CreateAsync(account)).Succeeded);
+            if (shape == "external") Assert.True((await users.AddLoginAsync(account, new UserLoginInfo("SyntheticOIDC", "verified-subject", "Synthetic OIDC"))).Succeeded);
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Organizations.Add(new Organization { Id = "linked-organization", Name = "Linked tenant" });
+            db.Customers.Add(new Customer { Id = "linked-contact", Name = "Linked contact", Email = "contact@example.invalid", OrganizationId = "linked-organization" });
+            if (shape != "missing-domain") db.Users.Add(new User { Id = "linked-domain", Name = "Linked profile", OrganizationId = "linked-organization", IsDeleted = shape == "deleted-domain" });
+            db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "linked-contact", DomainUserId = "linked-domain", LocalAccountId = account.Id, AuthProviderType = "Local",
+                InviteStatus = shape == "disabled-link" ? CustomerInviteStatus.Disabled : CustomerInviteStatus.Pending });
+            await db.SaveChangesAsync();
+        }
+        using var administrator = CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        Assert.Equal(HttpStatusCode.NoContent, (await administrator.PostAsJsonAsync("/api/v1/local-auth/login", new LocalAuthenticationEndpoints.LocalLoginRequest("admin@example.test", "correct horse battery staple"))).StatusCode);
+        var status = await administrator.GetFromJsonAsync<CustomerAuthStatusDto>("/api/v1/customers/linked-contact/auth/status");
+        Assert.Equal(expected, status!.InviteStatus);
+        if (shape == "external") Assert.Equal("OIDC", status.AuthProviderType);
+        var activation = await administrator.PostAsync("/api/v1/customers/linked-contact/auth/local-activation-token", null);
+        Assert.Equal(canActivate ? HttpStatusCode.OK : HttpStatusCode.Conflict, activation.StatusCode);
+        if (canActivate) Assert.True(activation.Headers.CacheControl?.NoStore);
+    }
+
     [Fact]
     public async Task Delegated_tenant_user_management_never_grants_global_deletion_or_sign_in_controls()
     {

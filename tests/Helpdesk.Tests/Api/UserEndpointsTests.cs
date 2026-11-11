@@ -92,10 +92,10 @@ public class UserEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         await using var oidc = _factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Authentication:Mode"] = "Oidc" })));
         using var client = oidc.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
-        Assert.DoesNotContain(oidc.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>(),
+        var endpoints = oidc.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToArray();
+        Assert.Contains(endpoints, endpoint => endpoint.RoutePattern.RawText == "/api/v1/users/query");
+        Assert.DoesNotContain(endpoints,
             endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/v1/local-auth", StringComparison.Ordinal) == true);
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/v1/local-auth/login", new { email = "synthetic@example.invalid", password = "synthetic passphrase" })).StatusCode);
     }
 
     [Fact]

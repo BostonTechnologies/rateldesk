@@ -85,6 +85,13 @@ Self deletion and deletion of the last enabled instance administrator are
 rejected. Tenant delegates retain their narrower membership controls and cannot
 delete global application access.
 
+A legacy external link containing only a provider directory ID must first record
+its verified OIDC issuer and subject through a normal sign-in. Delete explains
+this dependency and remains blocked until all related application credentials can
+be identified. Email matching never substitutes for that identity link. Legacy
+customer activation routes also reject deleted access, disabled links and accounts
+whose credentials belong to an external identity provider.
+
 The delete dialog remains open on a rejected operation. A lost response can be
 retried against the same user: completed deletion is idempotent and does not
 duplicate its audit record. Refresh the current query after success; a deleted
