@@ -150,7 +150,7 @@ public static class RequestEndpoints
             var tasks = await db.RequestTasks.AsNoTracking()
                 .Where(t => t.RequestId == id)
                 .OrderBy(t => t.Order)
-                .ThenBy(t => t.CreatedAt)
+                .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
                 .ToListAsync(token);
             var bindingStates = await LoadAutomationBindingStatesAsync(
                 db,
@@ -421,6 +421,8 @@ public static class RequestEndpoints
 
             var updated = await repo.UpdateAsync(existing);
             await tx.CommitAsync(token);
+            await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(id, existing.OrganizationId,
+                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
 
             if (previousState != TicketState.Resolved && updated!.State == TicketState.Resolved)
             {
@@ -487,6 +489,8 @@ public static class RequestEndpoints
             [FromServices] IRepository<Request> repo,
             [FromServices] ITicketSlaCompletionService ticketSlaCompletionService,
             [FromServices] ITicketNotificationService ticketNotificationService,
+            [FromServices] IDomainEventPublisher domainEvents,
+            [FromServices] ICorrelationContext correlationContext,
             CancellationToken token) =>
         {
             var ids = (req.Ids ?? []).Where(id => !string.IsNullOrWhiteSpace(id))
@@ -523,6 +527,9 @@ public static class RequestEndpoints
             }
 
             if (transaction is not null) await transaction.CommitAsync(token);
+            foreach (var changed in requests)
+                await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(changed.Id, changed.OrganizationId,
+                    DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
             foreach (var request in resolvedTransitions.Where(x => string.IsNullOrWhiteSpace(x.RequestFormId)))
             {
                 await SendResolvedNotificationAsync(request, ticketNotificationService, token);
@@ -543,6 +550,8 @@ public static class RequestEndpoints
             [FromServices] HelpdeskDbContext db,
             [FromServices] IRepository<User> users,
             [FromServices] IRepository<Request> repo,
+            [FromServices] IDomainEventPublisher domainEvents,
+            [FromServices] ICorrelationContext correlationContext,
             CancellationToken token) =>
         {
             var ids = (req.Ids ?? []).Where(id => !string.IsNullOrWhiteSpace(id))
@@ -568,6 +577,9 @@ public static class RequestEndpoints
             }
 
             if (transaction is not null) await transaction.CommitAsync(token);
+            foreach (var changed in requests)
+                await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(changed.Id, changed.OrganizationId,
+                    DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
             return Results.Ok(new { updated = requests.Count });
         })
         .RequireAuthorization("RequestManager")
@@ -584,6 +596,8 @@ public static class RequestEndpoints
             [FromServices] IRepository<Request> repo,
             [FromServices] ITicketSlaCompletionService ticketSlaCompletionService,
             [FromServices] ITicketNotificationService ticketNotificationService,
+            [FromServices] IDomainEventPublisher domainEvents,
+            [FromServices] ICorrelationContext correlationContext,
             CancellationToken token) =>
         {
             var request = await repo.GetAsync(id);
@@ -609,6 +623,8 @@ public static class RequestEndpoints
             ApplyClosedAtTransition(request, previousState, request.State);
             request.UpdatedAt = DateTime.UtcNow;
             await repo.UpdateAsync(request);
+            await domainEvents.PublishAsync(new RequestSnapshotChangedEvent(id, request.OrganizationId,
+                DateTimeOffset.UtcNow, correlationContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N")), token);
 
             if (request.State == TicketState.Resolved)
             {
@@ -1233,92 +1249,15 @@ public static class RequestEndpoints
             return;
         }
 
-        var logger = loggerFactory.CreateLogger("RequestEndpoints");
-        var reader = eventBus.Subscribe(id);
         var canReadInternalRequest = CanReadInternalRequest(authorization.Access!, authorization.OrganizationId);
-
-        context.Response.Headers.CacheControl = "no-cache";
-        context.Response.Headers.Append("Connection", "keep-alive");
-        context.Response.Headers.Append("X-Accel-Buffering", "no");
-        context.Response.ContentType = "text/event-stream";
-
-        try
+        await RequestTimelineSse.RunAsync(id, context, db, eventBus, async token =>
         {
-            logger.LogInformation("Request timeline stream connected {TicketId}", id);
-            await context.Response.StartAsync(ct);
-            await context.Response.WriteAsync(": connected\n\n", ct);
-            await context.Response.Body.FlushAsync(ct);
-
-            var keepAliveInterval = TimeSpan.FromSeconds(15);
-
-            while (!ct.IsCancellationRequested)
-            {
-                var waitForDataTask = reader.WaitToReadAsync(ct).AsTask();
-                var keepAliveTask = Task.Delay(keepAliveInterval, ct);
-                var completedTask = await Task.WhenAny(waitForDataTask, keepAliveTask);
-
-                if (!await Helpdesk.API.Endpoints.Authentication.LocalSessionValidator.IsValidAsync(context, ct))
-                {
-                    logger.LogInformation("Timeline stream session revoked {TicketId}", id);
-                    break;
-                }
-
-                var currentAuthorization = await AuthorizeRequestAsync(
-                    id,
-                    context.User,
-                    accessService,
-                    db,
-                    requireManager: false,
-                    ct);
-                if (currentAuthorization.Failure is not null)
-                {
-                    logger.LogInformation("Request timeline stream authorization revoked {TicketId}", id);
-                    break;
-                }
-
-                canReadInternalRequest = CanReadInternalRequest(currentAuthorization.Access!, currentAuthorization.OrganizationId);
-
-                if (completedTask == waitForDataTask)
-                {
-                    if (!await waitForDataTask)
-                    {
-                        break;
-                    }
-
-                    while (reader.TryRead(out var evt))
-                    {
-                        if (!canReadInternalRequest && evt.EventType == TimelineEventType.InternalNote)
-                        {
-                            continue;
-                        }
-
-                        var json = JsonSerializer.Serialize(evt);
-                        await context.Response.WriteAsync("event: timeline\n", ct);
-                        await context.Response.WriteAsync($"data: {json}\n\n", ct);
-                    }
-
-                    await context.Response.Body.FlushAsync(ct);
-                }
-                else
-                {
-                    await context.Response.WriteAsync(": keepalive\n\n", ct);
-                    await context.Response.Body.FlushAsync(ct);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // connection terminated by client disconnect/cancellation
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Request timeline stream error {TicketId}", id);
-        }
-        finally
-        {
-            logger.LogInformation("Request timeline stream disconnected {TicketId}", id);
-            eventBus.Unsubscribe(id, reader);
-        }
+            var current = await AuthorizeRequestAsync(id, context.User, accessService, db, requireManager: false, token);
+            if (current.Failure is not null) return false;
+            canReadInternalRequest = CanReadInternalRequest(current.Access!, current.OrganizationId);
+            return true;
+        }, item => canReadInternalRequest || item.EventType != TimelineEventType.InternalNote,
+            loggerFactory.CreateLogger("RequestEndpoints"), ct);
     }
 
     private static TicketTimelineEventDto ToTimelineDto(TicketTimelineEvent evt)

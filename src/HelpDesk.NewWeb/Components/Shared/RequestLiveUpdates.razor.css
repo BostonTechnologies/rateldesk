@@ -1,0 +1,4 @@
+.request-live-updates { display:flex; align-items:center; justify-content:flex-end; gap:.35rem; min-width:0; }
+.request-live-state { display:inline-flex; gap:.4rem; align-items:center; color:var(--mud-palette-text-secondary); font-size:.875rem; white-space:nowrap; }
+.request-live-dot { width:.45rem; height:.45rem; flex:none; border-radius:50%; background:var(--mud-palette-text-secondary); }
+.request-live-dot.is-live { background:var(--mud-palette-success); }

@@ -104,6 +104,10 @@
     private bool shouldScrollTimelineToTop;
     private TimelinePosition _timelinePosition = TimelinePosition.Alternate;
     private bool _streamStarted;
+    private IAsyncDisposable? streamSubscription;
+    private int scopeVersion, timelineLoadVersion;
+    private int? activeTimelineFetch;
+    private readonly Dictionary<Guid, TicketTimelineEventDto> eventsDuringFetch = new();
     private string? _loadKey;
 
     private void ToggleTimelineAlignment()
@@ -122,9 +126,12 @@
         if (string.Equals(nextLoadKey, _loadKey, StringComparison.Ordinal))
             return;
 
+        scopeVersion++;
+        timeline = null;
         if (_streamStarted)
         {
-            await TimelineStream.StopAsync();
+            if (streamSubscription is not null) await streamSubscription.DisposeAsync();
+            streamSubscription = null;
             _streamStarted = false;
         }
 
@@ -140,19 +147,29 @@
 
             try
             {
-                await TimelineStream.StartAsync(
+                var version = scopeVersion;
+                streamSubscription = await TimelineStream.SubscribeAsync(
                     TicketId,
                     async evt =>
                     {
                         await InvokeAsync(() =>
                         {
+                            if (version != scopeVersion) return;
                             InsertEvent(evt);
                             _ = NotifyTimelineLoadedAsync();
-                            shouldScrollTimelineToTop = true;
                             StateHasChanged();
                         });
                     },
-                    TicketType);
+                    TicketType, onStateChanged: async state =>
+                    {
+                        if (state == TimelineConnectionState.Live)
+                            await InvokeAsync(async () =>
+                            {
+                                if (version != scopeVersion) return;
+                                await LoadTimelineAsync();
+                                StateHasChanged();
+                            });
+                    });
             }
             catch (Exception ex)
             {
@@ -172,50 +189,47 @@
 
     private async Task LoadTimelineAsync()
     {
-        loading = true;
-
+        var scope = scopeVersion;
+        var query = ++timelineLoadVersion;
+        activeTimelineFetch = query;
+        eventsDuringFetch.Clear();
+        loading = timeline is null;
         try
         {
+            List<TicketTimelineEventDto>? loaded;
             if (PublicMode)
             {
-                if (string.IsNullOrWhiteSpace(TrackingId) ||
-                    string.IsNullOrWhiteSpace(Email) ||
-                    string.IsNullOrWhiteSpace(Token))
+                if (string.IsNullOrWhiteSpace(TrackingId) || string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Token))
+                    loaded = new();
+                else
                 {
-                    timeline = new();
-                    return;
+                    var url = $"api/v1/tickets/public/timeline?trackingId={Uri.EscapeDataString(TrackingId)}&email={Uri.EscapeDataString(Email)}&token={Uri.EscapeDataString(Token)}";
+                    loaded = await PublicApi.GetFromJsonAsync<List<TicketTimelineEventDto>>(url);
                 }
-
-                var api = PublicMode ? PublicApi : HelpdeskApi;
-                var url =
-                    $"api/v1/tickets/public/timeline?trackingId={Uri.EscapeDataString(TrackingId)}&email={Uri.EscapeDataString(Email)}&token={Uri.EscapeDataString(Token)}";
-
-                timeline = (await api.GetFromJsonAsync<List<TicketTimelineEventDto>>(url))
-                    ?.OrderByDescending(x => x.CreatedUtc)
-                    .ToList();
             }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(TicketId))
-                {
-                    timeline = new();
-                    return;
-                }
-
-                timeline = (await TimelineClient.GetTimelineAsync(TicketId, "desc", TicketType))
-                    ?.OrderByDescending(x => x.CreatedUtc)
-                    .ToList();
-            }
+            else loaded = string.IsNullOrWhiteSpace(TicketId) ? new() : await TimelineClient.GetTimelineAsync(TicketId, "desc", TicketType);
+            if (scope != scopeVersion || query != timelineLoadVersion) return;
+            timeline = loaded ?? new();
+            // A live frame delivered during the fetch is newer than that fetch's snapshot.
+            foreach (var item in eventsDuringFetch.Values) UpsertEvent(item);
+            timeline = timeline.OrderByDescending(x => x.CreatedUtc).ThenByDescending(x => x.Id).ToList();
         }
-        catch (Exception ex)
+        catch (Exception error)
         {
-            Snackbar.Add($"Could not load timeline: {ex.Message}", Severity.Error);
-            timeline = new();
+            if (scope != scopeVersion || query != timelineLoadVersion) return;
+            Logger.LogWarning(error, "Timeline could not be refreshed for {TicketId}", TicketId);
+            Snackbar.Add("Could not load timeline. Try again.", Severity.Error);
+            timeline ??= new();
         }
         finally
         {
-            loading = false;
-            await NotifyTimelineLoadedAsync();
+            if (scope == scopeVersion && query == timelineLoadVersion)
+            {
+                activeTimelineFetch = null;
+                eventsDuringFetch.Clear();
+                loading = false;
+                await NotifyTimelineLoadedAsync();
+            }
         }
     }
 
@@ -367,6 +381,12 @@
 
     private void InsertEvent(TicketTimelineEventDto item)
     {
+        if (activeTimelineFetch is not null) eventsDuringFetch[item.Id] = item;
+        UpsertEvent(item);
+    }
+
+    private void UpsertEvent(TicketTimelineEventDto item)
+    {
         timeline ??= new List<TicketTimelineEventDto>();
 
         var existingIndex = timeline.FindIndex(x => x.Id == item.Id);
@@ -395,7 +415,7 @@
             or TimelineEventType.SystemNotification;
     }
 
-    private RenderFragment RenderSystemEvent(TicketTimelineEventDto ev) => @<MudTimelineItem TimelineAlign="@(_timelinePosition == TimelinePosition.Left ? TimelineAlign.Start : TimelineAlign.Start)" Class="timeline-item">
+    private RenderFragment RenderSystemEvent(TicketTimelineEventDto ev) => @<MudTimelineItem @key="ev.Id" TimelineAlign="@(_timelinePosition == TimelinePosition.Left ? TimelineAlign.Start : TimelineAlign.Start)" Class="timeline-item">
         <div class="timeline-row">
             <div class="timeline-left">
                 <MudPaper Class="timeline-system-card" Elevation="0" Outlined="true">
@@ -441,7 +461,7 @@
         </div>
     </MudTimelineItem>;
 
-    private RenderFragment RenderHumanEvent(TicketTimelineEventDto ev) => @<MudTimelineItem TimelineAlign="@(_timelinePosition == TimelinePosition.Left ? TimelineAlign.Start : TimelineAlign.End)" Class="timeline-item">
+    private RenderFragment RenderHumanEvent(TicketTimelineEventDto ev) => @<MudTimelineItem @key="ev.Id" TimelineAlign="@(_timelinePosition == TimelinePosition.Left ? TimelineAlign.Start : TimelineAlign.End)" Class="timeline-item">
         <div class="timeline-row">
 
             <div class="timeline-left-empty"></div>
@@ -733,6 +753,7 @@
 
     public async ValueTask DisposeAsync()
     {
-        await TimelineStream.DisposeAsync();
+        scopeVersion++;
+        if (streamSubscription is not null) await streamSubscription.DisposeAsync();
     }
 }

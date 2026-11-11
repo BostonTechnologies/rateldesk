@@ -1,3 +1,4 @@
+@using HelpDesk.NewWeb.Models
 @using Helpdesk.Shared.Services
 @inject AuthenticationStateProvider AccessAuthenticationState
 @page "/requests/{Id}"
@@ -8,6 +9,7 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager NavigationManager
 @inject IDialogService DialogService
+@inject ILogger<RequestDetail> Logger
 
 @using System.Net.Http.Json
 @using System.Security.Claims
@@ -36,12 +38,13 @@ else if (request == null)
 }
 else
 {
+    <div class="request-detail-page">
     <MudGrid Spacing="3" AlignItems="AlignItems.Stretch">
         <MudItem xs="12" md="9" Class="d-flex flex-column">
             <HelpDesk.NewWeb.Components.Shared.TicketHeader
-                Title="@request.Title"
+                Title="@request.Title" TitleTag="h1" StatusTestId="request-committed-state"
                 TrackingId="@request.TrackingId"
-                Status="@request.State"
+                Status="@(originalRequest?.State ?? request.State)" StatusText="@RequestProgressLabels.Readable((originalRequest?.State ?? request.State).ToString())" StatusColor="Color.Default"
                 Priority="@request.Priority"
                 LastUpdated="@(request.UpdatedAt ?? request.CreatedAt)"
                 CustomerName="@request.CustomerName"
@@ -51,21 +54,18 @@ else
                 CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
 
-            @if (!string.IsNullOrWhiteSpace(request.WorkflowStatus))
+            <div class="request-progress-summary">
+                <div class="request-progress-text" data-testid="request-workflow-summary">
+                    <span>Workflow</span>
+                    <strong>@RequestProgressLabels.Readable(request.WorkflowStatus ?? "Not started")</strong>
+                    <span>@tasks.Count(x => x.Status is RequestTaskStatus.Completed or RequestTaskStatus.Skipped) / @tasks.Count tasks complete</span>
+                </div>
+                <RequestLiveUpdates @key="Id" RequestId="@Id" OnRefresh="RefreshRequestAndTasksAsync" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(request.WorkflowBlockReason))
             {
-                <MudAlert Severity="@GetWorkflowAlertSeverity(request.WorkflowStatus)"
-                          Dense="true"
-                          Variant="Variant.Outlined"
-                          Class="mt-2">
-                    <MudText Typo="Typo.subtitle2">Workflow: @request.WorkflowStatus</MudText>
-                    @if (!string.IsNullOrWhiteSpace(request.WorkflowBlockReason))
-                    {
-                        <MudText Typo="Typo.body2">@request.WorkflowBlockReason</MudText>
-                    }
-                    @if (request.WorkflowUpdatedAt.HasValue)
-                    {
-                        <MudText Typo="Typo.caption">Updated @request.WorkflowUpdatedAt.Value.LocalDateTime.ToString("g")</MudText>
-                    }
+                <MudAlert Severity="@GetWorkflowAlertSeverity(request.WorkflowStatus)" Dense="true" Variant="Variant.Outlined" Class="mt-2">
+                    @request.WorkflowBlockReason
                 </MudAlert>
             }
 
@@ -91,107 +91,90 @@ else
                         }
                         else
                         {
-                            <MudTable T="RequestTaskDto" Items="tasks" Dense="true" Hover="true">
+                            <MudTable T="RequestTaskRow" Items="taskRows" Dense="true" Hover="true" Class="request-tasks-table" Breakpoint="Breakpoint.Sm" data-testid="request-tasks-table">
+                                <ColGroup><col style="width:3.5rem" /><col /><col style="width:6rem" /><col style="width:10rem" /><col style="width:8rem" /><col style="width:7rem" /></ColGroup>
                                 <HeaderContent>
-                                    <MudTh>Order</MudTh>
-                                    <MudTh>Name</MudTh>
-                                    <MudTh>Type</MudTh>
-                                    <MudTh>Status</MudTh>
-                                    <MudTh>Assignee</MudTh>
-                                    <MudTh>Actions</MudTh>
+                                    <MudTh>Order</MudTh><MudTh>Task</MudTh><MudTh>Type</MudTh><MudTh>Status</MudTh><MudTh>Assignee</MudTh><MudTh>Actions</MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
-                                    <MudTd DataLabel="Order">@context.Order</MudTd>
-                                    <MudTd DataLabel="Name">
-                                        <MudText Typo="Typo.body2">@context.Name</MudText>
-                                        @if (!string.IsNullOrWhiteSpace(context.Description))
-                                        {
-                                            <MudText Typo="Typo.caption">@context.Description</MudText>
-                                        }
+                                    <MudTd DataLabel="Order">@context.Task.Order</MudTd>
+                                    <MudTd DataLabel="Task">
+                                        <span class="request-task-name" title="@context.Task.Name">@context.Task.Name</span>
+                                        @if (!string.IsNullOrWhiteSpace(context.Task.Description) && !string.Equals(context.Task.Name.Trim(), context.Task.Description.Trim(), StringComparison.OrdinalIgnoreCase))
+                                        { <span class="request-task-description">@context.Task.Description</span> }
                                     </MudTd>
-                                    <MudTd DataLabel="Type">
-                                        <MudChip T="string" Size="Size.Small" Color="@(context.Type == RequestTaskType.Automation ? Color.Info : Color.Default)">
-                                            @context.Type
-                                        </MudChip>
-                                        @if (context.Type == RequestTaskType.Automation && context.AutomationBindingSyncState is not null)
-                                        {
-                                            <MudChip T="string" Size="Size.Small" Class="ml-1" Color="@GetBindingStateColor(context.AutomationBindingSyncState.Value)">
-                                                @context.AutomationBindingSyncState
-                                            </MudChip>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(context.AutomationBlockReason))
-                                        {
-                                            <MudText Typo="Typo.caption">@context.AutomationBlockReason</MudText>
-                                        }
-                                    </MudTd>
+                                    <MudTd DataLabel="Type">@RequestProgressLabels.Readable(context.Task.Type.ToString())</MudTd>
                                     <MudTd DataLabel="Status">
-                                        <MudChip T="string" Size="Size.Small" Color="@GetTaskStatusColor(context.Status)">
-                                            @context.Status
-                                        </MudChip>
-                                        @if (context.Type == RequestTaskType.Automation && !string.IsNullOrWhiteSpace(context.LastAutomationStatus))
-                                        {
-                                            <MudText Typo="Typo.caption" Class="d-block">
-                                                External orchestration: @(RequiresManualReconciliation(context.LastAutomationStatus) ? "Reconciliation required" : context.LastAutomationStatus)
-                                                @if (context.LastAutomationUpdatedAt.HasValue)
-                                                {
-                                                    <span> (@context.LastAutomationUpdatedAt.Value.LocalDateTime.ToString("g"))</span>
-                                                }
-                                            </MudText>
-                                        }
+                                        <span class="request-task-state" data-task-id="@context.Task.Id">
+                                            <MudIcon Icon="@GetTaskStatusIcon(context.Task)" Color="@GetDisplayedTaskColor(context.Task)" Size="Size.Small" aria-hidden="true" />
+                                            @GetTaskStatusLabel(context.Task)
+                                        </span>
                                     </MudTd>
-                                    <MudTd DataLabel="Assignee">@GetAssigneeDisplay(context.AssignedToId)</MudTd>
+                                    <MudTd DataLabel="Assignee"><span class="request-task-assignee" title="@GetAssigneeDisplay(context.Task.AssignedToId)">@GetAssigneeDisplay(context.Task.AssignedToId)</span></MudTd>
                                     <MudTd DataLabel="Actions">
-                                        <MudStack Row="true" Spacing="1">
-                                            @if (context.Status == RequestTaskStatus.Pending)
+                                        <div class="request-task-actions">
+                                            @if (context.Task.Status == RequestTaskStatus.Pending)
                                             {
-                                                <MudButton Size="Size.Small" Variant="Variant.Outlined"
-                                                           Disabled="@(!CanOperateTask(context) || taskActionInProgress || (context.Type == RequestTaskType.Automation && !context.AutomationReadyToStart))"
-                                                           OnClick="@(async () => await StartTaskAsync(context))">Start</MudButton>
+                                                <WorkspaceAction Label="Start task" Icon="@Icons.Material.Filled.PlayArrow"
+                                                    Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress || (context.Task.Type == RequestTaskType.Automation && !context.Task.AutomationReadyToStart))"
+                                                    DisabledReason="@(context.Task.AutomationBlockReason ?? "Task permission and readiness are required")" OnClick="() => StartTaskAsync(context.Task)" />
                                             }
-                                            @if (context.Type == RequestTaskType.Manual && context.Status == RequestTaskStatus.InProgress)
+                                            @if (context.Task.Type == RequestTaskType.Manual && context.Task.Status == RequestTaskStatus.InProgress)
                                             {
-                                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Disabled="@(!CanOperateTask(context) || taskActionInProgress)"
-                                                           OnClick="@(async () => await CompleteTaskAsync(context))">Complete</MudButton>
-                                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="@(!CanOperateTask(context) || taskActionInProgress)"
-                                                           OnClick="@(async () => await FailTaskAsync(context))">Fail</MudButton>
+                                                <WorkspaceAction Label="Complete task" Icon="@Icons.Material.Outlined.CheckCircle" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => CompleteTaskAsync(context.Task)" />
+                                                <WorkspaceAction Label="Fail task" Icon="@Icons.Material.Outlined.ErrorOutline" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => FailTaskAsync(context.Task)" />
                                             }
-                                            @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.InProgress)
+                                            @if (context.Task.Type == RequestTaskType.Automation && context.Task.Status == RequestTaskStatus.Failed && canRetryAutomationTasks && !RequiresManualReconciliation(context.Task.LastAutomationStatus))
                                             {
-                                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="true">Running</MudButton>
+                                                <WorkspaceAction Label="Retry task" Icon="@Icons.Material.Filled.Replay" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => RetryTaskAsync(context.Task)" />
                                             }
-                                            @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && canRetryAutomationTasks && !RequiresManualReconciliation(context.LastAutomationStatus))
-                                            {
-                                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(!CanOperateTask(context) || taskActionInProgress)"
-                                                           OnClick="@(async () => await RetryTaskAsync(context))">Retry</MudButton>
-                                            }
-                                            @if (context.Type == RequestTaskType.Automation && HasAutomationRecoveryContext(context))
-                                            {
-                                                <MudButton Size="Size.Small"
-                                                           Variant="Variant.Outlined"
-                                                           Color="Color.Info"
-                                                           Href="@BuildAutomationRecoveryLink(context)">
-                                                    Recovery
-                                                </MudButton>
-                                            }
-                                        </MudStack>
-                                        @if (context.Type == RequestTaskType.Automation && HasAutomationRecoveryContext(context))
-                                        {
-                                            <MudText Typo="Typo.caption" Class="d-block mt-1">
-                                                Run: @(context.OrchestrationExternalRunId ?? context.OrchestratorExecutionId ?? "-")
-                                            </MudText>
-                                            <MudText Typo="Typo.caption" Class="d-block">
-                                                Request: @(context.OrchestrationExternalRequestId ?? "-")
-                                            </MudText>
-                                        }
+                                            @if (context.Task.Type == RequestTaskType.Automation && canRetryAutomationTasks && HasAutomationRecoveryContext(context.Task))
+                                            { <WorkspaceAction Label="Open recovery" Icon="@Icons.Material.Filled.ManageSearch" Href="@BuildAutomationRecoveryLink(context.Task)" /> }
+                                            <MudTooltip Text="Task details">
+                                                <MudIconButton Icon="@(expandedTasks.Contains(context.Task.Id) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                                    Size="Size.Small" aria-label="@($"Task details: {context.Task.Name}")" aria-expanded="@expandedTasks.Contains(context.Task.Id).ToString().ToLowerInvariant()"
+                                                    aria-controls="@($"task-details-{context.Task.Id}")" OnClick="() => ToggleTaskDetails(context.Task.Id)" />
+                                            </MudTooltip>
+                                        </div>
                                     </MudTd>
                                 </RowTemplate>
+                                <ChildRowContent>
+                                    @if (expandedTasks.Contains(context.Task.Id))
+                                    {
+                                        <MudTr @key="context.Task.Id" Class="request-task-detail-row">
+                                            <td colspan="6">
+                                                <section class="request-task-details" id="@($"task-details-{context.Task.Id}")" aria-label="@($"Details for {context.Task.Name}")">
+                                                    <MudText Typo="Typo.subtitle2">@context.Task.Name</MudText>
+                                                    @if (!string.IsNullOrWhiteSpace(context.Task.Description)) { <p>@context.Task.Description</p> }
+                                                    <dl>
+                                                        <dt>Started</dt><dd>@FormatTaskTime(context.Task.StartedAt)</dd>
+                                                        <dt>Completed</dt><dd>@FormatTaskTime(context.Task.CompletedAt)</dd>
+                                                        @if (context.Task.Type == RequestTaskType.Automation)
+                                                        {
+                                                            <dt>Provider outcome</dt><dd>@(RequiresManualReconciliation(context.Task.LastAutomationStatus) ? "Outcome unknown — needs reconciliation" : RequestProgressLabels.Readable(context.Task.LastAutomationStatus ?? "Not submitted"))</dd>
+                                                            <dt>Binding</dt><dd>@RequestProgressLabels.Readable(context.Task.AutomationBindingSyncState?.ToString() ?? "Unknown")</dd>
+                                                            <dt>Last provider update</dt><dd>@FormatTaskTime(context.Task.LastAutomationUpdatedAt)</dd>
+                                                            <dt>Runtime / grace / hard limit</dt><dd>@FormatRuntime(context.Task.ExpectedRuntimeSeconds) / @FormatRuntime(context.Task.GraceSeconds) / @FormatRuntime(context.Task.HardTimeoutSeconds)</dd>
+                                                            <dt>Run</dt><dd>@(context.Task.OrchestrationExternalRunId ?? context.Task.OrchestratorExecutionId ?? "Not recorded")</dd>
+                                                            <dt>Provider request</dt><dd>@(context.Task.OrchestrationExternalRequestId ?? "Not recorded")</dd>
+                                                            <dt>Job</dt><dd>@(context.Task.OrchestrationJobDefinitionId ?? "Not recorded")</dd>
+                                                            <dt>Automation binding</dt><dd>@(context.Task.AutomationBindingId ?? "Not recorded")</dd>
+                                                        }
+                                                    </dl>
+                                                    @if (!string.IsNullOrWhiteSpace(context.Task.AutomationBlockReason)) { <p>@context.Task.AutomationBlockReason</p> }
+                                                    @if (!string.IsNullOrWhiteSpace(context.Task.FailureReason)) { <p class="request-task-error">@context.Task.FailureReason</p> }
+                                                </section>
+                                            </td>
+                                        </MudTr>
+                                    }
+                                </ChildRowContent>
                             </MudTable>
                         }
                     </MudPaper>
                 </MudTabPanel>
                 <MudTabPanel Text="Workflow">
                     <MudPaper Class="pa-3">
-                        <MudStack Row="true" Spacing="2" Class="mb-2" AlignItems="AlignItems.Center">
+                        <MudStack Row="true" Spacing="2" Class="mb-2 request-workflow-toolbar" AlignItems="AlignItems.Center">
                             <MudSelect T="string" Label="Event Group" Dense="true" Value="@workflowCategoryGroup" ValueChanged="OnWorkflowCategoryGroupChanged" Style="min-width: 180px;">
                                 <MudSelectItem T="string" Value="@("All")">All</MudSelectItem>
                                 <MudSelectItem T="string" Value="@("Tasks")">Tasks</MudSelectItem>
@@ -209,6 +192,8 @@ else
                             <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadWorkflowTimelineAsync">Refresh</MudButton>
                         </MudStack>
 
+                        @if (workflowTimelineError is not null)
+                        { <MudAlert Severity="Severity.Warning" Dense="true">@workflowTimelineError</MudAlert> }
                         @if (workflowTimelineLoading && workflowTimeline.Count == 0)
                         {
                             <MudProgressLinear Indeterminate="true" />
@@ -222,7 +207,7 @@ else
                             <MudStack Spacing="1">
                                 @foreach (var item in FilteredWorkflowTimeline)
                                 {
-                                    <MudPaper Class="pa-2" Outlined="true">
+                                    <MudPaper @key="item.NotificationId" Class="pa-2" Outlined="true">
                                         <MudStack Spacing="1">
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                                 <MudChip T="string" Size="Size.Small" Color="@GetWorkflowSeverityColor(item.Severity)">@item.Severity</MudChip>
@@ -344,6 +329,7 @@ else
             </TicketDetailsPanel>
         </MudItem>
     </MudGrid>
+    </div>
 }
 
 @code {
@@ -364,6 +350,10 @@ else
     private RequestDto? request;
     private RequestDto? originalRequest;
     private List<RequestTaskDto> tasks = new();
+    private List<RequestTaskRow> taskRows = new();
+    private readonly Dictionary<string, RequestTaskRow> taskRowsById = new(StringComparer.Ordinal);
+    private sealed class RequestTaskRow(RequestTaskDto task) { public RequestTaskDto Task { get; set; } = task; }
+    private readonly HashSet<string> expandedTasks = new(StringComparer.Ordinal);
     private Dictionary<string, string> userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
     private List<TicketCategoryDto> categories = new();
     private HashSet<Guid> selectedCategoryIds = new();
@@ -374,9 +364,11 @@ else
     private bool CanOperateTask(RequestTaskDto task) => task.Type == RequestTaskType.Automation ? canRetryAutomationTasks : task.Type == RequestTaskType.Manual && CanManage;
     private bool canViewWorkflowPayload;
     private bool isUpdating;
+    private bool refreshPending;
     private bool hasChanges;
     private readonly List<WorkflowTimelineItemDto> workflowTimeline = new();
     private bool workflowTimelineLoading;
+    private string? workflowTimelineError;
     private bool workflowHasMore;
     private int workflowPage = 1;
     private const int WorkflowPageSize = 50;
@@ -408,7 +400,7 @@ else
         ticketLifetime.Cancel(); ticketLifetime.Dispose(); ticketLifetime = new();
         var token = ticketLifetime.Token;
         taskActionInProgress = false;
-        tasks = new(); userDisplayNames.Clear();
+        tasks = new(); taskRows.Clear(); taskRowsById.Clear(); expandedTasks.Clear(); userDisplayNames.Clear();
         workflowVersion++;
         workflowTimeline.Clear();
         loading = true;
@@ -561,9 +553,9 @@ else
         {
             var updateDto = new UpdateRequestDto
             {
-                State = request.State,
-                Priority = request.Priority,
-                CategoryIds = selectedCategoryIds.ToList()
+                State = request.State != originalRequest?.State ? request.State : null,
+                Priority = request.Priority != originalRequest?.Priority ? request.Priority : null,
+                CategoryIds = originalRequest is null || !selectedCategoryIds.SetEquals(originalRequest.CategoryIds) ? selectedCategoryIds.ToList() : null
             };
 
             using var response = await HelpdeskApi.PutAsJsonAsync($"api/v1/requests/{savingTicketId}", updateDto, token);
@@ -596,7 +588,12 @@ else
         }
         finally
         {
-            if (IsCurrent(version)) { isUpdating = false; refreshVersion++; }
+            if (IsCurrent(version))
+            {
+                isUpdating = false;
+                refreshVersion++;
+                if (refreshPending) { refreshPending = false; await HandleWorklogAdded(); }
+            }
         }
     }
 
@@ -630,7 +627,7 @@ else
             if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to pause SLA.", Severity.Error); return; }
             await HandleWorklogAdded();
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (HttpRequestException) { if (IsCurrent(version)) Snackbar.Add("Failed to pause SLA.", Severity.Error); }
     }
 
@@ -647,7 +644,7 @@ else
             if (!response.IsSuccessStatusCode) { Snackbar.Add("Failed to resume SLA.", Severity.Error); return; }
             await HandleWorklogAdded();
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (HttpRequestException) { if (IsCurrent(version)) Snackbar.Add("Failed to resume SLA.", Severity.Error); }
     }
 
@@ -668,6 +665,39 @@ else
         SlaStatus.Completed => Color.Success,
         _ => Color.Default
     };
+
+    private void ApplyTaskSnapshot(List<RequestTaskDto> snapshot)
+    {
+        tasks = snapshot;
+        var rows = new List<RequestTaskRow>(snapshot.Count);
+        foreach (var task in snapshot)
+        {
+            if (!taskRowsById.TryGetValue(task.Id, out var row)) taskRowsById[task.Id] = row = new(task);
+            else row.Task = task;
+            rows.Add(row);
+        }
+        var retained = snapshot.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var removed in taskRowsById.Keys.Where(x => !retained.Contains(x)).ToArray()) taskRowsById.Remove(removed);
+        taskRows = rows;
+    }
+
+    private void ToggleTaskDetails(string taskId)
+    {
+        if (!expandedTasks.Add(taskId)) expandedTasks.Remove(taskId);
+    }
+    private static string FormatTaskTime(DateTimeOffset? value) => value?.ToLocalTime().ToString("g") ?? "Not recorded";
+    private static string FormatRuntime(int? seconds) => seconds is null ? "Not configured" : $"{seconds} s";
+    private static string GetTaskStatusLabel(RequestTaskDto task) => RequiresManualReconciliation(task.LastAutomationStatus)
+        ? "Needs reconciliation" : RequestProgressLabels.Readable(task.Status.ToString());
+    private static Color GetDisplayedTaskColor(RequestTaskDto task) => RequiresManualReconciliation(task.LastAutomationStatus) ? Color.Warning : GetTaskStatusColor(task.Status);
+    private static string GetTaskStatusIcon(RequestTaskDto task) => RequiresManualReconciliation(task.LastAutomationStatus)
+        ? Icons.Material.Outlined.HelpOutline : task.Status switch
+        {
+            RequestTaskStatus.Completed => Icons.Material.Outlined.CheckCircle,
+            RequestTaskStatus.Failed or RequestTaskStatus.Cancelled => Icons.Material.Outlined.ErrorOutline,
+            RequestTaskStatus.InProgress => Icons.Material.Outlined.Pending,
+            _ => Icons.Material.Outlined.RadioButtonUnchecked
+        };
 
     private static Color GetTaskStatusColor(RequestTaskStatus status) => status switch
     {
@@ -692,7 +722,7 @@ else
         return workflowStatus?.Trim() switch
         {
             "Failed" => Severity.Error,
-            "Blocked" => Severity.Warning,
+            "Blocked" or "NeedsReconciliation" => Severity.Warning,
             "Completed" => Severity.Success,
             _ => Severity.Info
         };
@@ -707,7 +737,7 @@ else
         try
         {
             var loaded = await HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{ticketId}/tasks", token) ?? new();
-            if (IsCurrent(version)) tasks = loaded;
+            if (IsCurrent(version)) ApplyTaskSnapshot(loaded);
         }
         finally
         {
@@ -836,21 +866,21 @@ else
             await RefreshRequestAndTasksAsync();
             if (IsCurrent(version)) Snackbar.Add(successMessage, Severity.Success);
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex) { if (IsCurrent(version)) Snackbar.Add($"Failed to {action} task: {ex.Message}", Severity.Error); }
         finally { if (IsCurrent(version)) taskActionInProgress = false; }
     }
 
     private async Task RefreshRequestAndTasksAsync()
     {
-        if (isUpdating) return;
+        if (isUpdating) { refreshPending = true; return; }
         var version = ticketVersion;
         var refresh = ++refreshVersion;
         var token = ticketLifetime.Token;
         var ticketId = Id;
         var updatedTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{ticketId}", token);
         var tasksTask = HelpdeskApi.GetFromJsonAsync<List<RequestTaskDto>>($"api/v1/requests/{ticketId}/tasks", token);
-        var workflowTask = LoadWorkflowTimelineAsync(reset: true);
+        var workflowTask = LoadWorkflowTimelineAsync(reset: true, preserveWindow: true);
         await Task.WhenAll(updatedTask, tasksTask, workflowTask);
         if (!IsCurrent(version) || refresh != refreshVersion || isUpdating) return;
         var updated = await updatedTask;
@@ -862,13 +892,11 @@ else
                 var draft = request;
                 var baseline = originalRequest;
                 request = CloneRequest(updated);
-                request.State = draft.State;
-                request.Priority = draft.Priority;
-                request.CategoryIds = selectedCategoryIds.ToList();
                 originalRequest = CloneRequest(updated);
-                originalRequest.State = baseline.State;
-                originalRequest.Priority = baseline.Priority;
-                originalRequest.CategoryIds = baseline.CategoryIds.ToList();
+                if (draft.State != baseline.State) request.State = draft.State;
+                if (draft.Priority != baseline.Priority) request.Priority = draft.Priority;
+                if (!selectedCategoryIds.SetEquals(baseline.CategoryIds)) request.CategoryIds = selectedCategoryIds.ToList();
+                else selectedCategoryIds = updated.CategoryIds.ToHashSet();
             }
             else
             {
@@ -877,7 +905,10 @@ else
                 selectedCategoryIds = updated.CategoryIds.ToHashSet();
             }
         }
-        tasks = await tasksTask ?? new List<RequestTaskDto>();
+        ApplyTaskSnapshot(await tasksTask ?? new List<RequestTaskDto>());
+        if (request is not null && originalRequest is not null)
+            hasChanges = request.State != originalRequest.State || request.Priority != originalRequest.Priority ||
+                !selectedCategoryIds.SetEquals(originalRequest.CategoryIds);
     }
 
     private async Task ReloadWorkflowTimelineAsync()
@@ -932,30 +963,43 @@ else
         workflowSearch = value;
     }
 
-    private async Task LoadWorkflowTimelineAsync(bool reset)
+    private async Task LoadWorkflowTimelineAsync(bool reset, bool preserveWindow = false)
     {
         var version = ticketVersion;
         var queryVersion = ++workflowVersion;
         var token = ticketLifetime.Token;
         workflowTimelineLoading = true;
+        workflowTimelineError = null;
         try
         {
+            var pagesToLoad = reset ? (preserveWindow ? workflowPage : 1) : 1;
+            var firstPage = reset ? 1 : workflowPage;
+            var loaded = new List<WorkflowTimelineItemDto>();
+            var total = 0;
+            for (var pageNumber = firstPage; pageNumber < firstPage + pagesToLoad; pageNumber++)
+            {
+                var page = await HelpdeskApi.GetFromJsonAsync<PagedResponse<WorkflowTimelineItemDto>>(BuildWorkflowTimelineUrl(pageNumber), token);
+                if (page is null || !IsCurrent(version) || queryVersion != workflowVersion) return;
+                loaded.AddRange(page.Items ?? []);
+                total = page.TotalCount;
+                if (loaded.Count >= total) break;
+            }
             if (reset)
             {
-                workflowPage = 1;
+                if (!preserveWindow) workflowPage = 1;
                 workflowTimeline.Clear();
-                workflowHasMore = false;
             }
-            var url = BuildWorkflowTimelineUrl(workflowPage);
-            var page = await HelpdeskApi.GetFromJsonAsync<PagedResponse<WorkflowTimelineItemDto>>(url, token);
-            if (page is null || !IsCurrent(version) || queryVersion != workflowVersion) return;
-            workflowTimeline.AddRange(page.Items ?? []);
-            workflowHasMore = workflowTimeline.Count < page.TotalCount;
+            workflowTimeline.AddRange(loaded.GroupBy(x => x.NotificationId).Select(x => x.First()));
+            workflowHasMore = workflowTimeline.Count < total;
         }
-        catch
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+        catch (Exception error)
         {
             if (!IsCurrent(version) || queryVersion != workflowVersion) return;
-            if (reset) { workflowTimeline.Clear(); workflowHasMore = false; }
+            Logger.LogWarning(error, "Workflow timeline could not be refreshed for {RequestId}", Id);
+            workflowTimelineError = error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden }
+                ? "Workflow details require request management access."
+                : "Workflow updates could not be loaded. Refresh to try again.";
         }
         finally { if (IsCurrent(version) && queryVersion == workflowVersion) workflowTimelineLoading = false; }
     }

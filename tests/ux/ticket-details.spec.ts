@@ -366,3 +366,50 @@ test('authorized listener removal refreshes the exact inline count from one to z
   await expect(tab.locator('.activity-count')).toHaveAttribute('aria-label', '0 items');
   expect((await (await request.get(`${fixture}/state`)).json()).tickets.incidents.ccRecipients).toEqual([]);
 });
+
+// These fixtures own rendered geometry, not live/provider execution acceptance.
+for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 1080], [1440, 900], [1366, 768], [768, 1024], [390, 844]]) {
+  test(`request execution layout ${theme} ${width}x${height}`, async ({ page, request }, info) => {
+    await request.post(`${fixture}/request-tasks`, { data: { count: 30 } });
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+    await open(page, 'requests');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+    await expect(page.locator('.request-task-state')).toHaveCount(30);
+    await expect(page.locator('.request-task-state').first()).toHaveText('In progress');
+    await expect(page.getByRole('button', { name: 'Running', exact: true })).toHaveCount(0);
+    await expect(page.getByText('synthetic-provider-run-0', { exact: true })).toHaveCount(0);
+    await noOverflow(page);
+    for (const actions of await page.locator('.request-task-actions').all()) {
+      const bounds = await actions.locator('button,a').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().top));
+      expect(Math.max(...bounds) - Math.min(...bounds)).toBeLessThanOrEqual(2);
+    }
+    const details = page.getByRole('button', { name: 'Task details: Long harmless automation task with a readable complete disclosure name', exact: true });
+    await details.focus(); await page.keyboard.press('Enter');
+    await expect(details).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('region', { name: 'Details for Long harmless automation task with a readable complete disclosure name', exact: true })).toContainText('synthetic-provider-run-0');
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath(`request-execution-${theme}-${width}.png`), fullPage: false });
+    await page.getByRole('tab', { name: 'Workflow', exact: true }).click();
+    await noOverflow(page);
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+    await expect(details).toHaveAttribute('aria-expanded', 'true');
+  });
+}
+
+test('request execution empty and uncertain presentation retain truthful actions', async ({ page, request }, info) => {
+  await request.post(`${fixture}/request-tasks`, { data: { count: 0 } });
+  await open(page, 'requests');
+  await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+  await expect(page.getByText('No tasks for this request.', { exact: true })).toBeVisible();
+  await request.post(`${fixture}/request-tasks`, { data: { count: 3, state: 'unknown' } });
+  await page.reload();
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+  await expect(page.locator('.request-task-state')).toHaveCount(3);
+  await expect(page.locator('.request-task-state').first()).toHaveText('Needs reconciliation');
+  await expect(page.getByRole('button', { name: 'Retry task', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open recovery', exact: true })).toHaveCount(3);
+  await expect(page.getByText(/The execution deadline elapsed/)).toBeVisible();
+  await page.screenshot({ path: info.outputPath('request-outcome-unknown.png') });
+});

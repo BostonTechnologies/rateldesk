@@ -27,6 +27,10 @@ public static partial class SelfServiceMyRequestsEndpoints
             .WithName("GetMySelfServiceRequestDetail")
             .WithSummary("Get one self-service request submitted by current user");
 
+        group.MapGet("/{id}/timeline/stream", StreamOwnedRequest)
+            .WithName("StreamMySelfServiceRequest")
+            .WithSummary("Stream authorized own-request snapshot invalidations");
+
         group.MapGet("/{id}/tasks", GetMyRequestTasks)
             .WithName("GetMySelfServiceRequestTasks")
             .WithSummary("Get tasks for one self-service request submitted by current user");
@@ -229,6 +233,9 @@ public static partial class SelfServiceMyRequestsEndpoints
             UpdatedAt = request.UpdatedAt.HasValue
                 ? new DateTimeOffset(DateTime.SpecifyKind(request.UpdatedAt.Value, DateTimeKind.Utc))
                 : null,
+            WorkflowStatus = request.WorkflowStatus,
+            WorkflowBlockReason = request.WorkflowBlockReason,
+            WorkflowUpdatedAt = request.WorkflowUpdatedAt,
             PayloadJson = string.IsNullOrWhiteSpace(request.PayloadJson) ? "{}" : request.PayloadJson
         });
     }
@@ -250,7 +257,7 @@ public static partial class SelfServiceMyRequestsEndpoints
         var tasks = await db.RequestTasks.AsNoTracking()
             .Where(t => t.RequestId == request.Id)
             .OrderBy(t => t.Order)
-            .ThenBy(t => t.CreatedAt)
+            .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
             .Select(t => new MyRequestTaskDto
             {
                 Id = t.Id,
@@ -263,7 +270,8 @@ public static partial class SelfServiceMyRequestsEndpoints
                 NextRetryAt = t.NextRetryAt,
                 DueAt = t.DueAt,
                 RetryCount = t.RetryCount,
-                FailureReason = t.FailureReason
+                FailureReason = t.FailureReason,
+                LastAutomationStatus = t.LastAutomationStatus
             })
             .ToListAsync(token);
 
@@ -350,6 +358,9 @@ public static partial class SelfServiceMyRequestsEndpoints
                 r.PayloadJson,
                 r.CreatedAt,
                 r.UpdatedAt,
+                r.WorkflowStatus,
+                r.WorkflowBlockReason,
+                r.WorkflowUpdatedAt,
                 string.IsNullOrWhiteSpace(r.RequestFormId)
                     ? (RequestFormReleaseStatus?)null
                     : accessibleForms
@@ -421,5 +432,8 @@ public static partial class SelfServiceMyRequestsEndpoints
         string? PayloadJson,
         DateTime CreatedAt,
         DateTime? UpdatedAt,
+        string? WorkflowStatus,
+        string? WorkflowBlockReason,
+        DateTimeOffset? WorkflowUpdatedAt,
         RequestFormReleaseStatus? RequestFormReleaseStatus);
 }

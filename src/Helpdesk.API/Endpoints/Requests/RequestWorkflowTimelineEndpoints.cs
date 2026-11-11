@@ -90,7 +90,7 @@ public static class RequestWorkflowTimelineEndpoints
 
             var totalCount = await query.CountAsync(ct);
             var notifications = await query
-                .OrderByDescending(n => n.CreatedUtc)
+                .OrderByDescending(n => n.CreatedUtc).ThenByDescending(n => n.Id)
                 .Skip(skip)
                 .Take(safePageSize)
                 .Select(n => new

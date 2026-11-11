@@ -126,3 +126,32 @@ page are URL-backed, so reload, detail return and section navigation retain the
 deliberate selection. A failed refresh keeps the query and last loaded rows
 with a visible retry message. **Clear filters** retains the chosen sort and page
 size. Open the explicit tracking-ID link by mouse or keyboard to view a request.
+## Live request progress
+
+Request details retain Activity, Tasks and Workflow. The compact summary reports
+committed request state and completed tasks. **Live** means the scoped update
+stream is connected; **Reconnecting** and **Updates paused** identify interrupted
+updates. Use **Refresh request progress** to fetch the current authorized state
+and resume a paused connection. Returning to a backgrounded page also refreshes
+progress. Refreshing progress never submits another automation attempt.
+
+Tasks show one local status and the actions currently permitted. Expand **Task
+details** to inspect the separate provider outcome, binding state, timing and
+recorded request/run/job identifiers. A local failure or reconciliation hold is
+not evidence that remote work stopped. Unknown outcomes retain Recovery and do
+not offer Retry until the execution recovery rules permit it.
+
+Live updates keep the selected tab, task disclosure and unsaved metadata draft.
+The header follows committed state while edited fields remain in the details
+panel; Save sends only the fields changed in that draft. Revert restores the
+latest authorized snapshot. The own-request detail uses the same live-read
+behavior with its existing ownership rules and provides no operator Recovery or
+execution actions.
+
+The existing request SSE endpoint carries timeline entries and minimal snapshot
+invalidations. A ready frame is sent after subscription so the client can
+resynchronize across its initial-fetch gap. The stream also checks this
+request's indexed committed domain-event references, covering updates committed
+by another worker. Reconnect and browser resume fetch canonical snapshots rather
+than applying event payloads as state. Authorization and local session revision
+are rechecked throughout delivery; revocation ends the stream.
