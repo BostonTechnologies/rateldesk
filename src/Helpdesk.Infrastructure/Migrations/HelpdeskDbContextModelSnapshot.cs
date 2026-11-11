@@ -4440,6 +4440,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("Category");
 
+                    b.Property<bool?>("OperatorHold")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("PayloadJson")
                         .HasColumnType("text");
 

@@ -21,7 +21,8 @@ public sealed class RequestTaskLifecycleService(
     IDomainEventPublisher domainEvents,
     ICorrelationContext correlationContext,
     ILogger<RequestTaskLifecycleService> logger,
-    IRequestTaskReadStore? requestTaskReadStore = null) : IRequestTaskLifecycleService
+    IRequestTaskReadStore? requestTaskReadStore = null,
+    IRequestTaskStartFence? startFence = null) : IRequestTaskLifecycleService
 {
     private readonly IRepository<RequestTask> _requestTasks = requestTasks;
     private readonly IRepository<Request> _requests = requests;
@@ -68,26 +69,17 @@ public sealed class RequestTaskLifecycleService(
         }
 
         var correlationId = task.Type == RequestTaskType.Automation
-            ? task.AutomationAttemptCorrelationId ??= GetCorrelationId()
+            ? task.AutomationAttemptCorrelationId ?? GetCorrelationId()
             : GetCorrelationId();
 
-        task.Status = RequestTaskStatus.InProgress;
-        task.State = TicketState.InProgress;
-        task.StartedAt = DateTimeOffset.UtcNow;
-        if (task.Type == RequestTaskType.Automation)
-            AutomationExecutionDeadlinePolicy.StartAttempt(task, task.StartedAt.Value);
-        task.UpdatedAt = DateTime.UtcNow;
-
-        if (task.TaskSlaMinutes is > 0)
+        var startIntent = new RequestTaskStartIntent(DateTimeOffset.UtcNow, correlationId);
+        if (startFence is not null)
+            await startFence.PersistAsync(task, startIntent, ct);
+        else
         {
-            task.SlaStartedAt = task.StartedAt;
-            task.DueAt = task.StartedAt.Value.AddMinutes(task.TaskSlaMinutes.Value);
-            task.Escalated = false;
-            task.EscalatedAt = null;
-            task.SlaBreached = false;
+            startIntent.Apply(task);
+            await _requestTasks.UpdateAsync(task);
         }
-
-        await _requestTasks.UpdateAsync(task);
 
         await _domainEvents.PublishAsync(
             new RequestTaskStartedEvent(

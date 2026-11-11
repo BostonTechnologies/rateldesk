@@ -40,7 +40,9 @@ public sealed class AutomationExecutionOutcomeService(
         var reconcile = task.Status == RequestTaskStatus.Failed
             && AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus);
         var terminal = incomingStatus is "succeeded" or "failed" or "cancelled";
-        if (task.Status != RequestTaskStatus.InProgress && !(reconcile && terminal))
+        var recordUnconfirmedDeadline = reconcile && incomingStatus == "unknown" && deadlineExpired
+            && task.AutomationTimedOutAt is null;
+        if (task.Status != RequestTaskStatus.InProgress && !(reconcile && terminal) && !recordUnconfirmedDeadline)
             return true;
         if (dto.CorrelationId is { Length: > 0 } && dto.CorrelationId != task.AutomationAttemptCorrelationId)
             return false;

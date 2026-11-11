@@ -1,0 +1,10 @@
+.task-execution-timing {
+    color: var(--mud-palette-text-secondary);
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.task-execution-timing > span {
+    display: block;
+}

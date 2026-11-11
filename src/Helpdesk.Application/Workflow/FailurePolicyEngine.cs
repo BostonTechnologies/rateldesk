@@ -264,6 +264,7 @@ public sealed class FailurePolicyEngine(
     {
         if (request.State == TicketState.OnHold && !string.IsNullOrWhiteSpace(request.WorkflowBlockReason)
             && request.WorkflowBlockReason != AutomationTaskStatuses.ReconciliationHoldReason
+            && !RequestHoldPolicy.OwnsOperatorMetadata(request)
             && request.WorkflowBlockReason != blockReason)
             return false;
         var changed = request.WorkflowStatus != workflowStatus

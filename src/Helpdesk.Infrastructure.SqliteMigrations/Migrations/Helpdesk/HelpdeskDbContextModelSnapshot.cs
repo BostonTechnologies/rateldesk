@@ -4467,6 +4467,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasColumnType("TEXT")
                         .HasColumnName("Category");
 
+                    b.Property<bool?>("OperatorHold")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("PayloadJson")
                         .HasColumnType("TEXT");
 

@@ -1,7 +1,7 @@
 {
-  "schemaHash": "fe1980171d87aea366163d3624e97ff30899e80cea3230428e2a8bffb4e84e87",
-  "catalogRevision": "2026-11-11.automation-targets-v29",
-  "catalogHash": "f66469c7f059b8b33ce722522f5e2d6134646d8cbb2c4f94b213aa19a79859ef",
+  "schemaHash": "3e1d92e27443fefb7a937d2a236316cba95268e4d277a3c9686b4283a6a8da39",
+  "catalogRevision": "2026-11-11.trusted-requesters-v30",
+  "catalogHash": "cc8506957da5f4d2ea2794252e4dd023e9ba3a9d79f3388a3e8f2a1e3350f6d0",
   "operationCount": 390,
   "operations": [
     {
@@ -12850,7 +12850,7 @@
       "readOnly": false,
       "confirmationRequired": true,
       "previewSupported": true,
-      "description": "create_self_service_request operation.",
+      "description": "Submit an audience-eligible form for the authenticated persisted requester or an explicitly authorized requested-for person. Optional request.submissionId is a stable UUID for correction/retry: an identical retry returns its original receipt; changed content returns a conflict. Current requester, organization and form eligibility are revalidated on every retry.",
       "sensitiveResultFields": [],
       "transports": [
         "stdio",
@@ -12865,7 +12865,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "SelfService.User or HelpdeskAdmin, audience-eligible request form and valid payload. Requested-for customer is resolved from the caller\u0027s linked customer or an explicit authorized requestedForPersonId/requestedForPersonSource selection in visible organizations.",
+      "authority": "SelfService.User or HelpdeskAdmin, audience-eligible request form and valid payload. Requested-for customer is resolved from the caller\u0027s enabled link, trusted persisted account/domain-user membership, or an explicit authorized requestedForPersonId/requestedForPersonSource selection. The enabled requester organization must match the form audience and saved automation bindings; email similarity never establishes ownership.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -12879,12 +12879,19 @@
       "identifiers": [],
       "prerequisites": [
         "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
-        "Enabled requested-for customer/organization resolved through the caller\u0027s own link or explicit authorized requestedForPersonId plus requestedForPersonSource. Select a published/audience-eligible form and payloadJson matching its schema."
+        "Enabled requested-for customer/organization resolved through an enabled link, trusted persisted account/domain-user membership, or explicit authorized requestedForPersonId plus requestedForPersonSource. Select an audience-eligible form and schema-valid payloadJson. Preserve the optional submissionId UUID across identical retries; new content requires a new identity. Retry never bypasses current requester, organization or form eligibility."
       ],
       "requestSchema": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "submissionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "requestFormId": {
             "type": "string",
             "minLength": 1
@@ -46817,7 +46824,7 @@
             "properties": {
               "operation": {
                 "const": "create_self_service_request",
-                "description": "create_self_service_request operation. Select this operation in the outer operation field."
+                "description": "Submit an audience-eligible form for the authenticated persisted requester or an explicitly authorized requested-for person. Optional request.submissionId is a stable UUID for correction/retry: an identical retry returns its original receipt; changed content returns a conflict. Current requester, organization and form eligibility are revalidated on every retry. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",
@@ -46828,6 +46835,13 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "submissionId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
                   "requestFormId": {
                     "type": "string",
                     "minLength": 1
