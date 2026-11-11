@@ -4,7 +4,7 @@
 @inject IJSRuntime JS
 @inject ILogger<RequestLiveUpdates> Logger
 
-<div class="request-live-updates" data-testid="request-live-updates">
+<div class="request-live-updates" data-testid="request-live-updates" aria-busy="@refreshing.ToString().ToLowerInvariant()">
     <span class="request-live-state" role="status" aria-live="polite" title="@StateDescription">
         <span class="request-live-dot @(state == TimelineConnectionState.Live && !refreshFailed ? "is-live" : "")" aria-hidden="true"></span>
         @StateLabel
@@ -111,6 +111,7 @@
                 {
                     if (disposed || ct.IsCancellationRequested) return;
                     refreshing = true;
+                    StateHasChanged();
                     try { await OnRefresh.InvokeAsync(); refreshFailed = false; }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { Logger.LogDebug("Request refresh cancelled"); }
                     catch (Exception error) { Logger.LogWarning(error, "Request progress refresh failed"); refreshFailed = true; }

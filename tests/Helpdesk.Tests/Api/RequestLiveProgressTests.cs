@@ -34,6 +34,7 @@ using Helpdesk.Shared.Services;
 using Helpdesk.Tests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
@@ -49,7 +50,6 @@ using Xunit.Abstractions;
 using RequestDetail = NewWeb::HelpDesk.NewWeb.Components.Pages.Requests.RequestDetail;
 using OwnDetail = NewWeb::HelpDesk.NewWeb.Components.Pages.SelfService.MyRequestDetail;
 using Activity = NewWeb::HelpDesk.NewWeb.Components.Shared.TicketActivityTabs;
-using LiveUpdates = NewWeb::HelpDesk.NewWeb.Components.Shared.RequestLiveUpdates;
 using TimelineStream = NewWeb::HelpDesk.NewWeb.Services.TimelineStreamService;
 using WebGatewayConfiguration = NewWeb::HelpDesk.NewWeb.Services.WebGatewayConfiguration;
 using WebGatewayGuard = NewWeb::HelpDesk.NewWeb.Services.WebGatewayRequestGuard;
@@ -74,6 +74,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"), SetupTimeout);
         await page.InvokeAsync(() => page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new()));
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count), SetupTimeout);
+        WaitForInitialSnapshot(page, factory);
         await page.InvokeAsync(() => page.Find("button[aria-label='Task details: Harmless automation 1']").ClickAsync(new()));
         Assert.Single(page.FindAll(".request-task-details"));
         Assert.DoesNotContain("Running</button>", page.Markup);
@@ -114,6 +115,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         var page = context.Render<OwnDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("td[data-label=Status]").Count), SetupTimeout);
+        WaitForInitialSnapshot(page, factory);
         await harness.CompleteAllAsync();
         await factory.Frames.State.Task.WaitAsync(TimeSpan.FromSeconds(2));
         page.WaitForAssertion(() =>
@@ -166,11 +168,13 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
         page.WaitForAssertion(() => Assert.Contains("In progress", page.Find(".ticket-header-status-chip").TextContent), SetupTimeout);
+        WaitForInitialSnapshot(page, factory);
         factory.StreamingUnavailable = true;
         factory.CurrentStream!.Disconnect();
         page.WaitForAssertion(() => Assert.Contains("Reconnecting", page.Find("[data-testid=request-live-updates]").TextContent), SetupTimeout);
         await harness.CompleteAllAsync();
         factory.StreamingUnavailable = false;
+        await factory.Frames.Reconnected.Task.WaitAsync(TimeSpan.FromSeconds(10));
         page.WaitForAssertion(() => Assert.Contains("Resolved", page.Find(".ticket-header-status-chip").TextContent), TimeSpan.FromSeconds(10));
         Assert.True(factory.Frames.Text.Split("event: ready").Length >= 3);
         Assert.DoesNotContain("event: request-state", factory.Frames.Text);
@@ -189,8 +193,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"), SetupTimeout);
         await page.InvokeAsync(() => page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new()));
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count), SetupTimeout);
-        page.WaitForAssertion(() => Assert.True(factory.RequestSnapshots >= 2), TimeSpan.FromSeconds(5));
-        page.WaitForAssertion(() => Assert.False(page.Find("button[aria-label='Refresh request progress']").HasAttribute("disabled")), TimeSpan.FromSeconds(5));
+        WaitForInitialSnapshot(page, factory);
         await page.InvokeAsync(() => page.FindComponent<MudSelect<TicketPriority>>().Instance.ValueChanged.InvokeAsync(TicketPriority.High));
 
         factory.PauseNextSnapshot = true;
@@ -199,10 +202,9 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         await factory.SnapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         var saving = page.InvokeAsync(() => page.FindAll("button").Single(x => x.TextContent.Trim() == "Save Changes").ClickAsync(new()));
         await factory.SaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var updates = page.FindComponent<LiveUpdates>();
-        var beforeSnapshotRelease = updates.RenderCount;
+        page.WaitForAssertion(() => Assert.Equal("true", page.Find("[data-testid=request-live-updates]").GetAttribute("aria-busy")), SetupTimeout);
         factory.ReleaseSnapshot.TrySetResult(true);
-        updates.WaitForAssertion(() => Assert.True(updates.RenderCount > beforeSnapshotRelease), TimeSpan.FromSeconds(5));
+        page.WaitForAssertion(() => Assert.Equal("false", page.Find("[data-testid=request-live-updates]").GetAttribute("aria-busy")), SetupTimeout);
         factory.ReleaseSave.TrySetResult(true);
         await saving.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -214,6 +216,12 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             Assert.False(page.FindAll("button").Single(x => x.TextContent.Trim() == "Save Changes").HasAttribute("disabled"));
         }, TimeSpan.FromSeconds(5));
         Assert.Contains("event: request-state", factory.Frames.Text);
+    }
+
+    private static void WaitForInitialSnapshot<TComponent>(IRenderedComponent<TComponent> page, ClientFactory factory) where TComponent : IComponent
+    {
+        page.WaitForAssertion(() => Assert.True(factory.RequestSnapshots >= 2), SetupTimeout);
+        page.WaitForAssertion(() => Assert.Equal("false", page.Find("[data-testid=request-live-updates]").GetAttribute("aria-busy")), SetupTimeout);
     }
 
     private static BunitContext Context(IHttpClientFactory factory, string role = "HelpdeskAdmin")
@@ -406,7 +414,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
                 return new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("Another operation changed this request.") };
             }
             var response = await base.SendAsync(request, ct);
-            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath == "/api/v1/requests/live-request")
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath is "/api/v1/requests/live-request" or "/api/v1/self-service/requests/live-request")
             {
                 factory.RecordRequestSnapshot();
                 if (factory.PauseNextSnapshot)
@@ -423,6 +431,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
     {
         private readonly ConcurrentQueue<string> text = new();
         public TaskCompletionSource<bool> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Reconnected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<bool> State { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool GatewayHeaderSeen { get; set; }
         public string Text => string.Concat(text);
@@ -431,6 +440,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             text.Enqueue(Encoding.UTF8.GetString(bytes));
             var all = Text;
             if (all.Contains("event: ready", StringComparison.Ordinal)) Ready.TrySetResult(true);
+            if (all.Split("event: ready", StringSplitOptions.None).Length >= 3) Reconnected.TrySetResult(true);
             if (all.Contains("event: request-state", StringComparison.Ordinal)) State.TrySetResult(true);
         }
     }
