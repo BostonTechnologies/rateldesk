@@ -17,7 +17,8 @@ internal static class LocalCustomerAccessLinker
         var normalizedEmail = email.Trim().ToLowerInvariant();
         var customer = await db.Customers
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(candidate => candidate.Email.ToLower() == normalizedEmail, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.OrganizationId == organizationId && candidate.IdentityUserId == null &&
+                candidate.Email.ToLower() == normalizedEmail, cancellationToken);
         if (customer is null)
         {
             customer = new Customer

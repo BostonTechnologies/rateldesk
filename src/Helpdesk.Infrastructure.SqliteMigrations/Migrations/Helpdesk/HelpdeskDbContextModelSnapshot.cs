@@ -1656,6 +1656,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("IdentityUserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
 
@@ -1673,7 +1677,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IdentityUserId\" IS NULL");
+
+                    b.HasIndex("IdentityUserId")
+                        .IsUnique()
+                        .HasFilter("\"IdentityUserId\" IS NOT NULL");
 
                     b.ToTable("Customers");
                 });

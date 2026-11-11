@@ -795,7 +795,10 @@ public class HelpdeskDbContext(
 
         modelBuilder.Entity<Customer>()
             .HasIndex(c => c.Email)
-            .IsUnique();
+            .IsUnique().HasFilter("\"IdentityUserId\" IS NULL");
+        modelBuilder.Entity<Customer>().Property(customer => customer.IdentityUserId).HasMaxLength(128);
+        modelBuilder.Entity<Customer>().HasIndex(customer => customer.IdentityUserId)
+            .IsUnique().HasFilter("\"IdentityUserId\" IS NOT NULL");
 
         modelBuilder.Entity<User>()
             .HasIndex(user => new { user.IsDeleted, user.Id });

@@ -303,6 +303,7 @@
             }
 
             releaseStatus = dto.ReleaseStatus;
+            formTitle = string.IsNullOrWhiteSpace(dto.Title) ? "Request" : dto.Title;
             ParseSchema(dto.JsonSchema);
             if (string.IsNullOrWhiteSpace(formTitle))
             {
@@ -448,7 +449,8 @@
         submitting = true;
         try
         {
-            using var response = await Api.PostAsJsonAsync("api/v1/self-service/requests", dto);
+            using var response = await HttpClientFactory.CreateClient("HelpdeskSelfServiceCommands")
+                .PostAsJsonAsync("api/v1/self-service/requests", dto);
             if (!response.IsSuccessStatusCode)
             {
                 submitError = await SelfServiceSubmissionErrors.ReadAsync(response);

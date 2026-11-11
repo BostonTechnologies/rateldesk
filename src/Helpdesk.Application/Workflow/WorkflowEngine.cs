@@ -230,9 +230,10 @@ public sealed class WorkflowEngine(
         };
 
         // An accepted approval can be replayed to resume a failed continuation.
+        // Persisted automation continuations likewise resume after interruption.
         // Re-evaluating an already settled workflow must not create another
         // user-visible Workflow.Evaluated notification for the same decision.
-        if (reason != WorkflowRunReason.ApprovalReceived ||
+        if (reason is not (WorkflowRunReason.ApprovalReceived or WorkflowRunReason.AutomationCallback) ||
             result.UnblockedCount > 0 || result.AutoStartedCount > 0 || result.ParentStateChanged || skippedCount > 0)
         {
             await _domainEvents.PublishAsync(

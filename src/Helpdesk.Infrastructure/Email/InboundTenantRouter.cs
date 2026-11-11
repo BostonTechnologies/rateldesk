@@ -32,7 +32,7 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
         InboundRoute Hold(string reason, string? organizationId = null) =>
             new(organizationId, reason, sender, name, domain, ForwardedCandidate: forwardedCandidate);
         if (domain.Length == 0) return Hold("InvalidSender");
-        var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.Email.ToLower() == sender, ct);
+        var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.IdentityUserId == null && x.Email.ToLower() == sender, ct);
         if (customer?.State == Helpdesk.Shared.Models.EntityState.Blocked) return Hold("BlockedRequester", customer.OrganizationId);
         var candidates = new HashSet<string>(StringComparer.Ordinal);
         if (mailbox.OrganizationId is not null) candidates.Add(mailbox.OrganizationId);
@@ -96,7 +96,7 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
         var email = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();
         var name = forwarded.OriginalFromDisplayName ?? email;
         var domain = email.Contains('@') ? email.Split('@')[^1] : string.Empty;
-        var customerTenant = await db.Customers.AsNoTracking().Where(x => x.Email.ToLower() == email)
+        var customerTenant = await db.Customers.AsNoTracking().Where(x => x.IdentityUserId == null && x.Email.ToLower() == email)
             .Select(x => x.OrganizationId).SingleOrDefaultAsync(ct);
         if (customerTenant is not null) return new(email, name, domain, customerTenant);
         var domainTenants = await db.Organizations.AsNoTracking()
@@ -148,7 +148,7 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
             db.Organizations.Add(organization);
             organizationId = organization.Id;
         }
-        var customer = await db.Customers.SingleOrDefaultAsync(x => x.Email.ToLower() == route.RequesterEmail, ct);
+        var customer = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == null && x.Email.ToLower() == route.RequesterEmail, ct);
         if (customer is not null)
         {
             if (customer.OrganizationId != organizationId) throw new InvalidOperationException("RequesterOwnershipConflict");

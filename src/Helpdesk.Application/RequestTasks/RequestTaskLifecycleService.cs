@@ -310,6 +310,11 @@ public sealed class RequestTaskLifecycleService(
         task.Status = RequestTaskStatus.Completed;
         task.State = TicketState.Resolved;
         task.CompletedAt = DateTimeOffset.UtcNow;
+        if (task.Type == RequestTaskType.Automation)
+        {
+            task.AutomationNextCheckUtcTicks = null;
+            task.AutomationContinuationPending = true;
+        }
         task.UpdatedAt = DateTime.UtcNow;
 
         if (!string.IsNullOrWhiteSpace(notes))
@@ -360,6 +365,11 @@ public sealed class RequestTaskLifecycleService(
 
         task.Status = RequestTaskStatus.Failed;
         task.State = TicketState.OnHold;
+        if (task.Type == RequestTaskType.Automation)
+        {
+            task.AutomationNextCheckUtcTicks = null;
+            task.AutomationContinuationPending = true;
+        }
         task.FailureReason = string.IsNullOrWhiteSpace(reason) ? task.FailureReason : reason;
         task.ResultJson = string.IsNullOrWhiteSpace(reason) ? task.ResultJson : reason;
         task.UpdatedAt = DateTime.UtcNow;
@@ -576,6 +586,8 @@ public sealed class RequestTaskLifecycleService(
         task.CompletedAt = DateTimeOffset.UtcNow;
         task.FailureReason = null;
         task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.AutomationNextCheckUtcTicks = null;
+        task.AutomationContinuationPending = true;
         task.UpdatedAt = DateTime.UtcNow;
         await _requestTasks.UpdateAsync(task);
 
@@ -610,6 +622,8 @@ public sealed class RequestTaskLifecycleService(
         task.FailureReason = reason;
         task.ResultJson = reason;
         task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.AutomationNextCheckUtcTicks = null;
+        task.AutomationContinuationPending = true;
         task.UpdatedAt = DateTime.UtcNow;
         await _requestTasks.UpdateAsync(task);
 

@@ -118,8 +118,7 @@ public static class SelfServiceRequestEndpoints
         await using var tx = await db.Database.BeginTransactionAsync(token);
         if (db.Database.IsNpgsql() && submitterKey is not null)
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({submitterKey}, 0))", token);
-
-
+        access = await accessService.ResolveAsync(user, token);
         Customer? customer;
         string? requestedForNameResult;
         if (string.IsNullOrWhiteSpace(dto.RequestedForPersonId))
@@ -488,26 +487,19 @@ public static class SelfServiceRequestEndpoints
             .AnyAsync(account => account.Id == selectedUser.Id && !account.IsEnabled, token))
             return (null, null);
 
-        var email = selectedUser.Email.Trim().ToLowerInvariant();
-        var customer = await db.Customers
-            .FirstOrDefaultAsync(x =>
-                x.OrganizationId == selectedUser.OrganizationId &&
-                x.Email.ToLower() == email &&
-                x.State == Helpdesk.Shared.Models.EntityState.Enabled,
-                token);
-        if (customer is null)
+        var link = await db.CustomerAuthLinks.SingleOrDefaultAsync(x => x.DomainUserId == selectedUser.Id || x.LocalAccountId == selectedUser.Id, token);
+        if (link is not null)
         {
-            customer = new Customer
-            {
-                Name = string.IsNullOrWhiteSpace(selectedUser.Name) ? selectedUser.Email : selectedUser.Name,
-                Email = email,
-                OrganizationId = selectedUser.OrganizationId,
-                State = Helpdesk.Shared.Models.EntityState.Enabled
-            };
-            db.Customers.Add(customer);
-            await db.SaveChangesAsync(token);
+            var linkedCustomer = await db.Customers.SingleOrDefaultAsync(x => x.Id == link.CustomerId, token);
+            return link.DisabledAtUtc is null && link.InviteStatus != CustomerInviteStatus.Disabled &&
+                linkedCustomer?.IsEnabled == true && linkedCustomer.OrganizationId == selectedUser.OrganizationId
+                ? (linkedCustomer, selectedUser.Name) : (null, null);
         }
-
+        var existing = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == selectedUser.Id, token);
+        if (existing is not null && (!existing.IsEnabled || existing.OrganizationId != selectedUser.OrganizationId)) return (null, null);
+        var hasLocalAccount = identityDb is not null && await identityDb.Users.AnyAsync(x => x.Id == selectedUser.Id && x.IsEnabled, token);
+        var customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db,
+            new SelfServiceRequester(existing, selectedUser, selectedUser.OrganizationId, null, selectedUser.Name, null, null), token, hasLocalAccount);
         return (customer, selectedUser.Name);
     }
 
