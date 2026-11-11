@@ -436,6 +436,9 @@ public sealed class RequestTaskLifecycleService(
             task.OrchestrationRequestDefinitionId, task.OrchestrationJobDefinitionId,
             task.OrchestrationExternalRequestId, task.OrchestrationExternalRunId,
             task.OrchestratorExecutionId, task.LastAutomationStatus,
+            task.OrchestrationLinkId, task.OrchestrationPeerInstanceId, task.OrchestrationLinkRevision,
+            task.AutomationDeadlineUtcTicks, task.AutomationTimedOutAt, task.AutomationTimedOutAttemptId,
+            task.ExpectedRuntimeSeconds, task.GraceSeconds, task.HardTimeoutSeconds, task.LastAutomationUpdatedAt,
             task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson,
             RetriedAtUtc = DateTimeOffset.UtcNow
         }));
