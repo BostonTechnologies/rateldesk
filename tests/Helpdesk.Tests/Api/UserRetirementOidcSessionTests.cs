@@ -4,8 +4,12 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Middleware;
 using Helpdesk.API.Services.Users;
+using Helpdesk.API.Endpoints.Users;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Helpdesk.Tests.Infrastructure.Persistence;
@@ -52,8 +56,9 @@ public sealed class UserRetirementOidcSessionTests
         builder.Services.AddScoped(_ => fixture.Open());
         builder.Services.AddScoped(_ => fixture.Identity());
         builder.Services.AddScoped<ICurrentUserAccessService, CurrentUserAccessService>();
+        builder.Services.AddScoped<IRepository<User>, EfRepository<User>>();
         builder.Services.AddAuthentication("SyntheticOidc").AddScheme<AuthenticationSchemeOptions, OidcHandler>("SyntheticOidc", _ => { });
-        builder.Services.AddAuthorization();
+        builder.Services.AddAuthorization(options => options.AddPolicy("HelpdeskAdmin", policy => policy.RequireAuthenticatedUser().RequireRole("HelpdeskAdmin")));
         await using var app = builder.Build();
         app.UseAuthentication(); app.UseMiddleware<UserAccessClaimsMiddleware>(); app.UseAuthorization();
         var privateExecutions = 0;
@@ -61,11 +66,16 @@ public sealed class UserRetirementOidcSessionTests
         app.MapGet("/fixed-scheme", () => { privateExecutions++; return Results.Ok(); })
             .RequireAuthorization(policy => policy.AddAuthenticationSchemes("SyntheticOidc").RequireAuthenticatedUser());
         app.MapGet("/public", (HttpContext context) => Results.Ok(context.User.Identity?.IsAuthenticated == true)).AllowAnonymous();
+        app.MapUserEndpoints();
         await app.StartAsync();
         using var before = app.GetTestClient();
         Assert.Equal(HttpStatusCode.OK, (await before.GetAsync("/private")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await before.GetAsync("/fixed-scheme")).StatusCode);
         Assert.Equal(2, privateExecutions);
+        var directory = await before.GetFromJsonAsync<PagedResult<UserDirectoryDto>>("/api/v1/users/query");
+        Assert.Equal(25, directory!.PageSize); Assert.Equal(1, directory.Total);
+        Assert.False(Assert.Single(directory.Items).CanDelete);
+        Assert.Equal(HttpStatusCode.BadRequest, (await before.GetAsync("/api/v1/users/query?pageSize=10")).StatusCode);
         await using (var db = fixture.Open())
         await using (var identity = fixture.Identity())
         {
@@ -75,6 +85,7 @@ public sealed class UserRetirementOidcSessionTests
         using var after = app.GetTestClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await after.GetAsync("/private")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await after.GetAsync("/fixed-scheme")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await after.GetAsync("/api/v1/users/query")).StatusCode);
         Assert.Equal(2, privateExecutions);
         var publicResult = await after.GetAsync("/public");
         Assert.Equal(HttpStatusCode.OK, publicResult.StatusCode);
