@@ -13,6 +13,26 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 public sealed class OrchestrationInternalClientTests
 {
     [Theory]
+    [InlineData("/internal/executions/request", "GET")]
+    [InlineData("/internal/executions/request/run/extra", "GET")]
+    [InlineData("/internal/executions/request/run", "POST")]
+    [InlineData("/internal/executions/request/run", "DELETE")]
+    public void Paired_execution_route_does_not_authorize_other_paths_or_execution_writes(string path, string method)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(method), "https://netratel.example.test" + path);
+        Assert.Throws<PairingFailure>(() => PairingOutboundNetwork.PrepareRequest(request, Settings()));
+    }
+
+    [Fact]
+    public void Paired_execution_read_retains_generic_query_and_foreign_origin_denial()
+    {
+        using var query = new HttpRequestMessage(HttpMethod.Get, "https://netratel.example.test/internal/executions/request/run?requestId=parent");
+        Assert.Throws<ArgumentException>(() => PairingOutboundNetwork.PrepareRequest(query, Settings()));
+        using var foreign = new HttpRequestMessage(HttpMethod.Get, "https://other.example.test/internal/executions/request/run");
+        Assert.Throws<PairingFailure>(() => PairingOutboundNetwork.PrepareRequest(foreign, Settings()));
+    }
+
+    [Theory]
     [InlineData("pending", false)]
     [InlineData("running", false)]
     [InlineData("succeeded", false)]
