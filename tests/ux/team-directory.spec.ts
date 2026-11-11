@@ -1,5 +1,5 @@
 import { expect, test, Page } from '@playwright/test';
-const fixture = 'http://127.0.0.1:18500/fixture/team';
+const fixture = process.env.HELPDESK_TEAM_FIXTURE_BASE ?? 'http://127.0.0.1:18500/fixture/team';
 const baseline = process.env.HELPDESK_ADMIN_BASELINE === 'true';
 test.use({ screenshot: 'off', trace: 'off' });
 async function open(page: Page) {

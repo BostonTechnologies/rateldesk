@@ -4,7 +4,8 @@
 .team-table-region:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
 .team-table-region ::deep table { min-width: 62rem; table-layout: fixed; }
 .team-table-region ::deep th { white-space: nowrap; }
-.team-table-region ::deep .mud-table-pagination { min-height: 3.5rem; flex-wrap: nowrap; overflow-x: auto; }
+.team-table-region ::deep .mud-table-pagination { display: block; max-width: 100%; min-height: 3.5rem; overflow-x: auto; }
+.team-table-region ::deep .mud-table-pagination-toolbar { flex-wrap: nowrap; min-width: max-content; white-space: nowrap; }
 .team-identity { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
 .team-identity strong, .team-cell-text { display: block; overflow-wrap: anywhere; }
 .team-access-summary { display: block; color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; margin-top: .2rem; }

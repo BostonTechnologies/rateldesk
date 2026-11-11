@@ -64,6 +64,7 @@ public static class UserDirectoryQuery
 
         if (!string.IsNullOrWhiteSpace(parameters.Search))
         {
+            if (db.Database.IsSqlite()) SqliteUnicodeSearch.RegisterConnection(db);
             var search = parameters.Search.Trim();
             var pattern = Pattern(search);
             var sqlitePattern = Pattern(SqliteUnicodeSearch.Fold(search)!);
