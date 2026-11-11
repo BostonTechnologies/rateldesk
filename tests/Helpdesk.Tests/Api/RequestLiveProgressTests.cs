@@ -68,9 +68,9 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
         page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"));
-        await page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new());
+        await page.InvokeAsync(() => page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new()));
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count));
-        await page.Find("button[aria-label='Task details: Harmless automation 1']").ClickAsync(new());
+        await page.InvokeAsync(() => page.Find("button[aria-label='Task details: Harmless automation 1']").ClickAsync(new()));
         Assert.Single(page.FindAll(".request-task-details"));
         Assert.DoesNotContain("Running</button>", page.Markup);
         Assert.DoesNotContain("provider-run-1", page.Find(".request-tasks-table tbody").TextContent.Split("Provider outcome")[0]);
