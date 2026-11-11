@@ -40,11 +40,11 @@ for (const theme of ['light', 'dark'] as const) {
             expect(Math.abs(card.height - firstRow[0].height)).toBeLessThanOrEqual(2);
             expect(Math.abs(card.footer - firstRow[0].footer)).toBeLessThanOrEqual(2);
           }
-          const actionRows = await page.locator('.svc-actions').evaluateAll(footers => footers.map(footer => [...footer.querySelectorAll('button')].map(button => button.getBoundingClientRect().y)));
+          const actionRows = await page.locator('.svc-actions').evaluateAll(footers => footers.map(footer => [...footer.querySelectorAll('button')].map(button => { const box = button.getBoundingClientRect(); return box.y + box.height / 2; })));
           for (const row of actionRows) expect(Math.max(...row) - Math.min(...row)).toBeLessThanOrEqual(2);
         } else {
           await expect(page.getByTestId('system-connection-row')).toHaveCount(6);
-          const rows = await page.locator('.pairing-row-actions').evaluateAll(footers => footers.map(footer => [...footer.querySelectorAll('button')].map(button => button.getBoundingClientRect().y)));
+          const rows = await page.locator('.pairing-row-actions').evaluateAll(footers => footers.map(footer => [...footer.querySelectorAll('button')].map(button => { const box = button.getBoundingClientRect(); return box.y + box.height / 2; })));
           for (const row of rows) expect(Math.max(...row) - Math.min(...row)).toBeLessThanOrEqual(2);
         }
         await assertNoHorizontalOverflow(page);

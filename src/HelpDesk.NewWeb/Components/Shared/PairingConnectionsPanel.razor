@@ -25,7 +25,7 @@
         @if (error is not null && !DialogOpen) { <MudAlert Severity="Severity.Error" Dense="true" Class="pairing-error" data-testid="system-connection-error" role="alert">@ErrorText</MudAlert> }
         @if (notice is not null) { <MudText Typo="Typo.body2" Color="Color.Success" Class="mb-2" data-testid="system-connection-success" role="status">@notice</MudText> }
         @if (loading) { <MudProgressLinear Indeterminate="true" aria-label="Loading connections" /> }
-        @if (!loading && connections.Count == 0) { <MudText Typo="Typo.body2" Color="Color.Secondary">No system connections yet. Generate a code here or enter a code from NetRatel.</MudText> }
+        @if (!loading && connections.Count == 0) { <MudText Typo="Typo.body2" Class="mud-text-secondary">No system connections yet. Generate a code here or enter a code from NetRatel.</MudText> }
         <div class="pairing-grid">
         @foreach (var connection in VisibleConnections)
         {
@@ -34,7 +34,7 @@
             <MudPaper @key="connection.Id" Outlined="true" Class="pairing-card" data-testid="system-connection-row" data-connection-id="@connection.Id" data-test-state="@TestState(connection)">
                 <div class="pairing-card-heading">
                     <span class="pairing-provider-icon" aria-hidden="true"><MudIcon Icon="@Icons.Material.Filled.Hub" /></span>
-                    <div class="pairing-identity"><MudText Typo="Typo.h6" HtmlTag="h3" Class="pairing-name">@(connection.Mapping?.Name ?? connection.Peer.Name)</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">@ProductLabel(connection) · @connection.Peer.Name</MudText></div>
+                    <div class="pairing-identity"><MudText Typo="Typo.h6" HtmlTag="h3" Class="pairing-name">@(connection.Mapping?.Name ?? connection.Peer.Name)</MudText><MudText Typo="Typo.body2" Class="mud-text-secondary">@ProductLabel(connection) · @connection.Peer.Name</MudText></div>
                 </div>
                 <div class="pairing-configuration-state"><MudChip T="string" Size="Size.Small" Color="@(Connected(connection) ? Color.Default : Color.Warning)" Variant="Variant.Outlined">@(Connected(connection) ? "Configured" : "Setup required")</MudChip><span>Configuration state</span></div>
                 @if (connection.Mapping is { } mapping)
@@ -65,7 +65,7 @@
                         @if (lastTest.Diagnostic is { } diagnostic && PairingReadinessDiagnostics.IsValid(diagnostic)) { <p>@PairingReadinessDiagnostics.Describe(diagnostic) Reference: @diagnostic.Reference</p> }
                         <p>Point-in-time access check. Tests older than 15 minutes are marked stale.</p></details>
                     }
-                    else { <MudText Typo="Typo.body2">Never tested</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Configuration alone does not verify current access.</MudText> }
+                    else { <MudText Typo="Typo.body2">Never tested</MudText><MudText Typo="Typo.body2" Class="mud-text-secondary">Configuration alone does not verify current access.</MudText> }
                 </div>
                 @if (rowErrors.TryGetValue(key, out var rowError)) { <MudAlert Severity="Severity.Error" Dense="true" Class="pairing-error" data-testid="connection-row-error">@rowError</MudAlert> }
                 <div class="pairing-row-actions">
@@ -130,7 +130,7 @@
                         @if (directoryLoading) { <MudProgressLinear Indeterminate="true" aria-label="Loading authorized mapping choices" /> }
                         else if (directory is null) { <MudText Typo="Typo.body2">The authorized tenant choices could not be loaded.</MudText><MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="ReloadDirectoryAsync" Disabled="busy">Retry tenant choices</MudButton> }
                         @if (organizationHintUnavailable) { <MudAlert Severity="Severity.Warning" Dense="true" data-testid="connection-organization-hint-error">The linked organization is unavailable or unauthorized. Choose an available organization explicitly; no saved mapping has changed.</MudAlert> }
-                        @if (contextChanged) { <MudText Typo="Typo.body2" Color="Color.Secondary">The linked organization changed. Your current draft is retained; change its organization explicitly if needed.</MudText> }
+                        @if (contextChanged) { <MudText Typo="Typo.body2" Class="mud-text-secondary">The linked organization changed. Your current draft is retained; change its organization explicitly if needed.</MudText> }
                         <MudGrid Spacing="2">
                             <MudItem xs="12" sm="6"><MudSelect T="string" @bind-Value="draft.NetRatelTenantId" Label="NetRatel tenant" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(busy || directoryLoading || directory is null)" data-testid="connection-netratel-tenant">
                                 @foreach (var tenant in directory?.NetRatelTenants ?? []) { <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem> }

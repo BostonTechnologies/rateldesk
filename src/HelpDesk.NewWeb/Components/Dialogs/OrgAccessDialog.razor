@@ -47,7 +47,7 @@
                 <MudSelectItem T="string" Value="@org.Id">@org.Name</MudSelectItem>
             }
         </MudSelect>
-        @if (!VisibleOrganizations.Any()) { <MudText Typo="Typo.body2" Color="Color.Secondary">No matching organizations. Assigned organizations are retained.</MudText> }
+        @if (!VisibleOrganizations.Any()) { <MudText Typo="Typo.body2" Class="mud-text-secondary">No matching organizations. Assigned organizations are retained.</MudText> }
         </div>
     </DialogContent>
 
