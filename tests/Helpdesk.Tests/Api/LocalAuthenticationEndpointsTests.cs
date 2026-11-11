@@ -231,7 +231,10 @@ public sealed partial class LocalAuthenticationEndpointsTests : IAsyncLifetime
             new LocalAuthenticationEndpoints.LocalLoginRequest(activation.Email, "a second strong administrator password"))).StatusCode);
         var access = await second.GetFromJsonAsync<CurrentUserAccessDto>("/api/v1/auth/me");
         Assert.True(access!.IsHelpdeskAdmin);
-        Assert.Equal(HttpStatusCode.Conflict, (await first.DeleteAsync($"/api/v1/users/{activation.UserId}")).StatusCode);
+        // Deletion now retires eligible accounts; self deletion remains forbidden.
+        var selfDelete = await second.DeleteAsync($"/api/v1/users/{activation.UserId}");
+        Assert.Equal(HttpStatusCode.Conflict, selfDelete.StatusCode);
+        Assert.Contains("cannot_delete_self", await selfDelete.Content.ReadAsStringAsync());
         Assert.True((await second.GetFromJsonAsync<CurrentUserAccessDto>("/api/v1/auth/me"))!.IsHelpdeskAdmin);
 
         await using var scope = _factory.Services.CreateAsyncScope();
