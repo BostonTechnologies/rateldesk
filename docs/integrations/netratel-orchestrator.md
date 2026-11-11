@@ -66,6 +66,13 @@ parent/dependency state and removes only its uncertainty hold. Independent
 operator/approval/failure holds remain. Historical timeout evidence remains
 after reconciliation; an earlier attempt cannot update a later attempt.
 
+Selecting **On hold** through request editing, quick state or bulk state records
+an operator hold, including when the request is already waiting for
+reconciliation. A late result cannot release that hold or its dependent work.
+An operator can release it through a request state change after reviewing the
+outcome; unresolved execution uncertainty continues to hold the request. The
+existing durable worker resumes eligible work after the operator hold is released.
+
 Old Running rows enter the same bounded sweep without manual SQL. A trusted
 stored start and runtime snapshot determine their deadline. An active legacy
 row without a trusted start is routed immediately to visible reconciliation;
