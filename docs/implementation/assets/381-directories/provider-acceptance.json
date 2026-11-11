@@ -1,5 +1,4 @@
 {
-  "apiSource": "56607e7f69efa6d08bf877c176392e063e56399e",
   "buildTimestampUtc": "2026-11-11T17:08:49Z",
   "scope": "Owning directory provider tests against API DLL emitted before later admin integration edits; final integrated head requires its own acceptance. The selected endpoint tests use minimal HTTP TestServer harnesses with actual SQL providers; global application authorization/lifecycle acceptance remains separate.",
   "counters": {
@@ -201,14 +200,32 @@
       ]
     }
   },
-  "inputSha256": {
-    "/workspace/work/admin-batch/src/Helpdesk.API/Endpoints/Organizations/AdminDirectoryEndpoints.cs": "07312a17f6ddc8e76832856577654ae9c6e84d4c0abe99f748322c4235075b6c",
-    "/workspace/work/admin-batch/tests/Helpdesk.Tests/Api/AdminDirectoryEndpointsTests.cs": "237951d94cc84935bc61950a6837793cfdf09b2e687deab6dbf41c2306927d36",
-    "/workspace/work/admin-batch/src/Helpdesk.API/bin/Debug/net10.0/Helpdesk.API.dll": "7c581f72dbb7093b14b47ab3b239a1bb96ec934a83bd65e2adc808044870c199",
-    "/workspace/work/admin-batch/src/Helpdesk.Infrastructure/bin/Debug/net10.0/Helpdesk.Infrastructure.dll": "8491821cecbfd52a15f0e600a6fd04e53e03f4741b147b842b9348adca9bf1ef",
-    "/workspace/work/admin-batch/src/Helpdesk.Shared/bin/Debug/net10.0/Helpdesk.Shared.dll": "58063700e1ed72b1847733bac9e3929c493d84608feea73d93c273ee3838dad1",
-    "/workspace/work/admin-batch/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll": "f446de9c7facaaa5183709d5a58ad5fe901a08993983bb4eaefa3818950b138e"
-  },
+  "inputSha256": [
+    {
+      "path": "/workspace/work/admin-batch/src/Helpdesk.API/Endpoints/Organizations/AdminDirectoryEndpoints.cs",
+      "sha256": "07312a17f6ddc8e76832856577654ae9c6e84d4c0abe99f748322c4235075b6c"
+    },
+    {
+      "path": "/workspace/work/admin-batch/tests/Helpdesk.Tests/Api/AdminDirectoryEndpointsTests.cs",
+      "sha256": "237951d94cc84935bc61950a6837793cfdf09b2e687deab6dbf41c2306927d36"
+    },
+    {
+      "path": "/workspace/work/admin-batch/src/Helpdesk.API/bin/Debug/net10.0/Helpdesk.API.dll",
+      "sha256": "7c581f72dbb7093b14b47ab3b239a1bb96ec934a83bd65e2adc808044870c199"
+    },
+    {
+      "path": "/workspace/work/admin-batch/src/Helpdesk.Infrastructure/bin/Debug/net10.0/Helpdesk.Infrastructure.dll",
+      "sha256": "8491821cecbfd52a15f0e600a6fd04e53e03f4741b147b842b9348adca9bf1ef"
+    },
+    {
+      "path": "/workspace/work/admin-batch/src/Helpdesk.Shared/bin/Debug/net10.0/Helpdesk.Shared.dll",
+      "sha256": "58063700e1ed72b1847733bac9e3929c493d84608feea73d93c273ee3838dad1"
+    },
+    {
+      "path": "/workspace/work/admin-batch/tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll",
+      "sha256": "f446de9c7facaaa5183709d5a58ad5fe901a08993983bb4eaefa3818950b138e"
+    }
+  ],
   "trxSha256": "26073c2efcaad7e71c6ac303d67ca069b9ad6a50fc22c11fc73f9e76800d3ecd",
   "openCoverSha256": "b6cfdb578a3731bff706b3d9ce2471bcd85ef3082bf9caca22037be45cbfc299",
   "coverageSummary": {
@@ -242,5 +259,6 @@
     "suppressed": false
   },
   "sdk": "10.0.400",
-  "runsettings": "<RunSettings><DataCollectionRunSettings><DataCollectors><DataCollector friendlyName=\"XPlat code coverage\"><Configuration><Format>opencover</Format><Include>[Helpdesk.API]Helpdesk.API.Endpoints.Organization.AdminDirectoryEndpoints*,[Helpdesk.API]Helpdesk.API.Endpoints.Categories.TicketCategoryEndpoints*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Services.AdminDirectoryDataSource*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Models.AdminDirectoryQueryState*</Include><ExcludeByFile>**/obj/**,**/bin/**</ExcludeByFile><SkipAutoProps>true</SkipAutoProps></Configuration></DataCollector></DataCollectors></DataCollectionRunSettings></RunSettings>"
+  "runsettings": "<RunSettings><DataCollectionRunSettings><DataCollectors><DataCollector friendlyName=\"XPlat code coverage\"><Configuration><Format>opencover</Format><Include>[Helpdesk.API]Helpdesk.API.Endpoints.Organization.AdminDirectoryEndpoints*,[Helpdesk.API]Helpdesk.API.Endpoints.Categories.TicketCategoryEndpoints*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Services.AdminDirectoryDataSource*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Models.AdminDirectoryQueryState*</Include><ExcludeByFile>**/obj/**,**/bin/**</ExcludeByFile><SkipAutoProps>true</SkipAutoProps></Configuration></DataCollector></DataCollectors></DataCollectionRunSettings></RunSettings>",
+  "sourceRevision": "56607e7f69efa6d08bf877c176392e063e56399e"
 }
