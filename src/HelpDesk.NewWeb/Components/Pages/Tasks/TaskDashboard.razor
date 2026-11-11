@@ -114,12 +114,14 @@
                     <details class="task-execution-timing">
                         <summary>Execution timing</summary>
                         @if (context.StartedAt is { } started)
-                        { <span>Started: <time datetime="@started.ToString("O")">@started.LocalDateTime.ToString("g")</time></span><span>Elapsed at refresh: @FormatElapsed(started)</span> }
+                        { <span>Started: <time datetime="@started.ToString("O")">@started.LocalDateTime.ToString("g")</time></span><span>Time since start at refresh: @FormatElapsed(started)</span> }
                         @if (context.AutomationDeadlineUtcTicks is { } ticks)
                         { <span>Deadline: <time datetime="@(new DateTimeOffset(ticks, TimeSpan.Zero).ToString("O"))">@(new DateTimeOffset(ticks, TimeSpan.Zero).LocalDateTime.ToString("g"))</time></span> }
                         <span>Last provider update: @(context.LastAutomationUpdatedAt?.LocalDateTime.ToString("g") ?? "Not confirmed")</span>
-                        @if (context.AutomationTimedOutAt.HasValue)
+                        @if (context.AutomationTimedOutAt.HasValue && RequiresManualReconciliation(context.LastAutomationStatus))
                         { <span>The remote execution may still be running. Retry is held until its outcome is confirmed.</span> }
+                        else if (context.AutomationTimedOutAt.HasValue)
+                        { <span>The earlier timeout remains recorded. The provider outcome is now confirmed.</span> }
                         @if (!string.IsNullOrWhiteSpace(context.FailureReason))
                         { <span>@context.FailureReason</span> }
                     </details>
