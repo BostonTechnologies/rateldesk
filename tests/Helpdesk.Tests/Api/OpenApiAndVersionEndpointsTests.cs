@@ -161,7 +161,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             ("/api/v1/ticketing/organizations/search", "get", "SearchCreationOrganizations", "Ticket Lookups"),
             ("/api/v1/ticketing/customers/search", "get", "SearchCreationCustomers", "Ticket Lookups"),
             ("/api/v1/ticketing/change-participants/search", "get", "SearchCreationChangeParticipants", "Ticket Lookups"),
-            ("/api/v1/self-service/submission-context", "get", "GetSelfServiceSubmissionContext", "Self Service"),
+            ("/api/v1/self-service/submission-context", "get", "GetSelfServiceSubmissionContext", "Self-Service"),
             ("/api/v1/admin/directories/customers", "get", "QueryAdminCustomers", "Administration Directories"),
             ("/api/v1/admin/directories/organizations", "get", "QueryAdminOrganizations", "Administration Directories"),
             ("/api/v1/admin/directories/organizations/lookup", "get", "LookupAdminDirectoryOrganizations", "Administration Directories"),
