@@ -8,6 +8,7 @@
 @using Helpdesk.Shared.DTOs.RequestForm
 @using Helpdesk.Shared.DTOs.Resources
 @using Microsoft.AspNetCore.Components.Authorization
+@using Helpdesk.NewWeb.Services
 
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
@@ -56,6 +57,16 @@
             @if (!string.IsNullOrWhiteSpace(submitError))
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">@submitError</MudAlert>
+            }
+            @if (requestedForPerson is null && submissionContext is not null)
+            {
+                <MudText Typo="Typo.body2" Class="mb-2" data-testid="submission-organization">
+                    Requester: @submissionContext.RequestedForName · Organization: @(submissionContext.OrganizationName ?? "Not available")
+                </MudText>
+                @if (!submissionContext.CanSubmit)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">@submissionContext.Message</MudAlert>
+                }
             }
 
             <MudForm @ref="formRef">
@@ -232,7 +243,7 @@
 
                 <MudStack Row="true" Spacing="2" Class="self-service-form-actions mt-3">
                     <MudButton Variant="Variant.Text" OnClick="GoToCatalog">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@submitting" OnClick="SubmitAsync">Submit</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(submitting || submissionPending)" OnClick="SubmitAsync">Submit</MudButton>
                 </MudStack>
             </MudForm>
         </MudPaper>
@@ -249,6 +260,9 @@
     private MudForm formRef = default!;
     private bool loading = true;
     private bool submitting;
+    private bool submissionPending;
+    private readonly Guid submissionId = Guid.NewGuid();
+    private SelfServiceSubmissionContextDto? submissionContext;
     private bool canOpenTechnicianView;
     private string? loadError;
     private string? submitError;
@@ -269,6 +283,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadFormAsync();
+        await LoadSubmissionContextAsync();
         await ResolveRoleAsync();
     }
 
@@ -297,13 +312,29 @@
                 formDescription = dto.Description;
             }
         }
-        catch (Exception ex)
+        catch (HttpRequestException)
         {
-            loadError = $"Could not load request form: {ex.Message}";
+            loadError = "Could not load this request form. Refresh the page or sign in again.";
         }
         finally
         {
             loading = false;
+        }
+    }
+
+    private async Task LoadSubmissionContextAsync()
+    {
+        try
+        {
+            submissionContext = await Api.GetFromJsonAsync<SelfServiceSubmissionContextDto>(
+                $"api/v1/self-service/submission-context?requestFormId={Uri.EscapeDataString(RequestFormId)}");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            submissionContext = new SelfServiceSubmissionContextDto
+            {
+                Message = "Requester organization could not be loaded. Submission will recheck your account; refresh or sign in again if it remains unavailable."
+            };
         }
     }
 
@@ -353,6 +384,20 @@
 
     private async Task SubmitAsync()
     {
+        if (submissionPending || submitting || submitted is not null) return;
+        submissionPending = true;
+        try
+        {
+            await SubmitCoreAsync();
+        }
+        finally
+        {
+            submissionPending = false;
+        }
+    }
+
+    private async Task SubmitCoreAsync()
+    {
         submitError = null;
         fieldErrors.Clear();
 
@@ -388,6 +433,7 @@
         var authUser = await ResolveAuthenticatedUserAsync();
         var dto = new SubmitSelfServiceRequestDto
         {
+            SubmissionId = submissionId,
             RequestFormId = RequestFormId,
             Title = formTitle,
             Description = string.IsNullOrWhiteSpace(userNote) ? formDescription : userNote,
@@ -401,21 +447,26 @@
         submitting = true;
         try
         {
-            var response = await Api.PostAsJsonAsync("api/v1/self-service/requests", dto);
+            using var response = await Api.PostAsJsonAsync("api/v1/self-service/requests", dto);
             if (!response.IsSuccessStatusCode)
             {
-                submitError = await response.Content.ReadAsStringAsync();
+                submitError = await SelfServiceSubmissionErrors.ReadAsync(response);
                 return;
             }
 
-            submitted = await response.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>(JsonOptions)
-                ?? new SelfServiceRequestSubmittedDto();
+            var receipt = await response.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>(JsonOptions);
+            if (receipt is null || string.IsNullOrWhiteSpace(receipt.RequestId) || string.IsNullOrWhiteSpace(receipt.TrackingId))
+            {
+                submitError = "We could not confirm the submission. Your values are retained. Retry this submission safely or check My Requests.";
+                return;
+            }
+            submitted = receipt;
 
             Snackbar.Add("Request submitted successfully.", Severity.Success);
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException)
         {
-            submitError = $"Submission failed: {ex.Message}";
+            submitError = "We could not confirm the submission. Your values are retained. Retry this submission safely or check My Requests.";
         }
         finally
         {

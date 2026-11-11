@@ -4456,6 +4456,18 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<string>("RequestFormId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SelfServiceSubmissionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SelfServiceSubmissionId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SelfServiceSubmitterId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("SourceAutomationBindingId")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
@@ -4474,6 +4486,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasColumnType("TEXT");
 
                     b.HasIndex("OrganizationId", "SourceTicketId");
+
+                    b.HasIndex("SelfServiceSubmitterId", "SelfServiceSubmissionId")
+                        .IsUnique();
 
                     b.HasDiscriminator().HasValue("Request");
                 });

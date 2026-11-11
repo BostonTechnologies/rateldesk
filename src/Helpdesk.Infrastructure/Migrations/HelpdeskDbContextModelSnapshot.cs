@@ -4429,6 +4429,18 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("RequestFormId")
                         .HasColumnType("text");
 
+                    b.Property<string>("SelfServiceSubmissionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SelfServiceSubmissionId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("SelfServiceSubmitterId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("SourceAutomationBindingId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -4447,6 +4459,9 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasIndex("OrganizationId", "SourceTicketId");
+
+                    b.HasIndex("SelfServiceSubmitterId", "SelfServiceSubmissionId")
+                        .IsUnique();
 
                     b.HasDiscriminator().HasValue("Request");
                 });

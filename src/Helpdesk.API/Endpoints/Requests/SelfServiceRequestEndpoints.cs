@@ -9,6 +9,7 @@ using Helpdesk.Application.Sla;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
@@ -23,6 +24,7 @@ namespace Helpdesk.API.Endpoints.Requests;
 public static class SelfServiceRequestEndpoints
 {
     private const int MaxPayloadBytes = 64 * 1024;
+    private const string OrganizationMismatchMessage = "This form's automation is configured for a different organization. Choose a form available in the displayed requester organization, or ask an administrator to review the form and saved connection mapping.";
 
     public static void MapSelfServiceRequestEndpoints(this IEndpointRouteBuilder app)
     {
@@ -33,6 +35,9 @@ public static class SelfServiceRequestEndpoints
         selfService.MapGet("/request-users", SearchRequestUsers)
             .WithName("SearchSelfServiceRequestUsers")
             .WithSummary("Search users and customer contacts available for submit-on-behalf self-service requests.");
+        selfService.MapGet("/submission-context", GetSubmissionContext)
+            .WithName("GetSelfServiceSubmissionContext")
+            .WithSummary("Describe the persisted requester organization and form eligibility without changing identity links.");
 
         var group = app.MapGroup("/api/v1/self-service/requests")
             .WithTags("Self Service")
@@ -64,6 +69,7 @@ public static class SelfServiceRequestEndpoints
         [FromServices] ICorrelationContext correlation,
         [FromServices] ILoggerFactory loggerFactory,
         ClaimsPrincipal user,
+        HttpContext http,
         CancellationToken token)
     {
         var logger = loggerFactory.CreateLogger("SelfServiceRequestEndpoints");
@@ -99,21 +105,56 @@ public static class SelfServiceRequestEndpoints
 
         if (!await selfServiceAudienceService.CanAccessRequestFormAsync(requestForm, token))
         {
-            return Results.Forbid();
+            return SubmissionError(http, 403, "request_form_denied", "This form is not available to your account. Choose an eligible form or ask an administrator to review its audience.");
         }
 
         var access = await accessService.ResolveAsync(user, token);
         var submitterEmail = access.Email;
 
-        var (customer, requestedForNameResult) = await ResolveRequestedForCustomerAsync(
-            dto,
-            db,
-            access,
-            token);
+        var submitterKey = SubmissionOwner(user, access);
+        var submissionId = dto.SubmissionId?.ToString("N");
+        var submissionHash = SubmissionHash(dto);
+        await using var tx = await db.Database.BeginTransactionAsync(token);
+        if (db.Database.IsNpgsql() && submitterKey is not null)
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({submitterKey}, 0))", token);
+        if (submissionId is not null)
+        {
+            if (submitterKey is null)
+                return SubmissionError(http, 403, "requester_unavailable", "Your account has no eligible requester profile. Sign in again or ask an administrator to review it.");
+            var prior = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.SelfServiceSubmitterId == submitterKey && x.SelfServiceSubmissionId == submissionId, token);
+            if (prior is not null)
+                return prior.SelfServiceSubmissionHash == submissionHash
+                    ? Results.Ok(new SelfServiceRequestSubmittedDto { RequestId = prior.Id, TrackingId = prior.TrackingId })
+                    : SubmissionError(http, 409, "submission_already_created", "This submission already created a request. Open My Requests to view its progress before starting another request.");
+        }
+
+        Customer? customer;
+        string? requestedForNameResult;
+        if (string.IsNullOrWhiteSpace(dto.RequestedForPersonId))
+        {
+            var requester = await SelfServiceRequesterResolver.ResolveAsync(db,
+                http.RequestServices.GetService<RatelDeskIdentityDbContext>(), access, user, token);
+            if (!requester.IsEligible)
+                return SubmissionError(http, 403, requester.ErrorCode!, requester.Message!);
+            if (!await IsCompatibleOrganizationAsync(db, requestForm, requester.OrganizationId, token))
+                return SubmissionError(http, 409, "request_organization_mismatch", OrganizationMismatchMessage);
+            customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db, requester, token);
+            requestedForNameResult = requester.Name;
+        }
+        else
+        {
+            (customer, requestedForNameResult) = await ResolveRequestedForCustomerAsync(dto, db, access,
+                http.RequestServices.GetService<RatelDeskIdentityDbContext>(), token);
+        }
         if (customer is null)
         {
-            return Results.Forbid();
+            return SubmissionError(http, 403, "requester_unavailable", "The selected requester is unavailable or outside your permitted organizations. Choose an eligible requester and retry.");
         }
+        if (!await db.Organizations.AsNoTracking().AnyAsync(x => x.Id == customer.OrganizationId && x.IsEnabled, token))
+            return SubmissionError(http, 403, "request_organization_denied", "The requester's organization is unavailable. Ask an administrator to review its access.");
+        if (!await IsCompatibleOrganizationAsync(db, requestForm, customer.OrganizationId, token))
+            return SubmissionError(http, 409, "request_organization_mismatch", OrganizationMismatchMessage);
 
         var requestedForName = requestedForNameResult ?? customer.Name;
 
@@ -147,6 +188,9 @@ public static class SelfServiceRequestEndpoints
             PayloadJson = normalizedPayload.PayloadJson,
             OrganizationId = customer.OrganizationId,
             CustomerId = customer.Id,
+            SelfServiceSubmitterId = submissionId is null ? null : submitterKey,
+            SelfServiceSubmissionId = submissionId,
+            SelfServiceSubmissionHash = submissionId is null ? null : submissionHash,
             RequesterEmail = customer.Email,
             TrackingId = await refs.NextReferenceAsync("REQ"),
             Priority = TicketPriority.Low,
@@ -157,17 +201,14 @@ public static class SelfServiceRequestEndpoints
             request.CcRecipients = BuildListeners(customer.Email, submitterEmail);
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(token);
-        logger.LogInformation("SubmitRequest DbContext instance hash: {Hash}", db.GetHashCode());
-
         var created = await requests.CreateAsync(request);
         try
         {
             await ticketSlaInitializer.InitializeAsync(created);
         }
-        catch
+        catch (Exception exception)
         {
-            // Request submission must not fail if SLA initialization fails.
+            logger.LogWarning(exception, "SLA initialization failed for self-service request {RequestId}", created.Id);
         }
 
         await requestTaskGeneration.GenerateForRequestAsync(created, token);
@@ -202,6 +243,58 @@ public static class SelfServiceRequestEndpoints
             TrackingId = created.TrackingId
         });
     }
+
+    private static async Task<IResult> GetSubmissionContext(
+        [FromQuery] string requestFormId,
+        [FromServices] HelpdeskDbContext db,
+        [FromServices] IRepository<RequestForm> requestForms,
+        [FromServices] ICurrentUserAccessService accessService,
+        [FromServices] ISelfServiceAudienceService audience,
+        HttpContext http, CancellationToken token)
+    {
+        var form = await requestForms.GetAsync(requestFormId);
+        if (form is null) return Results.NotFound();
+        var access = await accessService.ResolveAsync(http.User, token);
+        var requester = await SelfServiceRequesterResolver.ResolveAsync(db,
+            http.RequestServices.GetService<RatelDeskIdentityDbContext>(), access, http.User, token);
+        var compatible = requester.IsEligible && await audience.CanAccessRequestFormAsync(form, token)
+            && await IsCompatibleOrganizationAsync(db, form, requester.OrganizationId, token);
+        return Results.Ok(new SelfServiceSubmissionContextDto
+        {
+            OrganizationId = requester.OrganizationId, OrganizationName = requester.OrganizationName,
+            RequestedForName = requester.Name, CanSubmit = compatible,
+            ErrorCode = requester.ErrorCode ?? (compatible ? null : "request_organization_mismatch"),
+            Message = requester.Message ?? (compatible ? null : OrganizationMismatchMessage)
+        });
+    }
+
+    private static Task<bool> IsCompatibleOrganizationAsync(HelpdeskDbContext db, RequestForm form, string? organizationId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(organizationId) ||
+            (!string.IsNullOrWhiteSpace(form.OrganizationId) && form.OrganizationId != organizationId) ||
+            (form.AllowedOrganizationIds is { Count: > 0 } && !form.AllowedOrganizationIds.Contains(organizationId)))
+            return Task.FromResult(false);
+        return NoForeignBindingsAsync();
+        async Task<bool> NoForeignBindingsAsync() => !await db.AutomationBindings.AsNoTracking()
+            .AnyAsync(x => x.RequestFormId == form.Id && x.Enabled && x.OrganizationId != organizationId, ct);
+    }
+
+    private static IResult SubmissionError(HttpContext http, int status, string code, string message) =>
+        Results.Problem(statusCode: status, title: "Request could not be submitted", detail: message,
+            extensions: new Dictionary<string, object?> { ["code"] = code, ["traceId"] = http.TraceIdentifier });
+
+    private static string? SubmissionOwner(ClaimsPrincipal principal, CurrentUserAccessProfile access)
+    {
+        var accountId = principal.FindFirstValue("auth_mode") is "local" or "integration"
+            ? principal.FindFirstValue(ClaimTypes.NameIdentifier) : null;
+        if (!string.IsNullOrWhiteSpace(accountId)) return "account:" + accountId;
+        return string.IsNullOrWhiteSpace(access.CustomerId) ? null : "customer:" + access.CustomerId;
+    }
+
+    private static string SubmissionHash(SubmitSelfServiceRequestDto dto) =>
+        Convert.ToHexStringLower(global::System.Security.Cryptography.SHA256.HashData(
+            global::System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+            { dto.RequestFormId, dto.Title, dto.Description, dto.PayloadJson, dto.RequestedForPersonId, dto.RequestedForPersonSource }))));
 
     private static async Task<IResult> SearchRequestUsers(
         [FromQuery] string? query,
@@ -305,6 +398,7 @@ public static class SelfServiceRequestEndpoints
         SubmitSelfServiceRequestDto dto,
         HelpdeskDbContext db,
         CurrentUserAccessProfile access,
+        RatelDeskIdentityDbContext? identityDb,
         CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(dto.RequestedForPersonId))
@@ -336,6 +430,7 @@ public static class SelfServiceRequestEndpoints
                 token),
             SelfServiceRequestPersonSource.User => await ResolveRequestedUserAsCustomerAsync(
                 db,
+                identityDb,
                 dto.RequestedForPersonId,
                 visibleOrganizationIds,
                 isAdmin,
@@ -363,6 +458,7 @@ public static class SelfServiceRequestEndpoints
 
     private static async Task<(Customer? Customer, string? Name)> ResolveRequestedUserAsCustomerAsync(
         HelpdeskDbContext db,
+        RatelDeskIdentityDbContext? identityDb,
         string id,
         IReadOnlySet<string> visibleOrganizationIds,
         bool isAdmin,
@@ -376,6 +472,9 @@ public static class SelfServiceRequestEndpoints
         {
             return (null, null);
         }
+        if (identityDb is not null && await identityDb.Users.AsNoTracking()
+            .AnyAsync(account => account.Id == selectedUser.Id && !account.IsEnabled, token))
+            return (null, null);
 
         var email = selectedUser.Email.Trim().ToLowerInvariant();
         var customer = await db.Customers
@@ -405,11 +504,12 @@ public static class SelfServiceRequestEndpoints
         CurrentUserAccessProfile access,
         CancellationToken token)
     {
-        var organizationIds = access.AllowedOrganizationIds
+        var organizationIds = access.OrganizationIdsFor(HelpdeskPermissions.SelfServiceUser)
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (!string.IsNullOrWhiteSpace(access.PrimaryOrganizationId))
+        if (!string.IsNullOrWhiteSpace(access.PrimaryOrganizationId)
+            && access.HasPermission(HelpdeskPermissions.SelfServiceUser, access.PrimaryOrganizationId))
         {
             organizationIds.Add(access.PrimaryOrganizationId);
         }

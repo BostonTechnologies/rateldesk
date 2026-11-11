@@ -415,6 +415,10 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => new { x.OrganizationId, x.SourceTicketId });
             entity.Property(x => x.SourceTicketId).HasMaxLength(64);
             entity.Property(x => x.SourceAutomationBindingId).HasMaxLength(64);
+            entity.Property(x => x.SelfServiceSubmissionId).HasMaxLength(32);
+            entity.Property(x => x.SelfServiceSubmitterId).HasMaxLength(128);
+            entity.Property(x => x.SelfServiceSubmissionHash).HasMaxLength(64);
+            entity.HasIndex(x => new { x.SelfServiceSubmitterId, x.SelfServiceSubmissionId }).IsUnique();
         });
 
         modelBuilder.Entity<NetclawConnectivitySettings>(entity =>
