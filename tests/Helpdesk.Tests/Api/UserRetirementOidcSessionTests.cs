@@ -116,7 +116,7 @@ public sealed class UserRetirementOidcSessionTests
         await identity.SaveChangesAsync(); await db.SaveChangesAsync();
         var service = new CurrentUserAccessService(db, identity);
         var principal = ExternalPrincipal();
-        Assert.True((await service.ResolveAsync(principal)).CanViewRequest("organization"));
+        Assert.True((await service.ResolveAsync(principal)).CanViewRequest("organization", null, null));
 
         await using (var writer = fixture.Identity())
         {
@@ -136,7 +136,7 @@ public sealed class UserRetirementOidcSessionTests
         }
         Assert.True(account.IsEnabled); // The original scope still holds the old tracked state.
         var after = await service.ResolveAsync(principal);
-        Assert.False(after.CanViewRequest("organization")); Assert.False(after.IsHelpdeskAdmin);
+        Assert.False(after.CanViewRequest("organization", null, null)); Assert.False(after.IsHelpdeskAdmin);
         Assert.Empty(after.Permissions);
         Assert.Equal(change == "disabled", after.IsAuthenticated);
         Assert.False((await service.ResolveAsync(principal)).IsHelpdeskAdmin);
