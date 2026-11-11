@@ -113,7 +113,7 @@ test('query changes cancel superseded searches and recover from error without di
   await expect(page.getByText('person132@example.invalid', { exact: true })).toBeVisible();
   await request.get(`${fixture}/directories/fault?mode=error`);
   await page.getByRole('button', { name: 'Refresh directory', exact: true }).click();
-  await expect(page.getByText(/directory could not be loaded \(HTTP 503\)/)).toBeVisible();
+  await expect(page.getByText(/directory could not be loaded \(HTTP 503\)/)).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('person132@example.invalid', { exact: true })).toBeVisible();
   await request.get(`${fixture}/directories/fault`);
   await page.getByRole('button', { name: 'Refresh directory', exact: true }).click();

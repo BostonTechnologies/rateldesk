@@ -2,6 +2,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Helpdesk.Shared.DTOs;
 using MudBlazor;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 namespace HelpDesk.NewWeb.Services;
 
@@ -44,6 +46,16 @@ public sealed class AdminDirectoryDataSource<T> : IDisposable
             throw;
         }
         catch (OperationCanceledException)
+        {
+            Error = "The directory request timed out. Refresh to try again.";
+            return lastData;
+        }
+        catch (BrokenCircuitException)
+        {
+            Error = "The directory service is temporarily unavailable. Wait briefly, then refresh to retry.";
+            return lastData;
+        }
+        catch (TimeoutRejectedException)
         {
             Error = "The directory request timed out. Refresh to try again.";
             return lastData;

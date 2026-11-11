@@ -2,6 +2,8 @@ extern alias NewWeb;
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Channels;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using Helpdesk.Shared.DTOs;
 using NewWeb::HelpDesk.NewWeb.Services;
 
@@ -61,6 +63,24 @@ public sealed class AdminDirectoryDataSourceTests
         Assert.Empty(data.Items);
         Assert.Contains("timed out", source.Error);
         Assert.False(source.IsLoading);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Resilience_pipeline_failures_offer_a_safe_retry_without_leaking_exceptions(bool circuitOpen)
+    {
+        using var handler = new ControlledHandler();
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://synthetic.example.invalid/") };
+        using var source = new AdminDirectoryDataSource<string>();
+        var request = source.LoadAsync(client, "directory", CancellationToken.None);
+        (await handler.Pending.Reader.ReadAsync()).SetException(circuitOpen
+            ? new BrokenCircuitException("private upstream circuit details")
+            : new TimeoutRejectedException("private timeout details"));
+        var data = await request;
+        Assert.Empty(data.Items);
+        Assert.NotNull(source.Error); Assert.Contains("refresh", source.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("private", source.Error); Assert.False(source.IsLoading);
     }
 
     private static HttpResponseMessage Response(string value, int total) => new(HttpStatusCode.OK)
