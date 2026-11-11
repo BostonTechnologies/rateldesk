@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs.Auth;
 using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.Models;
 using Microsoft.AspNetCore.Identity;
@@ -14,6 +16,42 @@ namespace Helpdesk.Tests.Api;
 
 public sealed partial class LocalAuthenticationEndpointsTests
 {
+    [Fact]
+    public async Task Delegated_tenant_user_management_never_grants_global_deletion_or_sign_in_controls()
+    {
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var accounts = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var account = new ApplicationUser { UserName = "delegate@example.invalid", Email = "delegate@example.invalid", DisplayName = "Tenant delegate" };
+            Assert.True((await accounts.CreateAsync(account, "synthetic delegate passphrase")).Succeeded);
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Organizations.AddRange(new Organization { Id = "own", Name = "Own tenant" }, new Organization { Id = "foreign", Name = "Foreign tenant" });
+            db.Users.AddRange(new User { Id = account.Id, Name = "Delegate", OrganizationId = "own", Role = "User" },
+                new User { Id = "own-profile", Name = "Own profile", OrganizationId = "own" },
+                new User { Id = "foreign-profile", Name = "Foreign profile", OrganizationId = "foreign" });
+            var role = new Role { Id = "delegated-team", Key = "delegated-team", Name = "Delegated team", Scope = RoleScopeKind.Tenant, OwnerOrganizationId = "own" };
+            role.Permissions.Add(new RolePermission { RoleId = role.Id, Permission = HelpdeskPermissions.TenantUsersManage });
+            role.Permissions.Add(new RolePermission { RoleId = role.Id, Permission = HelpdeskPermissions.TenantRolesAssign });
+            db.Roles.Add(role);
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = account.Id, OrganizationId = "own", RoleKey = role.Key });
+            await db.SaveChangesAsync();
+        }
+        using var delegated = CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        Assert.Equal(HttpStatusCode.NoContent, (await delegated.PostAsJsonAsync("/api/v1/local-auth/login", new LocalAuthenticationEndpoints.LocalLoginRequest("delegate@example.invalid", "synthetic delegate passphrase"))).StatusCode);
+        var access = await delegated.GetFromJsonAsync<CurrentUserAccessDto>("/api/v1/auth/me");
+        Assert.Contains(HelpdeskPermissions.TenantUsersManage, access!.Permissions);
+        Assert.Equal(HttpStatusCode.Forbidden, (await delegated.GetAsync("/api/v1/users/query")).StatusCode);
+        foreach (var id in new[] { "own-profile", "foreign-profile" })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await delegated.DeleteAsync($"/api/v1/users/{id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await delegated.PostAsync($"/api/v1/local-auth/users/{id}/disable", null)).StatusCode);
+        }
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var verify = verifyScope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        Assert.Equal(3, await verify.Users.CountAsync(user => !user.IsDeleted));
+        Assert.Empty(await verify.ActivityLogs.Where(log => log.RelatedEntityId == "own-profile" || log.RelatedEntityId == "foreign-profile").ToListAsync());
+    }
+
     [Fact]
     public async Task Delete_user_revokes_existing_cookie_and_password_and_cannot_be_reversed_with_Enable()
     {

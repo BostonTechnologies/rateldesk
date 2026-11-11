@@ -9,6 +9,7 @@ using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -91,6 +92,9 @@ public class UserEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         await using var oidc = _factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Authentication:Mode"] = "Oidc" })));
         using var client = oidc.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        Assert.DoesNotContain(oidc.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>(),
+            endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/v1/local-auth", StringComparison.Ordinal) == true);
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/v1/local-auth/login", new { email = "synthetic@example.invalid", password = "synthetic passphrase" })).StatusCode);
     }
 

@@ -5,6 +5,7 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Helpdesk.API.Services.Users;
@@ -25,17 +26,19 @@ public static class UserRetirement
         var identityRelational = !identityDb.Database.IsInMemory() && identityDb.Database.IsRelational();
         if (relational != identityRelational)
             throw new InvalidOperationException("User retirement requires matching application and identity database providers.");
-        var originalIdentityConnection = relational ? identityDb.Database.GetDbConnection() : null;
         if (relational && (db.Database.ProviderName != identityDb.Database.ProviderName ||
             db.Database.GetConnectionString() != identityDb.Database.GetConnectionString()))
             throw new InvalidOperationException("User retirement requires the configured shared identity and application database.");
 
+        // Swapping an EF-owned connection disposes it. Use a separate enlisted
+        // context so the caller's identity context remains usable after retirement.
+        await using var coordinatedIdentity = relational ? CoordinateIdentity(db, identityDb) : null;
+        identityDb = coordinatedIdentity ?? identityDb;
         IDbContextTransaction? transaction = null;
         try
         {
             if (relational)
             {
-                identityDb.Database.SetDbConnection(db.Database.GetDbConnection());
                 transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
                 await identityDb.Database.UseTransactionAsync(transaction.GetDbTransaction(), ct);
             }
@@ -158,8 +161,16 @@ public static class UserRetirement
             {
                 await identityDb.Database.UseTransactionAsync(null, CancellationToken.None);
                 if (transaction is not null) await transaction.DisposeAsync();
-                identityDb.Database.SetDbConnection(originalIdentityConnection!);
             }
         }
+    }
+
+    private static RatelDeskIdentityDbContext CoordinateIdentity(HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb)
+    {
+        var options = new DbContextOptionsBuilder<RatelDeskIdentityDbContext>(
+            (DbContextOptions<RatelDeskIdentityDbContext>)identityDb.GetService<IDbContextOptions>());
+        if (db.Database.IsSqlite()) options.UseSqlite(db.Database.GetDbConnection());
+        else options.UseNpgsql(db.Database.GetDbConnection());
+        return new(options.Options);
     }
 }

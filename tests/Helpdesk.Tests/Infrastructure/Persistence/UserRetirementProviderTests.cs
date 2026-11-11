@@ -64,6 +64,7 @@ public sealed class UserRetirementProviderTests
         Assert.Null((await UserRetirement.RetireAsync("profile", Actor("administrator"), db, identity)).Error);
         Assert.True((await db.Users.SingleAsync(user => user.Id == "profile")).IsDeleted);
         Assert.Equal(2, await db.Customers.CountAsync());
+        Assert.Single(await identity.Users.AsNoTracking().ToListAsync());
     }
 
     [Theory]
