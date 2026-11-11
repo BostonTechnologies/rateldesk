@@ -130,3 +130,31 @@ if(!baseline){
   }
  });
 }
+
+if(!baseline){
+ test('modern HA and five-node jobs retain exact saved connection and canonical IDs after save and reopen',async({page,request})=>{
+  for(const [name,id,summary] of [['Synthetic HA job','9007199254740993','HA group: Synthetic HA pool (one eligible worker)'],['Synthetic five-node job','9007199254740995','5 selected nodes']]){
+   await request.get(`${fixture}/reset?mode=modern`);await openEditor(page);
+   await page.getByRole('button',{name:'Browse jobs',exact:true}).click();
+   const browser=page.getByRole('dialog').last();await expect(browser).toContainText('Browse NetRatel jobs');
+   await browser.getByText(name,{exact:true}).click();await browser.getByRole('button',{name:'Select job',exact:true}).click();
+   await expect(page.locator('.request-form-step-automation-panel')).toContainText(summary);
+   await page.getByRole('button',{name:'Save',exact:true}).click();await expect(page.locator('.request-form-builder-dialog')).toBeHidden();
+   const state=await(await request.get(`${fixture}/state`)).json();expect(state.bindings[0]).toMatchObject({systemConnectionId:'11111111-1111-1111-1111-111111111111',orchestrationRequestDefinitionId:id,orchestrationJobDefinitionId:id});
+   await openEditor(page);await expect(page.getByRole('textbox',{name:'NetRatel job',exact:true})).toHaveValue(new RegExp(name));await expect(page.locator('.request-form-step-automation-panel')).toContainText(summary);
+   await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.locator('.request-form-builder-dialog')).toBeHidden();
+  }
+ });
+ test('empty catalogue stays browsable and real-target creation retains its draft on a structured failure',async({page,request})=>{
+  await request.get(`${fixture}/reset?mode=modern-empty`);await openEditor(page);
+  await page.getByRole('button',{name:'Browse jobs',exact:true}).click();const browser=page.getByRole('dialog').last();await expect(browser).toContainText('No NetRatel jobs match');await browser.getByRole('button',{name:'Refresh jobs',exact:true}).click();await expect(browser).toContainText('No NetRatel jobs match');await browser.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('button',{name:'Create job',exact:true}).click();const create=page.getByRole('dialog').last();await expect(create).toContainText('Create NetRatel job');
+  await create.getByRole('textbox',{name:/^Job name/}).fill('Synthetic authored job');await create.getByRole('textbox',{name:/^Command\*?$/}).fill('printf synthetic');
+  await create.getByRole('combobox',{name:'Nodes',exact:true}).click();await page.getByText('Synthetic worker 1',{exact:true}).click();await create.getByRole('combobox',{name:'Nodes',exact:true}).click();
+  await request.get(`${fixture}/fault?mode=job-create`);await create.getByRole('button',{name:'Create job',exact:true}).click();await expect(create).toContainText('target_unavailable');await expect(create).toContainText('fixture-create-reference');
+  await expect(create.getByRole('textbox',{name:/^Job name/})).toHaveValue('Synthetic authored job');await expect(create.getByRole('textbox',{name:/^Command\*?$/})).toHaveValue('printf synthetic');
+  await create.getByRole('button',{name:'Create job',exact:true}).click();await expect(page.getByRole('textbox',{name:'NetRatel job',exact:true})).toHaveValue(/Synthetic authored job/);
+  await page.getByRole('button',{name:'Save',exact:true}).click();await expect(page.locator('.request-form-builder-dialog')).toBeHidden();
+  const state=await(await request.get(`${fixture}/state`)).json();expect(state.creations).toHaveLength(2);expect(state.creations[1]).toMatchObject({organizationId:'org-1',connectionId:'11111111-1111-1111-1111-111111111111',payload:{clientIdentity:'',runner:'bash',command:'printf synthetic',tenantId:17,target:{source:2,agentIds:['eeeeeeee-eeee-eeee-eeee-000000000001']}}});expect(state.bindings[0].orchestrationRequestDefinitionId).toBe('9007199254740997');
+ });
+}

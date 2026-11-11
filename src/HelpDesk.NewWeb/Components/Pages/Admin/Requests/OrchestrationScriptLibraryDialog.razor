@@ -108,7 +108,7 @@
 
                                 @if (definition.Target is { } target)
                                 {
-                                    <MudText Typo="Typo.caption">@target.Readiness · Required inputs: @string.Join(", ", target.RequiredInputs)</MudText>
+                                    <MudText Typo="Typo.caption">@OrchestrationCatalogInputResolver.ReadinessLabel(target) · Required inputs: @string.Join(", ", target.RequiredInputs)</MudText>
                                 }
                                 <MudStack Row="true" Spacing="1" Class="orchestration-script-library-chip-row">
                                     <MudChip T="string" Size="Size.Small" Color="Color.Info">@GetTenantLabel(definition)</MudChip>

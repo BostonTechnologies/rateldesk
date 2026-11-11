@@ -87,6 +87,14 @@ public static class OrchestrationCatalogInputResolver
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value) && !IsOpaqueIdentifier(value))
             ?? values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
+    public static string ReadinessLabel(OrchestrationAutomationTargetDto target) => target.Readiness switch
+    {
+        "incomplete" => "Incomplete job: add executable content in NetRatel",
+        "requires-input" => "Requires input before execution",
+        "worker-check-at-run" => "Worker eligibility is checked when the job runs",
+        _ => "Execution readiness is unavailable"
+    };
+
     private static string NormalizePath(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().Trim('/');
 

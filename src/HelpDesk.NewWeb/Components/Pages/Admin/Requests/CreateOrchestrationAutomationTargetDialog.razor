@@ -47,7 +47,7 @@
                 }
             </MudSelect>
             <MudTextField @bind-Value="command" Label="Command" Required="true" Lines="5" Variant="Variant.Outlined" Margin="Margin.Dense"
-                          HelperText="Use a runner available on the selected workers. Job inputs can be referenced as @@input-name@@." />
+                          HelperText="Use a runner available on the selected workers. Job inputs can be referenced as @@option.input-name@@." />
             @foreach (var input in inputs)
             {
                 <MudPaper Outlined="true" Class="pa-2 my-2" @key="input">

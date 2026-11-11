@@ -439,7 +439,7 @@
                                                         @if (SelectedCatalogRequestDefinition?.Target is { } target)
                                                         {
                                                             <MudText Typo="Typo.body2">Execution target: @target.Summary</MudText>
-                                                            <MudText Typo="Typo.caption">@target.Readiness · Required inputs: @string.Join(", ", target.RequiredInputs)</MudText>
+                                                            <MudText Typo="Typo.caption">@OrchestrationCatalogInputResolver.ReadinessLabel(target) · Required inputs: @string.Join(", ", target.RequiredInputs)</MudText>
                                                         }
                                                         @if (SelectedCatalogRequestDefinition is not null)
                                                         {
