@@ -240,5 +240,7 @@
     "authoredDataSourceTestNullableWarnings": 4,
     "followupAssertionFix": "d0b018023545f57c80251f10dc567bbeb924d509",
     "suppressed": false
-  }
+  },
+  "sdk": "10.0.400",
+  "runsettings": "<RunSettings><DataCollectionRunSettings><DataCollectors><DataCollector friendlyName=\"XPlat code coverage\"><Configuration><Format>opencover</Format><Include>[Helpdesk.API]Helpdesk.API.Endpoints.Organization.AdminDirectoryEndpoints*,[Helpdesk.API]Helpdesk.API.Endpoints.Categories.TicketCategoryEndpoints*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Services.AdminDirectoryDataSource*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Models.AdminDirectoryQueryState*</Include><ExcludeByFile>**/obj/**,**/bin/**</ExcludeByFile><SkipAutoProps>true</SkipAutoProps></Configuration></DataCollector></DataCollectors></DataCollectionRunSettings></RunSettings>"
 }
