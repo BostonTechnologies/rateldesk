@@ -6,6 +6,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
+@inject ILogger<ServiceBrowser> Logger
 
 @using System.Net.Http.Json
 @using MudBlazor
@@ -249,9 +250,9 @@
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-            catch (HttpRequestException)
+            catch (HttpRequestException error)
             {
-                // ignore breadcrumb errors
+                Logger.LogDebug("Service breadcrumb unavailable for {ServiceId}; HTTP status {StatusCode}.", ServiceId, error.StatusCode);
             }
         }
 
