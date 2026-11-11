@@ -101,6 +101,79 @@ public sealed class UserRetirementOidcSessionTests
         Assert.False(await publicResult.Content.ReadFromJsonAsync<bool>());
     }
 
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("deleted")]
+    [InlineData("missing")]
+    public async Task Same_scope_oidc_reauthorization_observes_account_changes_from_another_context(string change)
+    {
+        await using var fixture = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open(); await db.Database.MigrateAsync();
+        await using var identity = fixture.Identity(); await identity.Database.MigrateAsync();
+        var account = await OidcApplicationAccount.ProvisionAdministratorAsync(identity, "https://identity.example.invalid/realm", "verified-subject", "External administrator");
+        identity.Users.Add(new ApplicationUser { Id = "remaining-admin", UserName = "remaining-admin", IsInstanceAdministrator = true });
+        db.Users.Add(new User { Id = account.Id, Name = "Unlinked external administrator" });
+        await identity.SaveChangesAsync(); await db.SaveChangesAsync();
+        var service = new CurrentUserAccessService(db, identity);
+        var principal = ExternalPrincipal();
+        Assert.True((await service.ResolveAsync(principal)).CanViewRequest("organization"));
+
+        await using (var writer = fixture.Identity())
+        {
+            if (change == "deleted")
+            {
+                await using var domainWriter = fixture.Open();
+                var actor = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "remaining-admin")], "Test"));
+                Assert.Null((await UserRetirement.RetireAsync(account.Id, actor, domainWriter, writer)).Error);
+            }
+            else
+            {
+                var changed = await writer.Users.SingleAsync(user => user.Id == account.Id);
+                if (change == "missing") writer.Users.Remove(changed);
+                else changed.IsEnabled = false;
+                await writer.SaveChangesAsync();
+            }
+        }
+        Assert.True(account.IsEnabled); // The original scope still holds the old tracked state.
+        var after = await service.ResolveAsync(principal);
+        Assert.False(after.CanViewRequest("organization")); Assert.False(after.IsHelpdeskAdmin);
+        Assert.Empty(after.Permissions);
+        Assert.Equal(change == "disabled", after.IsAuthenticated);
+        Assert.False((await service.ResolveAsync(principal)).IsHelpdeskAdmin);
+        // A distinct, previously unprovisioned provider administrator keeps the existing onboarding behavior.
+        Assert.True((await service.ResolveAsync(ExternalPrincipal(subject: "different-subject"))).IsHelpdeskAdmin);
+    }
+
+    [Fact]
+    public async Task Fresh_external_state_reads_preserve_persisted_provider_role_projection()
+    {
+        await using var fixture = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(false);
+        await using var db = fixture.Open(); await db.Database.MigrateAsync();
+        await using var identity = fixture.Identity(); await identity.Database.MigrateAsync();
+        var account = await OidcApplicationAccount.ProvisionAdministratorAsync(identity, "https://identity.example.invalid/realm", "verified-subject", "External administrator");
+        await using (var writer = fixture.Identity())
+        {
+            var changed = await writer.Users.SingleAsync(); changed.IsInstanceAdministrator = false; changed.AuthorizationRevision = 4;
+            await writer.SaveChangesAsync();
+        }
+        var service = new CurrentUserAccessService(db, identity);
+        Assert.True((await service.ResolveAsync(ExternalPrincipal())).IsHelpdeskAdmin);
+        await using (var verify = fixture.Identity())
+        {
+            var persisted = await verify.Users.SingleAsync(); Assert.True(persisted.IsInstanceAdministrator); Assert.Equal(5, persisted.AuthorizationRevision);
+        }
+        Assert.False((await service.ResolveAsync(ExternalPrincipal(administrator: false))).IsHelpdeskAdmin);
+        await using var final = fixture.Identity();
+        var demoted = await final.Users.SingleAsync(); Assert.False(demoted.IsInstanceAdministrator); Assert.Equal(6, demoted.AuthorizationRevision);
+    }
+
+    private static ClaimsPrincipal ExternalPrincipal(string subject = "verified-subject", bool administrator = true)
+    {
+        var claims = new List<Claim> { new("iss", "https://identity.example.invalid/realm"), new("sub", subject) };
+        if (administrator) claims.Add(new("groups", "HelpdeskAdmin"));
+        return new(new ClaimsIdentity(claims, "Oidc"));
+    }
+
     private sealed class OidcHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {

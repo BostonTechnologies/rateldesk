@@ -12,6 +12,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
 {
     private readonly HelpdeskDbContext _db;
     private readonly RatelDeskIdentityDbContext? _identityDb;
+    private readonly Dictionary<(string Issuer, string Subject), string> _observedExternalAccounts = new();
 
     public CurrentUserAccessService(HelpdeskDbContext db)
         : this(db, null)
@@ -65,9 +66,14 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             }
         }
 
-        var externalAccount = _identityDb is not null && string.IsNullOrWhiteSpace(localAccountId) &&
-                              !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject)
-            ? await OidcApplicationAccount.FindAsync(_identityDb, issuer, subject, ct) : null;
+        ApplicationUser? externalAccount = null;
+        if (_identityDb is not null && string.IsNullOrWhiteSpace(localAccountId) &&
+            !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject))
+        {
+            var external = await ReadExternalAccountAsync(issuer, subject, ct);
+            if (external.Removed) return Empty(false);
+            externalAccount = external.Account;
+        }
         if (externalAccount?.IsDeleted == true) return Empty(false);
         if (externalAccount is { IsEnabled: false }) return Empty(true);
         if (link is { DisabledAtUtc: not null } || link?.InviteStatus == CustomerInviteStatus.Disabled) return Empty(true);
@@ -437,6 +443,21 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
                 permissions.Add(permission);
             }
         }
+    }
+
+    private async Task<(ApplicationUser? Account, bool Removed)> ReadExternalAccountAsync(string issuer, string subject, CancellationToken ct)
+    {
+        var key = (issuer.TrimEnd('/'), subject);
+        var account = await OidcApplicationAccount.FindAsync(_identityDb!, issuer, subject, ct);
+        if (_observedExternalAccounts.TryGetValue(key, out var observedId) && (account is null || account.Id != observedId))
+            return (null, true);
+        if (account is null) return (null, false);
+        _observedExternalAccounts[key] = account.Id;
+        // A stream keeps this context for its lifetime. Refresh identity state
+        // before using it, while retaining tracking for provider-role projection.
+        var entry = _identityDb!.Entry(account);
+        await entry.ReloadAsync(ct);
+        return entry.State == Microsoft.EntityFrameworkCore.EntityState.Detached ? (null, true) : (account, false);
     }
 
     private static IEnumerable<string> ClaimValues(ClaimsPrincipal user, params string[] claimTypes) =>
