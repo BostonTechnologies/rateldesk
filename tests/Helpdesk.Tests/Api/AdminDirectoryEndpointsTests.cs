@@ -46,7 +46,7 @@ public sealed class AdminDirectoryEndpointsTests
             db.Organizations.Add(new Organization { Id = "customers-org", Name = "Synthetic directory" });
             db.Customers.AddRange(Enumerable.Range(0, 133).Select(i => new Customer
             {
-                Id = $"customer-{i:D3}", Name = "Duplicate name", Email = $"person{i:D3}@example.invalid", OrganizationId = "customers-org"
+                Id = $"customer-{i:D3}", Name = i == 132 ? "Équipe client" : "Duplicate name", Email = $"person{i:D3}@example.invalid", OrganizationId = "customers-org"
             }));
             db.CustomerAuthLinks.AddRange(
                 new CustomerAuthLink { Id = "link-120", CustomerId = "customer-120", AuthProviderType = "Local", LocalAccountId = "local-disabled" },
@@ -86,6 +86,8 @@ public sealed class AdminDirectoryEndpointsTests
         Assert.True(failures.Items[0].AuthStatus!.HasMultipleIdentityLinks); Assert.False(failures.Items[0].AuthStatus!.CanResend);
         var result = await h.Get<CustomerDto>("customers?search=person132&organizationId=customers-org&page=99");
         Assert.Equal(0, result.Page); Assert.Equal("customer-132", Assert.Single(result.Items).Id);
+        var unicode = await h.Get<CustomerDto>("customers?search=%C3%A9QUIPE");
+        Assert.Equal("customer-132", Assert.Single(unicode.Items).Id);
         var unauthorized = await h.Get<CustomerDto>("customers?organizationId=foreign");
         Assert.Equal(0, unauthorized.TotalCount);
         var linked = await h.Get<CustomerDto>("customers?access=linked&pageSize=100");
@@ -239,6 +241,26 @@ public sealed class AdminDirectoryEndpointsTests
             Assert.True(await db.TicketCategories.AnyAsync(row => row.Id == child));
             Assert.False(await db.TicketCategories.AnyAsync(row => row.Id == removable));
         });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Deleting_the_only_final_page_row_clamps_the_preserved_query(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        var ids = Enumerable.Range(0, 126).Select(_ => Guid.NewGuid()).ToArray();
+        await h.Seed(async (db, _) =>
+        {
+            db.TicketCategories.AddRange(ids.Select((id, index) => new TicketCategory { Id = id, Name = $"Paging {index:D3}", Type = TicketCategoryType.Request, IsActive = true }));
+            await db.SaveChangesAsync();
+        });
+        var last = await h.Get<TicketCategoryDto>("categories?search=Paging&type=2&page=5&pageSize=25");
+        Assert.Equal(ids[125], Assert.Single(last.Items).Id);
+        Assert.Equal(HttpStatusCode.NoContent, (await h.Client.DeleteAsync($"/api/v1/categories/{ids[125]}")).StatusCode);
+        var clamped = await h.Get<TicketCategoryDto>("categories?search=Paging&type=2&page=5&pageSize=25");
+        Assert.Equal(4, clamped.Page); Assert.Equal(125, clamped.TotalCount); Assert.Equal(25, clamped.Items.Count);
+        Assert.Equal(ids[100], clamped.Items[0].Id); Assert.Equal(ids[124], clamped.Items[^1].Id);
     }
 
     private sealed class Harness(WebApplication app, HttpClient client, string path, PostgreSqlContainer? postgres, ReadCounter counter) : IAsyncDisposable
