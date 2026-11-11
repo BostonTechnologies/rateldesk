@@ -211,9 +211,12 @@ public sealed class CustomerDeletionEndpointTests
                 db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "racing-contact", InviteStatus = CustomerInviteStatus.Pending });
 
                 var error = await Record.ExceptionAsync(() => db.SaveChangesAsync());
-                var databaseError = error is DbUpdateException update ? update.InnerException : error;
-                if (postgres) Assert.Equal(PostgresErrorCodes.LockNotAvailable, Assert.IsType<PostgresException>(databaseError).SqlState);
-                else Assert.Equal(5, Assert.IsType<SqliteException>(databaseError).SqliteErrorCode);
+                var databaseError = error;
+                while (databaseError?.InnerException is not null && databaseError is not (PostgresException or SqliteException))
+                    databaseError = databaseError.InnerException;
+                var diagnostics = error?.ToString() ?? "Concurrent invitation committed while deletion held the customer lock.";
+                if (postgres) Assert.True(databaseError is PostgresException { SqlState: PostgresErrorCodes.LockNotAvailable }, diagnostics);
+                else Assert.True(databaseError is SqliteException { SqliteErrorCode: 5 }, diagnostics);
             });
         }
         finally { gate.Release.TrySetResult(); }
