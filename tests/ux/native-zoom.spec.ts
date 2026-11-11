@@ -147,9 +147,11 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
             const actions = panel.locator('.pairing-row-actions');
             await expect(actions).toHaveCount(6);
             for (let index = 0; index < 6; index++) {
-              const tops = await actions.nth(index).locator('button').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().top));
-              expect(tops.length).toBeGreaterThan(0);
-              expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
+              const centers = await actions.nth(index).locator('button').evaluateAll(buttons => buttons.map(button => {
+                const box = button.getBoundingClientRect(); return box.y + box.height / 2;
+              }));
+              expect(centers.length).toBeGreaterThan(0);
+              expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
             }
           } else {
             const cards = page.getByTestId('service-explorer-card');
