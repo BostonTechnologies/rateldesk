@@ -2,6 +2,8 @@ using System.Security.Claims;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Helpdesk.API.Middleware;
 
@@ -28,6 +30,25 @@ public sealed class UserAccessClaimsMiddleware(RequestDelegate next)
             }
             RemoveScopedAccessClaims(identity, preserveSourceMarker: true);
             var access = await accessService.ResolveAsync(context.User, context.RequestAborted);
+            if (!access.IsAuthenticated)
+            {
+                RemoveApplicationAccessClaims(identity);
+                context.User = new ClaimsPrincipal(new ClaimsIdentity());
+                if (context.Features.Get<IAuthenticateResultFeature>() is { } authentication)
+                    authentication.AuthenticateResult = AuthenticateResult.NoResult();
+                var endpoint = context.GetEndpoint();
+                // A fixed-scheme authorization policy can otherwise authenticate the
+                // already cached upstream ticket again after this local revocation.
+                if (endpoint is not null && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null &&
+                    (endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count > 0 ||
+                     endpoint.Metadata.GetMetadata<AuthorizationPolicy>() is not null))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return;
+                }
+                await next(context);
+                return;
+            }
             RemoveApplicationAccessClaims(identity);
             AddClaim(identity, "permission_scope_mode", "scoped");
             AddClaim(identity, "organization_id", access.PrimaryOrganizationId);
