@@ -322,14 +322,20 @@ follow-up checks are recorded on PRs #395/#396 and companion NetRatel PR #730.
 The functional normal run is
 [43077718615](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43077718615);
 all six required jobs passed. Its .NET receipt contains **4,014 passed, zero
-failed and eight existing optional skips**; provider acceptance passed **485/485**
+failed and eight pre-existing skips**; provider acceptance passed **485/485**
 without skips. The earlier administration normal run is
 [43077803948](https://github.com/BostonTechnologies/RatelDesk/actions/runs/43077803948).
 Its five non-.NET jobs passed, including **485/485** provider cases. The .NET
-receipt contained **4,113 passed, five failed and eight existing optional skips**,
+receipt contained **4,113 passed, five failed and eight pre-existing skips**,
 then exceeded the 45-minute job budget after uploading results. It is retained as
 a failed/canceled run. Final-head reruns, merge/main/deep and public distribution
 receipts belong to the subsequent campaign delivery comments.
+
+All eight skipped .NET cases predate the campaign; their four owning files are
+unchanged from the baseline. Four retain the literal reason `RevisitCodex`, two
+require JWT validation not configured in those legacy tests, and two require
+Windows filesystem ACLs. None is newly required campaign/provider acceptance;
+the final delivery receipt records their exact names and source reasons.
 
 The first complete functional run executed 4,015 cases: 3,999 passed, eight failed
 and eight pre-existing optional cases were skipped. It is retained as a failed
@@ -435,8 +441,7 @@ Linux x64/arm64 and Windows x64 archive execution. The final updated head is
 dispatched through the same existing lane again. The complete runtime `src` tree
 remains `0e75a6d32dc60877d53e54e6b4fdb6ec648f4be7`.
 
-Native source-pair run
-[43084679626](https://github.com/BostonTechnologies/netratel/actions/runs/43084679626)
+Native source-pair run `43084679626`
 at NetRatel `7321c02e` and RatelDesk `258366d7` again passed both pairings,
 incident replay and the earlier three native execution modes. Its first new
 rendered self submission failed required-field validation before any form request,
@@ -447,3 +452,15 @@ NetRatel `b1736369` adds that readiness wait on each full main-page navigation,
 checks the retained value after blur, and uses the actual MudAlert selector for
 bounded failure diagnostics. This is a browser-driver correction; complete real
 rendered success/failure/on-behalf/deadline recovery acceptance remains required.
+
+The superseded UX run also exposed a sixth .NET failure in the existing bulk
+resolution notification test. Its minimal host omitted `IDomainEventPublisher`
+and `ICorrelationContext`; the captured HTTP 500 identified the missing publisher
+registration before the handler ran. The fixture now uses the same two helpers
+already registered by its adjacent self-service host. The complete owning class
+passed **15/15**, with no skips. Original generic-versus-self-service notification
+assertions remain, alongside fresh-scope SQLite verification of both resolved
+requests and exactly two private correlation-bound journal markers. Product
+source is unchanged. The register retains the native run identity without a
+companion URL outside the disclosure gate's existing allowlist; the unchanged
+public-disclosure gate and documentation validator both pass locally.
