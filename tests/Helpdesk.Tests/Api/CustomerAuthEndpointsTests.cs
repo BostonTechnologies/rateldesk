@@ -27,6 +27,41 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class CustomerAuthEndpointsTests
 {
+    [Theory]
+    [InlineData("active")]
+    [InlineData("retired")]
+    [InlineData("missing")]
+    public async Task Managed_identity_without_a_link_never_advertises_or_creates_an_external_login(string ownerState)
+    {
+        var invitation = new ThrowingInvitationService(new InvalidOperationException("Managed identity must not reach external invitation actions."));
+        using var factory = CreateFactory(invitation);
+        await SeedCustomerAsync(factory);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            (await db.Customers.SingleAsync(customer => customer.Id == "customer-1")).IdentityUserId = "managed-owner";
+            if (ownerState != "missing") db.Users.Add(new User { Id = "managed-owner", Name = "Managed owner",
+                Email = "managed@example.test", OrganizationId = "organization-1", IsDeleted = ownerState == "retired" });
+            await db.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var status = await client.GetFromJsonAsync<CustomerAuthStatusDto>("/api/v1/customers/customer-1/auth/status");
+        Assert.NotNull(status);
+        Assert.Equal(ownerState == "active" ? CustomerInviteStatus.Failed : CustomerInviteStatus.Disabled, status.InviteStatus);
+        Assert.False(status.CanInvite);
+        Assert.False(status.CanResend);
+        Assert.False(status.CanDisableLogin);
+        Assert.False(status.IsLinkedLogin);
+        foreach (var action in new[] { "invite", "resend-invite", "disable-login", "sync-authentik" })
+        {
+            using var denied = await client.PostAsync("/api/v1/customers/customer-1/auth/" + action, null);
+            Assert.Equal(HttpStatusCode.Conflict, denied.StatusCode);
+        }
+        Assert.Equal(0, invitation.InvocationCount);
+        await AssertSeedVisibleFromNewScopeAsync(factory, 0);
+    }
+
     [Fact]
     public async Task ResendInvite_ReturnsServiceUnavailable_WhenAuthentikAdminIsNotConfigured()
     {

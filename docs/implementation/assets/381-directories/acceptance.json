@@ -1,0 +1,778 @@
+{
+  "issues": [
+    388,
+    389,
+    392
+  ],
+  "capturedAtUtc": "2026-11-11T17:04:00Z",
+  "baselineSource": "11c8997816833d753caf8df912a8279490da34fb",
+  "webSource": "a9a1d4a31787bfc5357ffb17a668af40708785e5",
+  "testConfigHead": "f28823a2",
+  "data": "Synthetic fixtures only; 133 customers,137 organizations,143 categories. Same fixtures for baseline and changed Web. No production data.",
+  "ordinaryViewports": [
+    [
+      1920,
+      1080
+    ],
+    [
+      1440,
+      900
+    ],
+    [
+      1366,
+      768
+    ],
+    [
+      768,
+      1024
+    ],
+    [
+      390,
+      844
+    ]
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "ordinaryBrowser": {
+    "executable": "/usr/bin/chromium",
+    "version": "Chromium 151.0.7922.173 built on Debian GNU/Linux 13 (trixie)"
+  },
+  "nativeBrowser": {
+    "executable": "/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome",
+    "version": "Google Chrome for Testing 156.0.8078.4",
+    "physicalViewports": [
+      [
+        1280,
+        1000
+      ],
+      [
+        1920,
+        1000
+      ]
+    ],
+    "zoom": 2,
+    "verification": "Browser extension chrome.tabs.setZoom/getZoom plus innerWidth half physical width; deviceScaleFactor/CSS zoom are not used.",
+    "routes": [
+      "/admin/customers",
+      "/admin/organizations",
+      "/admin/categories"
+    ]
+  },
+  "commands": {
+    "before": "HELPDESK_DIRECTORY_BASELINE=true HELPDESK_ADMIN_FIXTURE_ORIGIN=http://127.0.0.1:18510 playwright test --config /workspace/work/directory-before.config.cjs --grep \"directory synthetic\"",
+    "after": "HELPDESK_ADMIN_FIXTURE_ORIGIN=http://127.0.0.1:18511 playwright test --config /workspace/work/directory-after.config.cjs",
+    "native": "HELPDESK_NATIVE_ZOOM_SUITE=directories HELPDESK_E2E_CHROMIUM_PATH=/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome playwright test --config /workspace/work/directory-native.config.cjs"
+  },
+  "typographySamples": 30,
+  "typographyMinimumPixels": {
+    "heading": 30,
+    "header": 15,
+    "headerButton": 15,
+    "body": 15,
+    "padding": 16
+  },
+  "runs": [
+    {
+      "phase": "before",
+      "rawReportSha256": "079d4ccfd7d6570ffe09e5a9796b100479c7222b6d71c10f12620ba22d1d60b0",
+      "stats": {
+        "startTime": "2026-11-11T16:27:35.242Z",
+        "duration": 412853.73099999997,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "title": "directory synthetic desktop tablet and mobile evidence light",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 189358,
+          "attachments": []
+        },
+        {
+          "title": "directory synthetic desktop tablet and mobile evidence dark",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 201181,
+          "attachments": []
+        }
+      ],
+      "rawScreenshotCount": 30
+    },
+    {
+      "phase": "after",
+      "rawReportSha256": "8a99b6e5c6c3398abbc6367732170c2d1b24108069c9f52c867f844cf90130a5",
+      "stats": {
+        "startTime": "2026-11-11T16:55:34.409Z",
+        "duration": 258505.357,
+        "expected": 5,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "title": "directory synthetic desktop tablet and mobile evidence light",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 80167,
+          "attachments": [
+            {
+              "name": "typography-customers-1920",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-1440",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-1366",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-768",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-390",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 16
+              }
+            },
+            {
+              "name": "typography-organizations-1920",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-1440",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-1366",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-768",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-390",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 16
+              }
+            },
+            {
+              "name": "typography-categories-1920",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-1440",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-1366",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-768",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-390",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 16
+              }
+            }
+          ]
+        },
+        {
+          "title": "directory synthetic desktop tablet and mobile evidence dark",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 74731,
+          "attachments": [
+            {
+              "name": "typography-customers-1920",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-1440",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-1366",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-768",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-customers-390",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 16
+              }
+            },
+            {
+              "name": "typography-organizations-1920",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-1440",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-1366",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-768",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-organizations-390",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 16
+              }
+            },
+            {
+              "name": "typography-categories-1920",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-1440",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-1366",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-768",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 24
+              }
+            },
+            {
+              "name": "typography-categories-390",
+              "value": {
+                "heading": 30,
+                "header": 15,
+                "headerButton": 15,
+                "body": 15,
+                "padding": 16
+              }
+            }
+          ]
+        },
+        {
+          "title": "complete pagers and URL query restore keep bounded customer loading",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 48363,
+          "attachments": []
+        },
+        {
+          "title": "query changes cancel superseded searches and recover from error without discarding rows",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 19647,
+          "attachments": []
+        },
+        {
+          "title": "exact category type controls and explicit create type retain accessible protections",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 10541,
+          "attachments": []
+        }
+      ],
+      "rawScreenshotCount": 30
+    },
+    {
+      "phase": "native",
+      "rawReportSha256": "ccb02d83adb9f9aa702392ae96e4e4cf1a9d8258aa3ded60c21ea627d2eb31ed",
+      "stats": {
+        "startTime": "2026-11-11T16:55:37.425Z",
+        "duration": 166869.521,
+        "expected": 4,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "title": "directories light native browser zoom 200 percent at 1280px",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 47882,
+          "attachments": [
+            {
+              "name": "/admin/customers-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1280,
+                "layoutWidth": 640,
+                "theme": "light",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1280,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/organizations-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1280,
+                "layoutWidth": 640,
+                "theme": "light",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1280,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/categories-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1280,
+                "layoutWidth": 640,
+                "theme": "light",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1280,
+                "captureHeight": 1000
+              }
+            }
+          ]
+        },
+        {
+          "title": "directories light native browser zoom 200 percent at 1920px",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 31152,
+          "attachments": [
+            {
+              "name": "/admin/customers-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1920,
+                "layoutWidth": 960,
+                "theme": "light",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1920,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/organizations-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1920,
+                "layoutWidth": 960,
+                "theme": "light",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1920,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/categories-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1920,
+                "layoutWidth": 960,
+                "theme": "light",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1920,
+                "captureHeight": 1000
+              }
+            }
+          ]
+        },
+        {
+          "title": "directories dark native browser zoom 200 percent at 1280px",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 34109,
+          "attachments": [
+            {
+              "name": "/admin/customers-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1280,
+                "layoutWidth": 640,
+                "theme": "dark",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1280,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/organizations-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1280,
+                "layoutWidth": 640,
+                "theme": "dark",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1280,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/categories-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1280,
+                "layoutWidth": 640,
+                "theme": "dark",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1280,
+                "captureHeight": 1000
+              }
+            }
+          ]
+        },
+        {
+          "title": "directories dark native browser zoom 200 percent at 1920px",
+          "status": "passed",
+          "retry": 0,
+          "durationMs": 32051,
+          "attachments": [
+            {
+              "name": "/admin/customers-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1920,
+                "layoutWidth": 960,
+                "theme": "dark",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1920,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/organizations-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1920,
+                "layoutWidth": 960,
+                "theme": "dark",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1920,
+                "captureHeight": 1000
+              }
+            },
+            {
+              "name": "/admin/categories-native-zoom",
+              "value": {
+                "zoom": 2,
+                "physicalWidth": 1920,
+                "layoutWidth": 960,
+                "theme": "dark",
+                "capture": "physical viewport without CSS clip",
+                "captureWidth": 1920,
+                "captureHeight": 1000
+              }
+            }
+          ]
+        }
+      ],
+      "rawScreenshotCount": 12
+    }
+  ],
+  "assets": [
+    {
+      "file": "before-customers-light-1440x900.png",
+      "phase": "before",
+      "route": "/admin/customers",
+      "width": 1440,
+      "height": 8948,
+      "bytes": 1497867,
+      "sha256": "74b6c03ae0fa78b4c1c9546971fdd5e58171ff19129be181fb2fd556500761fe"
+    },
+    {
+      "file": "after-customers-light-1440x900.png",
+      "phase": "after",
+      "route": "/admin/customers",
+      "width": 1440,
+      "height": 900,
+      "bytes": 169498,
+      "sha256": "3e22f1ac29319711cc49a537d7f7a21f9a2a128fe75fadbe5629c1f7a599ab8f"
+    },
+    {
+      "file": "after-customers-dark-390x844.png",
+      "phase": "after",
+      "route": "/admin/customers",
+      "width": 390,
+      "height": 1165,
+      "bytes": 69480,
+      "sha256": "fa7ef147748dd2a6d7dc171bd9fa9bb2bdea2f847677e5e0496d5cc6892a14e2"
+    },
+    {
+      "file": "admin-customers-dark-1920-native-200.png",
+      "phase": "native",
+      "route": "/admin/customers",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 151170,
+      "sha256": "8315e45d2b54a8085060e9f7477d3fb1506e48a5df51763443ebc23384693708"
+    },
+    {
+      "file": "before-organizations-light-1440x900.png",
+      "phase": "before",
+      "route": "/admin/organizations",
+      "width": 1440,
+      "height": 9199,
+      "bytes": 1695996,
+      "sha256": "106775eaf57b16511978b9ea137acbd0a6075dcd61a3fb2fd898f5739d7fddf3"
+    },
+    {
+      "file": "after-organizations-light-1440x900.png",
+      "phase": "after",
+      "route": "/admin/organizations",
+      "width": 1440,
+      "height": 947,
+      "bytes": 184231,
+      "sha256": "778185a7eba4a6fa76438ef2bb651d311066bf3bbe673dd243947e5b48365bc4"
+    },
+    {
+      "file": "after-organizations-dark-390x844.png",
+      "phase": "after",
+      "route": "/admin/organizations",
+      "width": 390,
+      "height": 1246,
+      "bytes": 75377,
+      "sha256": "93ff0d8ba7bc47c35ae93ed66b941fc1d11209a5bae24d7e9b3f34db5842085b"
+    },
+    {
+      "file": "admin-organizations-dark-1920-native-200.png",
+      "phase": "native",
+      "route": "/admin/organizations",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 157529,
+      "sha256": "1b3c3876925c11d1e553b0d4cbe7aac0205e0987885e0deb4995485b8556ded5"
+    },
+    {
+      "file": "before-categories-light-1440x900.png",
+      "phase": "before",
+      "route": "/admin/categories",
+      "width": 1440,
+      "height": 15866,
+      "bytes": 1668938,
+      "sha256": "a7eda01ed4806131ca609a8f1cbacd587d912b28a97cf81c88bbb3402e8717da"
+    },
+    {
+      "file": "after-categories-light-1440x900.png",
+      "phase": "after",
+      "route": "/admin/categories",
+      "width": 1440,
+      "height": 900,
+      "bytes": 147268,
+      "sha256": "40ef6d4a2b62c363528ed997f18df88c4c6287970e97c56ac1e3aec80321491a"
+    },
+    {
+      "file": "after-categories-dark-390x844.png",
+      "phase": "after",
+      "route": "/admin/categories",
+      "width": 390,
+      "height": 1250,
+      "bytes": 69819,
+      "sha256": "5e12d8bc87aa5b8ca710def3380a0560ea84aaf1328d8c7f5b9a9db0feca61ac"
+    },
+    {
+      "file": "admin-categories-dark-1920-native-200.png",
+      "phase": "native",
+      "route": "/admin/categories",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 139235,
+      "sha256": "10c7c692e1d168c2735ab901240ae5fcb5c94ee4f76acf1c4fb2b844539c2103"
+    }
+  ],
+  "limits": [
+    "Presentation is synthetic Web acceptance. Both-provider owning API acceptance and exact integrated-source CI are recorded separately.",
+    "Native run covers these three owned directory routes. Team and the shared four-route integrated directory lane have separate owning evidence.",
+    "A fixed private BuildTimestamp was used to avoid repeat compilation during local evidence capture. Release metadata is allocated by the release workflow."
+  ],
+  "configSha256": {
+    "before": "6c77eaea053b2b6e9b06b59a13e56514826cd02e606b798906e8c7f951248f4c",
+    "after": "8bbb3d79e90d18b4ca73655c9fcfa7dd105ae19b34201c489c54a72b6a93c7d4",
+    "native": "7b52c156f0e0dec73b527333e19f289890ca2f74bc665aa41263ac2aef67b7fa"
+  },
+  "playwrightVersion": "1.64.1",
+  "inputSha256": {
+    "/workspace/work/worktrees/directories/tests/ux/admin-directories.spec.ts": "77e4353054eb9bad2ca7fa863a5c8f5a00e968e197303df22c5477dec34934d7",
+    "/workspace/work/worktrees/directories/tests/ux/admin-directories-fixture.mjs": "67bb9a11fa05f8ef6e9fd264c65d794ea071fe342386a681dc26d70e98aded0e",
+    "/workspace/work/native-directories/native-zoom.spec.ts": "88a88a4453b4a548a05332b0b77707fd69e9d8fc6e451f90cff4c75006bfd753",
+    "/workspace/work/directories-browser-snapshot/HelpDesk.NewWeb.dll": "1167b93a2dd92daa46c42287655999251875cb382e0b63f359dff16a29549002",
+    "/workspace/work/baseline-web/HelpDesk.NewWeb.dll": "218a1498b86ad2f2225458bb635e526409737c0445f82089012cdd3b20c86270"
+  }
+}

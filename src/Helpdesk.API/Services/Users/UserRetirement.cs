@@ -65,9 +65,12 @@ public static class UserRetirement
                     (!string.IsNullOrWhiteSpace(actorProviderId) && link.AuthentikUserId == actorProviderId)))
                 return new(true, "cannot_delete_self", "You cannot delete your own application access. Ask another instance administrator.");
 
-            if (await db.CustomerAuthLinks.AnyAsync(link => link.LocalAccountId != null && accountIds.Contains(link.LocalAccountId) &&
-                    link.DomainUserId != null && link.DomainUserId != userId && db.Users.Any(user => user.Id == link.DomainUserId && !user.IsDeleted), ct))
+            if (await HasSharedIdentityAsync(userId, accountIds, links, db, ct))
                 return new(true, "shared_identity_dependency", "This sign-in identity is linked to another active application user. An instance administrator must resolve that identity link before deleting either user's access.");
+
+            if (links.Any(link => string.IsNullOrWhiteSpace(link.LocalAccountId) && !string.IsNullOrWhiteSpace(link.AuthentikUserId) &&
+                (string.IsNullOrWhiteSpace(link.OidcIssuer) || string.IsNullOrWhiteSpace(link.OidcSubject))))
+                return new(true, "external_identity_link_incomplete", "The external identity link needs its verified sign-in subject before all application credentials can be retired. Have the user sign in once through the configured provider, then retry Delete.");
 
             var accounts = await identityDb.Users.Where(account => accountIds.Contains(account.Id)).ToListAsync(ct);
             var retiringAdministrators = accounts.Count(account => account.IsInstanceAdministrator && account.IsEnabled && !account.IsDeleted);
@@ -163,6 +166,26 @@ public static class UserRetirement
                 if (transaction is not null) await transaction.DisposeAsync();
             }
         }
+    }
+
+    private static async Task<bool> HasSharedIdentityAsync(string userId, List<string> accountIds, List<CustomerAuthLink> links,
+        HelpdeskDbContext db, CancellationToken ct)
+    {
+        if (await db.Users.AnyAsync(user => user.Id != userId && !user.IsDeleted && accountIds.Contains(user.Id), ct)) return true;
+        if (await db.CustomerAuthLinks.AnyAsync(link => link.LocalAccountId != null && accountIds.Contains(link.LocalAccountId) &&
+            link.DomainUserId != null && link.DomainUserId != userId && db.Users.Any(user => user.Id == link.DomainUserId && !user.IsDeleted), ct)) return true;
+
+        var providerIds = links.Where(link => !string.IsNullOrWhiteSpace(link.AuthentikUserId)).Select(link => link.AuthentikUserId!).Distinct().ToList();
+        if (providerIds.Count != 0 && await db.CustomerAuthLinks.AnyAsync(link => providerIds.Contains(link.AuthentikUserId!) &&
+            link.DomainUserId != null && link.DomainUserId != userId && db.Users.Any(user => user.Id == link.DomainUserId && !user.IsDeleted), ct)) return true;
+        foreach (var external in links.Where(link => !string.IsNullOrWhiteSpace(link.OidcIssuer) && !string.IsNullOrWhiteSpace(link.OidcSubject)))
+        {
+            var issuer = external.OidcIssuer!.TrimEnd('/');
+            if (await db.CustomerAuthLinks.AnyAsync(link => link.OidcSubject == external.OidcSubject &&
+                (link.OidcIssuer == issuer || link.OidcIssuer == issuer + "/") && link.DomainUserId != null && link.DomainUserId != userId &&
+                db.Users.Any(user => user.Id == link.DomainUserId && !user.IsDeleted), ct)) return true;
+        }
+        return false;
     }
 
     private static RatelDeskIdentityDbContext CoordinateIdentity(HelpdeskDbContext db, RatelDeskIdentityDbContext identityDb)

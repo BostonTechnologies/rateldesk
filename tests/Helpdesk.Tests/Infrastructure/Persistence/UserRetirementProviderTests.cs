@@ -52,18 +52,28 @@ public sealed class UserRetirementProviderTests
         await using var db = fixture.Open(); await db.Database.MigrateAsync();
         await using var identity = fixture.Identity(); await identity.Database.MigrateAsync();
         db.Organizations.Add(new Organization { Id = "organization", Name = "Synthetic team" });
-        db.Users.AddRange(new User { Id = "target", Name = "Target" }, new User { Id = "other", Name = "Other" }, new User { Id = "profile", Name = "Unlinked profile" });
-        db.Customers.AddRange(new Customer { Id = "one", Name = "One", Email = "one@example.invalid", OrganizationId = "organization" }, new Customer { Id = "two", Name = "Two", Email = "two@example.invalid", OrganizationId = "organization" });
-        db.CustomerAuthLinks.AddRange(new CustomerAuthLink { Id = "one", CustomerId = "one", DomainUserId = "target", LocalAccountId = "target" },
-            new CustomerAuthLink { Id = "two", CustomerId = "two", DomainUserId = "other", LocalAccountId = "target" });
+        db.Users.AddRange(new User { Id = "target", Name = "Target" }, new User { Id = "other", Name = "Other" }, new User { Id = "profile", Name = "Unlinked profile" }, new User { Id = "legacy", Name = "Legacy provider profile" });
+        db.Customers.AddRange(new Customer { Id = "one", Name = "One", Email = "one@example.invalid", OrganizationId = "organization" }, new Customer { Id = "two", Name = "Two", Email = "two@example.invalid", OrganizationId = "organization" }, new Customer { Id = "legacy", Name = "Legacy", Email = "legacy@example.invalid", OrganizationId = "organization" });
+        db.CustomerAuthLinks.AddRange(new CustomerAuthLink { Id = "one", CustomerId = "one", DomainUserId = "target" },
+            new CustomerAuthLink { Id = "two", CustomerId = "two", DomainUserId = "other", LocalAccountId = "target" },
+            new CustomerAuthLink { Id = "legacy", CustomerId = "legacy", DomainUserId = "legacy", AuthentikUserId = "provider-only-id" });
         identity.Users.Add(new ApplicationUser { Id = "target", UserName = "target" });
         await db.SaveChangesAsync(); await identity.SaveChangesAsync();
         Assert.Equal("shared_identity_dependency", (await UserRetirement.RetireAsync("target", Actor("administrator"), db, identity)).Error);
+        Assert.Equal("shared_identity_dependency", (await UserRetirement.RetireAsync("other", Actor("administrator"), db, identity)).Error);
         Assert.False((await db.Users.SingleAsync(user => user.Id == "target")).IsDeleted);
         Assert.True((await identity.Users.SingleAsync()).IsEnabled);
         Assert.Null((await UserRetirement.RetireAsync("profile", Actor("administrator"), db, identity)).Error);
         Assert.True((await db.Users.SingleAsync(user => user.Id == "profile")).IsDeleted);
-        Assert.Equal(2, await db.Customers.CountAsync());
+        var otherLink = await db.CustomerAuthLinks.SingleAsync(link => link.Id == "two");
+        otherLink.AuthentikUserId = "provider-only-id";
+        await db.SaveChangesAsync();
+        Assert.Equal("shared_identity_dependency", (await UserRetirement.RetireAsync("legacy", Actor("administrator"), db, identity)).Error);
+        otherLink.AuthentikUserId = null;
+        await db.SaveChangesAsync();
+        Assert.Equal("external_identity_link_incomplete", (await UserRetirement.RetireAsync("legacy", Actor("administrator"), db, identity)).Error);
+        Assert.False((await db.Users.SingleAsync(user => user.Id == "legacy")).IsDeleted);
+        Assert.Equal(3, await db.Customers.CountAsync());
         Assert.Single(await identity.Users.AsNoTracking().ToListAsync());
     }
 
@@ -144,9 +154,11 @@ public sealed class UserRetirementProviderTests
         {
             await db.Database.MigrateAsync();
             db.Organizations.Add(new Organization { Id = "organization", Name = "Synthetic team" });
-            db.Users.Add(new User { Id = "external-domain", Name = "External Person", OrganizationId = "organization" });
-            db.Customers.Add(new Customer { Id = "contact", Name = "Retained", Email = "external@example.invalid", OrganizationId = "organization" });
-            db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "contact", DomainUserId = "external-domain", OidcIssuer = issuer, OidcSubject = "verified-subject", InviteStatus = CustomerInviteStatus.Active });
+            db.Users.AddRange(new User { Id = "external-domain", Name = "External Person", OrganizationId = "organization" }, new User { Id = "alias-domain", Name = "Existing alias", OrganizationId = "organization" });
+            db.Customers.AddRange(new Customer { Id = "contact", Name = "Retained", Email = "external@example.invalid", OrganizationId = "organization" },
+                new Customer { Id = "alias-contact", Name = "Retained alias", Email = "alias@example.invalid", OrganizationId = "organization" });
+            db.CustomerAuthLinks.AddRange(new CustomerAuthLink { CustomerId = "contact", DomainUserId = "external-domain", OidcIssuer = issuer, OidcSubject = "verified-subject", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "alias-contact", DomainUserId = "alias-domain", OidcIssuer = issuer + "/", OidcSubject = "verified-subject", InviteStatus = CustomerInviteStatus.Active });
             await db.SaveChangesAsync();
         }
         string accountId;
@@ -160,6 +172,9 @@ public sealed class UserRetirementProviderTests
         await using (var db = fixture.Open())
         await using (var identity = fixture.Identity())
         {
+            Assert.Equal("shared_identity_dependency", (await UserRetirement.RetireAsync("external-domain", Actor("remaining-admin"), db, identity)).Error);
+            (await db.Users.SingleAsync(user => user.Id == "alias-domain")).IsDeleted = true;
+            await db.SaveChangesAsync();
             Assert.Null((await UserRetirement.RetireAsync("external-domain", Actor("remaining-admin"), db, identity)).Error);
         }
         await using (var db = fixture.Open())
@@ -171,7 +186,7 @@ public sealed class UserRetirementProviderTests
             Assert.False(access.IsHelpdeskAdmin); Assert.Empty(access.Permissions);
             var reprovisioned = await OidcApplicationAccount.ProvisionAdministratorAsync(identity, issuer, "verified-subject", "Changed profile");
             Assert.Equal(accountId, reprovisioned.Id); Assert.True(reprovisioned.IsDeleted); Assert.False(reprovisioned.IsEnabled);
-            Assert.Single(await identity.UserLogins.ToListAsync()); Assert.Single(await db.Customers.ToListAsync());
+            Assert.Single(await identity.UserLogins.ToListAsync()); Assert.Equal(2, await db.Customers.CountAsync());
         }
     }
 

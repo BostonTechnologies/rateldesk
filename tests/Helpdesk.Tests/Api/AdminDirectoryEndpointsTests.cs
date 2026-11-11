@@ -135,6 +135,79 @@ public sealed class AdminDirectoryEndpointsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Retired_or_orphaned_customer_identities_filter_in_SQL_and_managed_profiles_cannot_be_invited(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        await h.Seed(async (db, identity) =>
+        {
+            db.Organizations.Add(new Organization { Id = "retirement-org", Name = "Retirement directory" });
+            db.Customers.AddRange(Enumerable.Range(0, 122).Select(i => new Customer
+            {
+                Id = $"retirement-{i:D3}", Name = i < 110 ? "Ordinary contact" : $"Retirement {i}",
+                Email = $"retirement{i}@example.invalid", OrganizationId = "retirement-org",
+                IdentityUserId = i switch { 110 => "deleted-key", 111 => "missing-key", 112 => "active-key", 113 => "domain-only", 121 => "deleted-linked-key", _ => null }
+            }));
+            db.Users.AddRange(
+                new User { Id = "deleted-key", IsDeleted = true },
+                new User { Id = "active-key" },
+                new User { Id = "domain-only" },
+                new User { Id = "deleted-domain", IsDeleted = true },
+                new User { Id = "legacy-deleted-local", IsDeleted = true },
+                new User { Id = "external-domain" },
+                new User { Id = "deleted-linked-key", IsDeleted = true });
+            identity.Users.AddRange(
+                // IsDeleted must fail closed independently of an old IsEnabled flag.
+                new ApplicationUser { Id = "deleted-local", IsDeleted = true, IsEnabled = true, EmailConfirmed = true, PasswordHash = "test-only" },
+                new ApplicationUser { Id = "deleted-external", IsDeleted = true, IsEnabled = true },
+                new ApplicationUser { Id = "legacy-deleted-local", IsEnabled = true, EmailConfirmed = true, PasswordHash = "test-only" },
+                new ApplicationUser { Id = "active-key-account", IsEnabled = true, EmailConfirmed = true, PasswordHash = "test-only" });
+            db.CustomerAuthLinks.AddRange(
+                new CustomerAuthLink { CustomerId = "retirement-113", AuthProviderType = "Domain", DomainUserId = "domain-only", InviteStatus = CustomerInviteStatus.NotInvited },
+                new CustomerAuthLink { CustomerId = "retirement-114", AuthProviderType = "OIDC", DomainUserId = "deleted-domain", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-115", AuthProviderType = "OIDC", DomainUserId = "missing-domain", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-116", AuthProviderType = "Local", LocalAccountId = "deleted-local", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-117", AuthProviderType = "OIDC", LocalAccountId = "deleted-external", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-118", AuthProviderType = "Local", LocalAccountId = "legacy-deleted-local", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-119", AuthProviderType = "OIDC", LocalAccountId = "missing-account", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-120", AuthProviderType = "OIDC", DomainUserId = "external-domain", InviteStatus = CustomerInviteStatus.Active },
+                new CustomerAuthLink { CustomerId = "retirement-121", AuthProviderType = "Local", LocalAccountId = "active-key-account", InviteStatus = CustomerInviteStatus.Active });
+            await identity.SaveChangesAsync(); await db.SaveChangesAsync();
+        });
+
+        h.Counter.Reset();
+        var last = await h.Get<CustomerDto>("customers?page=4&pageSize=25&sort=email");
+        Assert.Equal(122, last.TotalCount); Assert.Equal(22, last.Items.Count);
+        Assert.InRange(h.Counter.Reads, 1, 2);
+        var disabled = await h.Get<CustomerDto>("customers?search=Retirement&access=disabled&sort=name");
+        Assert.Equal(6, disabled.TotalCount);
+        Assert.Equal(new[] { "retirement-110", "retirement-114", "retirement-116", "retirement-117", "retirement-118", "retirement-121" }, disabled.Items.Select(row => row.Id));
+        Assert.All(disabled.Items, row => Assert.Equal("Application access deleted", row.AuthStatus!.StatusText));
+        var unavailable = await h.Get<CustomerDto>("customers?access=failed&sort=name");
+        Assert.Equal(3, unavailable.TotalCount);
+        Assert.Equal(new[] { "retirement-111", "retirement-115", "retirement-119" }, unavailable.Items.Select(row => row.Id));
+        Assert.All(unavailable.Items, row => Assert.Equal("Linked identity unavailable", row.AuthStatus!.StatusText));
+        foreach (var row in disabled.Items.Concat(unavailable.Items))
+        {
+            Assert.False(row.AuthStatus!.CanInvite); Assert.False(row.AuthStatus.CanResend);
+            Assert.False(string.IsNullOrWhiteSpace(row.AuthStatus.IdentitySummary));
+        }
+
+        var active = await h.Get<CustomerDto>("customers?access=active");
+        Assert.Equal("retirement-120", Assert.Single(active.Items).Id);
+        foreach (var id in new[] { "112", "113" })
+        {
+            var managed = Assert.Single((await h.Get<CustomerDto>($"customers?search=retirement{id}@")).Items);
+            Assert.Equal(CustomerInviteStatus.NotInvited, managed.AuthStatus!.InviteStatus);
+            Assert.Equal("Managed requester profile", managed.AuthStatus.StatusText);
+            Assert.False(managed.AuthStatus.CanInvite); Assert.False(managed.AuthStatus.CanResend);
+        }
+        var ordinary = Assert.Single((await h.Get<CustomerDto>("customers?search=retirement0@")).Items);
+        Assert.True(ordinary.AuthStatus!.CanInvite);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Organizations_search_filter_sort_and_clamp_over_full_dataset(bool postgres)
     {
         await using var h = await Harness.Create(postgres);

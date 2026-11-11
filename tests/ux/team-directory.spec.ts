@@ -4,7 +4,7 @@ const baseline = process.env.HELPDESK_ADMIN_BASELINE === 'true';
 test.use({ screenshot: 'off', trace: 'off' });
 async function open(page: Page) {
   await page.goto('/admin/users');
-  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 }
 test.beforeEach(async ({ page, request }) => { await request.get(fixture); await page.goto('/auth/development'); });

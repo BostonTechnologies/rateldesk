@@ -124,6 +124,24 @@ public class OrganizationCustomerEndpointsTests : IClassFixture<WebApplicationFa
     }
 
     [Fact]
+    public async Task Customer_Delete_uses_the_identity_preserving_route()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var customers = scope.ServiceProvider.GetRequiredService<IRepository<Customer>>();
+        var customer = await customers.CreateAsync(new Customer
+        {
+            Name = "Identity-bound deletion fixture", Email = "retained@example.invalid", IdentityUserId = "retired-user"
+        });
+        using var client = await GetAuthenticatedClientAsync();
+
+        using var response = await client.DeleteAsync($"/api/v1/customers/{customer.Id}");
+
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("customer_identity_retained", await response.Content.ReadAsStringAsync());
+        Assert.NotNull(await customers.GetAsync(customer.Id));
+    }
+
+    [Fact]
     public async Task Customer_CreateEdit_PersistsIsEnabled()
     {
         var client = await GetAuthenticatedClientAsync();
