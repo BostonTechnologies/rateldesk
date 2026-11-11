@@ -1,4 +1,8 @@
 using System.Net;
+using Microsoft.AspNetCore.Http;
+using Helpdesk.Shared.Services;
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.Shared.DTOs.RequestForm;
 using System.Text.Json;
@@ -24,19 +28,21 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
     {
         await using var fixture = await Helpdesk.Tests.Infrastructure.Persistence.ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
         var started = new DateTimeOffset(2026, 10, 25, 12, 0, 0, TimeSpan.Zero);
-        await using (var seed = fixture.Open())
+        DbContextOptions<HelpdeskDbContext> options;
+        await using (var setup = fixture.Open())
         {
-            await seed.Database.MigrateAsync();
+            await setup.GetService<IMigrator>().MigrateAsync(postgres
+                ? "20261108173602_AddPendingEmailOperations" : "20261108173712_AddPendingEmailOperations");
+            options = HistoricalSeedOptions(setup, postgres);
+        }
+        await using (var seed = new PreDeadlineSeedContext(options))
+        {
             seed.Requests.Add(new Request { Id = "upgrade-parent", Title = "Legacy request", TrackingId = "REQ-UPGRADE", State = TicketState.InProgress, WorkflowStatus = "InProgress" });
             seed.RequestTasks.Add(new RequestTask { Id = "upgrade-task", RequestId = "upgrade-parent", Title = "Legacy running task", TrackingId = "TSK-UPGRADE",
                 Type = RequestTaskType.Automation, Status = RequestTaskStatus.InProgress, StartedAt = started,
                 HardTimeoutSeconds = 120, AutomationAttemptCorrelationId = "retained-attempt", AutomationAttemptHistoryJson = "[]",
                 OrchestrationExternalRequestId = "retained-request", OrchestrationExternalRunId = "retained-run" });
             await seed.SaveChangesAsync();
-            var migrations = seed.Database.GetMigrations().ToArray();
-            var index = Array.FindIndex(migrations, id => id.EndsWith("_AddAutomationExecutionDeadlines", StringComparison.Ordinal));
-            Assert.True(index > 0);
-            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
         }
         await using var upgraded = fixture.Open();
         await upgraded.Database.MigrateAsync();
@@ -58,20 +64,22 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
     public async Task Operator_hold_migration_preserves_ambiguous_historic_holds_without_adopting_timeout_or_failure_holds(bool postgres)
     {
         await using var fixture = await Helpdesk.Tests.Infrastructure.Persistence.ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
-        await using (var seed = fixture.Open())
+        DbContextOptions<HelpdeskDbContext> options;
+        await using (var setup = fixture.Open())
         {
-            await seed.Database.MigrateAsync();
+            await setup.GetService<IMigrator>().MigrateAsync("20261111161000_AddAutomationExecutionDeadlines");
+            options = HistoricalSeedOptions(setup, postgres);
+        }
+        await using (var seed = new PreOperatorHoldSeedContext(options))
+        {
             seed.Requests.AddRange(
                 new Request { Id = "old-operator", State = TicketState.OnHold, TrackingId = "REQ-OPERATOR", PayloadJson = "retained-input" },
                 new Request { Id = "old-timeout", State = TicketState.OnHold, WorkflowStatus = "NeedsReconciliation", WorkflowBlockReason = AutomationTaskStatuses.ReconciliationHoldReason },
                 new Request { Id = "old-failure", State = TicketState.OnHold, WorkflowStatus = "Blocked", WorkflowBlockReason = "Preserved independent reason" });
             await seed.SaveChangesAsync();
-            var migrations = seed.Database.GetMigrations().ToArray();
-            var index = Array.FindIndex(migrations, id => id.EndsWith("_TrackRequestOperatorHolds", StringComparison.Ordinal));
-            Assert.True(index > 0);
-            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
         }
         await using var upgraded = fixture.Open();
+        await upgraded.Database.MigrateAsync();
         await upgraded.Database.MigrateAsync();
         Assert.False(upgraded.Database.HasPendingModelChanges());
         var oldOperator = await upgraded.Requests.SingleAsync(row => row.Id == "old-operator");
@@ -415,6 +423,109 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         };
 
     [Theory][InlineData(false)][InlineData(true)]
+    public async Task An_operator_release_committed_after_a_held_continuation_evaluation_cannot_be_cleared_by_that_old_worker(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe(); var barrier = new HeldContinuationClear();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureDeadlines(services, clock, probe, connectivity);
+                services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(barrier));
+                services.AddAuthorization(options =>
+                {
+                    options.AddPolicy("RequestAccess", policy => policy.RequireAuthenticatedUser());
+                    options.AddPolicy("RequestManager", policy => policy.RequireAuthenticatedUser());
+                });
+            }, configureApp: app => app.MapRequestEndpoints());
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        var first = Guid.NewGuid(); var second = Guid.NewGuid();
+        await h.EditAsync(async db =>
+        {
+            var schema = new RequestFormSchemaModel { Tasks =
+                [new() { Id = first, Type = "automation" }, new() { Id = second, Type = "manual", Order = 1, DependsOn = [first] }] };
+            var form = new RequestForm { Title = "Release race", OrganizationId = h.OrganizationId,
+                JsonSchema = JsonSerializer.SerializeToDocument(schema, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+            db.RequestForms.Add(form);
+            var parent = await db.Requests.SingleAsync(); parent.RequestFormId = form.Id;
+            parent.OperatorHold = true; parent.State = TicketState.OnHold;
+            parent.WorkflowStatus = RequestHoldPolicy.OperatorStatus; parent.WorkflowBlockReason = RequestHoldPolicy.OperatorReason;
+            var completed = await db.RequestTasks.SingleAsync(); completed.Status = RequestTaskStatus.Completed;
+            completed.LastAutomationStatus = "succeeded"; completed.AutomationContinuationPending = true; completed.TemplateId = first.ToString();
+            db.RequestTasks.Add(new RequestTask { Id = "release-dependent", Title = "Dependent", RequestId = task.RequestId,
+                OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, TemplateId = second.ToString(),
+                Type = RequestTaskType.Manual, Status = RequestTaskStatus.Pending, IsBlocked = true, Order = 1 });
+        });
+        var firstSweep = SweepAsync(h);
+        await barrier.Entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        try
+        {
+            using var release = await SetOperatorStateAsync(h, task.RequestId, "quick", TicketState.InProgress);
+            Assert.Equal(HttpStatusCode.OK, release.StatusCode);
+        }
+        finally { barrier.Release.TrySetResult(); }
+        Assert.Equal(1, await firstSweep);
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync(row => row.Id == task.Id);
+            Assert.True(saved.AutomationContinuationPending);
+            Assert.Null(saved.AutomationReconciliationLeaseId);
+            Assert.True((await db.RequestTasks.SingleAsync(row => row.Id == "release-dependent")).IsBlocked);
+        });
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            Assert.False((await db.RequestTasks.SingleAsync(row => row.Id == task.Id)).AutomationContinuationPending);
+            Assert.False((await db.RequestTasks.SingleAsync(row => row.Id == "release-dependent")).IsBlocked);
+            Assert.False((await db.Requests.SingleAsync()).OperatorHold);
+        });
+        Assert.Equal(0, probe.Submissions); Assert.Equal(0, probe.Reads);
+    }
+
+    private sealed class HeldContinuationClear : DbCommandInterceptor
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("\"AutomationContinuationPending\" =", StringComparison.Ordinal)
+                && command.CommandText.Contains("\"AutomationReconciliationLeaseId\" = NULL", StringComparison.Ordinal)
+                && Entered.TrySetResult())
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            return result;
+        }
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Durable_continuation_recomputes_an_approval_only_workflow_without_applying_an_execution_deadline(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        await SeedDeadlineAsync(h, client, clock, connectivity);
+        await h.EditAsync(async db =>
+        {
+            var task = await db.RequestTasks.SingleAsync();
+            task.Type = RequestTaskType.Approval; task.Status = RequestTaskStatus.Completed;
+            task.AutomationContinuationPending = true; task.AutomationAttemptCorrelationId = null;
+            task.AutomationDeadlineUtcTicks = null; task.LastAutomationStatus = null;
+        });
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal(TicketState.Resolved, (await db.Requests.SingleAsync()).State);
+            var task = await db.RequestTasks.SingleAsync();
+            Assert.False(task.AutomationContinuationPending); Assert.Null(task.AutomationDeadlineUtcTicks);
+            Assert.Null(task.AutomationTimedOutAt); Assert.Equal(RequestTaskStatus.Completed, task.Status);
+        });
+        Assert.Equal(0, probe.Reads); Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
     public async Task A_successful_start_commits_its_parent_fence_attempt_and_deadline_before_remote_dispatch_can_finish(bool postgres)
     {
         var clock = new DeadlineClock(); var probe = new DeadlineProbe();
@@ -448,7 +559,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             var saved = await db.RequestTasks.SingleAsync();
             Assert.Equal(RequestTaskStatus.InProgress, saved.Status);
             Assert.NotNull(saved.StartedAt); Assert.False(string.IsNullOrWhiteSpace(saved.AutomationAttemptCorrelationId));
-            Assert.Equal(saved.StartedAt.Value.AddSeconds(120).UtcTicks, saved.AutomationDeadlineUtcTicks);
+            Assert.InRange(saved.AutomationDeadlineUtcTicks!.Value - saved.StartedAt.Value.UtcTicks,
+                120 * TimeSpan.TicksPerSecond, 120 * TimeSpan.TicksPerSecond + TimeSpan.TicksPerMicrosecond - 1);
             Assert.True(saved.AutomationStateVersion > 0);
             Assert.True((await db.Requests.SingleAsync()).WorkflowStateVersion > 0);
         });
@@ -492,7 +604,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         clock.Advance(TimeSpan.FromMinutes(3));
         Assert.Equal(1, await SweepAsync(h));
         readyRelease.SetResult(new AutomationBindingDto { Enabled = true, SystemConnectionId = client.MappingId });
-        await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+        await Assert.ThrowsAsync<RequestProgressionHeldException>(() => start);
         // A caller that catches the rejected start cannot persist its stale tracked intent later.
         await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().SaveChangesAsync();
         await h.EditAsync(async db =>
@@ -539,6 +651,55 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             Assert.Equal(0, saved.RetryCount); Assert.Null(saved.NextRetryAt);
         });
         Assert.Equal(0, probe.Submissions);
+    }
+
+    private static DbContextOptions<HelpdeskDbContext> HistoricalSeedOptions(HelpdeskDbContext current, bool postgres)
+    {
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>();
+        if (postgres) options.UseNpgsql(current.Database.GetConnectionString());
+        else options.UseSqlite(current.Database.GetConnectionString(), sqlite => sqlite.MigrationsAssembly("Helpdesk.Infrastructure.SqliteMigrations"));
+        return options.Options;
+    }
+
+    private class PreOperatorHoldSeedContext(DbContextOptions<HelpdeskDbContext> options)
+        : HelpdeskDbContext(options, new UpgradeTenant(), new HttpContextAccessor())
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            builder.Entity<Request>().Ignore(request => request.OperatorHold);
+            builder.Entity<Customer>().Ignore("IdentityUserId");
+            if (Database.IsSqlite())
+            {
+                // SQLite's retirement migration follows the fixed deadline schema.
+                builder.Entity<User>().Ignore("IsDeleted");
+                builder.Entity<User>().Ignore("DeletedAtUtc");
+            }
+        }
+    }
+
+    private sealed class PreDeadlineSeedContext(DbContextOptions<HelpdeskDbContext> options) : PreOperatorHoldSeedContext(options)
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            foreach (var name in new[] { "SelfServiceSubmissionId", "SelfServiceSubmitterId", "SelfServiceSubmissionHash", nameof(Request.WorkflowStateVersion) })
+                builder.Entity<Request>().Ignore(name);
+            foreach (var name in new[] { nameof(RequestTask.AutomationDeadlineUtcTicks), nameof(RequestTask.AutomationNextCheckUtcTicks),
+                nameof(RequestTask.AutomationTimedOutAt), nameof(RequestTask.AutomationTimedOutAttemptId),
+                nameof(RequestTask.AutomationReconciliationLeaseId), nameof(RequestTask.AutomationReconciliationLeaseUntilUtcTicks),
+                nameof(RequestTask.AutomationContinuationPending), nameof(RequestTask.AutomationStateVersion) })
+                builder.Entity<RequestTask>().Ignore(name);
+            builder.Entity<User>().Ignore("IsDeleted");
+            builder.Entity<User>().Ignore("DeletedAtUtc");
+        }
+    }
+
+    private sealed class UpgradeTenant : ITenantContext
+    {
+        public string? TenantId => null;
+        public string? UserId => null;
+        public bool IsHelpdeskAdmin => true;
     }
 
     private static void ConfigureDeadlines(IServiceCollection services, DeadlineClock clock, DeadlineProbe probe, IOrchestrationConnectivityService connectivity)

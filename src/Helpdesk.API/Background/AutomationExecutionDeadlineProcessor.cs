@@ -26,9 +26,9 @@ public sealed class AutomationExecutionDeadlineProcessor(
         // This is a system worker, not a user directory query. Every claimed row
         // is subsequently bound to its persisted organization before business work.
         var candidates = await db.RequestTasks.IgnoreQueryFilters().AsNoTracking()
-            .Where(task => task.Type == RequestTaskType.Automation
+            .Where(task => (task.Type == RequestTaskType.Automation || task.Type == RequestTaskType.Approval || task.Type == RequestTaskType.Manual)
                 && (task.AutomationContinuationPending
-                    || ((task.Status == RequestTaskStatus.InProgress
+                    || (task.Type == RequestTaskType.Automation && (task.Status == RequestTaskStatus.InProgress
                         || (task.Status == RequestTaskStatus.Failed
                             && (task.LastAutomationStatus == AutomationTaskStatuses.ExecutionUnknownManualReconcile
                                 || task.LastAutomationStatus == AutomationTaskStatuses.SubmitUncertainManualReconcile)))
