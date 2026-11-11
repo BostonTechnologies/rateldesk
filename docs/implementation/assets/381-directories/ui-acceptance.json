@@ -1,0 +1,174 @@
+{
+  "webSource": "e20c53efe6ff4035cbc23e46f3b69236938556a1",
+  "testSource": "d0b018023545f57c80251f10dc567bbeb924d509",
+  "buildTimestampUtc": "2026-11-11T17:21:46Z",
+  "scope": "Owning bUnit rendered MudBlazor components with synthetic HTTP handlers; no production identities or remote services. Final integrated source/CI remains separate.",
+  "counters": {
+    "total": "20",
+    "executed": "20",
+    "passed": "20",
+    "failed": "0",
+    "error": "0",
+    "timeout": "0",
+    "aborted": "0",
+    "inconclusive": "0",
+    "passedButRunAborted": "0",
+    "notRunnable": "0",
+    "notExecuted": "0",
+    "disconnected": "0",
+    "warning": "0",
+    "completed": "0",
+    "inProgress": "0",
+    "pending": "0"
+  },
+  "tests": [
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_unrelated_edit_preserves_the_saved_mapping_when_the_remote_catalog_is_unavailable_or_missing(mode: \"missing\", savedName: \"Saved tenant\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.3777725"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Resilience_pipeline_failures_offer_a_safe_retry_without_leaking_exceptions(circuitOpen: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.1002777"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Refresh_failure_retains_the_committed_rows_and_exposes_a_safe_recoverable_error",
+      "outcome": "Passed",
+      "duration": "00:00:00.0676971"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Superseded_search_cannot_replace_the_newest_result_even_if_the_handler_completes_late(oldRequestFails: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0333237"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationDirectorySelectorTests.Late_hydration_results_and_errors_cannot_replace_the_current_selection",
+      "outcome": "Passed",
+      "duration": "00:00:00.6907875"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_unrelated_edit_preserves_the_saved_mapping_when_the_remote_catalog_is_unavailable_or_missing(mode: \"missing\", savedName: null)",
+      "outcome": "Passed",
+      "duration": "00:00:04.3576525"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_unrelated_edit_preserves_the_saved_mapping_when_the_remote_catalog_is_unavailable_or_missing(mode: \"http\", savedName: \"Saved tenant\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.1998191"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationDirectorySelectorTests.Hydration_failure_retains_the_selected_id_without_showing_a_previous_organization(circuitOpen: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0269365"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryQueryStateTests.Full_query_survives_navigation_and_preserves_delegated_route_context",
+      "outcome": "Passed",
+      "duration": "00:00:00.3574452"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_unrelated_edit_preserves_the_saved_mapping_when_the_remote_catalog_is_unavailable_or_missing(mode: \"timeout\", savedName: \"Saved tenant\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.9037829"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_empty_save_error_retains_the_dialog_mapping_and_edited_inputs_for_retry",
+      "outcome": "Passed",
+      "duration": "00:00:00.3333987"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Upstream_timeout_is_a_recoverable_directory_error",
+      "outcome": "Passed",
+      "duration": "00:00:00.0171674"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Resilience_pipeline_failures_offer_a_safe_retry_without_leaking_exceptions(circuitOpen: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0418663"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_unrelated_edit_preserves_the_saved_mapping_when_the_remote_catalog_is_unavailable_or_missing(mode: \"renamed\", savedName: \"Saved tenant\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.2214983"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationDirectorySelectorTests.Search_resilience_errors_are_rendered_and_recover_without_private_details(circuitOpen: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0337167"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationDirectorySelectorTests.Search_resilience_errors_are_rendered_and_recover_without_private_details(circuitOpen: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.1752166"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.AdminDirectoryDataSourceTests.Superseded_search_cannot_replace_the_newest_result_even_if_the_handler_completes_late(oldRequestFails: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0689728"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationDirectorySelectorTests.Hydration_failure_retains_the_selected_id_without_showing_a_previous_organization(circuitOpen: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.1013899"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.Saving_an_unchanged_legacy_mapping_does_not_invent_a_link_timestamp",
+      "outcome": "Passed",
+      "duration": "00:00:00.0929803"
+    },
+    {
+      "name": "Helpdesk.Tests.NewWeb.OrganizationMappingDialogTests.An_unrelated_edit_preserves_the_saved_mapping_when_the_remote_catalog_is_unavailable_or_missing(mode: \"circuit\", savedName: \"Saved tenant\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.2707975"
+    }
+  ],
+  "build": {
+    "webWarnings": 0,
+    "webErrors": 0,
+    "testErrors": 0,
+    "authoredTestWarnings": 0,
+    "remainingBaselineAndPackageTestWarnings": 25,
+    "projectReferences": "Focused rebuild reused unchanged already-built references with BuildProjectReferences=false."
+  },
+  "checks": {
+    "slopwatch": "0 issues; no baseline edits",
+    "documentation": "196 Markdown files,914 local links passed",
+    "diffWhitespace": "passed"
+  },
+  "inputSha256": {
+    "src/HelpDesk.NewWeb/Components/Shared/OrganizationDirectorySelector.razor": "02d579ad3fd05537e34feb7bcaeed3514add062beb47d64253d9bc5a4aa9cbc1",
+    "src/HelpDesk.NewWeb/Components/Pages/Admin/Organization/EditOrganizationDialog.razor": "59fa140a51e93ecaaa3b25826691b8746f6fdd6a42567190d565074a5ef2b9e5",
+    "tests/Helpdesk.Tests/NewWeb/OrganizationDirectorySelectorTests.cs": "b31dece2090f5ba30a9135fae13e2856373308f41e7e8a670e4cedee782933f0",
+    "tests/Helpdesk.Tests/NewWeb/OrganizationMappingDialogTests.cs": "f0c26b20a59dabb939ef0866e8e8e12214a7fb1a4b2e97722f6bb220191a2ba4",
+    "tests/Helpdesk.Tests/NewWeb/AdminDirectoryDataSourceTests.cs": "ebbaee0f674cf2babbc2176235542d0317bd7a1e1320e42f0e1c4c57c67352c1",
+    "src/HelpDesk.NewWeb/bin/Debug/net10.0/HelpDesk.NewWeb.dll": "9845c558c0242e018e6ce7810261eb20bbf58e6230a364fb86ca6cd970b6f41f",
+    "tests/Helpdesk.Tests/bin/Debug/net10.0/Helpdesk.Tests.dll": "2d571dde1a9e25990ba77f0e97986420c384456755f79c91168674c3693f0ece"
+  },
+  "trxSha256": "39cd8e1c4089cac445b64b213979315c3bf9867a5842db93a376e9f921f7384d",
+  "openCoverSha256": "f46fd6b9c93e7c5a82afb5417f403ecbac0abc8ff755079a3b18e4b781d93314",
+  "coverageSummary": {
+    "generatedon": "2026-11-11T17:30:43Z",
+    "parser": "MultiReport (2x OpenCover)",
+    "assemblies": 1,
+    "classes": 4,
+    "files": 4,
+    "coveredlines": 201,
+    "uncoveredlines": 11,
+    "coverablelines": 212,
+    "totallines": 354,
+    "linecoverage": 94.8,
+    "coveredbranches": 116,
+    "totalbranches": 174,
+    "branchcoverage": 66.6,
+    "coveredmethods": 23,
+    "fullcoveredmethods": 22,
+    "totalmethods": 26,
+    "methodcoverage": 88.4,
+    "fullmethodcoverage": 84.6
+  },
+  "crapLimitation": "Pinned Coverlet OpenCover has no crapScore attributes and marks ordinary methods as constructors. ReportGenerator has no CRAP score column; missing scores are not claimed as zero.",
+  "sdk": "10.0.400",
+  "runsettings": "<RunSettings><DataCollectionRunSettings><DataCollectors><DataCollector friendlyName=\"XPlat code coverage\"><Configuration><Format>opencover</Format><Include>[HelpDesk.NewWeb]HelpDesk.NewWeb.Services.AdminDirectoryDataSource*,[HelpDesk.NewWeb]HelpDesk.NewWeb.Models.AdminDirectoryQueryState*,[HelpDesk.NewWeb]*OrganizationDirectorySelector*,[HelpDesk.NewWeb]*EditOrganizationDialog*</Include><SkipAutoProps>true</SkipAutoProps></Configuration></DataCollector></DataCollectors></DataCollectionRunSettings></RunSettings>",
+  "command": "DOTNET_PROCESSOR_COUNT=2 dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --no-build --no-restore --filter 'FullyQualifiedName~OrganizationDirectorySelectorTests|FullyQualifiedName~OrganizationMappingDialogTests|FullyQualifiedName~AdminDirectoryDataSourceTests|FullyQualifiedName~AdminDirectoryQueryStateTests' --settings /workspace/work/directories-ui.coverage.runsettings --collect 'XPlat Code Coverage' --logger 'trx;LogFileName=directories-ui.trx' --results-directory /workspace/work/results/directories-ui-e20c53ef"
+}
