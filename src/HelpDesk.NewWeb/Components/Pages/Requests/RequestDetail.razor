@@ -153,6 +153,16 @@ else
                                                         {
                                                             <dt>Provider outcome</dt><dd>@(RequiresManualReconciliation(context.Task.LastAutomationStatus) ? "Outcome unknown — needs reconciliation" : RequestProgressLabels.Readable(context.Task.LastAutomationStatus ?? "Not submitted"))</dd>
                                                             <dt>Binding</dt><dd>@RequestProgressLabels.Readable(context.Task.AutomationBindingSyncState?.ToString() ?? "Unknown")</dd>
+                                                            <dt>Attempt / correlation</dt><dd>@(context.Task.AutomationAttemptCorrelationId ?? "Not recorded")</dd>
+                                                            <dt>Saved connection</dt><dd>@(context.Task.OrchestrationLinkId ?? "Not recorded")</dd>
+                                                            <dt>Connection revision</dt><dd>@(context.Task.OrchestrationLinkRevision?.ToString() ?? "Not recorded")</dd>
+                                                            <dt>Execution deadline</dt><dd>@FormatDeadline(context.Task.AutomationDeadlineUtcTicks)</dd>
+                                                            <dt>Local elapsed (days.hours:minutes:seconds)</dt><dd>@FormatElapsed(context.Task)</dd>
+                                                            @if (context.Task.AutomationTimedOutAt.HasValue)
+                                                            {
+                                                                <dt>Timed out locally</dt><dd>@FormatTaskTime(context.Task.AutomationTimedOutAt)</dd>
+                                                                <dt>Timed-out attempt</dt><dd>@(context.Task.AutomationTimedOutAttemptId ?? "Not recorded")</dd>
+                                                            }
                                                             <dt>Last provider update</dt><dd>@FormatTaskTime(context.Task.LastAutomationUpdatedAt)</dd>
                                                             <dt>Runtime / grace / hard limit</dt><dd>@FormatRuntime(context.Task.ExpectedRuntimeSeconds) / @FormatRuntime(context.Task.GraceSeconds) / @FormatRuntime(context.Task.HardTimeoutSeconds)</dd>
                                                             <dt>Run</dt><dd>@(context.Task.OrchestrationExternalRunId ?? context.Task.OrchestratorExecutionId ?? "Not recorded")</dd>
@@ -685,10 +695,21 @@ else
     {
         if (!expandedTasks.Add(taskId)) expandedTasks.Remove(taskId);
     }
+    private static string FormatDeadline(long? ticks)
+    {
+        if (ticks is not { } value || value <= 0 || value > DateTime.MaxValue.Ticks) return "Not recorded";
+        return new DateTime(value, DateTimeKind.Utc).ToLocalTime().ToString("g");
+    }
+    private static string FormatElapsed(RequestTaskDto task)
+    {
+        if (task.StartedAt is not { } started) return "Not recorded";
+        var end = task.CompletedAt ?? task.AutomationTimedOutAt ?? DateTimeOffset.UtcNow;
+        return TimeSpan.FromSeconds(Math.Max(0, Math.Floor((end - started).TotalSeconds))).ToString(@"d\.hh\:mm\:ss");
+    }
     private static string FormatTaskTime(DateTimeOffset? value) => value?.ToLocalTime().ToString("g") ?? "Not recorded";
     private static string FormatRuntime(int? seconds) => seconds is null ? "Not configured" : $"{seconds} s";
     private static string GetTaskStatusLabel(RequestTaskDto task) => RequiresManualReconciliation(task.LastAutomationStatus)
-        ? "Needs reconciliation" : RequestProgressLabels.Readable(task.Status.ToString());
+        ? task.AutomationTimedOutAt.HasValue ? "Timed out — outcome unknown" : "Needs reconciliation" : RequestProgressLabels.Readable(task.Status.ToString());
     private static Color GetDisplayedTaskColor(RequestTaskDto task) => RequiresManualReconciliation(task.LastAutomationStatus) ? Color.Warning : GetTaskStatusColor(task.Status);
     private static string GetTaskStatusIcon(RequestTaskDto task) => RequiresManualReconciliation(task.LastAutomationStatus)
         ? Icons.Material.Outlined.HelpOutline : task.Status switch
