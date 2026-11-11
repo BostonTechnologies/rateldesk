@@ -11,7 +11,7 @@
 <PageTitle>Ticket Categories</PageTitle>
 
 <AdminDirectoryWorkspace Title="Ticket Categories" Subtitle="Manage classification, organization scope and availability."
-                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="source.Error" OnRefresh="ReloadAsync">
+                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="@source.Error" OnRefresh="ReloadAsync">
     <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartCreateAsync">New category</MudButton></PrimaryAction>
     <ToolbarContent>
         <MudTextField T="string" Value="query.Search" ValueChanged="SearchChangedAsync" Label="Search name or description"
@@ -36,11 +36,11 @@
         <MudTable T="TicketCategoryDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
                   RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 28rem), 44rem)" Breakpoint="Breakpoint.None">
             <HeaderContent>
-                <DirectorySortHeader Column="name" Label="Category" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="type" Label="Type" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="order" Label="Order" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="scope" Label="Scope" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="active" Label="Availability" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="name" Label="Category" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="type" Label="Type" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="order" Label="Order" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="scope" Label="Scope" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="active" Label="Availability" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <MudTh Class="directory-action-column">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>

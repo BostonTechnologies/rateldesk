@@ -10,7 +10,7 @@
 <PageTitle>Customers</PageTitle>
 
 <AdminDirectoryWorkspace Title="Customers" Subtitle="Manage contacts and their application access."
-                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="source.Error" OnRefresh="ReloadAsync">
+                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="@source.Error" OnRefresh="ReloadAsync">
     <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create customer</MudButton></PrimaryAction>
     <ToolbarContent>
         <MudTextField T="string" Value="query.Search" ValueChanged="SearchChangedAsync" Label="Search name, email or organization"
@@ -29,11 +29,11 @@
         <MudTable T="CustomerDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
                   RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
             <HeaderContent>
-                <DirectorySortHeader Column="name" Label="Customer" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="email" Label="Email" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="organization" Label="Organization" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="state" Label="State" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
-                <DirectorySortHeader Column="access" Label="Access" Sort="query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="name" Label="Customer" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="email" Label="Email" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="organization" Label="Organization" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="state" Label="State" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="access" Label="Access" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <MudTh Class="directory-action-column">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>

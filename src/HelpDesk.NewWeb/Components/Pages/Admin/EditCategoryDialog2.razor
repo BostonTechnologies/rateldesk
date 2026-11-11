@@ -18,7 +18,7 @@
                     <MudSelectItem Value="@("organization")">Organization</MudSelectItem>
                 </MudSelect>
                 @if (scope == "organization")
-                { <OrganizationDirectorySelector Value="model.OrganizationId" ValueChanged="@(value => model.OrganizationId = value)" /> }
+                { <OrganizationDirectorySelector Value="@model.OrganizationId" ValueChanged="@(value => model.OrganizationId = value)" /> }
                 else { <MudText Typo="Typo.body2" Color="Color.Secondary">Global categories become read-only. Choose an organization for an editable custom category.</MudText> }
             }
             <MudNumericField T="int" Label="Sort order" @bind-Value="model.SortOrder" />

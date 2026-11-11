@@ -1,6 +1,7 @@
-<MudPaper Class="directory-workspace" Elevation="0">
+<MudPaper Elevation="0" Style="border-radius:12px">
+<section class="directory-workspace" aria-label="@Title">
     <div class="directory-heading">
-        <div><MudText Typo="Typo.h4" HtmlTag="h1">@Title</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">@Subtitle</MudText></div>
+        <div><MudText Typo="Typo.h4" HtmlTag="h1">@Title</MudText><MudText Typo="Typo.body2" Class="directory-subtitle">@Subtitle</MudText></div>
         <div class="directory-heading-actions">
             <MudTooltip Text="Refresh directory"><MudIconButton Icon="@Icons.Material.Outlined.Refresh" aria-label="Refresh directory" Disabled="Refreshing" OnClick="@(() => OnRefresh.InvokeAsync())" /></MudTooltip>
             @PrimaryAction
@@ -15,6 +16,7 @@
         <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@Error</MudAlert>
     }
     <div class="directory-table-region" role="region" aria-label="@($"{Title} table; scroll for more columns")" tabindex="0">@ChildContent</div>
+</section>
 </MudPaper>
 
 @code {

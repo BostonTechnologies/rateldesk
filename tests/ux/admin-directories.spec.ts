@@ -39,6 +39,7 @@ for (const theme of ['light', 'dark']) test(`directory synthetic desktop tablet 
         await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
         if (!baseline) {
           await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+          await expect(page.locator('.directory-workspace .mud-alert')).toHaveCount(0);
           await expect(page.getByRole('status').filter({ hasText: `${total} results` })).toBeVisible();
           await expect(page.locator('.directory-table-region tbody tr')).toHaveCount(25);
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
