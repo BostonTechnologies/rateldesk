@@ -54,12 +54,12 @@ bytes and stable latest remain immutable. Owner production rollout is separate.
 
 ## Integrated source and focused functional verification
 
-The review batches are [PR #395](https://github.com/BostonTechnologies/rateldesk/pull/395)
+The review batches are [PR #395](https://github.com/BostonTechnologies/RatelDesk/pull/395)
 for trusted submission/deadlines and
-[PR #396](https://github.com/BostonTechnologies/rateldesk/pull/396) for administration
+[PR #396](https://github.com/BostonTechnologies/RatelDesk/pull/396) for administration
 queries and account retirement. The premium UI/release-preparation batch is stacked
-on these branches. NetRatel [PR #730](https://github.com/BostonTechnologies/netratel/pull/730)
-implements companion [#729](https://github.com/BostonTechnologies/netratel/issues/729).
+on these branches. NetRatel PR #730
+implements companion #729.
 All merges, exact-main checks and public distribution remain pending here.
 
 The functional build completed with no errors using SDK 10.0.400. Its first
