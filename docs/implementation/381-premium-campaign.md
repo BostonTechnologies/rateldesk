@@ -10,13 +10,13 @@ code, passing acceptance, reviewed merge and verified public distribution.
 
 | Issue | Implementation branch / owning area | Verification required | Delivery state |
 | --- | --- | --- | --- |
-| #380 | `codex/381-campaign`: trusted local requester, explicit organization, safe form errors and idempotent submission | Both-provider HTTP identity/ownership; rendered error/correction; real paired self success/failure, on-behalf and correlated final state | In progress; acceptance incomplete |
-| #382 | `codex/382-deadlines`: durable attempt deadlines, reconciliation and timeout holds | Both providers; deterministic timing, restart, concurrency, races, late/old outcomes; paired lost callback | In progress; acceptance incomplete |
-| #383 | `codex/383-live-details`: request-scoped committed live updates and quiet detail | Actual persisted transition → gateway SSE → rendered task/header/workflow; reconnect/revocation | In progress; acceptance incomplete |
-| #384 | `codex/384-self-service`: one navigation item and URL-backed tabs | Routes, history, ownership, focus and retained query state | In progress; acceptance incomplete |
-| #385 | `codex/384-self-service`: explicit responsive catalog tracks | Sparse and many cards; drawer, mobile and actual 200% zoom | In progress; acceptance incomplete |
-| #386 | `codex/384-self-service`: complete My Requests SQL query/paging | >100 records; full filter/count/sort, ties, stale responses and ownership | In progress; acceptance incomplete |
-| #387 | `codex/387-team-lifecycle`: Team directory and separate retirement/sign-in operations | Both providers; revoked sessions/credentials, retained attribution, reprovision and tenant fences | In progress; acceptance incomplete |
+| #380 | `codex/381-campaign`: trusted local requester, explicit organization, safe form errors and idempotent submission | Both-provider HTTP identity/ownership; rendered error/correction; real paired self success/failure, on-behalf and correlated final state | Implemented; focused requester/error cases passed; real pair and integrated gates pending |
+| #382 | `codex/382-deadlines`: durable attempt deadlines, reconciliation and timeout holds | Both providers; deterministic timing, restart, concurrency, races, late/old outcomes; paired lost callback | Implemented; all owning provider cases have passing outcomes; real pair and integrated gates pending |
+| #383 | `codex/383-live-details`: request-scoped committed live updates and quiet detail | Actual persisted transition → gateway SSE → rendered task/header/workflow; reconnect/revocation | Implemented; 11/11 gateway cases and 11/11 layout cases passed; integrated gates pending |
+| #384 | `codex/384-self-service`: one navigation item and URL-backed tabs | Routes, history, ownership, focus and retained query state | Implemented; scoped local .NET/browser acceptance passed; integrated gates pending |
+| #385 | `codex/384-self-service`: explicit responsive catalog tracks | Sparse and many cards; drawer, mobile and actual 200% zoom | Implemented; scoped local themed/native zoom acceptance passed; integrated gates pending |
+| #386 | `codex/384-self-service`: complete My Requests SQL query/paging | >100 records; full filter/count/sort, ties, stale responses and ownership | Implemented; scoped full-query/ownership/browser acceptance passed; integrated gates pending |
+| #387 | `codex/387-team-lifecycle`: Team directory and separate retirement/sign-in operations | Both providers; revoked sessions/credentials, retained attribution, reprovision and tenant fences | Implemented; 68/68 owning cases and themed/native before/after passed; integrated gates pending |
 | #388 | `codex/388-admin-directories`: bounded customer directory/access projection | >100 records, whole-query status filters, bounded request/query count, invitations | Implemented; scoped local acceptance passed; integrated CI/review/merge pending |
 | #389 | `codex/388-admin-directories`: organization directory | Complete queries, saved mapping/catalog-unavailable truth, delegated views | Implemented; scoped local acceptance passed; integrated CI/review/merge pending |
 | #390 | `codex/390-operational-cards`: structured connection cards | Saved IDs, pairing/actions and truthful fresh/stale/never-tested state | Implemented; local acceptance passed at `42d676f6`; integrated CI/review/merge pending |
@@ -125,9 +125,9 @@ real provider execution or public distribution.
 
 | Requirement | Implementation | Owning verification |
 | --- | --- | --- |
-| #384 | One Self Service navigation item, URL-backed catalog/request sections, retained list URLs and form return context | 63 navigation and six shell rendered cases; actual folder/search return after cancel/success; browser section/query/history behavior |
-| #385 | Explicit content-width three/two/one catalog tracks, stable sparse slots, bounded text and accessible full names/descriptions | Ten themed viewport matrices, four themed sparse cases, empty/error/no-match and keyboard behavior, four actual native 200% cases |
-| #386 | Whole-query SQL search/status/release/date filters, five sorts with ID ties, page sizes 25 (default), 50 and 100, reset/clamp, stale cancellation and recoverable reads | 13 HTTP query/ownership cases including real SQLite/PostgreSQL; browser query over 137 requests, native 25/50/100 controls, sticky geometry and retained state; two typed resilience rendered cases |
+| #384 | One Self Service navigation item, URL-backed catalog/request sections, retained list URLs and form return context | Implemented; scoped local .NET/browser acceptance passed; integrated gates pending |
+| #385 | Explicit content-width three/two/one catalog tracks, stable sparse slots, bounded text and accessible full names/descriptions | Implemented; scoped local themed/native zoom acceptance passed; integrated gates pending |
+| #386 | Whole-query SQL search/status/release/date filters, five sorts with ID ties, page sizes 25 (default), 50 and 100, reset/clamp, stale cancellation and recoverable reads | Implemented; scoped full-query/ownership/browser acceptance passed; integrated gates pending |
 | #380 rendered regression | Explicit requester/organization context, retained inputs and submission identity, safe unsuccessful/malformed responses and separate on-behalf confirmation | Eleven real Web→synthetic HTTP form cases, including empty 401/403/400/500, malformed errors/success, correction/retry, duplicate clicks and on-behalf cancellation/confirmation. Real NetRatel paired acceptance remains separate. |
 
 The final local Web subject is `10f4e0e424bb5b7073d80713e0b051037f419413`,
@@ -295,3 +295,12 @@ These results establish scoped local acceptance. Final integrated-source
 provider/authorization/lifecycle validation, the shared four-route directory
 presentation run, the six normal CI jobs, reviewed merge and release/distribution
 remain campaign gates; none is inferred from screenshots or an earlier binary.
+
+## Scoped live detail and Team receipts
+
+The [live-detail register](383-live-request-details.md) records 11/11 actual
+gateway cases, including 935 ms SQLite and 1,658 ms PostgreSQL convergence, and
+11/11 frozen layout cases. The [Team register](387-team-lifecycle.md) records
+68/68 owning cases plus the complete ordinary/native baseline comparison. These
+are isolated source receipts; final integrated CI and paired execution remain
+separate gates.

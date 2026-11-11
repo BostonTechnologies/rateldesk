@@ -496,18 +496,54 @@
       "logSha256": "acf54b8b4ca198e97b0def19066dac34ce0e88619a552f451da7cf5fc8439faa"
     }
   },
-  "sourceInputs": {
-    "src/Helpdesk.API/Services/Users/UserRetirement.cs": "8ae8586ca3a5baa5f01e8e9b0e3c517d74f47cd78924cadfd614c302c9329adb",
-    "src/Helpdesk.API/Endpoints/Users/UserDirectoryQuery.cs": "f1945ad10a99438c972d232472707bb96668323823796d513f50e88d730fdfef",
-    "src/Helpdesk.API/Middleware/UserAccessClaimsMiddleware.cs": "38f1e145f15794a1cd9067738f261a604847c2a172180154cc3178e6beca28f2",
-    "src/Helpdesk.API/Endpoints/Customers/CustomerAuthEndpoints.cs": "b9b8e2792abb461edf8c5c811478cb9c106e007cd4d983d60a23673c508ce0c6",
-    "src/HelpDesk.NewWeb/Components/Pages/Admin/User/UserManagement.razor": "3f6fe8423db48b7980d7bfdd1c0984a4958f37bfafe4c942ffba05adef473f39",
-    "src/HelpDesk.NewWeb/Components/Pages/Admin/User/DeleteUserDialog.razor": "29c46d3e4dddf22e1b1423ae652224aed265d3fc12b1853249d6ed7880c88621",
-    "src/HelpDesk.NewWeb/Components/Pages/Admin/User/ChangeUserSignInDialog.razor": "1ceedd4e5a4e0425ac674b6a37d516eff2d38a5e8d8e1e0421015ffa398e5fd2",
-    "src/HelpDesk.NewWeb/Services/UserLifecycleErrors.cs": "7df9936a90e47ab4cae69eb7c2b4d6dd9bb671b6e21b2b171ceeb9f3db8af653",
-    "tests/Helpdesk.Tests/Infrastructure/Persistence/UserRetirementProviderTests.cs": "71e6dfc98c32f6c9ac00d054e4f09e8721b5b3ec3a943da252acf80bb881f6b2",
-    "tests/Helpdesk.Tests/Api/UserRetirementOidcSessionTests.cs": "a138c7c4d0097127f3c8c727c7746eae2b0eb4cbf521c2d290f19ea6a1ee7301",
-    "tests/Helpdesk.Tests/Api/LocalAuthenticationEndpointsTests.Retirement.cs": "29919be9b6842616d24b2dc6c665a5a45c1aa45b6ab6f63963ee2d59d4eb823e",
-    "tests/Helpdesk.Tests/NewWeb/UserLifecycleDialogTests.cs": "a22758eefa6bca7492e7926ca0b9d9fb891efd1279e6192db8cca684131cb6df"
-  }
+  "sourceInputs": [
+    {
+      "path": "src/Helpdesk.API/Services/Users/UserRetirement.cs",
+      "sha256": "8ae8586ca3a5baa5f01e8e9b0e3c517d74f47cd78924cadfd614c302c9329adb"
+    },
+    {
+      "path": "src/Helpdesk.API/Endpoints/Users/UserDirectoryQuery.cs",
+      "sha256": "f1945ad10a99438c972d232472707bb96668323823796d513f50e88d730fdfef"
+    },
+    {
+      "path": "src/Helpdesk.API/Middleware/UserAccessClaimsMiddleware.cs",
+      "sha256": "38f1e145f15794a1cd9067738f261a604847c2a172180154cc3178e6beca28f2"
+    },
+    {
+      "path": "src/Helpdesk.API/Endpoints/Customers/CustomerAuthEndpoints.cs",
+      "sha256": "b9b8e2792abb461edf8c5c811478cb9c106e007cd4d983d60a23673c508ce0c6"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/UserManagement.razor",
+      "sha256": "3f6fe8423db48b7980d7bfdd1c0984a4958f37bfafe4c942ffba05adef473f39"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/DeleteUserDialog.razor",
+      "sha256": "29c46d3e4dddf22e1b1423ae652224aed265d3fc12b1853249d6ed7880c88621"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/ChangeUserSignInDialog.razor",
+      "sha256": "1ceedd4e5a4e0425ac674b6a37d516eff2d38a5e8d8e1e0421015ffa398e5fd2"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Services/UserLifecycleErrors.cs",
+      "sha256": "7df9936a90e47ab4cae69eb7c2b4d6dd9bb671b6e21b2b171ceeb9f3db8af653"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/Infrastructure/Persistence/UserRetirementProviderTests.cs",
+      "sha256": "71e6dfc98c32f6c9ac00d054e4f09e8721b5b3ec3a943da252acf80bb881f6b2"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/Api/UserRetirementOidcSessionTests.cs",
+      "sha256": "a138c7c4d0097127f3c8c727c7746eae2b0eb4cbf521c2d290f19ea6a1ee7301"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/Api/LocalAuthenticationEndpointsTests.Retirement.cs",
+      "sha256": "29919be9b6842616d24b2dc6c665a5a45c1aa45b6ab6f63963ee2d59d4eb823e"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/NewWeb/UserLifecycleDialogTests.cs",
+      "sha256": "a22758eefa6bca7492e7926ca0b9d9fb891efd1279e6192db8cca684131cb6df"
+    }
+  ]
 }
