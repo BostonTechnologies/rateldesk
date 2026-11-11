@@ -41,12 +41,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MudBlazor;
+using MudBlazor.Extensions;
 using MudBlazor.Services;
 using NSubstitute;
 using Xunit.Abstractions;
 using RequestDetail = NewWeb::HelpDesk.NewWeb.Components.Pages.Requests.RequestDetail;
 using OwnDetail = NewWeb::HelpDesk.NewWeb.Components.Pages.SelfService.MyRequestDetail;
 using Activity = NewWeb::HelpDesk.NewWeb.Components.Shared.TicketActivityTabs;
+using LiveUpdates = NewWeb::HelpDesk.NewWeb.Components.Shared.RequestLiveUpdates;
 using TimelineStream = NewWeb::HelpDesk.NewWeb.Services.TimelineStreamService;
 using WebGatewayConfiguration = NewWeb::HelpDesk.NewWeb.Services.WebGatewayConfiguration;
 using WebGatewayGuard = NewWeb::HelpDesk.NewWeb.Services.WebGatewayRequestGuard;
@@ -55,6 +58,7 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class RequestLiveProgressTests(ITestOutputHelper output)
 {
+    private static readonly TimeSpan SetupTimeout = TimeSpan.FromSeconds(10);
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -67,9 +71,9 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         context.ComponentFactories.AddStub<Activity>();
         var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"));
+        page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"), SetupTimeout);
         await page.InvokeAsync(() => page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new()));
-        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count));
+        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count), SetupTimeout);
         await page.InvokeAsync(() => page.Find("button[aria-label='Task details: Harmless automation 1']").ClickAsync(new()));
         Assert.Single(page.FindAll(".request-task-details"));
         Assert.DoesNotContain("Running</button>", page.Markup);
@@ -109,7 +113,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         await using var context = Context(factory, "SelfService.User");
         var page = context.Render<OwnDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("td[data-label=Status]").Count));
+        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("td[data-label=Status]").Count), SetupTimeout);
         await harness.CompleteAllAsync();
         await factory.Frames.State.Task.WaitAsync(TimeSpan.FromSeconds(2));
         page.WaitForAssertion(() =>
@@ -158,16 +162,55 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         context.ComponentFactories.AddStub<Activity>();
         var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
         await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        page.WaitForAssertion(() => Assert.Contains("In progress", page.Find(".ticket-header-status-chip").TextContent));
+        page.WaitForAssertion(() => Assert.Contains("In progress", page.Find(".ticket-header-status-chip").TextContent), SetupTimeout);
         factory.StreamingUnavailable = true;
         factory.CurrentStream!.Disconnect();
-        page.WaitForAssertion(() => Assert.Contains("Reconnecting", page.Find("[data-testid=request-live-updates]").TextContent));
+        page.WaitForAssertion(() => Assert.Contains("Reconnecting", page.Find("[data-testid=request-live-updates]").TextContent), SetupTimeout);
         await harness.CompleteAllAsync();
         factory.StreamingUnavailable = false;
         page.WaitForAssertion(() => Assert.Contains("Resolved", page.Find(".ticket-header-status-chip").TextContent), TimeSpan.FromSeconds(10));
         Assert.True(factory.Frames.Text.Split("event: ready").Length >= 3);
         Assert.DoesNotContain("event: request-state", factory.Frames.Text);
         Assert.Contains("Completed", page.Find("[data-testid=request-workflow-summary]").TextContent);
+    }
+
+    [Fact]
+    public async Task Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft()
+    {
+        await using var harness = await Harness.CreateAsync(false);
+        var factory = await harness.ClientsAsync("operator");
+        await using var context = Context(factory);
+        context.ComponentFactories.AddStub<Activity>();
+        var page = context.Render<RequestDetail>(p => p.Add(x => x.Id, "live-request"));
+        await factory.Frames.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        page.WaitForAssertion(() => Assert.Contains(page.FindAll("[role=tab]"), tab => tab.TextContent.Trim() == "Tasks"), SetupTimeout);
+        await page.InvokeAsync(() => page.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Tasks").ClickAsync(new()));
+        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll(".request-task-state").Count), SetupTimeout);
+        page.WaitForAssertion(() => Assert.True(factory.RequestSnapshots >= 2), TimeSpan.FromSeconds(5));
+        page.WaitForAssertion(() => Assert.False(page.Find("button[aria-label='Refresh request progress']").HasAttribute("disabled")), TimeSpan.FromSeconds(5));
+        await page.InvokeAsync(() => page.FindComponent<MudSelect<TicketPriority>>().Instance.ValueChanged.InvokeAsync(TicketPriority.High));
+
+        factory.PauseNextSnapshot = true;
+        factory.RejectNextSave = true;
+        await harness.CompleteAllAsync();
+        await factory.SnapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var saving = page.InvokeAsync(() => page.FindAll("button").Single(x => x.TextContent.Trim() == "Save Changes").ClickAsync(new()));
+        await factory.SaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var updates = page.FindComponent<LiveUpdates>();
+        var beforeSnapshotRelease = updates.RenderCount;
+        factory.ReleaseSnapshot.TrySetResult(true);
+        updates.WaitForAssertion(() => Assert.True(updates.RenderCount > beforeSnapshotRelease), TimeSpan.FromSeconds(5));
+        factory.ReleaseSave.TrySetResult(true);
+        await saving.WaitAsync(TimeSpan.FromSeconds(5));
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.All(page.FindAll(".request-task-state"), row => Assert.Contains("Completed", row.TextContent));
+            Assert.Contains("Resolved", page.Find("[data-testid=request-committed-state]").TextContent);
+            Assert.Equal(TicketPriority.High, page.FindComponent<MudSelect<TicketPriority>>().Instance.GetState(select => select.Value));
+            Assert.False(page.FindAll("button").Single(x => x.TextContent.Trim() == "Save Changes").HasAttribute("disabled"));
+        }, TimeSpan.FromSeconds(5));
+        Assert.Contains("event: request-state", factory.Frames.Text);
     }
 
     private static BunitContext Context(IHttpClientFactory factory, string role = "HelpdeskAdmin")
@@ -297,9 +340,11 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         public async Task CompleteAllAsync()
         {
             await using var scope = api.Services.CreateAsyncScope();
+            await using var transaction = await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().Database.BeginTransactionAsync();
             var lifecycle = scope.ServiceProvider.GetRequiredService<IRequestTaskLifecycleService>();
             for (var number = 1; number <= 3; number++) await lifecycle.CompleteAsync($"live-task-{number}", null, CancellationToken.None);
             await scope.ServiceProvider.GetRequiredService<IRequestTaskStateService>().EvaluateParentRequestState("live-request");
+            await transaction.CommitAsync();
         }
         public async Task WithDbAsync(Func<HelpdeskDbContext, Task> action)
         {
@@ -322,14 +367,53 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
 
     internal sealed class ClientFactory(WebApplication gateway, string cookie) : IHttpClientFactory
     {
+        private int requestSnapshots;
         public FrameRecorder Frames { get; } = new();
+        public int RequestSnapshots => Volatile.Read(ref requestSnapshots);
+        public void RecordRequestSnapshot() => Interlocked.Increment(ref requestSnapshots);
         public bool StreamingUnavailable { get; set; }
         public RecordingStream? CurrentStream { get; set; }
+        public bool PauseNextSnapshot { get; set; }
+        public bool RejectNextSave { get; set; }
+        public TaskCompletionSource<bool> SnapshotStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> ReleaseSnapshot { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> SaveStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> ReleaseSave { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public HttpClient CreateClient(string name)
         {
-            var handler = name == "HelpdeskApiStreaming" ? new RecordingHandler(this) { InnerHandler = gateway.GetTestServer().CreateHandler() } : gateway.GetTestServer().CreateHandler();
+            var handler = name == "HelpdeskApiStreaming"
+                ? (HttpMessageHandler)new RecordingHandler(this) { InnerHandler = gateway.GetTestServer().CreateHandler() }
+                : new SnapshotBarrierHandler(this) { InnerHandler = gateway.GetTestServer().CreateHandler() };
             var client = new HttpClient(handler) { BaseAddress = new Uri("http://gateway.test"), Timeout = Timeout.InfiniteTimeSpan };
             client.DefaultRequestHeaders.Add("Cookie", cookie); return client;
+        }
+    }
+
+    private sealed class SnapshotBarrierHandler(ClientFactory factory) : DelegatingHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Method == HttpMethod.Put && factory.RejectNextSave)
+            {
+                factory.RejectNextSave = false;
+                factory.SaveStarted.TrySetResult(true);
+                await factory.ReleaseSave.Task.WaitAsync(ct);
+                // This UI regression deliberately rejects the command. State changes and
+                // invalidation frames still come from the real committed API lifecycle.
+                return new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("Another operation changed this request.") };
+            }
+            var response = await base.SendAsync(request, ct);
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath == "/api/v1/requests/live-request")
+            {
+                factory.RecordRequestSnapshot();
+                if (factory.PauseNextSnapshot)
+                {
+                    factory.PauseNextSnapshot = false;
+                    factory.SnapshotStarted.TrySetResult(true);
+                    await factory.ReleaseSnapshot.Task.WaitAsync(ct);
+                }
+            }
+            return response;
         }
     }
     internal sealed class FrameRecorder

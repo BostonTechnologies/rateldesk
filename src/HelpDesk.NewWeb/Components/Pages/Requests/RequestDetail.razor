@@ -558,6 +558,9 @@ else
         var token = ticketLifetime.Token;
         refreshVersion++;
         isUpdating = true;
+        // A refresh already in flight is invalidated by this save. Reconcile again even
+        // when the command is rejected and produces no later stream invalidation.
+        refreshPending = true;
 
         try
         {
