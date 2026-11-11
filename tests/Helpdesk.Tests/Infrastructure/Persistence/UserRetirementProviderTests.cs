@@ -122,6 +122,7 @@ public sealed class UserRetirementProviderTests
             var setup = await identity.IntegrationCredentialSetupAttempts.SingleAsync();
             Assert.Equal("Revoked", setup.State); Assert.Null(setup.ProtectedDelivery);
             var access = await new CurrentUserAccessService(db, identity).ResolveAsync(Actor("target", local: true));
+            Assert.False(access.IsAuthenticated);
             Assert.False(access.IsHelpdeskAdmin); Assert.Empty(access.Permissions); Assert.Empty(access.AllowedOrganizationIds);
             var repeated = await UserRetirement.RetireAsync("target", Actor("administrator"), db, identity);
             Assert.Null(repeated.Error);
@@ -165,6 +166,7 @@ public sealed class UserRetirementProviderTests
         {
             var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("iss", issuer), new Claim("sub", "verified-subject"), new Claim("groups", "HelpdeskAdmin")], "Oidc"));
             var access = await new CurrentUserAccessService(db, identity).ResolveAsync(principal);
+            Assert.False(access.IsAuthenticated);
             Assert.False(access.IsHelpdeskAdmin); Assert.Empty(access.Permissions);
             var reprovisioned = await OidcApplicationAccount.ProvisionAdministratorAsync(identity, issuer, "verified-subject", "Changed profile");
             Assert.Equal(accountId, reprovisioned.Id); Assert.True(reprovisioned.IsDeleted); Assert.False(reprovisioned.IsEnabled);
@@ -220,11 +222,14 @@ public sealed class UserRetirementProviderTests
         {
             await identity.Database.MigrateAsync();
             identity.Users.AddRange(Enumerable.Range(0, 133).Select(index => new ApplicationUser { Id = $"user-{index:D3}", UserName = $"user-{index:D3}", IsEnabled = index % 2 == 0 }));
+            identity.UserLogins.Add(new IdentityUserLogin<string> { UserId = "user-128", LoginProvider = "synthetic-external", ProviderKey = "verified-subject" });
             await identity.SaveChangesAsync();
         }
         db.Organizations.Add(new Organization { Id = "organization", Name = "Synthetic organization" });
         db.Users.AddRange(Enumerable.Range(0, 133).Select(index => new User { Id = $"user-{index:D3}", Name = "Duplicate Name", Email = $"user{index:D3}@example.invalid", OrganizationId = "organization", Role = index % 3 == 0 ? "Technician" : "User", IsTestUser = index % 2 == 0 }));
         db.Users.Add(new User { Id = "deleted", Name = "Deleted profile", IsDeleted = true });
+        db.Customers.Add(new Customer { Id = "disabled-link-contact", Name = "Synthetic contact", Email = "linked@example.invalid", OrganizationId = "organization" });
+        db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = "disabled-link-contact", DomainUserId = "user-130", LocalAccountId = "user-130", InviteStatus = CustomerInviteStatus.Disabled, DisabledAtUtc = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync();
         var parameters = new UserDirectoryQuery.Parameters { Page = 6, PageSize = 25 };
         var page = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(parameters, db, Actor("administrator"), default)).Value!;
@@ -234,7 +239,13 @@ public sealed class UserRetirementProviderTests
         Assert.Equal(1, filtered.Total); Assert.Equal(1, filtered.Page); Assert.Equal("user-132", Assert.Single(filtered.Items).Id);
         parameters.Search = null; parameters.State = "Disabled"; parameters.IsTestUser = null; parameters.SortBy = "email"; parameters.Descending = true;
         var disabled = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(parameters, db, Actor("administrator"), default)).Value!;
-        Assert.Equal(66, disabled.Total); Assert.Equal(3, disabled.Page); Assert.All(disabled.Items, user => Assert.Equal("Disabled", user.AccountState));
+        Assert.Equal(67, disabled.Total); Assert.Equal(3, disabled.Page); Assert.All(disabled.Items, user => Assert.Equal("Disabled", user.AccountState));
+        var blockedLink = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(new() { Search = "user130", State = "Disabled" }, db, Actor("administrator"), default)).Value!;
+        var blockedUser = Assert.Single(blockedLink.Items);
+        Assert.True(blockedUser.AccountSignInEnabled); Assert.Contains("Identity link disabled", blockedUser.IdentitySummary);
+        var external = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(new() { Search = "user128", State = "Enabled" }, db, Actor("administrator"), default)).Value!;
+        var externalUser = Assert.Single(external.Items);
+        Assert.False(externalUser.CanManageAccount); Assert.Equal("External application account", externalUser.IdentitySummary);
         parameters.PageSize = 100; parameters.Page = 1; parameters.Role = "Technician";
         var technicians = Assert.IsType<Ok<PagedResult<UserDirectoryDto>>>(await UserDirectoryQuery.ReadAsync(parameters, db, Actor("administrator"), default)).Value!;
         Assert.Equal(22, technicians.Total); Assert.Equal("user-129", technicians.Items[0].Id);

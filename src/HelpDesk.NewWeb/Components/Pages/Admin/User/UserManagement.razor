@@ -9,6 +9,7 @@
 @using Helpdesk.Shared.DTOs.User
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Authorization
 
 <PageTitle>Team</PageTitle>
 <AuthorizeView Roles="HelpdeskAdmin" Context="instanceAdministrator">
@@ -38,8 +39,9 @@
         <MudButton Variant="Variant.Text" Disabled="@(!HasFilters)" OnClick="ClearFilters">Clear filters</MudButton>
     </div>
     <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? $"{total:N0} team members" : "Team unavailable")</MudText>
+    @if (organizationError is not null) { <MudAlert Severity="Severity.Warning" role="alert">@organizationError</MudAlert> }
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="Refresh">Retry</MudButton></MudAlert> }
-    <div class="team-table-region" role="region" aria-label="Team directory. Scroll horizontally to reach all columns and actions." tabindex="0">
+    <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Team directory. Scroll horizontally to reach all columns and actions." tabindex="0">
     <MudTable T="UserDirectoryDto" @ref="table" ServerData="LoadServerData" Dense="true" Hover="true" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.None"
               Height="clamp(14rem, calc(100dvh - 24rem), 44rem)" RowsPerPage="pageSize" CurrentPage="pageIndex" RowsPerPageChanged="PageSizeChanged" CurrentPageChanged="PageChanged" Class="team-table">
         <ColGroup><col style="width:28%" /><col style="width:24%" /><col style="width:16%" /><col style="width:12%" /><col style="width:20%" /></ColGroup>
@@ -53,14 +55,14 @@
             <MudTd DataLabel="Name"><div class="team-identity"><strong title="@context.Name">@context.Name</strong><span title="@context.Role">@RoleSummary(context) · @(context.IsTestUser ? "Testing" : "Production")</span></div></MudTd>
             <MudTd DataLabel="Email"><span class="team-cell-text" title="@context.Email">@context.Email</span></MudTd>
             <MudTd DataLabel="Organization"><span class="team-cell-text" title="@context.OrganizationName">@(context.OrganizationName ?? "No organization")</span></MudTd>
-            <MudTd DataLabel="Access">@StateLabel(context.AccountState)</MudTd>
+            <MudTd DataLabel="Access"><span>@StateLabel(context.AccountState)</span><span class="team-access-summary" title="@context.IdentitySummary">@context.IdentitySummary</span></MudTd>
             <MudTd DataLabel="Actions"><div class="team-row-actions">
                 <MudTooltip Text="Edit user and roles"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-label="Edit user" OnClick="() => OpenEditDialog(context)" /></MudTooltip>
                 @if (context.CanManageAccount) { <MudTooltip Text="Manage local credentials"><MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small" aria-label="Manage local account" OnClick="() => OpenResetDialog(context)" /></MudTooltip> }
                 @if (context.AccountId is not null)
                 {
-                    <MudTooltip Text="@(context.CanChangeSignIn ? (context.AccountState == "Enabled" ? "Disable sign-in" : "Enable sign-in") : context.DeleteBlockedReason)"><span><MudIconButton Icon="@(context.AccountState == "Enabled" ? Icons.Material.Outlined.Block : Icons.Material.Outlined.CheckCircle)" Size="Size.Small" Disabled="@(!context.CanChangeSignIn)"
-                        aria-label="@(context.AccountState == "Enabled" ? "Disable sign-in" : "Enable sign-in")" OnClick="() => OpenSignInDialog(context)" /></span></MudTooltip>
+                    <MudTooltip Text="@(context.CanChangeSignIn ? (AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in") : context.DeleteBlockedReason)"><span><MudIconButton Icon="@(AccountEnabled(context) ? Icons.Material.Outlined.Block : Icons.Material.Outlined.CheckCircle)" Size="Size.Small" Disabled="@(!context.CanChangeSignIn)"
+                        aria-label="@(AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in")" OnClick="() => OpenSignInDialog(context)" /></span></MudTooltip>
                 }
                 <MudTooltip Text="@(context.DeleteBlockedReason ?? "Delete user")"><span><MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Size="Size.Small" aria-label="Delete user" Disabled="@(!context.CanDelete)" OnClick="() => OpenDeleteDialog(context)" /></span></MudTooltip>
             </div></MudTd>
@@ -92,14 +94,16 @@
     [SupplyParameterFromQuery(Name = "pageSize")] public int? QueryPageSize { get; set; }
     [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
     [SupplyParameterFromQuery(Name = "descending")] public bool QueryDescending { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private MudTable<UserDirectoryDto>? table;
     private TenantLookupDto? selectedOrganization;
     private string searchText = string.Empty, roleFilter = string.Empty, stateFilter = string.Empty, sortBy = "name";
-    private string? organizationId, loadError, appliedLocation;
+    private string? organizationId, loadError, organizationError, appliedLocation;
     private bool? testFilter;
     private int pageIndex, pageSize = 25, total, generation;
-    private bool descending, disposed, reloadAfterRender;
+    private bool descending, disposed, reloadAfterRender, focusDirectoryAfterRender;
+    private ElementReference directoryRegion;
     private CancellationTokenSource? queryCancellation;
     private TableData<UserDirectoryDto> lastData = new() { Items = [], TotalItems = 0 };
     private bool HasFilters => !string.IsNullOrWhiteSpace(searchText) || !string.IsNullOrWhiteSpace(organizationId) || !string.IsNullOrWhiteSpace(roleFilter) || !string.IsNullOrWhiteSpace(stateFilter) || testFilter.HasValue;
@@ -112,7 +116,9 @@
         roleFilter = QueryRole ?? string.Empty; stateFilter = QueryState ?? string.Empty;
         testFilter = QueryCohort switch { "testing" => true, "production" => false, _ => null };
         pageIndex = Math.Max(0, (QueryPage ?? 1) - 1); pageSize = QueryPageSize is 50 or 100 ? QueryPageSize.Value : 25;
-        sortBy = QuerySort ?? "name"; descending = QueryDescending;
+        sortBy = QuerySort is "email" or "organization" or "state" ? QuerySort : "name"; descending = QueryDescending;
+        var actor = AuthenticationStateTask is null ? null : (await AuthenticationStateTask).User;
+        if (actor?.IsInRole("HelpdeskAdmin") != true) return;
         if (!string.IsNullOrWhiteSpace(organizationId))
         {
             try { selectedOrganization = (await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(organizationId)}"))?.FirstOrDefault(); }
@@ -125,6 +131,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (reloadAfterRender && table is not null) { reloadAfterRender = false; await table.ReloadServerData(); }
+        if (focusDirectoryAfterRender) { focusDirectoryAfterRender = false; await directoryRegion.FocusAsync(); }
     }
 
     private async Task<TableData<UserDirectoryDto>> LoadServerData(TableState state, CancellationToken ct)
@@ -158,8 +165,20 @@
         }
     }
 
-    private async Task<IEnumerable<TenantLookupDto>> FindOrganizations(string search, CancellationToken ct) =>
-        await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", ct) ?? [];
+    private async Task<IEnumerable<TenantLookupDto>> FindOrganizations(string search, CancellationToken ct)
+    {
+        try
+        {
+            organizationError = null;
+            return await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", ct) ?? [];
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            organizationError = "Organization lookup is unavailable. Your selection is retained; retry the search.";
+            await InvokeAsync(StateHasChanged);
+            return [];
+        }
+    }
     private Task SearchChanged(string value) { searchText = value ?? string.Empty; return QueryChanged(); }
     private Task RoleChanged(string value) { roleFilter = value; return QueryChanged(); }
     private Task StateChanged(string value) { stateFilter = value; return QueryChanged(); }
@@ -201,16 +220,17 @@
     }
     private async Task OpenSignInDialog(UserDirectoryDto user)
     {
-        var dialog = await DialogService.ShowAsync<ChangeUserSignInDialog>(user.AccountState == "Enabled" ? "Disable sign-in" : "Enable sign-in", new DialogParameters { ["User"] = user }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<ChangeUserSignInDialog>(AccountEnabled(user) ? "Disable sign-in" : "Enable sign-in", new DialogParameters { ["User"] = user }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await Refresh();
     }
     private async Task OpenDeleteDialog(UserDirectoryDto user)
     {
         var dialog = await DialogService.ShowAsync<DeleteUserDialog>("Delete user", new DialogParameters { ["User"] = ToUser(user) }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
-        if (await dialog.Result is { Canceled: false }) await Refresh();
+        if (await dialog.Result is { Canceled: false }) { await Refresh(); focusDirectoryAfterRender = true; StateHasChanged(); }
     }
     private static string RoleSummary(UserDirectoryDto user) => user.RoleKeys.Count > 0 ? string.Join(", ", user.RoleKeys) : user.Role;
     private static UserDto ToUser(UserDirectoryDto user) => new(user.Id, user.Name, user.Email, user.Role, user.IsTestUser, user.OrganizationId);
-    private static string StateLabel(string value) => value switch { "Enabled" => "Sign-in enabled", "Disabled" => "Sign-in disabled", "External" => "External identity", _ => "Profile only" };
+    private static bool AccountEnabled(UserDirectoryDto user) => user.AccountSignInEnabled ?? user.AccountState == "Enabled";
+    private static string StateLabel(string value) => value switch { "Enabled" => "Enabled", "Disabled" => "Disabled", "External" => "External identity", _ => "Profile only" };
     public void Dispose() { disposed = true; queryCancellation?.Cancel(); queryCancellation?.Dispose(); }
 }

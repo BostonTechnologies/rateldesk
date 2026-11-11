@@ -46,15 +46,19 @@ public static class UserDirectoryQuery
                        .OrderBy(link => link.Id).Select(link => link.LocalAccountId).FirstOrDefault()
                    join account in accounts on (linkedAccount ?? user.Id) equals account.Id into userAccounts
                    from account in userAccounts.DefaultIfEmpty()
+                   let disabledLink = db.CustomerAuthLinks.Any(link => (link.DomainUserId == user.Id || link.LocalAccountId == user.Id) &&
+                       (link.DisabledAtUtc != null || link.InviteStatus == Helpdesk.Shared.Models.CustomerInviteStatus.Disabled))
                    select new
                    {
                        user.Id, user.Name, user.Email, user.Role, user.OrganizationId, user.IsTestUser,
                        OrganizationName = organization == null ? null : organization.Name,
-                       AccountId = account == null ? null : account.Id,
-                       IsEnabled = account != null && account.IsEnabled && !account.IsDeleted,
-                       IsAdministrator = account != null && account.IsInstanceAdministrator,
-                       CanManageCredentials = account != null && account.CanManageCredentials,
-                       State = account != null ? (account.IsEnabled && !account.IsDeleted ? "Enabled" : "Disabled") :
+                       AccountId = account.Id,
+                       IsEnabled = account.Id != null && account.IsEnabled && !account.IsDeleted,
+                       IsAdministrator = account.Id != null && account.IsInstanceAdministrator,
+                       IsAccountDeleted = account.Id != null && account.IsDeleted,
+                       CanManageCredentials = account.Id != null && account.CanManageCredentials,
+                       HasDisabledLink = disabledLink,
+                       State = disabledLink ? "Disabled" : account.Id != null ? (account.IsEnabled && !account.IsDeleted ? "Enabled" : "Disabled") :
                            db.CustomerAuthLinks.Any(link => link.DomainUserId == user.Id && (link.OidcSubject != null || link.AuthentikUserId != null)) ? "External" : "Profile"
                    };
 
@@ -109,8 +113,12 @@ public static class UserDirectoryQuery
                 Id = row.Id, Name = row.Name, Email = row.Email, Role = row.Role, OrganizationId = row.OrganizationId,
                 RoleKeys = roles.Where(role => role.UserId == row.Id).Select(role => role.RoleKey).Order(StringComparer.OrdinalIgnoreCase).ToArray(),
                 OrganizationName = row.OrganizationName, IsTestUser = row.IsTestUser, AccountState = row.State, AccountId = row.AccountId,
+                AccountSignInEnabled = row.AccountId is null ? null : row.IsEnabled,
+                IdentitySummary = row.HasDisabledLink ? "Identity link disabled; enabling the account does not restore the link." :
+                    row.AccountId is null ? row.State == "External" ? "External identity" : "No application sign-in account" :
+                    row.CanManageCredentials ? "Local application account" : "External application account",
                 CanManageAccount = row.AccountId != null && row.CanManageCredentials,
-                CanChangeSignIn = row.AccountId != null && !self && !lastAdministrator,
+                CanChangeSignIn = row.AccountId != null && !row.IsAccountDeleted && !self && !lastAdministrator,
                 CanDelete = !self && !lastAdministrator,
                 DeleteBlockedReason = self ? "You cannot delete your own application access." :
                     lastAdministrator ? "The last enabled instance administrator must remain active." : null

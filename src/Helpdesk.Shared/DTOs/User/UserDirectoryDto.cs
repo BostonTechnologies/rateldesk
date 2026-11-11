@@ -12,6 +12,8 @@ public sealed record UserDirectoryDto
     public string? OrganizationId { get; init; }
     public string? OrganizationName { get; init; }
     public string AccountState { get; init; } = "Profile";
+    public bool? AccountSignInEnabled { get; init; }
+    public string IdentitySummary { get; init; } = string.Empty;
     public string? AccountId { get; init; }
     public bool CanManageAccount { get; init; }
     public bool CanChangeSignIn { get; init; }

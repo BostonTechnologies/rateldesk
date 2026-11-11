@@ -7,6 +7,7 @@
 .team-table-region ::deep .mud-table-pagination { min-height: 3.5rem; flex-wrap: nowrap; overflow-x: auto; }
 .team-identity { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
 .team-identity strong, .team-cell-text { display: block; overflow-wrap: anywhere; }
+.team-access-summary { display: block; color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; margin-top: .2rem; }
 .team-identity span { color: var(--mud-palette-text-secondary); }
 .team-row-actions { display: flex; flex-flow: row nowrap; align-items: center; gap: .15rem; min-width: 11rem; }
 .team-sort { display: inline-flex; align-items: center; gap: .35rem; min-height: 2.5rem; padding: .25rem .4rem; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
