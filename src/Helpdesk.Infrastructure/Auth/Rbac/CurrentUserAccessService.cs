@@ -45,8 +45,9 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var link = await FindCustomerAuthLinkAsync(claimedLocalAccountId, issuer, subject, authentikUserId, ct);
         // A domain tombstone remains authoritative when a legacy linked
         // application account is missing or was disabled independently.
-        if (link is not null && !string.IsNullOrWhiteSpace(link.DomainUserId) &&
-            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == link.DomainUserId && domainUser.IsDeleted, ct))
+        var retirementDomainId = link?.DomainUserId ?? claimedLocalAccountId ?? link?.LocalAccountId;
+        if (!string.IsNullOrWhiteSpace(retirementDomainId) &&
+            await _db.Users.AsNoTracking().AnyAsync(domainUser => domainUser.Id == retirementDomainId && domainUser.IsDeleted, ct))
             return Empty(false);
         // A linked OIDC subject is not an application user ID. Resolve its
         // persisted application account before evaluating account state or
