@@ -20,4 +20,6 @@ public class Request : Ticket
     public string? WorkflowBlockReason { get; set; }
     public DateTimeOffset? WorkflowUpdatedAt { get; set; }
     public long WorkflowStateVersion { get; set; }
+    // Null preserves conservative interpretation of an unmigrated legacy hold.
+    public bool? OperatorHold { get; set; } = false;
 }

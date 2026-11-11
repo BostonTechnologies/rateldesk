@@ -1,4 +1,6 @@
 using System.Net;
+using Helpdesk.API.Endpoints.Requests;
+using Helpdesk.Shared.DTOs.RequestForm;
 using System.Text.Json;
 using Helpdesk.API.Background;
 using Helpdesk.Application.Orchestration;
@@ -50,6 +52,36 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         Assert.False(task.AutomationContinuationPending);
         Assert.Equal(0, task.AutomationStateVersion);
         Assert.Equal(0, (await upgraded.Requests.SingleAsync()).WorkflowStateVersion);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Operator_hold_migration_preserves_ambiguous_historic_holds_without_adopting_timeout_or_failure_holds(bool postgres)
+    {
+        await using var fixture = await Helpdesk.Tests.Infrastructure.Persistence.ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
+        await using (var seed = fixture.Open())
+        {
+            await seed.Database.MigrateAsync();
+            seed.Requests.AddRange(
+                new Request { Id = "old-operator", State = TicketState.OnHold, TrackingId = "REQ-OPERATOR", PayloadJson = "retained-input" },
+                new Request { Id = "old-timeout", State = TicketState.OnHold, WorkflowStatus = "NeedsReconciliation", WorkflowBlockReason = AutomationTaskStatuses.ReconciliationHoldReason },
+                new Request { Id = "old-failure", State = TicketState.OnHold, WorkflowStatus = "Blocked", WorkflowBlockReason = "Preserved independent reason" });
+            await seed.SaveChangesAsync();
+            var migrations = seed.Database.GetMigrations().ToArray();
+            var index = Array.FindIndex(migrations, id => id.EndsWith("_TrackRequestOperatorHolds", StringComparison.Ordinal));
+            Assert.True(index > 0);
+            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
+        }
+        await using var upgraded = fixture.Open();
+        await upgraded.Database.MigrateAsync();
+        Assert.False(upgraded.Database.HasPendingModelChanges());
+        var oldOperator = await upgraded.Requests.SingleAsync(row => row.Id == "old-operator");
+        Assert.True(oldOperator.OperatorHold);
+        Assert.Equal("retained-input", oldOperator.PayloadJson);
+        Assert.Equal("REQ-OPERATOR", oldOperator.TrackingId);
+        Assert.False((await upgraded.Requests.SingleAsync(row => row.Id == "old-timeout")).OperatorHold);
+        var failure = await upgraded.Requests.SingleAsync(row => row.Id == "old-failure");
+        Assert.False(failure.OperatorHold);
+        Assert.Equal("Preserved independent reason", failure.WorkflowBlockReason);
     }
 
     [Theory][InlineData(false)][InlineData(true)]
@@ -293,6 +325,175 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             Assert.Equal(AutomationTaskStatuses.ExecutionUnknownManualReconcile, (await db.RequestTasks.SingleAsync(row => row.Id == task.Id)).LastAutomationStatus);
         });
         Assert.Equal(0, probe.Reads);
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory]
+    [InlineData(false, "quick")][InlineData(true, "quick")]
+    [InlineData(false, "put")][InlineData(true, "put")]
+    [InlineData(false, "bulk")][InlineData(true, "bulk")]
+    [InlineData(false, "take-over")][InlineData(true, "take-over")]
+    public async Task Supported_operator_state_routes_preserve_their_hold_after_a_late_same_attempt_success(bool postgres, string route)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureDeadlines(services, clock, probe, connectivity);
+                services.AddAuthorization(options =>
+                {
+                    options.AddPolicy("RequestAccess", policy => policy.RequireAuthenticatedUser());
+                    options.AddPolicy("RequestManager", policy => policy.RequireAuthenticatedUser());
+                });
+            }, configureApp: app => app.MapRequestEndpoints());
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        var first = Guid.NewGuid(); var second = Guid.NewGuid();
+        var dependentId = Guid.NewGuid().ToString("N");
+        await h.EditAsync(async db =>
+        {
+            var schema = new RequestFormSchemaModel { Tasks =
+                [new() { Id = first, Type = "automation" }, new() { Id = second, Type = "automation", Order = 1, DependsOn = [first], AutoStart = false }] };
+            var form = new RequestForm { Title = "Hold test", OrganizationId = h.OrganizationId,
+                JsonSchema = JsonSerializer.SerializeToDocument(schema, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+            db.RequestForms.Add(form);
+            (await db.Requests.SingleAsync()).RequestFormId = form.Id;
+            (await db.RequestTasks.SingleAsync()).TemplateId = first.ToString();
+            db.RequestTasks.Add(new RequestTask { Id = dependentId, Title = "Dependent task", RequestId = task.RequestId,
+                OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, TemplateId = second.ToString(),
+                Type = RequestTaskType.Automation, Status = RequestTaskStatus.Pending, IsBlocked = true, AutoStart = false, Order = 1 });
+        });
+        if (route == "take-over")
+        {
+            clock.Advance(TimeSpan.FromMinutes(3));
+            Assert.Equal(1, await SweepAsync(h));
+        }
+        using var held = await SetOperatorStateAsync(h, task.RequestId, route, TicketState.OnHold);
+        Assert.Equal(HttpStatusCode.OK, held.StatusCode);
+        if (route != "take-over")
+        {
+            clock.Advance(TimeSpan.FromMinutes(3));
+            Assert.Equal(1, await SweepAsync(h));
+        }
+        await h.RestartAsync();
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var completed = await SendCorrelatedAsync(h, token, Callback(task), "deadline-attempt");
+        Assert.Equal(HttpStatusCode.NoContent, completed.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            Assert.True(parent.OperatorHold);
+            Assert.Equal(TicketState.OnHold, parent.State);
+            Assert.Equal(RequestHoldPolicy.OperatorStatus, parent.WorkflowStatus);
+            Assert.Equal(RequestHoldPolicy.OperatorReason, parent.WorkflowBlockReason);
+            var dependent = await db.RequestTasks.SingleAsync(row => row.Id == dependentId);
+            Assert.True(dependent.IsBlocked);
+            Assert.Equal(RequestTaskStatus.Pending, dependent.Status);
+            Assert.Equal(RequestTaskStatus.Completed, (await db.RequestTasks.SingleAsync(row => row.Id == task.Id)).Status);
+        });
+        using var released = await SetOperatorStateAsync(h, task.RequestId, "quick", TicketState.InProgress);
+        Assert.Equal(HttpStatusCode.OK, released.StatusCode);
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            Assert.False(parent.OperatorHold);
+            Assert.Null(parent.WorkflowBlockReason);
+            Assert.NotEqual(TicketState.OnHold, parent.State);
+            Assert.False((await db.RequestTasks.SingleAsync(row => row.Id == dependentId)).IsBlocked);
+        });
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    private static Task<HttpResponseMessage> SetOperatorStateAsync(IncidentReceiverTests.Harness h, string requestId, string route, TicketState state)
+        => route switch
+        {
+            "put" => h.AdminAsync(HttpMethod.Put, $"/api/v1/requests/{requestId}", new { state }),
+            "bulk" => h.AdminAsync(HttpMethod.Post, "/api/v1/requests/bulk/state", new { ids = new[] { requestId }, newState = state }),
+            _ => h.AdminAsync(HttpMethod.Post, $"/api/v1/requests/{requestId}/state", new { newState = state })
+        };
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task A_hold_committed_while_binding_readiness_is_awaited_fences_the_start_before_any_provider_submission(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        var bindings = Substitute.For<IAutomationBindingService>();
+        var readyStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyRelease = new TaskCompletionSource<AutomationBindingDto?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bindings.GetByTaskTemplateAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ => { readyStarted.TrySetResult(); return readyRelease.Task; });
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureDeadlines(services, clock, probe, connectivity);
+                services.RemoveAll<IAutomationBindingService>(); services.AddSingleton(bindings);
+            });
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var running = await SeedDeadlineAsync(h, client, clock, connectivity);
+        var pendingId = Guid.NewGuid().ToString("N");
+        await h.EditAsync(async db =>
+        {
+            var form = new RequestForm { Title = "Start fence", OrganizationId = h.OrganizationId };
+            db.RequestForms.Add(form); (await db.Requests.SingleAsync()).RequestFormId = form.Id;
+            db.RequestTasks.Add(new RequestTask { Id = pendingId, Title = "Second eligible task", RequestId = running.RequestId,
+                OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, Type = RequestTaskType.Automation,
+                Status = RequestTaskStatus.Pending, TemplateId = Guid.NewGuid().ToString(), AutoStart = false });
+        });
+        await using var scope = h.App.Services.CreateAsyncScope();
+        var lifecycle = scope.ServiceProvider.GetRequiredService<IRequestTaskLifecycleService>();
+        var start = lifecycle.StartAsync(pendingId, default);
+        await readyStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        clock.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(1, await SweepAsync(h));
+        readyRelease.SetResult(new AutomationBindingDto { Enabled = true, SystemConnectionId = client.MappingId });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+        // A caller that catches the rejected start cannot persist its stale tracked intent later.
+        await scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().SaveChangesAsync();
+        await h.EditAsync(async db =>
+        {
+            var pending = await db.RequestTasks.SingleAsync(row => row.Id == pendingId);
+            Assert.Equal(RequestTaskStatus.Pending, pending.Status);
+            Assert.Null(pending.StartedAt);
+            Assert.Null(pending.AutomationAttemptCorrelationId);
+            Assert.Equal("NeedsReconciliation", (await db.Requests.SingleAsync()).WorkflowStatus);
+        });
+        Assert.Equal(0, probe.Submissions);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Provider_configuration_failures_and_already_uncertain_submissions_still_record_a_durable_timeout_hold(bool postgres)
+    {
+        var clock = new DeadlineClock(); var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services => ConfigureDeadlines(services, clock, probe, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        probe.Response = _ => throw new ArgumentException("Synthetic invalid saved provider configuration.");
+        clock.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.NotNull(saved.AutomationTimedOutAt);
+            Assert.Equal("NeedsReconciliation", (await db.Requests.SingleAsync()).WorkflowStatus);
+            // Cover a submit-uncertain record left before the parent hold committed.
+            saved.LastAutomationStatus = AutomationTaskStatuses.SubmitUncertainManualReconcile;
+            saved.AutomationTimedOutAt = null; saved.AutomationNextCheckUtcTicks = null;
+            var parent = await db.Requests.SingleAsync(); parent.WorkflowStatus = "InProgress";
+            parent.WorkflowBlockReason = null; parent.State = TicketState.InProgress;
+        });
+        Assert.Equal(1, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.NotNull(saved.AutomationTimedOutAt);
+            Assert.Equal(task.Id, saved.Id);
+            Assert.Equal("NeedsReconciliation", (await db.Requests.SingleAsync()).WorkflowStatus);
+            Assert.Equal(0, saved.RetryCount); Assert.Null(saved.NextRetryAt);
+        });
         Assert.Equal(0, probe.Submissions);
     }
 

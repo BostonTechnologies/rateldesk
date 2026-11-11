@@ -203,6 +203,7 @@ public static class DependencyInjection
         services.AddScoped<IRequestTaskRetryProcessor, RequestTaskRetryProcessor>();
         services.AddScoped<IRequestTaskStateService, RequestTaskStateService>();
         services.AddScoped<IRequestTaskReadStore, RequestTaskReadStore>();
+        services.AddScoped<IRequestTaskStartFence, RequestTaskStartFence>();
         services.AddScoped<IWorkflowDependencyEvaluator, WorkflowDependencyEvaluator>();
         services.AddScoped<IWorkflowConditionEvaluator, WorkflowConditionEvaluator>();
         services.AddScoped<IFailurePolicyEngine, FailurePolicyEngine>();

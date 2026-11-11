@@ -107,8 +107,7 @@ public sealed class AutomationExecutionDeadlineProcessor(
                 }
             }
         }
-        catch (Exception error) when (error is HttpRequestException or InvalidOperationException
-            || error is OperationCanceledException && !ct.IsCancellationRequested)
+        catch (Exception error) when (error is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogInformation("The recorded provider execution could not be confirmed. TaskId={TaskId} ErrorCode={ErrorCode}", task.Id, error.GetType().Name);
         }
@@ -123,7 +122,9 @@ public sealed class AutomationExecutionDeadlineProcessor(
             await outcomes.ApplyAsync(task, result, result.Status, task.AutomationAttemptCorrelationId!, "execution-reconciler", ct);
             return;
         }
-        if (task.Status == RequestTaskStatus.InProgress && (expired || result?.Status == "unknown"))
+        if ((task.Status == RequestTaskStatus.InProgress && (expired || result?.Status == "unknown"))
+            || (expired && task.AutomationTimedOutAt is null
+                && AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus)))
         {
             var unknown = new OrchestrationCallbackDto
             {

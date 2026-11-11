@@ -51,7 +51,9 @@ public sealed class WorkflowEngine(
             return WorkflowRunResult.Failed(requestIdText);
         }
         var correlationId = GetCorrelationId();
-        var isRequestProgressionBlocked = string.Equals(request.WorkflowStatus, "Blocked", StringComparison.OrdinalIgnoreCase)
+        var isRequestProgressionBlocked = RequestHoldPolicy.IsOperatorHeld(request)
+            || string.Equals(request.WorkflowStatus, "OnHold", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.WorkflowStatus, "Blocked", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "NeedsReconciliation", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "Failed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "Cancelled", StringComparison.OrdinalIgnoreCase);
@@ -63,7 +65,8 @@ public sealed class WorkflowEngine(
         isRequestProgressionBlocked |= currentTasks.Any(task =>
             AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus));
 
-        var dependencyResult = await _dependencyEvaluator.EvaluateAsync(requestIdText, ct);
+        var dependencyResult = isRequestProgressionBlocked ? new WorkflowDependencyEvaluationResult(0)
+            : await _dependencyEvaluator.EvaluateAsync(requestIdText, ct);
         var unblockedCount = dependencyResult.UnblockedCount;
 
         ct.ThrowIfCancellationRequested();
