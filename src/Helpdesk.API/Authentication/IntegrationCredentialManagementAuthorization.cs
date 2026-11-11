@@ -47,7 +47,7 @@ public sealed class IntegrationCredentialOwnerResolver(
         if (!string.IsNullOrWhiteSpace(localAccountId))
             return await ResolveEnabledAccountAsync(localAccountId, cancellationToken);
         var external = await OidcApplicationAccount.FindAsync(identityDb, issuer, subject, cancellationToken);
-        return external?.IsEnabled == true ? new IntegrationCredentialOwner(external.Id) : null;
+        return external?.IsEnabled == true && !external.IsDeleted ? new IntegrationCredentialOwner(external.Id) : null;
     }
 
     private async Task<IntegrationCredentialOwner?> ResolveEnabledAccountAsync(string? userId, CancellationToken cancellationToken)
@@ -56,7 +56,7 @@ public sealed class IntegrationCredentialOwnerResolver(
             return null;
 
         var enabled = await identityDb.Users.AsNoTracking()
-            .AnyAsync(user => user.Id == userId && user.IsEnabled, cancellationToken);
+            .AnyAsync(user => user.Id == userId && user.IsEnabled && !user.IsDeleted, cancellationToken);
         return enabled ? new IntegrationCredentialOwner(userId) : null;
     }
 }

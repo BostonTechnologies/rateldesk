@@ -36,7 +36,7 @@ public static class LocalAuthenticationEndpoints
                 return Results.Unauthorized();
 
             var user = await users.FindByEmailAsync(request.Email.Trim());
-            if (user is null || !user.IsEnabled || await users.IsLockedOutAsync(user))
+            if (user is null || !user.IsEnabled || user.IsDeleted || await users.IsLockedOutAsync(user))
                 return Results.Unauthorized();
 
             if (!await users.CheckPasswordAsync(user, request.Password))
@@ -83,7 +83,7 @@ public static class LocalAuthenticationEndpoints
             context.Response.Headers.CacheControl = "no-store";
             var challenge = ReadLoginChallenge(context, configuration, protection);
             var user = challenge is null ? null : await users.FindByIdAsync(challenge.UserId);
-            if (user is null || !user.IsEnabled || await users.IsLockedOutAsync(user) ||
+            if (user is null || !user.IsEnabled || user.IsDeleted || await users.IsLockedOutAsync(user) ||
                 !await users.GetTwoFactorEnabledAsync(user) ||
                 !string.Equals(user.SecurityStamp, challenge!.SecurityStamp, StringComparison.Ordinal) ||
                 user.AuthorizationRevision != challenge.AuthorizationRevision)
@@ -120,7 +120,7 @@ public static class LocalAuthenticationEndpoints
             HttpContext context) =>
         {
             var user = await GetLocalUserAsync(users, context.User);
-            if (user is null || !user.IsEnabled)
+            if (user is null || !user.IsEnabled || user.IsDeleted)
             {
                 return Results.Unauthorized();
             }
@@ -154,7 +154,7 @@ public static class LocalAuthenticationEndpoints
             HttpContext context) =>
         {
             var user = await GetLocalUserAsync(users, context.User);
-            if (user is null || !user.IsEnabled ||
+            if (user is null || !user.IsEnabled || user.IsDeleted ||
                 !await users.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, NormalizeAuthenticatorCode(request.Code)))
             {
                 return Results.BadRequest(new { error = "invalid_authenticator_code" });
@@ -180,7 +180,7 @@ public static class LocalAuthenticationEndpoints
             HttpContext context) =>
         {
             var user = await GetLocalUserAsync(users, context.User);
-            if (user is null || !user.IsEnabled ||
+            if (user is null || !user.IsEnabled || user.IsDeleted ||
                 !await users.CheckPasswordAsync(user, request.CurrentPassword) ||
                 !await users.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, NormalizeAuthenticatorCode(request.Code)))
             {
@@ -206,7 +206,7 @@ public static class LocalAuthenticationEndpoints
             HttpContext context) =>
         {
             var user = await GetLocalUserAsync(users, context.User);
-            if (user is null || !user.IsEnabled)
+            if (user is null || !user.IsEnabled || user.IsDeleted)
             {
                 return Results.Unauthorized();
             }
@@ -229,6 +229,7 @@ public static class LocalAuthenticationEndpoints
 
         group.MapPost("/users/{userId}/disable", async (
             string userId,
+            ClaimsPrincipal principal,
             [FromServices] RatelDeskIdentityDbContext identityDb,
             CancellationToken cancellationToken) =>
         {
@@ -240,6 +241,14 @@ public static class LocalAuthenticationEndpoints
             {
                 return Results.NotFound();
             }
+
+            if (target.IsDeleted) return Results.Conflict(new { error = "account_deleted", message = "Deleted application access cannot be enabled or disabled." });
+            var issuer = principal.FindFirstValue("iss");
+            var subject = principal.FindFirstValue("sub");
+            var externalActor = !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject)
+                ? await OidcApplicationAccount.FindAsync(identityDb, issuer, subject, cancellationToken) : null;
+            if (principal.FindFirstValue(ClaimTypes.NameIdentifier) == target.Id || externalActor?.Id == target.Id)
+                return Results.Conflict(new { error = "cannot_disable_self", message = "Ask another instance administrator to disable your sign-in." });
 
             if (target.IsInstanceAdministrator && target.IsEnabled)
             {
@@ -275,6 +284,8 @@ public static class LocalAuthenticationEndpoints
                 return Results.NotFound();
             }
 
+            if (target.IsDeleted) return Results.Conflict(new { error = "account_deleted", message = "Deleted application access cannot be restored with Enable." });
+
             if (target.IsEnabled)
             {
                 return Results.NoContent();
@@ -298,7 +309,7 @@ public static class LocalAuthenticationEndpoints
             var target = await users.FindByIdAsync(userId);
             return target is null
                 ? Results.NotFound()
-                : Results.Ok(new LocalAccountStatusResponse(target.IsEnabled));
+                : Results.Ok(new LocalAccountStatusResponse(target.IsEnabled) { IsDeleted = target.IsDeleted });
         })
         .RequireAuthorization("HelpdeskAdmin");
 
@@ -309,7 +320,7 @@ public static class LocalAuthenticationEndpoints
             CancellationToken cancellationToken) =>
         {
             var account = await users.FindByIdAsync(userId);
-            if (!await db.Users.AnyAsync(user => user.Id == userId, cancellationToken))
+            if (!await db.Users.AnyAsync(user => user.Id == userId && !user.IsDeleted, cancellationToken))
             {
                 return Results.NotFound();
             }
@@ -336,7 +347,7 @@ public static class LocalAuthenticationEndpoints
         {
             var account = await users.FindByIdAsync(userId);
             var domainUser = await db.Users.SingleOrDefaultAsync(user => user.Id == userId, cancellationToken);
-            if (domainUser is null)
+            if (domainUser is null || domainUser.IsDeleted || account?.IsDeleted == true)
             {
                 return Results.NotFound();
             }
@@ -565,10 +576,12 @@ public static class LocalAuthenticationEndpoints
         {
             context.Response.Headers.CacheControl = "no-store";
             var user = await users.FindByIdAsync(userId);
-            if (user is null)
+            if (user is null || user.IsDeleted)
             {
                 return Results.NotFound();
             }
+            if (string.IsNullOrWhiteSpace(user.PasswordHash) && (await users.GetLoginsAsync(user)).Count > 0)
+                return Results.Conflict(new { error = "external_identity_credentials", message = "Manage credentials with this user's identity provider. This application action does not create a local password for an external identity." });
 
             var activationToken = await users.GeneratePasswordResetTokenAsync(user);
             return Results.Ok(new LocalAccountActivationResponse(user.Id, user.Email!, activationToken));
@@ -580,7 +593,7 @@ public static class LocalAuthenticationEndpoints
             [FromServices] UserManager<ApplicationUser> users) =>
         {
             var user = await users.FindByEmailAsync(request.Email);
-            if (user is null || !user.IsEnabled)
+            if (user is null || !user.IsEnabled || user.IsDeleted)
             {
                 return Results.BadRequest(new { error = "activation_failed" });
             }
@@ -636,7 +649,10 @@ public static class LocalAuthenticationEndpoints
         public override string ToString() => $"LocalAccountActivationResponse {{ UserId = {UserId}, ActivationToken = [redacted] }}";
     }
 
-    public sealed record LocalAccountStatusResponse(bool IsEnabled);
+    public sealed record LocalAccountStatusResponse(bool IsEnabled)
+    {
+        public bool IsDeleted { get; init; }
+    }
 
     public sealed record LocalScopedRoleAssignment(string RoleKey, string OrganizationId);
 

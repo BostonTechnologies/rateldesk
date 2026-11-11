@@ -81,7 +81,7 @@ public sealed class McpExecutionAuthenticationHandler(
         var owner = await identityDb.Users.AsNoTracking()
             .SingleOrDefaultAsync(user => user.Id == credential.OwnerUserId, Context.RequestAborted)
             .ConfigureAwait(false);
-        if (owner?.IsEnabled != true)
+        if (owner?.IsEnabled != true || owner.IsDeleted)
             return AuthenticateResult.Fail("The delegated MCP execution credential owner is disabled.");
         if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
             (!owner.IsInstanceAdministrator || credential.Permissions != HelpdeskPermissions.HelpdeskAdmin ||

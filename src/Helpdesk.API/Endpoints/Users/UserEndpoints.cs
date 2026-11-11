@@ -10,6 +10,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Helpdesk.API.Services.Users;
+using System.Data.Common;
 
 namespace Helpdesk.API.Endpoints.Users;
 
@@ -22,17 +24,21 @@ public static class UserEndpoints
             .RequireAuthorization("HelpdeskAdmin");
 
         group.MapGet("/", async ([FromServices] IRepository<User> repo) =>
-            (await repo.GetAllAsync()).Select(ToDto));
+            (await repo.GetAllAsync()).Where(user => !user.IsDeleted).Select(ToDto));
+
+        group.MapGet("/query", UserDirectoryQuery.ReadAsync)
+            .WithName("SearchAdminUsers")
+            .WithSummary("Searches, filters, sorts and pages the active Team directory.");
 
         group.MapGet("/{id}", async ([FromRoute] string id, [FromServices] IRepository<User> repo) =>
-            await repo.GetAsync(id) is User user
+            await repo.GetAsync(id) is User { IsDeleted: false } user
                 ? Results.Ok(ToDto(user))
                 : Results.Problem("User not found", statusCode: 404));
 
         group.MapGet("/by-email/{email}", async ([FromRoute] string email, [FromServices] IRepository<User> repo) =>
         {
             var all = await repo.GetAllAsync();
-            var user = all.FirstOrDefault(u => string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase));
+            var user = all.FirstOrDefault(u => !u.IsDeleted && string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase));
             return user is null ? Results.Problem("User not found", statusCode: 404) : Results.Ok(ToDto(user));
         });
 
@@ -100,13 +106,15 @@ public static class UserEndpoints
             }
 
             var linkedCustomer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(customer => customer.Id == link.CustomerId);
-            if (linkedCustomer?.IsEnabled != true ||
+            if (link.DisabledAtUtc is not null || link.InviteStatus == CustomerInviteStatus.Disabled || linkedCustomer?.IsEnabled != true ||
                 !await db.Organizations.AnyAsync(organization => organization.Id == linkedCustomer.OrganizationId && organization.IsEnabled))
                 return Results.Forbid();
 
             var hasLinkedDomainUser = !string.IsNullOrWhiteSpace(link.DomainUserId) &&
                                       await db.Users.AnyAsync(user => user.Id == link.DomainUserId);
             if (!hasLinkedDomainUser && !string.IsNullOrWhiteSpace(link.DomainUserId))
+                return Results.Forbid();
+            if (hasLinkedDomainUser && await db.Users.AnyAsync(user => user.Id == link.DomainUserId && user.IsDeleted, ct))
                 return Results.Forbid();
 
             if (!hasLinkedDomainUser)
@@ -139,7 +147,7 @@ public static class UserEndpoints
         group.MapPut("/{id}", async ([FromRoute] string id, [FromBody] UpdateUserRequest request, [FromServices] IRepository<User> repo) =>
         {
             var existing = await repo.GetAsync(id);
-            if (existing is null)
+            if (existing is null || existing.IsDeleted)
             {
                 return Results.Problem("User not found", statusCode: 404);
             }
@@ -165,14 +173,25 @@ public static class UserEndpoints
 
         group.MapDelete("/{id}", async (
             [FromRoute] string id,
-            [FromServices] IRepository<User> repo,
-            [FromServices] UserManager<ApplicationUser> users) =>
+            ClaimsPrincipal principal,
+            [FromServices] HelpdeskDbContext db,
+            [FromServices] RatelDeskIdentityDbContext identityDb,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
         {
-            if (await users.FindByIdAsync(id) is not null)
-                return Results.Conflict(new { error = "local_account_requires_disable", message = "Disable this local account through account management; deleting its application profile does not revoke login." });
-            return await repo.DeleteAsync(id)
-                ? Results.NoContent()
-                : Results.Problem("User not found", statusCode: 404);
+            try
+            {
+                var outcome = await UserRetirement.RetireAsync(id, principal, db, identityDb, ct);
+                if (!outcome.Found) return Results.Problem("User not found", statusCode: 404);
+                if (outcome.Error is not null)
+                    loggerFactory.CreateLogger("UserRetirement").LogWarning("Application user deletion rejected. Actor={ActorId}; Target={TargetId}; Result={Result}", principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue("sub"), id, outcome.Error);
+                return outcome.Error is null ? Results.NoContent() : Results.Conflict(new { error = outcome.Error, message = outcome.Message });
+            }
+            catch (Exception exception) when (exception is DbUpdateException or DbException)
+            {
+                loggerFactory.CreateLogger("UserRetirement").LogWarning("Application user deletion could not be confirmed. Actor={ActorId}; Target={TargetId}", principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue("sub"), id);
+                return Results.Problem("The user could not be confirmed deleted. Refresh and retry the same user; completed deletion is safe to repeat. Contact an administrator if the problem persists.", statusCode: 409);
+            }
         });
     }
 

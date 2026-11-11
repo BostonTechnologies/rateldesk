@@ -15,7 +15,7 @@ internal static class AssigneeQueries
         var organizationIds = organizations.Select(organization => organization.Id);
         var supportIds = organizations.Select(organization => organization.ItSupportOrganizationId == null || organization.ItSupportOrganizationId.Trim() == ""
             ? organization.Id : organization.ItSupportOrganizationId);
-        var users = db.Users.AsNoTracking();
+        var users = db.Users.AsNoTracking().Where(user => !user.IsDeleted);
         return module switch
         {
             "incident" => users.Where(user => user.Email != null && user.Email.Trim() != "" &&

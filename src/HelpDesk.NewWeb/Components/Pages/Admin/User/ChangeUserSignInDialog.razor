@@ -1,0 +1,34 @@
+@using Helpdesk.Shared.DTOs.User
+@using HelpDesk.NewWeb.Services
+@inject IHttpClientFactory HttpClientFactory
+<MudDialog>
+    <DialogContent>
+        <MudText>@(Enabled ? "Disable" : "Enable") application sign-in for <strong>@User.Name</strong>?</MudText>
+        <MudText Typo="Typo.body2" Class="mt-2">This reversible account setting is separate from deleting the user. Disabling immediately invalidates current application sessions; historical attribution and the directory profile remain.</MudText>
+        @if (error is not null) { <MudAlert Severity="Severity.Error" role="alert" Class="mt-3">@error</MudAlert> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => Dialog.Cancel()" Disabled="busy">Cancel</MudButton>
+        <MudButton OnClick="Change" Disabled="busy" Color="Color.Primary" Variant="Variant.Filled">@(Enabled ? "Disable sign-in" : "Enable sign-in")</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public UserDirectoryDto User { get; set; } = default!;
+    private bool Enabled => User.AccountState == "Enabled";
+    private bool busy;
+    private string? error;
+    private async Task Change()
+    {
+        if (busy || string.IsNullOrWhiteSpace(User.AccountId)) return;
+        busy = true; error = null;
+        try
+        {
+            using var response = await HttpClientFactory.CreateClient("HelpdeskApi").PostAsync($"api/v1/local-auth/users/{Uri.EscapeDataString(User.AccountId)}/{(Enabled ? "disable" : "enable")}", null);
+            if (response.IsSuccessStatusCode) Dialog.Close(DialogResult.Ok(true));
+            else error = await UserLifecycleErrors.ReadAsync(response, "The sign-in setting could not be changed. Refresh and retry.");
+        }
+        catch (HttpRequestException) { error = "The account service is unavailable. Retry when it is reachable."; }
+        finally { busy = false; }
+    }
+}

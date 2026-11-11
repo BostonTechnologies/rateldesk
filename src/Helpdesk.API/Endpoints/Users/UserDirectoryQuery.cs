@@ -1,0 +1,132 @@
+using System.Security.Claims;
+using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.User;
+using Microsoft.EntityFrameworkCore;
+
+namespace Helpdesk.API.Endpoints.Users;
+
+public static class UserDirectoryQuery
+{
+    public sealed class Parameters
+    {
+        public string? Search { get; set; }
+        public string? OrganizationId { get; set; }
+        public string? Role { get; set; }
+        public string? State { get; set; }
+        public bool? IsTestUser { get; set; }
+        public string? SortBy { get; set; }
+        public bool? Descending { get; set; }
+        public int? Page { get; set; }
+        public int? PageSize { get; set; }
+    }
+
+    public static async Task<IResult> ReadAsync([AsParameters] Parameters parameters,
+        HelpdeskDbContext db, ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var requestedPage = parameters.Page ?? 1;
+        var pageSize = parameters.PageSize ?? 25;
+        if (requestedPage < 1 || pageSize is not (25 or 50 or 100) || parameters.Search?.Length > 200 ||
+            parameters.State is not (null or "" or "Enabled" or "Disabled" or "External" or "Profile"))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["query"] = ["Use a positive page, page size 25, 50 or 100, and a valid account state. Search is limited to 200 characters."] });
+
+        // Identity and domain contexts share the configured database. Compose a
+        // scalar read projection in this context so state filters/counts remain SQL.
+        var accounts = db.Database.SqlQueryRaw<AccountState>("""
+            SELECT a."Id", a."IsEnabled", a."IsDeleted", a."IsInstanceAdministrator",
+                CASE WHEN (a."PasswordHash" IS NULL OR a."PasswordHash" = '') AND EXISTS
+                    (SELECT 1 FROM "AspNetUserLogins" l WHERE l."UserId" = a."Id") THEN false ELSE true END AS "CanManageCredentials"
+            FROM "AspNetUsers" a
+            """);
+        var rows = from user in db.Users.AsNoTracking()
+                   where !user.IsDeleted
+                   join organization in db.Organizations.AsNoTracking() on user.OrganizationId equals organization.Id into organizations
+                   from organization in organizations.DefaultIfEmpty()
+                   let linkedAccount = db.CustomerAuthLinks.Where(link => link.DomainUserId == user.Id && link.LocalAccountId != null)
+                       .OrderBy(link => link.Id).Select(link => link.LocalAccountId).FirstOrDefault()
+                   join account in accounts on (linkedAccount ?? user.Id) equals account.Id into userAccounts
+                   from account in userAccounts.DefaultIfEmpty()
+                   select new
+                   {
+                       user.Id, user.Name, user.Email, user.Role, user.OrganizationId, user.IsTestUser,
+                       OrganizationName = organization == null ? null : organization.Name,
+                       AccountId = account == null ? null : account.Id,
+                       IsEnabled = account != null && account.IsEnabled && !account.IsDeleted,
+                       IsAdministrator = account != null && account.IsInstanceAdministrator,
+                       CanManageCredentials = account != null && account.CanManageCredentials,
+                       State = account != null ? (account.IsEnabled && !account.IsDeleted ? "Enabled" : "Disabled") :
+                           db.CustomerAuthLinks.Any(link => link.DomainUserId == user.Id && (link.OidcSubject != null || link.AuthentikUserId != null)) ? "External" : "Profile"
+                   };
+
+        if (!string.IsNullOrWhiteSpace(parameters.Search))
+        {
+            var search = parameters.Search.Trim();
+            var pattern = Pattern(search);
+            var sqlitePattern = Pattern(SqliteUnicodeSearch.Fold(search)!);
+            rows = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
+                ? rows.Where(row => EF.Functions.ILike(row.Name, pattern, "\\") || EF.Functions.ILike(row.Email, pattern, "\\") ||
+                    (row.OrganizationName != null && EF.Functions.ILike(row.OrganizationName, pattern, "\\")))
+                : rows.Where(row => EF.Functions.Like(SqliteUnicodeSearch.Fold(row.Name)!, sqlitePattern, "\\") ||
+                    EF.Functions.Like(SqliteUnicodeSearch.Fold(row.Email)!, sqlitePattern, "\\") ||
+                    (row.OrganizationName != null && EF.Functions.Like(SqliteUnicodeSearch.Fold(row.OrganizationName)!, sqlitePattern, "\\")));
+        }
+        if (!string.IsNullOrWhiteSpace(parameters.OrganizationId)) rows = rows.Where(row => row.OrganizationId == parameters.OrganizationId);
+        if (!string.IsNullOrWhiteSpace(parameters.Role)) rows = rows.Where(row => row.Role == parameters.Role ||
+            db.ScopedRoleAssignments.Any(assignment => assignment.UserId == row.Id && assignment.RoleKey == parameters.Role));
+        if (!string.IsNullOrWhiteSpace(parameters.State)) rows = rows.Where(row => row.State == parameters.State);
+        if (parameters.IsTestUser is { } test) rows = rows.Where(row => row.IsTestUser == test);
+
+        var total = await rows.CountAsync(ct);
+        var page = Math.Min(requestedPage, Math.Max(1, (total + pageSize - 1) / pageSize));
+        var sorted = (parameters.SortBy?.ToLowerInvariant(), parameters.Descending == true) switch
+        {
+            ("email", false) => rows.OrderBy(row => row.Email),
+            ("email", true) => rows.OrderByDescending(row => row.Email),
+            ("organization", false) => rows.OrderBy(row => row.OrganizationName),
+            ("organization", true) => rows.OrderByDescending(row => row.OrganizationName),
+            ("state", false) => rows.OrderBy(row => row.State),
+            ("state", true) => rows.OrderByDescending(row => row.State),
+            (_, true) => rows.OrderByDescending(row => row.Name),
+            _ => rows.OrderBy(row => row.Name)
+        };
+        var selected = await sorted.ThenBy(row => row.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var enabledAdministrators = await accounts.CountAsync(account => account.IsEnabled && !account.IsDeleted && account.IsInstanceAdministrator, ct);
+        var currentId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        var issuer = principal.FindFirstValue("iss")?.TrimEnd('/');
+        var subject = principal.FindFirstValue("sub");
+        var selectedIds = selected.Select(row => row.Id).ToArray();
+        var roles = await db.ScopedRoleAssignments.AsNoTracking().Where(assignment => selectedIds.Contains(assignment.UserId))
+            .Select(assignment => new { assignment.UserId, assignment.RoleKey }).Distinct().ToListAsync(ct);
+        List<string> ownExternalProfiles = string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject) ? [] :
+            await db.CustomerAuthLinks.Where(link => selectedIds.Contains(link.DomainUserId!) && link.OidcIssuer == issuer && link.OidcSubject == subject)
+                .Select(link => link.DomainUserId!).ToListAsync(ct);
+        var items = selected.Select(row =>
+        {
+            var self = row.Id == currentId || row.AccountId == currentId || ownExternalProfiles.Contains(row.Id);
+            var lastAdministrator = row.IsAdministrator && row.IsEnabled && enabledAdministrators <= 1;
+            return new UserDirectoryDto
+            {
+                Id = row.Id, Name = row.Name, Email = row.Email, Role = row.Role, OrganizationId = row.OrganizationId,
+                RoleKeys = roles.Where(role => role.UserId == row.Id).Select(role => role.RoleKey).Order(StringComparer.OrdinalIgnoreCase).ToArray(),
+                OrganizationName = row.OrganizationName, IsTestUser = row.IsTestUser, AccountState = row.State, AccountId = row.AccountId,
+                CanManageAccount = row.AccountId != null && row.CanManageCredentials,
+                CanChangeSignIn = row.AccountId != null && !self && !lastAdministrator,
+                CanDelete = !self && !lastAdministrator,
+                DeleteBlockedReason = self ? "You cannot delete your own application access." :
+                    lastAdministrator ? "The last enabled instance administrator must remain active." : null
+            };
+        }).ToList();
+        return Results.Ok(new PagedResult<UserDirectoryDto> { Page = page, PageSize = pageSize, Total = total, Items = items });
+    }
+
+    private static string Pattern(string value) => "%" + value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
+
+    private sealed class AccountState
+    {
+        public string Id { get; set; } = string.Empty;
+        public bool IsEnabled { get; set; }
+        public bool IsDeleted { get; set; }
+        public bool IsInstanceAdministrator { get; set; }
+        public bool CanManageCredentials { get; set; }
+    }
+}

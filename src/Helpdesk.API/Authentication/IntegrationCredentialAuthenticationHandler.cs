@@ -67,7 +67,7 @@ public sealed class IntegrationCredentialAuthenticationHandler(
         var owner = await identityDb.Users.AsNoTracking()
             .SingleOrDefaultAsync(user => user.Id == credential.OwnerUserId, Context.RequestAborted)
             .ConfigureAwait(false);
-        if (owner?.IsEnabled != true)
+        if (owner?.IsEnabled != true || owner.IsDeleted)
             return AuthenticateResult.Fail("The integration credential owner is disabled.");
         if (credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
             (!owner.IsInstanceAdministrator || credential.Permissions != HelpdeskPermissions.HelpdeskAdmin ||

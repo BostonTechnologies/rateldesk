@@ -120,7 +120,7 @@ public static class TicketingLookupEndpoints
             }
 
             var users = await db.Users.AsNoTracking()
-                .Where(x => x.OrganizationId == organizationId)
+                .Where(x => !x.IsDeleted && x.OrganizationId == organizationId)
                 .OrderBy(x => x.Name)
                 .ThenBy(x => x.Email)
                 .Select(x => new UserDto(x.Id, x.Name, x.Email, x.Role, x.IsTestUser, x.OrganizationId))

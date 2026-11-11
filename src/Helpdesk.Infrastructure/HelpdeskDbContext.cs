@@ -800,6 +800,9 @@ public class HelpdeskDbContext(
         modelBuilder.Entity<Customer>().HasIndex(customer => customer.IdentityUserId)
             .IsUnique().HasFilter("\"IdentityUserId\" IS NOT NULL");
 
+        modelBuilder.Entity<User>()
+            .HasIndex(user => new { user.IsDeleted, user.Id });
+
         modelBuilder.Entity<ScopedRoleAssignment>(entity =>
         {
             entity.HasKey(x => x.Id);

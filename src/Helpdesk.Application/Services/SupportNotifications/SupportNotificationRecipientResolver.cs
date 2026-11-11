@@ -79,7 +79,7 @@ public sealed class SupportNotificationRecipientResolver(
             .GroupBy(x => x.SupportGroupId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.OrdinalIgnoreCase);
         var activeUsers = (await users.GetAllAsync())
-            .Where(x => !string.IsNullOrWhiteSpace(x.Email))
+            .Where(x => !x.IsDeleted && !string.IsNullOrWhiteSpace(x.Email))
             .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         var userPreferences = (await preferences.GetAllAsync())
             .Where(x => x.EventType == eventType && x.Channel == channel)
