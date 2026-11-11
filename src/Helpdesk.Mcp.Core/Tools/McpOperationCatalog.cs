@@ -27,7 +27,7 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-11-11.trusted-requesters-v30";
+    public const string Revision = "2026-11-11.premium-workspaces-v31";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -254,6 +254,8 @@ public static class McpOperationCatalog
                 "Read total, unread and unread Error/Critical counts for the actor's complete authorized notification population.",
             ("helpdesk_admin_mutations", "create_self_service_request") =>
                 "Submit an audience-eligible form for the authenticated persisted requester or an explicitly authorized requested-for person. Optional request.submissionId is a stable UUID for correction/retry: an identical retry returns its original receipt; changed content returns a conflict. Current requester, organization and form eligibility are revalidated on every retry.",
+            ("helpdesk_admin_mutations", "delete_user") =>
+                "Retire the application user and revoke application sign-in, sessions and credentials while retaining historical attribution. This operation is distinct from reversible Enable/Disable. Self/last-administrator, identity-link and organization safeguards remain authoritative; external identity-provider accounts are retained.",
             _ => $"{operation} operation."
         });
 }
