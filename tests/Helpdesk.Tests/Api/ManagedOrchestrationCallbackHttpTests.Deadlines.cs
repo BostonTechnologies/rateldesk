@@ -448,7 +448,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             var saved = await db.RequestTasks.SingleAsync();
             Assert.Equal(RequestTaskStatus.InProgress, saved.Status);
             Assert.NotNull(saved.StartedAt); Assert.False(string.IsNullOrWhiteSpace(saved.AutomationAttemptCorrelationId));
-            Assert.Equal(saved.StartedAt.Value.AddSeconds(120).UtcTicks, saved.AutomationDeadlineUtcTicks);
+            Assert.InRange(saved.AutomationDeadlineUtcTicks!.Value - saved.StartedAt.Value.UtcTicks,
+                120 * TimeSpan.TicksPerSecond, 120 * TimeSpan.TicksPerSecond + TimeSpan.TicksPerMicrosecond - 1);
             Assert.True(saved.AutomationStateVersion > 0);
             Assert.True((await db.Requests.SingleAsync()).WorkflowStateVersion > 0);
         });
