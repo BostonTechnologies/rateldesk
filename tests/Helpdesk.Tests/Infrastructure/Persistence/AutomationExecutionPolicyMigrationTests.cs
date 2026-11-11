@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -14,11 +15,15 @@ public sealed class AutomationExecutionPolicyMigrationTests
     public async Task Upgrade_backfills_exact_template_policy_and_preserves_unmatched_legacy_tasks(bool postgres)
     {
         await using var fixture = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(postgres);
-        // Seed representative rows with the current model, then remove only the
-        // new columns to establish the immediately preceding deployed schema.
-        await using (var seed = fixture.Open())
+        await using (var previous = fixture.Open())
         {
-            await seed.Database.MigrateAsync();
+            var migrations = previous.Database.GetMigrations().ToArray();
+            var index = Array.FindIndex(migrations, x => x.EndsWith("_PersistAutomationExecutionPolicy", StringComparison.Ordinal));
+            Assert.True(index > 0);
+            await previous.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
+            // Seed the deployed predecessor directly; later forward-only
+            // migrations must never be crossed by a fixture downgrade.
+            await using var seed = new PreAutomationPolicyContext(previous);
             var template = Guid.NewGuid().ToString();
             seed.RequestForms.Add(new RequestForm { Id = "policy-form", JsonSchema = JsonDocument.Parse(
                 JsonSerializer.Serialize(new { tasks = new object?[] { new { id = template, autoStart = false }, null, "legacy" } })) });
@@ -30,10 +35,6 @@ public sealed class AutomationExecutionPolicyMigrationTests
                 new RequestTask { Id = "legacy-task", RequestId = "policy-parent", TemplateId = Guid.NewGuid().ToString(), TrackingId = "TSK-LEGACY" },
                 new RequestTask { Id = "null-tasks-task", RequestId = "null-tasks-parent", TemplateId = Guid.NewGuid().ToString(), TrackingId = "TSK-NULL" });
             await seed.SaveChangesAsync();
-            var migrations = seed.Database.GetMigrations().ToArray();
-            var index = Array.FindIndex(migrations, x => x.EndsWith("_PersistAutomationExecutionPolicy", StringComparison.Ordinal));
-            Assert.True(index > 0);
-            await seed.GetService<IMigrator>().MigrateAsync(migrations[index - 1]);
         }
         await using var upgraded = fixture.Open();
         await upgraded.Database.MigrateAsync();
@@ -43,5 +44,16 @@ public sealed class AutomationExecutionPolicyMigrationTests
         Assert.True((await upgraded.RequestTasks.SingleAsync(x => x.Id == "null-tasks-task")).AutoStart);
         Assert.Equal(3, await upgraded.RequestTasks.CountAsync());
         Assert.Empty(await upgraded.Database.GetPendingMigrationsAsync());
+    }
+
+    private sealed class PreAutomationPolicyContext(HelpdeskDbContext current) : PublishedCampaignSeedContext(current)
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            builder.Entity<RequestTask>().Ignore(task => task.AutoStart);
+            builder.Entity<RequestTask>().Ignore(task => task.AutomationAttemptCorrelationId);
+            builder.Entity<RequestTask>().Ignore(task => task.AutomationAttemptHistoryJson);
+        }
     }
 }

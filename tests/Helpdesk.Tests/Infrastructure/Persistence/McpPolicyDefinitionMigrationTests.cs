@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Helpdesk.Infrastructure.McpPolicies;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
@@ -21,22 +22,22 @@ public sealed class McpPolicyDefinitionMigrationTests
         var expiry = new DateTime(DateTime.UtcNow.AddDays(1).Ticks / 10 * 10, DateTimeKind.Utc);
         await using (var previous = fixture.Open())
         {
-            await previous.Database.MigrateAsync();
-            previous.Set<McpAccessPolicy>().Add(new()
-            {
-                CredentialId = credentialId, OrganizationId = "migration-organization", PermissionsJson = "[\"Incident.Read\"]",
-                State = "Disabled", ExpiresUtc = expiry, Revision = 7
-            });
-            previous.Set<McpAccessPolicyAudit>().Add(new()
-            {
-                Id = auditId, CredentialId = credentialId, Revision = 7, Actor = "synthetic-admin",
-                DefinitionJson = "{\"State\":\"Disabled\",\"legacy\":true}", OccurredUtc = expiry.AddDays(-1)
-            });
-            await previous.SaveChangesAsync();
             var migrations = previous.Database.GetMigrations().ToArray();
             var migrationIndex = Array.FindIndex(migrations, value => value.EndsWith("_AddMcpPolicyDefinitions", StringComparison.Ordinal));
             Assert.True(migrationIndex > 0);
             await previous.GetService<IMigrator>().MigrateAsync(migrations[migrationIndex - 1]);
+            await using var seed = new PrePolicyDefinitionsContext(previous);
+            seed.Set<McpAccessPolicy>().Add(new()
+            {
+                CredentialId = credentialId, OrganizationId = "migration-organization", PermissionsJson = "[\"Incident.Read\"]",
+                State = "Disabled", ExpiresUtc = expiry, Revision = 7
+            });
+            seed.Set<McpAccessPolicyAudit>().Add(new()
+            {
+                Id = auditId, CredentialId = credentialId, Revision = 7, Actor = "synthetic-admin",
+                DefinitionJson = "{\"State\":\"Disabled\",\"legacy\":true}", OccurredUtc = expiry.AddDays(-1)
+            });
+            await seed.SaveChangesAsync();
         }
 
         await using var upgraded = fixture.Open();
@@ -65,5 +66,14 @@ public sealed class McpPolicyDefinitionMigrationTests
         Assert.Empty(constrained.Permissions);
         Assert.Empty(constrained.AllowedOrganizationIds);
         Assert.Empty(await upgraded.Database.GetPendingMigrationsAsync());
+    }
+
+    private sealed class PrePolicyDefinitionsContext(HelpdeskDbContext current) : PublishedCampaignSeedContext(current)
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            builder.Entity<McpAccessPolicy>().Ignore(policy => policy.DefinitionJson);
+        }
     }
 }

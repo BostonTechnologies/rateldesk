@@ -37,10 +37,20 @@ internal static class SelfServiceRequesterResolver
                 ? principal.FindFirstValue(ClaimTypes.NameIdentifier) : null;
             var issuer = principal.FindFirstValue("iss")?.TrimEnd('/');
             var subject = principal.FindFirstValue("sub");
-            if (await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == customer.Id &&
-                ((localId != null && link.LocalAccountId == localId) ||
-                 (issuer != null && subject != null && link.OidcIssuer == issuer && link.OidcSubject == subject)) &&
-                (link.DisabledAtUtc != null || link.InviteStatus == CustomerInviteStatus.Disabled), ct))
+            var link = !string.IsNullOrWhiteSpace(localId)
+                ? await db.CustomerAuthLinks.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.LocalAccountId == localId, ct)
+                : null;
+            if (link is null && !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject))
+                link = await db.CustomerAuthLinks.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.OidcIssuer == issuer && candidate.OidcSubject == subject, ct);
+            var providerUserId = principal.FindFirstValue("authentik_user_id");
+            if (string.IsNullOrWhiteSpace(providerUserId)) providerUserId = principal.FindFirstValue("ak_user_id");
+            if (link is null && !string.IsNullOrWhiteSpace(providerUserId))
+                link = await db.CustomerAuthLinks.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.AuthentikUserId == providerUserId, ct);
+            if (link is not null && link.CustomerId != customer.Id)
+                return Denied("requester_unavailable", "Your requester identity changed. Refresh the form or ask an administrator to review its account link.");
+            // Match the access resolver's precedence; a disabled lower-priority
+            // alias must not override the active link that established CustomerId.
+            if (link is not null && (link.DisabledAtUtc is not null || link.InviteStatus == CustomerInviteStatus.Disabled))
                 return Denied("requester_unavailable", "Your linked requester profile is disabled. Ask an administrator to review it.");
         }
         else
