@@ -10,8 +10,8 @@ code, passing acceptance, reviewed merge and verified public distribution.
 
 | Issue | Implementation branch / owning area | Verification required | Delivery state |
 | --- | --- | --- | --- |
-| #380 | `codex/381-campaign`: trusted local requester, explicit organization, safe form errors and idempotent submission | Both-provider HTTP identity/ownership; rendered error/correction; real paired self success/failure, on-behalf and correlated final state | Implemented; focused requester/error cases passed; real pair and integrated gates pending |
-| #382 | `codex/382-deadlines`: durable attempt deadlines, reconciliation and timeout holds | Both providers; deterministic timing, restart, concurrency, races, late/old outcomes; paired lost callback | Implemented; all owning provider cases have passing outcomes; real pair and integrated gates pending |
+| #380 | `codex/381-campaign`: trusted local requester, explicit organization, safe form errors and idempotent submission | Both-provider HTTP identity/ownership; rendered error/correction; real paired self success/failure, on-behalf and correlated final state | Implemented; focused and complete real paired acceptance passed; final-head/main/distribution gates pending |
+| #382 | `codex/382-deadlines`: durable attempt deadlines, reconciliation and timeout holds | Both providers; deterministic timing, restart, concurrency, races, late/old outcomes; paired lost callback | Implemented; owning provider and complete paired recovery acceptance passed; final-head/main/distribution gates pending |
 | #383 | `codex/383-live-details`: request-scoped committed live updates and quiet detail | Actual persisted transition → gateway SSE → rendered task/header/workflow; reconnect/revocation | Implemented; 11/11 gateway cases and 11/11 layout cases passed; integrated gates pending |
 | #384 | `codex/384-self-service`: one navigation item and URL-backed tabs | Routes, history, ownership, focus and retained query state | Implemented; scoped local .NET/browser acceptance passed; integrated gates pending |
 | #385 | `codex/384-self-service`: explicit responsive catalog tracks | Sparse and many cards; drawer, mobile and actual 200% zoom | Implemented; scoped local themed/native zoom acceptance passed; integrated gates pending |
@@ -464,3 +464,49 @@ requests and exactly two private correlation-bound journal markers. Product
 source is unchanged. The register retains the native run identity without a
 companion URL outside the disclosure gate's existing allowlist; the unchanged
 public-disclosure gate and documentation validator both pass locally.
+
+## Completed paired acceptance and release resumption
+
+The complete hosted native pair, run `43090244581`, passed all twelve stages at
+NetRatel `26369b14db0666cd11f93f9140e77690f79a0390` and RatelDesk
+`28d2d3f9c9b6d232be4233c1fcfdbec5e743b161`. Its four rendered modes proved
+ordinary unlinked self success, controlled unlinked-administrator failure,
+distinct ordinary on-behalf execution, and lost-callback recovery. Each mode
+admitted exactly one native job with correlated requester, organization, request,
+task, saved connection, provider request, run and attempt. The healthy committed
+state-to-render observations were 195, 153 and 153 ms.
+
+The recovery mode withheld the actual callback, observed unavailable receipt
+reads, restarted RatelDesk, reached persisted outcome uncertainty, and delivered
+the original same-attempt terminal callback. All seven recovery observations
+passed, including dependent-work blocking, zero uncertainty-induced incidents,
+and later recovery of the original attempt. Both real rendered pairings,
+receiver response-loss replay, offline credential revocation and full final
+cleanup also passed. This supersedes the incomplete native-run snapshots above.
+
+The raw NetRatel source metadata reports a dirty tree solely because the workflow
+created the untracked nested companion directory `work/rateldesk/`; its
+`cleanSourceRequired` field is false. Independent reconstruction verified all
+3,376 NetRatel and 3,051 RatelDesk tracked blobs against the exact commits and
+captured source hashes. The raw flag is retained, rather than described as a
+clean Git checkout. The complete evidence and source-boundary review are recorded
+on companion PR #730, which merged as
+`e083e088f74159b22343133dd2c1dcd8f146fd95` with an identical tracked tree.
+
+The final administration head `60bc754a9cbb7610f96e910aa2c3cd3aeb73db2f`
+passed all six normal jobs in run `43087231520`: 4,118 .NET cases passed, none
+failed, and the same eight baseline cases were skipped; provider acceptance
+passed 485/485 with no skips. The final UX run's first attempt passed its test
+step and the other 27 jobs, but failed to retain the .NET artifact during the
+GitHub Actions incident. That attempt is not counted as a passed required gate.
+
+After service recovery on 12 November, attempt 2 exposed an unchanged baseline
+pending-mail test sampling pager geometry during a keyed table replacement.
+The screenshot records an empty loading table after the previous row-count
+assertion. The driver now waits for completed filter reset and page-size state
+before asserting the original footer geometry. No product source, geometry
+assertion, test selection or retry budget changes. Fresh final-head validation,
+reviewed RatelDesk merges, all six exact-main jobs and verified public
+distribution remain required; their immutable receipts belong to #381 and the
+release. The runtime `src` tree remains
+`0e75a6d32dc60877d53e54e6b4fdb6ec648f4be7`, matching the complete paired run.
