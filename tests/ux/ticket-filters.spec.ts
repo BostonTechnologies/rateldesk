@@ -180,8 +180,11 @@ for (const module of ['incidents','requests','changes']) {
   // dispatch the native button click and toggle the newly opened menu closed.
   await trigger.evaluate(element=>(element as HTMLButtonElement).click());
   await expect(page.getByText(module==='changes'?'Current: Draft':'Current: New',{exact:true})).toBeVisible();
-  await page.keyboard.press('Escape');await expect(trigger).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toHaveAttribute('aria-expanded','false');
+  await expect(trigger).toBeFocused();
   await trigger.focus();await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded','true');
   await expect(page.getByText(module==='changes'?'Current: Draft':'Current: New',{exact:true})).toBeVisible();
   await expect(page.getByRole('menuitem',{name:module==='changes'?'Submit':'In Progress',exact:true})).toBeVisible();
   await expect(page.locator('.ticket-state-popover').getByRole('alert')).toHaveCount(0);
