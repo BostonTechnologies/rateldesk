@@ -166,7 +166,7 @@ h1[tabindex="-1"]:focus
     width: min(420px, 42vw);
     height: 36px;
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
     border: 1px solid var(--helpdesk-surface-border);
@@ -186,6 +186,14 @@ h1[tabindex="-1"]:focus
     background: color-mix(in srgb, var(--mud-palette-primary) 8%, var(--mud-palette-surface));
     border-color: color-mix(in srgb, var(--mud-palette-primary) 48%, var(--helpdesk-surface-border));
     outline: none;
+}
+
+.helpdesk-appbar-search span
+{
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .helpdesk-appbar-search kbd
@@ -211,6 +219,11 @@ h1[tabindex="-1"]:focus
     align-items: flex-start;
     padding: 80px 16px 24px;
     background: var(--mud-palette-overlay-dark);
+}
+
+.global-search-focus-trap
+{
+    display: contents;
 }
 
 .global-search-panel

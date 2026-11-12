@@ -158,8 +158,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('renders the application shell and opens global search', async ({ page }) => {
-  await expect(page.getByText('RatelDesk')).toBeVisible();
-  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page.getByText('RatelDesk', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Search RatelDesk' }).click();
   await expect(page.getByPlaceholder('Search...')).toBeVisible();
 });
 
@@ -205,13 +205,14 @@ test('desktop navigation reaches the incidents workspace without overflow', asyn
     await toggle.click();
   }
   await workspace.getByRole('link', { name: 'Incidents' }).click();
-  await expect(page.getByRole('heading', { name: 'Incidents' })).toBeVisible();
+  await expect(page).toHaveURL(/\/incidents(?:\?.*)?$/);
+  await expect(page.getByTestId('app-main-content').getByRole('heading', { name: 'Incidents', exact: true, level: 1 })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 });
 
 test('representative incident detail and admin pages do not overflow', async ({ page }) => {
   await page.goto('/incidents');
-  await expect(page.getByRole('heading', { name: 'Incidents' })).toBeVisible();
+  await expect(page.getByTestId('app-main-content').getByRole('heading', { name: 'Incidents', exact: true, level: 1 })).toBeVisible();
   // The subject opens the email preview; the tracking cell opens the ticket.
   await page.locator('tbody tr').first().locator('td[data-label="Tracking ID"]').click();
   await expect(page).toHaveURL(/\/incidents\//);
@@ -261,7 +262,7 @@ test('mobile drawer starts closed, opens, fully closes, and leaves the page inte
 
   await closeDrawer(page);
   await page.screenshot({ path: testInfo.outputPath('mobile-home-drawer-closed.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search RatelDesk' }).click();
   await expect(page.getByPlaceholder('Search...')).toBeVisible();
   await context.close();
 });
@@ -277,7 +278,6 @@ test('mobile navigation auto-closes the drawer and can be reopened', async ({ br
 
   await page.getByTestId('navigation-toggle').click();
   await expectDrawerOpen(page);
-  await page.getByTestId('app-navigation-drawer').getByText('Portal', { exact: true }).click();
   const selfServiceLink = page.getByTestId('app-navigation-drawer').getByRole('link', { name: 'Self Service' });
   await expect(selfServiceLink).toBeVisible();
   await selfServiceLink.click();

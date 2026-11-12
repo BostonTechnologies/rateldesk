@@ -1,0 +1,150 @@
+{
+  "capturedAtUtc": "2026-11-11T17:53:00.585Z",
+  "baselineBuild": {
+    "sourceRevision": "11c8997816833d753caf8df912a8279490da34fb",
+    "buildTimestamp": "2026-11-11T17:14:29Z",
+    "configuration": "Debug",
+    "sdk": "10.0.400",
+    "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore -m:1 -nodeReuse:false -p:UseSharedCompilation=false -p:BuildTimestamp=<recorded> -p:SourceRevisionId=<recorded>"
+  },
+  "candidateBuild": {
+    "sourceRevision": "816046ba8c762ca5b5c09c254b1edc77ebf94afb",
+    "buildTimestamp": "2026-11-11T17:12:32Z",
+    "configuration": "Debug",
+    "sdk": "10.0.400",
+    "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore --no-dependencies -m:1 -nodeReuse:false -p:UseSharedCompilation=false -p:BuildTimestamp=<recorded> -p:SourceRevisionId=<recorded>"
+  },
+  "fixture": "tests/ux/ticket-details-fixture-api.mjs at candidate source; synthetic presentation only, no provider execution or SSE acceptance",
+  "captures": [
+    {
+      "file": "before-light-1440.png",
+      "source": "before",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "e72f271b3675f5b127e2ac6851c80f5a7ce24b7b36201eff59cd6381faed22a6",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "taskStates": 0,
+      "openDetails": 0,
+      "clippedTaskElements": null,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "after-light-1440.png",
+      "source": "after",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "c9b5b8167c4a438cf568b50ce9b76c204cacab95673add4313b4a371943f9820",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "taskStates": 3,
+      "openDetails": 0,
+      "clippedTaskElements": 0,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "before-light-390.png",
+      "source": "before",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "3aca15ef3c34b412d2dcd6152b714679095556db71ff5d5dc423bcb242dd87d5",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "taskStates": 0,
+      "openDetails": 0,
+      "clippedTaskElements": null,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "after-light-390.png",
+      "source": "after",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "123d1ce4297aeb89522426ecffdb37af141ee920a8bf83a8a1cc258f96e00c60",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "taskStates": 3,
+      "openDetails": 0,
+      "clippedTaskElements": 0,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "before-dark-1440.png",
+      "source": "before",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "fc74b649dba33a458148fa9aabf14cfbcb75c7bf4c04ca175393b741e83904cf",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "taskStates": 0,
+      "openDetails": 0,
+      "clippedTaskElements": null,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "after-dark-1440.png",
+      "source": "after",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "6496705340089f9e1804efec2a780791addf07cf8087f12b385d2c969bf21dd3",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "taskStates": 3,
+      "openDetails": 0,
+      "clippedTaskElements": 0,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "before-dark-390.png",
+      "source": "before",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "049a084eec2e3360da650d771a05c6a7d322298dda75f6126fa09a86d3ca8125",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "taskStates": 0,
+      "openDetails": 0,
+      "clippedTaskElements": null,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "after-dark-390.png",
+      "source": "after",
+      "scenario": "Three synthetic running tasks; default collapsed view; identical fixture values.",
+      "sha256": "c6f25b128653a72317a77b337a61b018f7c34d5266a4974b7b7019ff3c2ca263",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "taskStates": 3,
+      "openDetails": 0,
+      "clippedTaskElements": 0,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "after-light-1440-disclosure30.png",
+      "source": "after",
+      "scenario": "Thirty synthetic running tasks; first technical disclosure opened with Enter.",
+      "sha256": "50b8e6af4e6d841c80422f0d3e3edef3cc2c7a9d47c08889684329afcf2130e5",
+      "width": 1440,
+      "height": 900,
+      "scrollWidth": 1440,
+      "taskStates": 30,
+      "openDetails": 1,
+      "clippedTaskElements": 0,
+      "errorUiHeight": 0
+    },
+    {
+      "file": "after-light-390-unknown3.png",
+      "source": "after",
+      "scenario": "Three synthetic outcome-unknown tasks; no Retry action; recovery retained.",
+      "sha256": "9a272cbbdbe42c6b9146569120f2c9544bd8046687497ded4ab87a052951eb91",
+      "width": 390,
+      "height": 844,
+      "scrollWidth": 390,
+      "taskStates": 3,
+      "openDetails": 0,
+      "clippedTaskElements": 0,
+      "errorUiHeight": 0
+    }
+  ]
+}

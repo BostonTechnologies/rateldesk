@@ -1,0 +1,44 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<div class="self-service-workspace">
+    <nav class="self-service-tabs" aria-label="Self Service sections">
+        <a href="@_navigation.CatalogUrl" class="self-service-tab @(!IsMyRequests ? "active" : null)"
+           aria-current="@(!IsMyRequests ? "page" : null)">
+            <MudIcon Icon="@Icons.Material.Filled.Storefront" Size="Size.Small" />
+            <span>Service Catalog</span>
+        </a>
+        <a href="@_navigation.MyRequestsUrl" class="self-service-tab @(IsMyRequests ? "active" : null)"
+           aria-current="@(IsMyRequests ? "page" : null)">
+            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Size="Size.Small" />
+            <span>My Requests</span>
+        </a>
+    </nav>
+    <CascadingValue Value="_navigation" IsFixed="true">
+        @Body
+    </CascadingValue>
+</div>
+
+@code {
+    private readonly SelfServiceNavigationState _navigation = new();
+    private bool IsMyRequests => Navigation.ToBaseRelativePath(Navigation.Uri)
+        .StartsWith("self-service/my-requests", StringComparison.OrdinalIgnoreCase);
+
+    protected override void OnInitialized()
+    {
+        RememberLocation();
+        Navigation.LocationChanged += LocationChanged;
+    }
+
+    private void LocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        RememberLocation();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void RememberLocation() => _navigation.Remember(Navigation.ToBaseRelativePath(Navigation.Uri));
+
+    public void Dispose() => Navigation.LocationChanged -= LocationChanged;
+}

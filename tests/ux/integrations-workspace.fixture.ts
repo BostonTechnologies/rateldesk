@@ -254,10 +254,13 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   const first = panel.locator('[data-connection-id="mapping-1"]');
   const second = panel.locator('[data-connection-id="mapping-2"]');
   const a = await first.boundingBox(), b = await second.boundingBox();
-  if (width === 1920) expect(Math.abs(a!.y - b!.y)).toBeLessThanOrEqual(2);
-  else expect(b!.y).toBeGreaterThan(a!.y + 10);
+  if (width >= 1366) {
+   expect(Math.abs(a!.y - b!.y)).toBeLessThanOrEqual(2);
+   expect(b!.x).toBeGreaterThan(a!.x + a!.width);
+  } else expect(b!.y).toBeGreaterThan(a!.y + 10);
   await expect(first).toContainText('Configured');
-  await expect(first).toContainText('Not tested. Configuration alone does not verify current access.');
+  await expect(first.getByText('Never tested', { exact: true })).toBeVisible();
+  await expect(first).toContainText('Configuration alone does not verify current access.');
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: info.outputPath(`systems-list-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   await first.getByRole('button', { name: 'View', exact: true }).click();
@@ -346,7 +349,7 @@ test('system connection context, interrupted save, durable resume and row-local 
  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
  await page.getByRole('dialog').getByRole('button', { name: 'Back to connections', exact: true }).click();
  await open(page, '/account/integration-credentials?tab=connections&organizationId=unavailable-org');
- await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'Add connection', exact: true }).click();
+ await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'Add mapping', exact: true }).click();
  await expect(page.getByTestId('connection-organization-hint-error')).toBeVisible();
  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('');
  await expect(page.getByTestId('save-system-connection')).toBeDisabled();
@@ -358,7 +361,16 @@ test('system connection context, interrupted save, durable resume and row-local 
  await expect(first.getByTestId('connection-row-error')).toContainText('Synthetic connection test unavailable');
  await expect(second.getByTestId('connection-row-error')).toHaveCount(0);
  await first.getByTestId('test-system-connection').click();
- await expect(first.getByTestId('connection-test-result')).toContainText('Synthetic authorized connection test passed');
+ const testResult = first.getByTestId('connection-test-result');
+ await expect(testResult).toHaveText('Last test passed · Recent snapshot');
+ const testDetails = first.locator('details.pairing-test-details');
+ const providerResult = testDetails.getByText('Synthetic authorized connection test passed', { exact: true });
+ await expect(providerResult).not.toBeVisible();
+ await testDetails.getByText('Test details', { exact: true }).click();
+ await expect(testDetails).toHaveAttribute('open', '');
+ await expect(providerResult).toBeVisible();
+ await expect(testDetails).toContainText('Point-in-time access check. Tests older than 15 minutes are marked stale.');
+ await expect(testResult).toHaveText('Last test passed · Recent snapshot');
  await first.getByTestId('delete-system-connection').click();
  await page.getByTestId('confirm-system-connection-delete').click();
  await panel.getByRole('button', { name: 'Refresh connections', exact: true }).click();

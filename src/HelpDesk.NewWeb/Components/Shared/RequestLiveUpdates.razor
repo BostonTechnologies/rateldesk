@@ -1,0 +1,158 @@
+@using System.Threading.Channels
+@implements IAsyncDisposable
+@inject TimelineStreamService Streams
+@inject IJSRuntime JS
+@inject ILogger<RequestLiveUpdates> Logger
+
+<div class="request-live-updates" data-testid="request-live-updates" aria-busy="@refreshing.ToString().ToLowerInvariant()">
+    <span class="request-live-state" role="status" aria-live="polite" title="@StateDescription">
+        <span class="request-live-dot @(state == TimelineConnectionState.Live && !refreshFailed ? "is-live" : "")" aria-hidden="true"></span>
+        @StateLabel
+    </span>
+    <MudTooltip Text="Refresh request progress">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" aria-label="Refresh request progress"
+                       Disabled="@refreshing" OnClick="RefreshAsync" />
+    </MudTooltip>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string RequestId { get; set; } = string.Empty;
+    [Parameter] public bool SelfService { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    private string? key;
+    private int connectionVersion;
+    private IAsyncDisposable? subscription;
+    private CancellationTokenSource lifetime = new();
+    private Channel<bool> updates = CreateQueue();
+    private Task? worker;
+    private TimelineConnectionState state = TimelineConnectionState.Connecting;
+    private bool refreshing, refreshFailed, disposed, connectAfterRender;
+    private IJSObjectReference? module, observation;
+    private DotNetObjectReference<RequestLiveUpdates>? reference;
+    private string StateLabel => refreshFailed ? "Updates paused" : state switch
+    {
+        TimelineConnectionState.Live => "Live",
+        TimelineConnectionState.Paused => "Updates paused",
+        _ => "Reconnecting"
+    };
+    private string StateDescription => refreshFailed ? "Progress could not be refreshed. Use Refresh to try again." : state switch
+    {
+        TimelineConnectionState.Live => "Receiving committed request progress updates.",
+        TimelineConnectionState.Paused => "Updates are paused. Refresh to reconnect and check access.",
+        _ => "Reconnecting; progress will be synchronized when the stream is ready."
+    };
+    private static Channel<bool> CreateQueue() => Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+    { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.DropOldest });
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var next = $"{SelfService}:{RequestId}";
+        if (next == key) return;
+        key = next;
+        await StopAsync();
+        lifetime = new();
+        updates = CreateQueue();
+        state = TimelineConnectionState.Connecting;
+        refreshFailed = false;
+        connectAfterRender = true;
+        worker = RunRefreshesAsync(updates.Reader, lifetime.Token);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (connectAfterRender)
+        {
+            connectAfterRender = false;
+            await ConnectAsync();
+        }
+        if (firstRender)
+        {
+            try
+            {
+                reference = DotNetObjectReference.Create(this);
+                module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/requestLiveUpdates.js");
+                if (module is not null) observation = await module.InvokeAsync<IJSObjectReference>("observe", reference);
+            }
+            catch (JSDisconnectedException) { Logger.LogDebug("Request live observer disconnected"); }
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        var scope = key;
+        var attempt = ++connectionVersion;
+        if (subscription is not null) await subscription.DisposeAsync();
+        var connected = await Streams.SubscribeAsync(RequestId,
+            ticketType: SelfService ? "self-service/requests" : "requests",
+            onInvalidated: () => { if (scope == key) updates.Writer.TryWrite(true); return Task.CompletedTask; },
+            onStateChanged: value => InvokeAsync(() =>
+            {
+                if (disposed || scope != key) return;
+                state = value;
+                // Ready occurs after subscription. Always resync, including every reconnect.
+                if (value == TimelineConnectionState.Live) updates.Writer.TryWrite(true);
+                StateHasChanged();
+            }), ct: lifetime.Token);
+        if (disposed || scope != key || attempt != connectionVersion) await connected.DisposeAsync();
+        else subscription = connected;
+    }
+
+    private async Task RunRefreshesAsync(ChannelReader<bool> reader, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var signal in reader.ReadAllAsync(ct))
+            {
+                // Coalesce a committed workflow burst into one canonical fetch. A change during
+                // that fetch remains queued and causes another fetch after it, closing the gap.
+                await Task.Delay(TimeSpan.FromMilliseconds(75), ct);
+                while (reader.TryRead(out _)) { }
+                await InvokeAsync(async () =>
+                {
+                    if (disposed || ct.IsCancellationRequested) return;
+                    refreshing = true;
+                    StateHasChanged();
+                    try { await OnRefresh.InvokeAsync(); refreshFailed = false; }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { Logger.LogDebug("Request refresh cancelled"); }
+                    catch (Exception error) { Logger.LogWarning(error, "Request progress refresh failed"); refreshFailed = true; }
+                    finally { refreshing = false; if (!disposed) StateHasChanged(); }
+                });
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { Logger.LogDebug("Request refresh queue stopped"); }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (state == TimelineConnectionState.Paused) await ConnectAsync();
+        updates.Writer.TryWrite(true);
+    }
+
+    [JSInvokable]
+    public Task ResumeUpdatesAsync() => disposed ? Task.CompletedTask : InvokeAsync(RefreshAsync);
+
+    private async Task StopAsync()
+    {
+        connectionVersion++;
+        await lifetime.CancelAsync();
+        if (subscription is not null) await subscription.DisposeAsync();
+        subscription = null;
+        if (worker is not null) await worker;
+        lifetime.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (disposed) return;
+        disposed = true;
+        key = null;
+        await StopAsync();
+        try
+        {
+            if (observation is not null) { await observation.InvokeVoidAsync("dispose"); await observation.DisposeAsync(); }
+            if (module is not null) await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { Logger.LogDebug("Request live observer already disconnected"); }
+        reference?.Dispose();
+    }
+}

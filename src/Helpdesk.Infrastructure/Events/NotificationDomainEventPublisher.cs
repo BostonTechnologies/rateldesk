@@ -95,6 +95,7 @@ public class NotificationDomainEventPublisher(
             "SLA" => "DomainEvent.SLA",
             "Hangfire" => "DomainEvent.Hangfire",
             "RequestTask" => "DomainEvent.RequestTask",
+            "Request" => "DomainEvent.Request",
             "RequestForm" => "DomainEvent.RequestForm",
             "SelfService" => "DomainEvent.SelfService",
             "TaskDashboard" => "DomainEvent.TaskDashboard",

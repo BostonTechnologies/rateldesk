@@ -312,7 +312,13 @@ public sealed partial class TimelineEffortPersistenceTests
                 providerDatabase = await ServiceIdentityMigrationTests.DatabaseFixture.CreateAsync(true);
             else
             {
-                connection = new SqliteConnection("Data Source=:memory:");
+                connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                {
+                    DataSource = $"timeline-effort-{Guid.NewGuid():N}",
+                    Mode = SqliteOpenMode.Memory,
+                    Cache = SqliteCacheMode.Shared,
+                    Pooling = false
+                }.ToString());
                 await connection.OpenAsync();
             }
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -322,7 +328,9 @@ public sealed partial class TimelineEffortPersistenceTests
             if (providerDatabase is not null)
                 builder.Services.AddScoped<HelpdeskDbContext>(_ => providerDatabase.Open());
             else
-                builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection!));
+                // The keeper retains the database; each HTTP/SSE scope owns its
+                // connection instead of concurrently using the keeper object.
+                builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection!.ConnectionString));
             builder.Services.AddScoped<ITenantContext>(_ => new AdminTenant());
             builder.Services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
             builder.Services.AddScoped<IRequestSender, RequestSender>();
@@ -429,7 +437,9 @@ public sealed partial class TimelineEffortPersistenceTests
         }
         public async ValueTask DisposeAsync()
         {
-            Client.Dispose(); await app.DisposeAsync();
+            Client.Dispose();
+            await app.StopAsync();
+            await app.DisposeAsync();
             if (connection is not null) await connection.DisposeAsync();
             if (providerDatabase is not null) await providerDatabase.DisposeAsync();
         }

@@ -1,0 +1,48 @@
+{
+  "sourceRevision": "816046ba8c762ca5b5c09c254b1edc77ebf94afb",
+  "fixtureSha256": "9423eab4c917fdbfea5453560846821b520d1ca0e732475496094bc005d37a04",
+  "command": "node node_modules/@playwright/test/cli.js test --config playwright.details.config.ts -g 'request execution' --reporter=list,junit",
+  "passed": 11,
+  "failed": 0,
+  "skipped": 0,
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "viewports": [
+    [
+      1920,
+      1080
+    ],
+    [
+      1440,
+      900
+    ],
+    [
+      1366,
+      768
+    ],
+    [
+      768,
+      1024
+    ],
+    [
+      390,
+      844
+    ]
+  ],
+  "taskCounts": [
+    0,
+    3,
+    30
+  ],
+  "checks": [
+    "actual task/details containment",
+    "no document overflow",
+    "aligned action hit boxes",
+    "keyboard disclosure",
+    "expanded row after tab return",
+    "unknown outcome without Retry"
+  ],
+  "nativeZoomOrProviderExecutionClaimed": false
+}

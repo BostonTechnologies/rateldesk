@@ -1,0 +1,285 @@
+{
+  "baseline": "Root pre-UX Web output; catalog and My Requests source unchanged from main 11c8997816833d753caf8df912a8279490da34fb. Includes unrelated draft #380 form changes; not full-build acceptance.",
+  "evidence": [
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 1920,
+      "height": 1080,
+      "path": "catalog-1920x1080-light.png",
+      "geometry": {
+        "viewport": 1920,
+        "overflow": 0,
+        "tracks": "246px 246px 246px 246px 246px 246px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 1920,
+      "height": 1080,
+      "path": "my-requests-1920x1080-light.png",
+      "geometry": {
+        "viewport": 1920,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "path": "catalog-1440x900-light.png",
+      "geometry": {
+        "viewport": 1440,
+        "overflow": 0,
+        "tracks": "255px 255px 255px 255px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "path": "my-requests-1440x900-light.png",
+      "geometry": {
+        "viewport": 1440,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 1366,
+      "height": 768,
+      "path": "catalog-1366x768-light.png",
+      "geometry": {
+        "viewport": 1366,
+        "overflow": 0,
+        "tracks": "236.5px 236.5px 236.5px 236.5px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 1366,
+      "height": 768,
+      "path": "my-requests-1366x768-light.png",
+      "geometry": {
+        "viewport": 1366,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 768,
+      "height": 1024,
+      "path": "catalog-768x1024-light.png",
+      "geometry": {
+        "viewport": 768,
+        "overflow": 0,
+        "tracks": "340px 340px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 768,
+      "height": 1024,
+      "path": "my-requests-768x1024-light.png",
+      "geometry": {
+        "viewport": 768,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "light",
+      "width": 390,
+      "height": 844,
+      "path": "catalog-390x844-light.png",
+      "geometry": {
+        "viewport": 390,
+        "overflow": 0,
+        "tracks": "330px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "light",
+      "width": 390,
+      "height": 844,
+      "path": "my-requests-390x844-light.png",
+      "geometry": {
+        "viewport": 390,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 1920,
+      "height": 1080,
+      "path": "catalog-1920x1080-dark.png",
+      "geometry": {
+        "viewport": 1920,
+        "overflow": 0,
+        "tracks": "246px 246px 246px 246px 246px 246px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 1920,
+      "height": 1080,
+      "path": "my-requests-1920x1080-dark.png",
+      "geometry": {
+        "viewport": 1920,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "path": "catalog-1440x900-dark.png",
+      "geometry": {
+        "viewport": 1440,
+        "overflow": 0,
+        "tracks": "255px 255px 255px 255px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "path": "my-requests-1440x900-dark.png",
+      "geometry": {
+        "viewport": 1440,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 1366,
+      "height": 768,
+      "path": "catalog-1366x768-dark.png",
+      "geometry": {
+        "viewport": 1366,
+        "overflow": 0,
+        "tracks": "236.5px 236.5px 236.5px 236.5px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 1366,
+      "height": 768,
+      "path": "my-requests-1366x768-dark.png",
+      "geometry": {
+        "viewport": 1366,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 768,
+      "height": 1024,
+      "path": "catalog-768x1024-dark.png",
+      "geometry": {
+        "viewport": 768,
+        "overflow": 0,
+        "tracks": "340px 340px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 768,
+      "height": 1024,
+      "path": "my-requests-768x1024-dark.png",
+      "geometry": {
+        "viewport": 768,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service",
+      "theme": "dark",
+      "width": 390,
+      "height": 844,
+      "path": "catalog-390x844-dark.png",
+      "geometry": {
+        "viewport": 390,
+        "overflow": 0,
+        "tracks": "330px",
+        "rows": 0,
+        "pagers": 0
+      }
+    },
+    {
+      "route": "/self-service/my-requests",
+      "theme": "dark",
+      "width": 390,
+      "height": 844,
+      "path": "my-requests-390x844-dark.png",
+      "geometry": {
+        "viewport": 390,
+        "overflow": 0,
+        "tracks": null,
+        "rows": 10,
+        "pagers": 0
+      }
+    }
+  ]
+}

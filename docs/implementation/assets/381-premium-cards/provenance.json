@@ -1,0 +1,12 @@
+{
+  "applicationVersion": "0.1.3-beta.9",
+  "sdk": "10.0.400",
+  "browser": "Chrome for Testing 156.0.8078.4",
+  "fixture": "tests/ux/premium-cards-fixture-api.mjs",
+  "scope": "Synthetic presentation evidence; provider execution and authorization acceptance are separate.",
+  "viewportCaptureCount": 30,
+  "nativeBrowserZoomCaptureCount": 12,
+  "baselineUiSourceRevision": "11c8997816833d753caf8df912a8279490da34fb",
+  "wholeTreeBaselineClaim": false,
+  "baselineScope": "The displayed Home, Service Explorer, connections and shell files matched the baseline. The pre-UX Web output included unrelated draft self-service form changes."
+}

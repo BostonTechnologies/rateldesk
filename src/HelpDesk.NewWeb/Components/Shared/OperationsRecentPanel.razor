@@ -1,0 +1,41 @@
+<section class="operations-recent-panel" aria-label="@Title" data-testid="operations-recent-panel">
+    <header>
+        <MudText Typo="Typo.h6" HtmlTag="h2">@Title</MudText>
+        <MudLink Href="@ViewAllHref" aria-label="@($"View all {Title[7..].ToLowerInvariant()}")">View all</MudLink>
+    </header>
+    @if (Error is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" role="alert">@Error <MudButton Size="Size.Small" OnClick="Retry" Disabled="Loading">Retry @Title[7..].ToLowerInvariant()</MudButton></MudAlert>
+    }
+    @if (Loading && Items.Count == 0)
+    {
+        <MudProgressLinear Indeterminate="true" aria-label="@($"Loading {Title.ToLowerInvariant()}")" />
+    }
+    else if (Items.Count > 0)
+    {
+        <MudTable Items="Items" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm" Class="operations-recent-table">
+            <HeaderContent><MudTh>Tracking ID</MudTh><MudTh>Title</MudTh><MudTh>State</MudTh><MudTh>Updated</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Tracking ID"><MudLink Href="@context.Href" Class="operations-tracking">@context.TrackingId</MudLink></MudTd>
+                <MudTd DataLabel="Title"><MudLink Href="@context.Href" Class="operations-title" title="@context.Title">@context.Title</MudLink></MudTd>
+                <MudTd DataLabel="State"><span class="operations-state">@context.State</span></MudTd>
+                <MudTd DataLabel="Updated"><time datetime="@context.UpdatedAt?.ToUniversalTime().ToString("O")" title="@context.UpdatedAt?.ToUniversalTime().ToString("O")">@(context.UpdatedAt?.ToLocalTime().ToString("g") ?? "—")</time></MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    else if (Error is null)
+    {
+        <p class="operations-empty">@EmptyText</p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "Recent work";
+    [Parameter, EditorRequired] public string ViewAllHref { get; set; } = "/home";
+    [Parameter] public string EmptyText { get; set; } = "No recent work.";
+    [Parameter] public IReadOnlyList<Row> Items { get; set; } = [];
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public EventCallback Retry { get; set; }
+    public sealed record Row(string Id, string TrackingId, string Title, string State, DateTime? UpdatedAt, string Href);
+}

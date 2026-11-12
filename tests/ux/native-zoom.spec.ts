@@ -1,5 +1,5 @@
 import { chromium, expect, test, type Page } from '@playwright/test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 const suite = process.env.HELPDESK_NATIVE_ZOOM_SUITE!;
@@ -12,9 +12,12 @@ const routes: Record<string, string[]> = {
   assignee: ['/incidents', '/requests', '/changes'],
   operations: ['/self-service', '/ops/slas', '/ops/workflows', '/ops/hangfire', '/tasks', '/notifications', '/admin/email-rules'],
   'pending-mail': ['/admin/pending-emails'],
-  'request-editor': ['/admin/requests/services/service-1']
+  'request-editor': ['/admin/requests/services/service-1'],
+  'self-service': ['/self-service', '/self-service/my-requests'],
+  'premium-cards': ['/home', '/admin/requests/services', '/account/integration-credentials?tab=connections'],
+  directories: ['/admin/users', '/admin/customers', '/admin/organizations', '/admin/categories']
 };
-const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700, assignee: 18300, 'request-editor': 18530 };
+const ports: Record<string, number> = { admin: 18500, integrations: 18505, details: 18600, email: 18304, 'ticket-filters': 18330, operations: 18400, 'pending-mail': 18700, assignee: 18300, 'request-editor': 18530, 'self-service': 18440, 'premium-cards': 18720, directories: 18500 };
 async function settleFiniteAnimations(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
@@ -34,6 +37,11 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
   test(`${suite} ${theme} native browser zoom 200 percent at ${width}px`, async ({ baseURL, request }, info) => {
     await request.get(`http://127.0.0.1:${ports[suite]}/fixture/reset`);
     if (suite === 'operations') await request.get('http://127.0.0.1:18400/fixture/premium');
+    if (suite === 'details') await request.post('http://127.0.0.1:18600/fixture/request-tasks', { data: { count: 30 } });
+    if (suite === 'directories') {
+      await request.get('http://127.0.0.1:18500/fixture/directories');
+      await request.get('http://127.0.0.1:18500/fixture/team');
+    }
     const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-zoom-'));
     const extension = path.resolve('tests/ux/native-zoom-extension');
     const context = await chromium.launchPersistentContext(profile, {
@@ -92,6 +100,84 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
             }
           } else {
             await expect(page.locator('.premium-workspace .mud-table-pagination')).toBeInViewport({ ratio: 1 });
+          }
+        }
+        if (suite === 'self-service') {
+          const sections = page.getByRole('navigation', { name: 'Self Service sections' });
+          await expect(sections.getByRole('link')).toHaveCount(2);
+          if (route.endsWith('my-requests')) {
+            await expect(page.locator('.my-requests-table tbody tr')).toHaveCount(25);
+            await page.locator('.mud-table-pagination').scrollIntoViewIfNeeded();
+            await expect(page.locator('.mud-table-pagination')).toBeInViewport({ ratio: 1 });
+          } else {
+            await expect(page.locator('.self-service-catalog-card')).toHaveCount(7);
+            expect(await page.locator('.self-service-card-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(width / 2 <= 640 ? 1 : 2);
+          }
+        }
+        if (suite === 'directories') {
+          await expect(page.locator('.directory-workspace tbody tr')).toHaveCount(25);
+          await page.locator('.directory-workspace .mud-table-pagination').scrollIntoViewIfNeeded();
+          await expect(page.locator('.directory-workspace .mud-table-pagination')).toBeInViewport({ ratio: 1 });
+        }
+        if (suite === 'details' && route.startsWith('/requests/')) {
+          await page.getByRole('tab', { name: /^Tasks/ }).click();
+          await expect(page.locator('.request-task-state')).toHaveCount(30);
+          await expect(page.getByRole('button', { name: 'Running', exact: true })).toHaveCount(0);
+          const actionGroups = page.locator('.request-task-actions');
+          await expect(actionGroups).toHaveCount(30);
+          for (let index = 0; index < 30; index++) {
+            const tops = await actionGroups.nth(index).locator('button').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().top));
+            expect(tops.length).toBeGreaterThan(0);
+            expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
+          }
+          const details = page.getByRole('button', { name: /^Task details/ }).first();
+          await details.focus();
+          await page.keyboard.press('Enter');
+          await expect(details).toHaveAttribute('aria-expanded', 'true');
+          const containment = await page.locator('.request-tasks-table').evaluate(table => {
+            const bounds = table.getBoundingClientRect();
+            return [...table.querySelectorAll('.request-task-name, .request-task-state, .request-task-details')]
+              .every(element => { const box = element.getBoundingClientRect(); return box.left >= bounds.left - 2 && box.right <= bounds.right + 2; });
+          });
+          expect(containment).toBe(true);
+          await page.getByRole('tab', { name: 'Workflow', exact: true }).click();
+          await page.getByRole('tab', { name: /^Tasks/ }).click();
+          await expect(details).toHaveAttribute('aria-expanded', 'true');
+        }
+        if (suite === 'premium-cards') {
+          if (route === '/home') {
+            await expect(page.getByTestId('operations-overview')).toBeVisible();
+            await expect(page.getByTestId('operations-recent-panel')).toHaveCount(3);
+            await expect(page.getByRole('heading', { name: 'Operations Overview', exact: true })).toBeVisible();
+          } else if (route.includes('tab=connections')) {
+            await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+            const panel = page.getByTestId('system-connections-panel');
+            await expect(panel.getByTestId('system-connection-row')).toHaveCount(6);
+            const actions = panel.locator('.pairing-row-actions');
+            await expect(actions).toHaveCount(6);
+            for (let index = 0; index < 6; index++) {
+              const centers = await actions.nth(index).locator('button').evaluateAll(buttons => buttons.map(button => {
+                const box = button.getBoundingClientRect(); return box.y + box.height / 2;
+              }));
+              expect(centers.length).toBeGreaterThan(0);
+              expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+            }
+          } else {
+            const cards = page.getByTestId('service-explorer-card');
+            await expect(cards).toHaveCount(4);
+            const bounds = await cards.evaluateAll(elements => elements.map(element => {
+              const box = element.getBoundingClientRect();
+              return { y: box.y, height: box.height, footerY: element.querySelector('.svc-actions')!.getBoundingClientRect().y };
+            }));
+            const firstRow = bounds.filter(box => Math.abs(box.y - bounds[0].y) < 2);
+            expect(firstRow.length).toBe(width / 2 >= 900 ? 2 : 1);
+            expect(Math.max(...firstRow.map(box => box.height)) - Math.min(...firstRow.map(box => box.height))).toBeLessThan(2);
+            expect(Math.max(...firstRow.map(box => box.footerY)) - Math.min(...firstRow.map(box => box.footerY))).toBeLessThan(2);
+            const assignments = cards.nth(3).locator('.svc-assignments');
+            expect(await assignments.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+            await assignments.focus();
+            await page.keyboard.press('End');
+            await expect.poll(() => assignments.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
           }
         }
         if (suite === 'integrations')
@@ -301,6 +387,17 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         // paths must also be valid on Windows and GitHub's artifact service.
         const routeFileName = route.replace(/[^a-zA-Z0-9._-]+/g, '-');
         await writeFile(info.outputPath(`${routeFileName}-${theme}-${width}-native-200.png`), screenshot);
+        if (suite === 'self-service') {
+          const beforeRoute = route === '/self-service' ? 'catalog' : 'my-requests';
+          await copyFile(path.resolve(`docs/implementation/assets/381-self-service/${beforeRoute}-${width}-${theme}-native200.png`),
+            info.outputPath(`${routeFileName}-${theme}-${width}-before-native-200.png`));
+          await copyFile(path.resolve('docs/implementation/assets/381-self-service/capture-receipt.json'), info.outputPath('baseline-source.json'));
+        }
+        if (suite === 'premium-cards') {
+          const beforeRoute = route === '/home' ? 'home' : route.startsWith('/admin/requests/services') ? 'services' : 'connections';
+          await copyFile(path.resolve(`docs/implementation/assets/381-premium-cards/${beforeRoute}-${width}-${theme}-native-200.png`),
+            info.outputPath(`${routeFileName}-${theme}-${width}-before-native-200.png`));
+        }
         await info.attach(`${route}-native-zoom`, { body: JSON.stringify({ zoom, physicalWidth: width, layoutWidth: await page.evaluate(() => innerWidth), theme,
           capture: 'physical viewport without CSS clip', captureWidth, captureHeight }), contentType: 'application/json' });
         if (suite === 'admin' && route === '/admin/resources/data-management') {

@@ -242,7 +242,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [assignee, email, ticket-filters, details, operations, admin, request-editor, pending-mail, integrations]
+        suite: [assignee, email, ticket-filters, details, operations, admin, request-editor, pending-mail, integrations, self-service, premium-cards]
     env:
       HELPDESK_ASSIGNEE_CONFIGURATION: Release
       HELPDESK_EMAIL_CONFIGURATION: Release
@@ -253,6 +253,8 @@ jobs:
       HELPDESK_EDITOR_CONFIGURATION: Release
       HELPDESK_INTEGRATIONS_CONFIGURATION: Release
       HELPDESK_PENDING_MAIL_CONFIGURATION: Release
+      HELPDESK_SELF_SERVICE_CONFIGURATION: Release
+      HELPDESK_CARDS_CONFIGURATION: Release
     steps:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -297,6 +299,14 @@ jobs:
           npx playwright test --config playwright.native-zoom.config.ts
           --output=artifacts/e2e/workspace-${{ matrix.suite }}/native-zoom
 
+      - name: Verify administration directories and Team at native 200 percent zoom
+        if: matrix.suite == 'admin'
+        env:
+          HELPDESK_NATIVE_ZOOM_SUITE: directories
+        run: >-
+          npx playwright test --config playwright.native-zoom.config.ts
+          --output=artifacts/e2e/workspace-admin/directories-native-zoom
+
       - name: Verify contributor and manager ticket ownership controls
         if: matrix.suite == 'details'
         env:
@@ -313,6 +323,26 @@ jobs:
           path: |
             artifacts/e2e/workspace-${{ matrix.suite }}
             test-results
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish request-detail baseline comparison evidence
+        if: ${{ always() && matrix.suite == 'details' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: request-detail-baseline-comparisons
+          path: docs/implementation/assets/383-live-request-details
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish administration baseline comparison evidence
+        if: ${{ always() && matrix.suite == 'admin' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: administration-baseline-comparisons
+          path: |
+            docs/implementation/assets/381-directories
+            docs/implementation/assets/381-team
           if-no-files-found: error
           retention-days: 14
 

@@ -1,0 +1,43 @@
+.request-progress-summary { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem 1rem; padding:.5rem .75rem; border:1px solid var(--mud-palette-divider); border-radius:var(--mud-default-borderradius); }
+.request-progress-text { display:flex; align-items:center; gap:.5rem 1rem; flex-wrap:wrap; font-size:.875rem; color:var(--mud-palette-text-secondary); }
+.request-progress-text strong { color:var(--mud-palette-text-primary); font-weight:500; }
+::deep .request-tasks-table table { table-layout:fixed; }
+::deep .request-task-name, .request-task-description, .request-task-assignee { display:block; overflow:hidden; text-overflow:ellipsis; }
+.request-task-name { font-weight:500; white-space:nowrap; }
+.request-task-description { color:var(--mud-palette-text-secondary); font-size:.875rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.request-task-assignee { white-space:nowrap; }
+.request-task-state { display:inline-flex; align-items:center; gap:.4rem; font-size:.875rem; }
+.request-task-actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-end; min-width:max-content; gap:.15rem; }
+.request-task-details { padding:.75rem; overflow-wrap:anywhere; background:var(--mud-palette-background-gray); }
+.request-task-details p { margin:.5rem 0; }
+.request-task-details dl { display:grid; grid-template-columns:minmax(9rem, 12rem) 1fr; gap:.4rem 1rem; margin:.75rem 0; font-size:.875rem; }
+.request-task-details dt { color:var(--mud-palette-text-secondary); }
+.request-task-details dd { margin:0; white-space:pre-wrap; }
+.request-task-error { color:var(--mud-palette-text-primary); }
+@media(max-width:960px) {
+    ::deep .request-tasks-table table { display:block; table-layout:auto; width:100%; }
+    ::deep .request-tasks-table colgroup { display:none; }
+    ::deep .request-tasks-table .mud-table-body,
+    ::deep .request-tasks-table .mud-table-body > .mud-table-row { display:block; width:100%; }
+    ::deep .request-tasks-table .mud-table-cell { display:grid; grid-template-columns:5.5rem minmax(0, 1fr); gap:.2rem .5rem; }
+    .request-task-description { grid-column:2; }
+    ::deep .request-task-detail-row > td { display:block; width:100%; padding:0; }
+    .request-task-actions { justify-content:flex-start; }
+}
+@media(max-width:599.98px) {
+    .request-task-details dl { grid-template-columns:1fr; gap:.25rem; }
+    .request-task-details dd { margin-bottom:.5rem; }
+}
+
+::deep .request-workflow-toolbar { flex-wrap:wrap; }
+::deep .request-workflow-toolbar > .mud-input-control { min-width:min(100%, 10rem); flex:1 1 10rem; }
+
+.request-detail-page { min-width:0; }
+.request-detail-page ::deep .ticket-header-title { font-size:1.75rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
+
+/* Match the shared workspace actions' hit boxes, including the disclosure button. */
+.request-task-actions ::deep .mud-icon-button { min-width:2.25rem; min-height:2.25rem; }
+.request-task-actions ::deep :focus-visible { outline:2px solid var(--mud-palette-primary); outline-offset:2px; }
+@media(max-width:600px) {
+    .request-task-actions ::deep .mud-icon-button { min-width:2.75rem; min-height:2.75rem; }
+}

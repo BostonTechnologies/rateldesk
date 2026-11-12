@@ -9,10 +9,14 @@
     <div aria-hidden="@(DialogOpen ? "true" : null)">
         <div class="pairing-toolbar">
             <MudTextField T="string" @bind-Value="search" Label="Search system connections" Immediate="true" Clearable="true" Margin="Margin.Dense" Variant="Variant.Outlined" Class="pairing-search" />
-            <MudSelect T="string" @bind-Value="statusFilter" Label="Status" Margin="Margin.Dense" Variant="Variant.Outlined" Class="pairing-filter">
+            <MudSelect T="string" @bind-Value="statusFilter" Label="Status" Margin="Margin.Dense" Variant="Variant.Outlined" Class="pairing-filter" data-testid="connection-status-filter">
                 <MudSelectItem Value='@("all")'>All (@connections.Count)</MudSelectItem>
                 <MudSelectItem Value='@("configured")'>Configured (@connections.Count(Connected))</MudSelectItem>
                 <MudSelectItem Value='@("attention")'>Needs attention (@connections.Count(c => !Connected(c)))</MudSelectItem>
+                <MudSelectItem Value='@("never-tested")'>Never tested</MudSelectItem>
+                <MudSelectItem Value='@("passed")'>Recent test passed</MudSelectItem>
+                <MudSelectItem Value='@("stale")'>Test is stale</MudSelectItem>
+                <MudSelectItem Value='@("failed")'>Test failed</MudSelectItem>
             </MudSelect>
             <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="GenerateAsync" Disabled="@(busy || loading)" data-testid="generate-pairing-code">Generate a Pairing Code</MudButton>
             <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenCreate" Disabled="@(busy || loading)" data-testid="create-system-connection">Create Connection</MudButton>
@@ -21,42 +25,59 @@
         @if (error is not null && !DialogOpen) { <MudAlert Severity="Severity.Error" Dense="true" Class="pairing-error" data-testid="system-connection-error" role="alert">@ErrorText</MudAlert> }
         @if (notice is not null) { <MudText Typo="Typo.body2" Color="Color.Success" Class="mb-2" data-testid="system-connection-success" role="status">@notice</MudText> }
         @if (loading) { <MudProgressLinear Indeterminate="true" aria-label="Loading connections" /> }
-        @if (!loading && connections.Count == 0) { <MudText Typo="Typo.body2" Color="Color.Secondary">No system connections yet. Generate a code here or enter a code from NetRatel.</MudText> }
+        @if (!loading && connections.Count == 0) { <MudText Typo="Typo.body2" Class="mud-text-secondary">No system connections yet. Generate a code here or enter a code from NetRatel.</MudText> }
         <div class="pairing-grid">
         @foreach (var connection in VisibleConnections)
         {
             var key = Key(connection);
             var testing = testsInProgress.Contains(key);
-            <MudPaper @key="connection.Id" Outlined="true" Class="pairing-card" data-testid="system-connection-row" data-connection-id="@connection.Id">
+            <MudPaper @key="connection.Id" Outlined="true" Class="pairing-card" data-testid="system-connection-row" data-connection-id="@connection.Id" data-test-state="@TestState(connection)">
                 <div class="pairing-card-heading">
-                    <div><MudText Typo="Typo.subtitle2">@(connection.Mapping?.Name ?? connection.Peer.Name)</MudText><MudText Typo="Typo.caption">@connection.Peer.Product · @connection.Peer.Name</MudText></div>
-                    <MudChip T="string" Size="Size.Small" Color="@(Connected(connection) ? Color.Default : Color.Warning)" Variant="Variant.Outlined">@(Connected(connection) ? "Configured" : "Needs attention")</MudChip>
+                    <span class="pairing-provider-icon" aria-hidden="true"><MudIcon Icon="@Icons.Material.Filled.Hub" /></span>
+                    <div class="pairing-identity"><MudText Typo="Typo.h6" HtmlTag="h3" Class="pairing-name">@(connection.Mapping?.Name ?? connection.Peer.Name)</MudText><MudText Typo="Typo.body2" Class="mud-text-secondary">@ProductLabel(connection) · @connection.Peer.Name</MudText></div>
                 </div>
+                <div class="pairing-configuration-state"><MudChip T="string" Size="Size.Small" Color="@(Connected(connection) ? Color.Default : Color.Warning)" Variant="Variant.Outlined">@(Connected(connection) ? "Configured" : "Setup required")</MudChip><span>Configuration state</span></div>
                 @if (connection.Mapping is { } mapping)
                 {
-                    <MudText Typo="Typo.body2" Class="pairing-mapping">@ChoiceName(DirectoryFor(connection.PairId)?.NetRatelTenants, mapping.NetRatelTenantId) → @ChoiceName(DirectoryFor(connection.PairId)?.RatelDeskOrganizations, mapping.RatelDeskOrganizationId)@(mapping.RatelDeskCustomerId is { } customer ? " · " + ChoiceName(DirectoryFor(connection.PairId)?.RatelDeskCustomers, customer) : "")</MudText>
-                    <MudText Typo="Typo.caption">@Capabilities(mapping)</MudText>
+                    <div class="pairing-mapping" aria-label="Tenant and organization mapping">
+                        <div><span class="pairing-field-label">NetRatel tenant</span><span>@ChoiceName(DirectoryFor(connection.PairId)?.NetRatelTenants, mapping.NetRatelTenantId)</span></div>
+                        <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Class="pairing-mapping-arrow" aria-label="maps to" />
+                        <div><span class="pairing-field-label">RatelDesk organization</span><span>@ChoiceName(DirectoryFor(connection.PairId)?.RatelDeskOrganizations, mapping.RatelDeskOrganizationId)</span></div>
+                    </div>
+                    @if (mapping.RatelDeskCustomerId is { } customer)
+                    {
+                        <MudText Typo="Typo.body2" Class="pairing-account"><span class="pairing-field-label">Incident account</span> @ChoiceName(DirectoryFor(connection.PairId)?.RatelDeskCustomers, customer)</MudText>
+                    }
+                    <div class="pairing-capabilities" aria-label="Capability direction">
+                        @if (mapping.CreateIncidents) { <span>Create incidents <small>NetRatel → RatelDesk</small></span> }
+                        @if (mapping.RunAutomation) { <span>Run automation <small>RatelDesk → NetRatel</small></span> }
+                    </div>
                 }
                 else { <MudText Typo="Typo.body2">Systems paired. Choose the organization and capabilities to finish.</MudText> }
+                <div class="pairing-card-footer">
                 <div class="pairing-test-status" aria-live="polite">
-                    @if (testing) { <MudText Typo="Typo.caption">Testing connection…</MudText> }
+                    @if (testing) { <MudText Typo="Typo.body2">Testing connection…</MudText> }
                     else if (connection.LastTest is { } lastTest)
                     {
-                        <MudText Typo="Typo.caption" Color="@(lastTest.Success ? Color.Success : Color.Warning)" data-testid="connection-test-result">@lastTest.Message · @lastTest.TestedAtUtc.ToLocalTime().ToString("g")</MudText>
-                        @if (lastTest.Diagnostic is { } diagnostic && PairingReadinessDiagnostics.IsValid(diagnostic)) { <MudText Typo="Typo.caption" Class="pairing-error">@PairingReadinessDiagnostics.Describe(diagnostic) Reference: @diagnostic.Reference</MudText> }
+                        <MudText Typo="Typo.body2" Color="@(lastTest.Success && !Stale(lastTest) ? Color.Success : Color.Warning)" data-testid="connection-test-result">@(lastTest.Success ? "Last test passed" : "Last test failed")@(Stale(lastTest) ? " · Stale snapshot" : " · Recent snapshot")</MudText>
+                        <time datetime="@lastTest.TestedAtUtc.ToString("O")" title="@lastTest.TestedAtUtc.ToString("O")">@lastTest.TestedAtUtc.ToLocalTime().ToString("g")</time>
+                        <details class="pairing-test-details"><summary>Test details</summary><p>@lastTest.Message</p>
+                        @if (lastTest.Diagnostic is { } diagnostic && PairingReadinessDiagnostics.IsValid(diagnostic)) { <p>@PairingReadinessDiagnostics.Describe(diagnostic) Reference: @diagnostic.Reference</p> }
+                        <p>Point-in-time access check. Tests older than 15 minutes are marked stale.</p></details>
                     }
-                    else { <MudText Typo="Typo.caption">Not tested. Configuration alone does not verify current access.</MudText> }
+                    else { <MudText Typo="Typo.body2">Never tested</MudText><MudText Typo="Typo.body2" Class="mud-text-secondary">Configuration alone does not verify current access.</MudText> }
                 </div>
                 @if (rowErrors.TryGetValue(key, out var rowError)) { <MudAlert Severity="Severity.Error" Dense="true" Class="pairing-error" data-testid="connection-row-error">@rowError</MudAlert> }
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="pairing-row-actions">
-                    <MudButton Size="Size.Small" OnClick="() => ViewAsync(connection)" Disabled="@(busy || deleting.Contains(key))" data-testid="view-system-connection">@(Connected(connection) ? "View" : "Continue setup")</MudButton>
+                <div class="pairing-row-actions">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="() => ViewAsync(connection)" Disabled="@(busy || deleting.Contains(key))" data-testid="view-system-connection">@(Connected(connection) ? "View" : "Continue setup")</MudButton>
                     @if (connection.Mapping is not null)
                     {
-                        <MudButton Size="Size.Small" OnClick="() => TestAsync(connection)" Disabled="@(busy || testing || deleting.Contains(key))" data-testid="test-system-connection">Test connection</MudButton>
-                        <MudButton Size="Size.Small" OnClick="() => AddMappingAsync(connection)" Disabled="@(busy || deleting.Contains(key))">Add connection</MudButton>
+                        <MudButton Size="Size.Small" OnClick="() => TestAsync(connection)" Disabled="@(busy || testing || deleting.Contains(key))" aria-label="Test connection" data-testid="test-system-connection">Test</MudButton>
+                        <MudTooltip Text="Add another tenant or organization mapping to this paired system"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AddLink" aria-label="Add mapping" OnClick="() => AddMappingAsync(connection)" Disabled="@(busy || deleting.Contains(key))" /></MudTooltip>
                     }
-                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => RequestDelete(connection)" Disabled="@(busy || deleting.Contains(key))" data-testid="delete-system-connection">Delete connection</MudButton>
-                </MudStack>
+                    <MudTooltip Text="Delete connection"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" aria-label="Delete connection" Color="Color.Error" OnClick="() => RequestDelete(connection)" Disabled="@(busy || deleting.Contains(key))" data-testid="delete-system-connection" /></MudTooltip>
+                </div>
+                </div>
             </MudPaper>
         }
         </div>
@@ -109,7 +130,7 @@
                         @if (directoryLoading) { <MudProgressLinear Indeterminate="true" aria-label="Loading authorized mapping choices" /> }
                         else if (directory is null) { <MudText Typo="Typo.body2">The authorized tenant choices could not be loaded.</MudText><MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="ReloadDirectoryAsync" Disabled="busy">Retry tenant choices</MudButton> }
                         @if (organizationHintUnavailable) { <MudAlert Severity="Severity.Warning" Dense="true" data-testid="connection-organization-hint-error">The linked organization is unavailable or unauthorized. Choose an available organization explicitly; no saved mapping has changed.</MudAlert> }
-                        @if (contextChanged) { <MudText Typo="Typo.body2" Color="Color.Secondary">The linked organization changed. Your current draft is retained; change its organization explicitly if needed.</MudText> }
+                        @if (contextChanged) { <MudText Typo="Typo.body2" Class="mud-text-secondary">The linked organization changed. Your current draft is retained; change its organization explicitly if needed.</MudText> }
                         <MudGrid Spacing="2">
                             <MudItem xs="12" sm="6"><MudSelect T="string" @bind-Value="draft.NetRatelTenantId" Label="NetRatel tenant" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(busy || directoryLoading || directory is null)" data-testid="connection-netratel-tenant">
                                 @foreach (var tenant in directory?.NetRatelTenants ?? []) { <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem> }
@@ -158,12 +179,28 @@
     private bool DialogOpen => showCode || deleteTarget is not null || createOpen || selected is not null;
     private string ErrorText => error + (errorReference is null ? "" : " Reference: " + errorReference);
     private IEnumerable<PairingConnectionDto> VisibleConnections => connections.Where(c =>
-        (statusFilter == "all" || (statusFilter == "configured") == Connected(c)) &&
+        MatchesStatus(c) &&
         (string.IsNullOrWhiteSpace(search) || string.Join(" ", c.Mapping?.Name, c.Peer.Name, c.Peer.Product,
             c.Mapping is { } m ? ChoiceName(DirectoryFor(c.PairId)?.RatelDeskOrganizations, m.RatelDeskOrganizationId) + " " + ChoiceName(DirectoryFor(c.PairId)?.NetRatelTenants, m.NetRatelTenantId) : "").Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)));
     private static string Key(PairingConnectionDto c) => c.Mapping is null ? "pair:" + c.PairId : "mapping:" + c.Mapping.Id;
     private bool Deleted(PairingConnectionDto c) => deleted.Contains(Key(c)) || deleted.Contains("pair:" + c.PairId);
-    private static string Capabilities(PairingMapping m) => string.Join(" · ", new[] { m.CreateIncidents ? "Create incidents: NetRatel → RatelDesk" : null, m.RunAutomation ? "Run automation: RatelDesk → NetRatel" : null }.Where(x => x is not null));
+    private static string ProductLabel(PairingConnectionDto connection) => string.Equals(connection.Peer.Product, "netratel", StringComparison.OrdinalIgnoreCase) ? "NetRatel" : connection.Peer.Product;
+    private static bool Stale(PairingTestResult result) => DateTimeOffset.UtcNow - result.TestedAtUtc > TimeSpan.FromMinutes(15);
+    private string TestState(PairingConnectionDto connection) => rowErrors.ContainsKey(Key(connection)) ? "failed" : connection.LastTest switch
+    {
+        null => "never-tested",
+        { Success: false } => "failed",
+        var result when Stale(result) => "stale",
+        _ => "passed"
+    };
+    private bool MatchesStatus(PairingConnectionDto connection) => statusFilter switch
+    {
+        "all" => true,
+        "configured" => Connected(connection),
+        "attention" => !Connected(connection),
+        "stale" => connection.LastTest is { } result && Stale(result),
+        _ => statusFilter == TestState(connection)
+    };
     private bool CanPair => SystemConnectionApi.NormalizeAddress(address) is not null && ValidCode(pairingCode);
     private bool CanSave => draft is not null && directory is not null && !directoryLoading && !string.IsNullOrWhiteSpace(draft.Name) && draft.Name.Length <= 128 &&
         directory.NetRatelTenants.Any(t => t.Id == draft.NetRatelTenantId) && directory.RatelDeskOrganizations.Any(t => t.Id == draft.RatelDeskOrganizationId) &&
@@ -325,7 +362,7 @@
             var saved = await Api.SaveAsync(draft.Mapping(), lifetime.Token);
             if (disposed || current != selectionGeneration || Deleted(saved) || selected != connection) return;
             Upsert(saved);
-            if (Connected(saved)) { CloseSelection(); notice = "Connected. The selected mapping and capabilities are active."; }
+            if (Connected(saved)) { CloseSelection(); notice = "Connection configured. Test this mapping to verify current access."; }
             else { selected = saved; error = "The connection needs configuration. Review the saved mapping and retry."; }
         }
         catch (Exception exception) when (Expected(exception)) { if (!disposed && current == selectionGeneration) Failure(exception); }
@@ -366,8 +403,10 @@
     private void Upsert(PairingConnectionDto connection)
     {
         if (Deleted(connection)) return;
-        connections.RemoveAll(c => c.Id == connection.Id || c.PairId == connection.PairId && c.Mapping is null);
-        connections.Add(connection);
+        var index = connections.FindIndex(c => c.Id == connection.Id);
+        if (index < 0) index = connections.FindIndex(c => c.PairId == connection.PairId && c.Mapping is null);
+        if (index >= 0) connections[index] = connection;
+        else connections.Add(connection);
     }
     private bool Current(long value) => !disposed && value == generation;
     private void ClearMessages() { error = null; errorReference = null; notice = null; }
@@ -380,7 +419,7 @@
     private static string FailureText(Exception e) => e is SystemConnectionException api ? api.Message + " Reference: " + api.Reference : "The connection action did not complete. Retry this same connection. Reference: connection-service-unavailable";
     private static bool Expected(Exception exception) => exception is SystemConnectionException or HttpRequestException or JsonException or OperationCanceledException or IOException;
     private PairingSetupDirectory? DirectoryFor(string pairId) => directories.GetValueOrDefault(pairId);
-    private static string ChoiceName(IEnumerable<PairingChoice>? choices, string id) => choices?.FirstOrDefault(c => c.Id == id)?.Name ?? "Unavailable mapping";
+    private static string ChoiceName(IEnumerable<PairingChoice>? choices, string id) => choices?.FirstOrDefault(c => c.Id == id)?.Name ?? $"Saved mapping ({id}); name unavailable";
     public void Dispose() { disposed = true; ++generation; ++selectionGeneration; generated = null; pairingCode = ""; pairFingerprint = ""; lifetime.Cancel(); lifetime.Dispose(); }
     private sealed class ConnectionDraft
     {

@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "scope": "Issue383 isolated source acceptance; no release or production claim",
+  "recordedAtUtc": "2026-11-11T17:22:28.207709+00:00",
+  "baseline": {
+    "sourceRevision": "11c8997816833d753caf8df912a8279490da34fb",
+    "buildTimestamp": "2026-11-11T17:14:29Z",
+    "configuration": "Debug",
+    "sdk": "10.0.400",
+    "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore -m:1 -nodeReuse:false -p:UseSharedCompilation=false -p:BuildTimestamp=<recorded> -p:SourceRevisionId=<recorded>",
+    "projectReferencesBuilt": true,
+    "webAssembly": {
+      "file": "HelpDesk.NewWeb.dll",
+      "sha256": "4db367fa0ed6e7ecd5addd7687e47e84d15c275797cc0f176a4a8d824210b12b",
+      "bytes": 5982208,
+      "sourceRevisionMetadataPresent": true
+    },
+    "requestDetailSha256": "e6dda6314cff578542a283fe428da4360670abd4784445fa705f3e15596958bd"
+  },
+  "candidate": {
+    "sourceRevision": "816046ba8c762ca5b5c09c254b1edc77ebf94afb",
+    "buildTimestamp": "2026-11-11T17:12:32Z",
+    "configuration": "Debug",
+    "sdk": "10.0.400",
+    "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore --no-dependencies -m:1 -nodeReuse:false -p:UseSharedCompilation=false -p:BuildTimestamp=<recorded> -p:SourceRevisionId=<recorded>",
+    "projectReferencesBuilt": false,
+    "referenceNote": "Existing local reference assemblies were reused; changed Web/API source and assembly identities are recorded explicitly. Full solution/hosted campaign verification is separate.",
+    "webAssembly": {
+      "file": "HelpDesk.NewWeb.dll",
+      "sha256": "ea73926c5fa4c63fbe3fa879acf87da7f827bc596446483ec638c61a51c5bcd4",
+      "bytes": 6026752,
+      "sourceRevisionMetadataPresent": true
+    },
+    "apiAssembly": {
+      "file": "Helpdesk.API.dll",
+      "sha256": "9acefa807f7dff4b92577ab49df23624f5bc660d100e10a4a36f0e39d1462e9d",
+      "bytes": 3028992,
+      "sourceRevisionMetadataPresent": true
+    },
+    "sourceFiles": [
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Pages/Requests/RequestDetail.razor",
+        "sha256": "2af40ca40614309cb752856738ac135c8851ea9d578b55f27c58e7ff79eeaa1f",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Pages/Requests/RequestDetail.razor.css",
+        "sha256": "8433f8715116a6315f31ad01f8c9a1cbd0e36c223ff017373a9111ce9609b924",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Pages/SelfService/MyRequestDetail.razor",
+        "sha256": "27f25b750ae7cb743148c8e10b34934ad961d677f75c3709dacc5fb29a1b2dbb",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Shared/RequestLiveUpdates.razor",
+        "sha256": "d368f9a076ecf233f89393b9387cc64193028776d3855d91ebe1bcbaacafb455",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Shared/RequestLiveUpdates.razor.css",
+        "sha256": "0078c86db969afcf66e7a586dfa8a4ea6bbfcfddbe6f66c9aabaac7fe50407aa",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Shared/TicketHeader.razor",
+        "sha256": "77794f15a685af3e08839a36402f68ace6fcb1107486037a17e7b1f6e0d13255",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Components/Shared/TicketTimeline.razor",
+        "sha256": "993bb9c891ed1e51ffc789465c40fee5dad0c9ccf621c74db3762a8b27b21443",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Models/RequestProgressLabels.cs",
+        "sha256": "d4eb8abec6c35699671cf4cfa816676f968c655391c84e6254624f4ff285b457",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/Services/TimelineStreamService.cs",
+        "sha256": "a7f15044d8927c1c187c04bc3756c28f173e354917d939166c2d874d9d448f37",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/HelpDesk.NewWeb/wwwroot/js/requestLiveUpdates.js",
+        "sha256": "1613dc9d9873a82b8438872786e8dffcbfb44d7b4a2b28dc4ad2303b7b71c0a0",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.API/Endpoints/Requests/RequestEndpoints.cs",
+        "sha256": "3fb2381a89d78f19ed69dc5c1fb9bd4f37bbf1f57bd03c7a563accfce466d974",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.API/Endpoints/Requests/RequestTimelineSse.cs",
+        "sha256": "9bc445661d46beca8f132d7059b9953b9f235da1e316794c52beffd287a55fca",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.API/Endpoints/Requests/RequestWorkflowTimelineEndpoints.cs",
+        "sha256": "378cf0111026adf6bbad94b4d45b5fac4aeb4aa5f1e7f356dba5e7c08fd0b7db",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.API/Endpoints/Requests/SelfServiceMyRequestsEndpoints.Stream.cs",
+        "sha256": "ffe94635c519aa5f94a6de7b9a5b7fc1857e2f01742dbe0595e132329a754fd1",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.API/Endpoints/Requests/SelfServiceMyRequestsEndpoints.cs",
+        "sha256": "0d3640bfcb5eef50a3cac969e1a680cafd7ada9b5354c2ab47b9dbd12784ea0f",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.Application/Events/RequestSnapshotChangedEvent.cs",
+        "sha256": "601b381bad7e0640e9036e4a6b5396b0205c6c16ce8bfd1d8a733f5ffae41dc4",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.Infrastructure/Events/NotificationDomainEventPublisher.cs",
+        "sha256": "3b3e9b95867674220b493f427608bc80f29991633239253afcff1e9bc3967fc7",
+        "matchesFrozenSource": true
+      },
+      {
+        "path": "src/Helpdesk.Shared/DTOs/Request/MyRequestsDto.cs",
+        "sha256": "f769a13bd9b4a1b701b8165a7252e21a2ff2f5958948c9300589268136a2dcab",
+        "matchesFrozenSource": true
+      }
+    ]
+  },
+  "owningTests": {
+    "sourceRevision": "d1245aa13150f6c920c73d3214e31d63905202fa",
+    "assembly": {
+      "file": "Helpdesk.Tests.dll",
+      "sha256": "0f73791d373fb4bef5b223fc385ec413126dd35d363dfcfa53893fd0938bef0d",
+      "bytes": 9096704,
+      "sourceRevisionMetadataPresent": true
+    },
+    "sourceSha256": "83beb1daf2acba8a12d8f7e37264f9971ce0583321ecb31b0091da2ccb0294f0",
+    "networkInstrumentation": "Reads actual streamed HTTP/SSE bytes. The network decorator uses ConfigureAwait(false) to avoid adding a synthetic renderer-queue delay; the two-second criterion is unchanged."
+  },
+  "presentationFixture": {
+    "path": "tests/ux/ticket-details-fixture-api.mjs",
+    "sha256": "9423eab4c917fdbfea5453560846821b520d1ca0e732475496094bc005d37a04",
+    "values": "Disposable synthetic tasks/accounts; no provider execution or SSE acceptance is claimed by screenshots."
+  },
+  "saveOverlapControl": {
+    "testSourceRevision": "7e76afd5",
+    "preFixWebSha256": "60e06834ea89b7b769c8b6d9f0472cf0a75d7c7380eafb7b52e9762a55908bad",
+    "fixedWebSha256": "6ef94e48fa1294baced32c4032495233fd5b4fb27b105eba2c7b1ba53df2a3b1",
+    "negativeResult": "Expected failure: all3 terminal tasks remained stale after conflicting save.",
+    "positiveResult": "Passed: terminal state visible and unsaved High priority retained."
+  },
+  "historicalReceiptNormalization": [
+    {
+      "file": "gateway-before-instrumentation-fix.trx",
+      "normalization": "Line endings and trailing line whitespace normalized for repository checks; XML values/outcomes retained.",
+      "originalSha256": "4d1ebf6751bb455c915ef04446ab3660f9e6f1e857e6c15f9963134bf67a5c64",
+      "committedSha256": "7ae62caf19cd05d44126f74e34439e0ccfcf0f8b89db95cbc362c8e8a174fd93"
+    },
+    {
+      "file": "save-negative-control.trx",
+      "normalization": "Line endings and trailing line whitespace normalized for repository checks; XML values/outcomes retained.",
+      "originalSha256": "59abed09e385ad664ad5183a5f9216e8741c5d8766bf98337ee3ebfc5eded09b",
+      "committedSha256": "6d5238e92310b6adea61b6c276604d613633b941107374e161aaddc561df96b9"
+    }
+  ]
+}

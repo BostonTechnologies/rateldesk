@@ -1,0 +1,112 @@
+{
+  "evidence": [
+    {
+      "count": 1,
+      "width": 1440,
+      "height": 900,
+      "theme": "light",
+      "path": "catalog-1-cards-1440-light.png",
+      "geometry": {
+        "columns": "1056px 0px 0px 0px",
+        "cardWidths": [
+          1056
+        ]
+      }
+    },
+    {
+      "count": 2,
+      "width": 1440,
+      "height": 900,
+      "theme": "light",
+      "path": "catalog-2-cards-1440-light.png",
+      "geometry": {
+        "columns": "522px 522px 0px 0px",
+        "cardWidths": [
+          522,
+          522
+        ]
+      }
+    },
+    {
+      "count": 1,
+      "width": 1920,
+      "height": 900,
+      "theme": "light",
+      "path": "catalog-1-cards-1920-light.png",
+      "geometry": {
+        "columns": "1536px 0px 0px 0px 0px 0px",
+        "cardWidths": [
+          1536
+        ]
+      }
+    },
+    {
+      "count": 2,
+      "width": 1920,
+      "height": 900,
+      "theme": "light",
+      "path": "catalog-2-cards-1920-light.png",
+      "geometry": {
+        "columns": "762px 762px 0px 0px 0px 0px",
+        "cardWidths": [
+          762,
+          762
+        ]
+      }
+    },
+    {
+      "count": 1,
+      "width": 1440,
+      "height": 900,
+      "theme": "dark",
+      "path": "catalog-1-cards-1440-dark.png",
+      "geometry": {
+        "columns": "1056px 0px 0px 0px",
+        "cardWidths": [
+          1056
+        ]
+      }
+    },
+    {
+      "count": 2,
+      "width": 1440,
+      "height": 900,
+      "theme": "dark",
+      "path": "catalog-2-cards-1440-dark.png",
+      "geometry": {
+        "columns": "522px 522px 0px 0px",
+        "cardWidths": [
+          522,
+          522
+        ]
+      }
+    },
+    {
+      "count": 1,
+      "width": 1920,
+      "height": 900,
+      "theme": "dark",
+      "path": "catalog-1-cards-1920-dark.png",
+      "geometry": {
+        "columns": "1536px 0px 0px 0px 0px 0px",
+        "cardWidths": [
+          1536
+        ]
+      }
+    },
+    {
+      "count": 2,
+      "width": 1920,
+      "height": 900,
+      "theme": "dark",
+      "path": "catalog-2-cards-1920-dark.png",
+      "geometry": {
+        "columns": "762px 762px 0px 0px 0px 0px",
+        "cardWidths": [
+          762,
+          762
+        ]
+      }
+    }
+  ]
+}

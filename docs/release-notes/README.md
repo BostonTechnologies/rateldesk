@@ -1,5 +1,27 @@
 # Release notes
 
+## 0.1.3-beta.10
+
+[Premium workspaces and durable request execution](0.1.3-beta.10.md) covers
+#380 and #382–#394, the compatible NetRatel version, forward migrations and
+the route-by-route owner testing checklist. The campaign register retains the
+actual source, provider, browser, hosted and public distribution receipts.
+
+## 0.1.3-beta.9
+
+[Canonical NetRatel job automation](0.1.3-beta.9.md) describes target-aware
+job selection, creation and aggregate results with NetRatel 0.1.5-beta.4.
+
+## 0.1.3-beta.8
+
+[Operations and change workspaces](0.1.3-beta.8.md) covers Pending Emails,
+Email Audit, guided Changes, Tasks and Notifications.
+
+## 0.1.3-beta.7
+
+[OIDC administration and authoring editors](0.1.3-beta.7.md) covers application
+ownership, custom-role editing and setup-first request services.
+
 ## 0.1.3-beta.6
 
 [Quiet logging, delegated chat follow-ups and task-first workspaces](0.1.3-beta.6.md)

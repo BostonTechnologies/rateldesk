@@ -1,0 +1,976 @@
+{
+  "schemaVersion": 1,
+  "scope": "Complete synthetic directory baseline presentation evidence; subsequent product acceptance and release remain separate.",
+  "recordedAtUtc": "2026-11-11T18:03:30.299218+00:00",
+  "sourceRevision": "11c8997816833d753caf8df912a8279490da34fb",
+  "sourceTree": "f1818598148442099298de7ad9dc7fe8204402cb",
+  "baselineBuild": {
+    "sourceRevision": "11c8997816833d753caf8df912a8279490da34fb",
+    "buildTimestamp": "2026-11-11T17:14:29Z",
+    "configuration": "Debug",
+    "sdk": "10.0.400",
+    "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore -m:1 -nodeReuse:false -p:UseSharedCompilation=false -p:BuildTimestamp=<recorded> -p:SourceRevisionId=<recorded>",
+    "projectReferencesBuilt": true,
+    "webAssembly": {
+      "file": "HelpDesk.NewWeb.dll",
+      "sha256": "4db367fa0ed6e7ecd5addd7687e47e84d15c275797cc0f176a4a8d824210b12b",
+      "bytes": 5982208,
+      "sourceRevisionMetadataPresent": true
+    },
+    "requestDetailSha256": "e6dda6314cff578542a283fe428da4360670abd4784445fa705f3e15596958bd"
+  },
+  "baselineSourceReceipt": {
+    "path": "/workspace/work/worktrees/live/docs/implementation/assets/383-live-request-details/source-receipt.json",
+    "sha256": "d4acaf83224d89d4dca354ceab5bb7c0a91b98749028f36bc5ef1e4909c148e0"
+  },
+  "staticAssetBinding": "Unmodified development runtime manifest binds the intact exact-baseline source wwwroot, generated bundle and package assets. Web launched with baseline project cwd.",
+  "baselineTrackedStatusAfter": "",
+  "browser": {
+    "version": "Google Chrome for Testing 156.0.8078.4",
+    "executable": "/workspace/work/playwright-browsers/chromium-1248/chrome-linux64/chrome",
+    "playwrightVersion": "1.64.1"
+  },
+  "serverPorts": {
+    "web": 5296,
+    "fixture": 18588
+  },
+  "ordinaryViewports": [
+    [
+      1920,
+      1080
+    ],
+    [
+      1440,
+      900
+    ],
+    [
+      1366,
+      768
+    ],
+    [
+      768,
+      1024
+    ],
+    [
+      390,
+      844
+    ]
+  ],
+  "nativePhysicalViewports": [
+    [
+      1280,
+      1000
+    ],
+    [
+      1920,
+      1000
+    ]
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "data": {
+    "customers": 133,
+    "organizations": 137,
+    "categories": 143,
+    "fixture": "Disposable synthetic contacts/organizations/categories using reserved domains; full legacy arrays are loaded before each capture.",
+    "directoryMutations": "Each case asserts an empty directory actions array."
+  },
+  "nativeVerification": "Actual chrome.tabs.setZoom(2)/getZoom and innerWidth half physical width; CDP Page.captureScreenshot fromSurface=true/captureBeyondViewport=false, without CSS clip. PNG dimensions asserted to match physical viewport. Baseline geometry is retained.",
+  "cases": [
+    {
+      "title": "baseline native 200 percent light 1280",
+      "status": "passed",
+      "durationMs": 6271,
+      "retry": 0,
+      "measurements": [
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "physicalWidth": 1280,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 640,
+          "renderedRows": 133,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "physicalWidth": 1280,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 640,
+          "renderedRows": 137,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "physicalWidth": 1280,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 640,
+          "renderedRows": 143,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        }
+      ]
+    },
+    {
+      "title": "baseline native 200 percent light 1920",
+      "status": "passed",
+      "durationMs": 5420,
+      "retry": 0,
+      "measurements": [
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "physicalWidth": 1920,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 960,
+          "renderedRows": 133,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "physicalWidth": 1920,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 960,
+          "renderedRows": 137,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "physicalWidth": 1920,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 960,
+          "renderedRows": 143,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        }
+      ]
+    },
+    {
+      "title": "baseline native 200 percent dark 1280",
+      "status": "passed",
+      "durationMs": 5629,
+      "retry": 0,
+      "measurements": [
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "physicalWidth": 1280,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 640,
+          "renderedRows": 133,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "physicalWidth": 1280,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 640,
+          "renderedRows": 137,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "physicalWidth": 1280,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 640,
+          "renderedRows": 143,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        }
+      ]
+    },
+    {
+      "title": "baseline native 200 percent dark 1920",
+      "status": "passed",
+      "durationMs": 6409,
+      "retry": 0,
+      "measurements": [
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "physicalWidth": 1920,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 960,
+          "renderedRows": 133,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "physicalWidth": 1920,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 960,
+          "renderedRows": 137,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "physicalWidth": 1920,
+          "physicalHeight": 1000,
+          "zoom": 2,
+          "layoutWidth": 960,
+          "renderedRows": 143,
+          "capture": "CDP physical viewport without CSS clip",
+          "drawerRight": 0
+        }
+      ]
+    },
+    {
+      "title": "baseline ordinary complete matrix light",
+      "status": "passed",
+      "durationMs": 9085,
+      "retry": 0,
+      "measurements": [
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "viewportWidth": 1920,
+          "viewportHeight": 1080,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "viewportWidth": 1440,
+          "viewportHeight": 900,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "viewportWidth": 1366,
+          "viewportHeight": 768,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "viewportWidth": 768,
+          "viewportHeight": 1024,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "light",
+          "viewportWidth": 390,
+          "viewportHeight": 844,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "viewportWidth": 1920,
+          "viewportHeight": 1080,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "viewportWidth": 1440,
+          "viewportHeight": 900,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "viewportWidth": 1366,
+          "viewportHeight": 768,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "viewportWidth": 768,
+          "viewportHeight": 1024,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "light",
+          "viewportWidth": 390,
+          "viewportHeight": 844,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "viewportWidth": 1920,
+          "viewportHeight": 1080,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "viewportWidth": 1440,
+          "viewportHeight": 900,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "viewportWidth": 1366,
+          "viewportHeight": 768,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "viewportWidth": 768,
+          "viewportHeight": 1024,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "light",
+          "viewportWidth": 390,
+          "viewportHeight": 844,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        }
+      ]
+    },
+    {
+      "title": "baseline ordinary complete matrix dark",
+      "status": "passed",
+      "durationMs": 7895,
+      "retry": 0,
+      "measurements": [
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "viewportWidth": 1920,
+          "viewportHeight": 1080,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "viewportWidth": 1440,
+          "viewportHeight": 900,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "viewportWidth": 1366,
+          "viewportHeight": 768,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "viewportWidth": 768,
+          "viewportHeight": 1024,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/customers",
+          "theme": "dark",
+          "viewportWidth": 390,
+          "viewportHeight": 844,
+          "zoom": 1,
+          "renderedRows": 133,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "viewportWidth": 1920,
+          "viewportHeight": 1080,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "viewportWidth": 1440,
+          "viewportHeight": 900,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "viewportWidth": 1366,
+          "viewportHeight": 768,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "viewportWidth": 768,
+          "viewportHeight": 1024,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/organizations",
+          "theme": "dark",
+          "viewportWidth": 390,
+          "viewportHeight": 844,
+          "zoom": 1,
+          "renderedRows": 137,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "viewportWidth": 1920,
+          "viewportHeight": 1080,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "viewportWidth": 1440,
+          "viewportHeight": 900,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "viewportWidth": 1366,
+          "viewportHeight": 768,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "viewportWidth": 768,
+          "viewportHeight": 1024,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        },
+        {
+          "route": "/admin/categories",
+          "theme": "dark",
+          "viewportWidth": 390,
+          "viewportHeight": 844,
+          "zoom": 1,
+          "renderedRows": 143,
+          "capture": "ordinary browser viewport PNG"
+        }
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/workspace/work/directory-baseline-complete/baseline-capture.spec.ts",
+      "sha256": "bfa099d6d3c2c7e2150109c0dd49fd28caf1b062031d5269083b293dd6142427"
+    },
+    {
+      "path": "/workspace/work/directory-baseline-complete.config.cjs",
+      "sha256": "2d489ef2384aaeeb37b3e0a635b0dc7d928041ba92c149c6727c18bb6af231e8"
+    },
+    {
+      "path": "/workspace/work/worktrees/directories/tests/ux/admin-fixture-api.mjs",
+      "sha256": "258a49a4a3b53529fdb2877000799c619d9f9053fca790816f2fc9a383d8475d"
+    },
+    {
+      "path": "/workspace/work/worktrees/directories/tests/ux/admin-directories-fixture.mjs",
+      "sha256": "67bb9a11fa05f8ef6e9fd264c65d794ea071fe342386a681dc26d70e98aded0e"
+    },
+    {
+      "path": "/workspace/work/worktrees/directories/tests/ux/team-directory-fixture.mjs",
+      "sha256": "27b2067e525d130dbf7cbf82f3d55a9b0af4c0c44a2be4ad5694b935f6e3288e"
+    },
+    {
+      "path": "/workspace/work/worktrees/directories/tests/ux/native-zoom-extension/manifest.json",
+      "sha256": "8ddc0158b650297d2b95e049ed94690e489f06f7df84d340b001ed8fbc3e315a"
+    },
+    {
+      "path": "/workspace/work/worktrees/directories/tests/ux/native-zoom-extension/background.js",
+      "sha256": "18fc3879785442a5e57b73b668bd2bb6175fdd0a47c921f0f630ba2997ca4636"
+    },
+    {
+      "path": "/workspace/work/worktrees/live-before-source/src/HelpDesk.NewWeb/bin/Debug/net10.0/HelpDesk.NewWeb.dll",
+      "sha256": "4db367fa0ed6e7ecd5addd7687e47e84d15c275797cc0f176a4a8d824210b12b"
+    },
+    {
+      "path": "/workspace/work/worktrees/live-before-source/src/HelpDesk.NewWeb/bin/Debug/net10.0/HelpDesk.NewWeb.staticwebassets.runtime.json",
+      "sha256": "f39b7ad6743514ee8b658dc7307ebd4a17a6a566d2316d0c4ec8f1e9372c405e"
+    },
+    {
+      "path": "/workspace/work/worktrees/live-before-source/src/HelpDesk.NewWeb/Components/Pages/Admin/Customer/CustomerManagement.razor",
+      "sha256": "5a7806aa70cdd58a7f9fad6ce7a1c4e150562db766a622631c639965e459824c"
+    },
+    {
+      "path": "/workspace/work/worktrees/live-before-source/src/HelpDesk.NewWeb/Components/Pages/Admin/Organization/OrganizationManagement.razor",
+      "sha256": "bb9d44cbdcf96e089f6f782cce508365a88e102590ac716d752e4f846d2a91be"
+    },
+    {
+      "path": "/workspace/work/worktrees/live-before-source/src/HelpDesk.NewWeb/Components/Pages/Admin/Categories.razor",
+      "sha256": "8087fa509a2ee19b1a8fd423e6471542861c6cd938b80c65e0a387d9509b173b"
+    },
+    {
+      "path": "/workspace/work/directory-baseline-complete/viewport-capture.spec.ts",
+      "sha256": "72dcf69a8ef0dedde30affa71b219ad27eeaec495c49a6b79ffb4443332e2cb3"
+    },
+    {
+      "path": "/workspace/work/directory-baseline-viewport.config.cjs",
+      "sha256": "7ee90cceca7c85ede83342a95956066e08539b9ccc79efa8913eaa91065e77e9"
+    }
+  ],
+  "assets": [
+    {
+      "file": "before-complete/before-categories-dark-1280-native-200.png",
+      "kind": "native-200",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 90894,
+      "sha256": "962579648bf55ae18bb874b5ac9e466f62ef64e85714464341fd06824479cc73"
+    },
+    {
+      "file": "before-complete/before-categories-dark-1366x768.png",
+      "kind": "ordinary-viewport",
+      "width": 1366,
+      "height": 768,
+      "bytes": 119689,
+      "sha256": "ee97fd6d6d4ccbf175bee8d9c5811b4b62fa10b4c8fb644529c20007f65b36d3"
+    },
+    {
+      "file": "before-complete/before-categories-dark-1440x900.png",
+      "kind": "ordinary-viewport",
+      "width": 1440,
+      "height": 900,
+      "bytes": 127493,
+      "sha256": "bd53d5ae9bc89e147e596cde42297b2e95b8aa268d16f27ec5f5cf27e12c675f"
+    },
+    {
+      "file": "before-complete/before-categories-dark-1920-native-200.png",
+      "kind": "native-200",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 129703,
+      "sha256": "c7c10833fc829e5a5f7372065f08ea0a98998cda5e7fb0c3d1a1c1c87dd50f6e"
+    },
+    {
+      "file": "before-complete/before-categories-dark-1920x1080.png",
+      "kind": "ordinary-viewport",
+      "width": 1920,
+      "height": 1080,
+      "bytes": 145872,
+      "sha256": "fc83db1210264c939eb3e54c7f1d7a8d913be3a8a29138c811ce147e6e603b6b"
+    },
+    {
+      "file": "before-complete/before-categories-dark-390x844.png",
+      "kind": "ordinary-viewport",
+      "width": 390,
+      "height": 844,
+      "bytes": 51116,
+      "sha256": "56766444f629061f76e4e81dba61c1756d8d08f7f97e79a66457fa83d2a019c6"
+    },
+    {
+      "file": "before-complete/before-categories-dark-768x1024.png",
+      "kind": "ordinary-viewport",
+      "width": 768,
+      "height": 1024,
+      "bytes": 88925,
+      "sha256": "273638f7cf3661ba0ed64baa952415213f46c4c4d80ae9e481e915e244f4fa72"
+    },
+    {
+      "file": "before-complete/before-categories-light-1280-native-200.png",
+      "kind": "native-200",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 89598,
+      "sha256": "7a87d21bf066383a729b07e3be2002e343dc8fe79153900d9c7a4ee2f6447cf2"
+    },
+    {
+      "file": "before-complete/before-categories-light-1366x768.png",
+      "kind": "ordinary-viewport",
+      "width": 1366,
+      "height": 768,
+      "bytes": 118146,
+      "sha256": "b9579b1d6c047ab5bf755ebb986200cc92674712ecb121929b2059619e8016a1"
+    },
+    {
+      "file": "before-complete/before-categories-light-1440x900.png",
+      "kind": "ordinary-viewport",
+      "width": 1440,
+      "height": 900,
+      "bytes": 125987,
+      "sha256": "a64aec9b332c195181365d359cb6ce1ce3debee3056cad9605b9d65d4f3cce0b"
+    },
+    {
+      "file": "before-complete/before-categories-light-1920-native-200.png",
+      "kind": "native-200",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 127504,
+      "sha256": "6599dafbdd098caa150fddf1714fa3202c4d4fac69de3c02e296549d84bc7f49"
+    },
+    {
+      "file": "before-complete/before-categories-light-1920x1080.png",
+      "kind": "ordinary-viewport",
+      "width": 1920,
+      "height": 1080,
+      "bytes": 143480,
+      "sha256": "2abe1cb14ec3ed7f69e3e1dc80c1b12e5ba60f2f9b54627e770f1d45cc39ff88"
+    },
+    {
+      "file": "before-complete/before-categories-light-390x844.png",
+      "kind": "ordinary-viewport",
+      "width": 390,
+      "height": 844,
+      "bytes": 50481,
+      "sha256": "ef7c675821fe60efdd5dbdcbfe1bc44a27e325acd65f2651d37d14c5a69eb2ae"
+    },
+    {
+      "file": "before-complete/before-categories-light-768x1024.png",
+      "kind": "ordinary-viewport",
+      "width": 768,
+      "height": 1024,
+      "bytes": 87586,
+      "sha256": "bac396b1cac51fd2ed46eb21759f4cb6f0413ff0ea3d3a40a770a00cca3d6f17"
+    },
+    {
+      "file": "before-complete/before-customers-dark-1280-native-200.png",
+      "kind": "native-200",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 108738,
+      "sha256": "bc5fb74e4eb61c52da2f8c5043d2ef39d28df8fac5634a00275f6d6509992f99"
+    },
+    {
+      "file": "before-complete/before-customers-dark-1366x768.png",
+      "kind": "ordinary-viewport",
+      "width": 1366,
+      "height": 768,
+      "bytes": 142504,
+      "sha256": "e67516a0185e26b3cbea1d95f4455e233ca750ac99fb8ecfcd49c68733ec9920"
+    },
+    {
+      "file": "before-complete/before-customers-dark-1440x900.png",
+      "kind": "ordinary-viewport",
+      "width": 1440,
+      "height": 900,
+      "bytes": 179212,
+      "sha256": "6d8a9b961ddb1307403777ff76b07e6455c99d921d9b1e6f8c4145774cd6a9d3"
+    },
+    {
+      "file": "before-complete/before-customers-dark-1920-native-200.png",
+      "kind": "native-200",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 149729,
+      "sha256": "37c12149908f56cd8ba25a40347d79c3e158339b3860c0305f3b188c3a29f49b"
+    },
+    {
+      "file": "before-complete/before-customers-dark-1920x1080.png",
+      "kind": "ordinary-viewport",
+      "width": 1920,
+      "height": 1080,
+      "bytes": 233653,
+      "sha256": "00f66b57ed2cf523b37de7831fb83d13339bd32267f402fa0e24a922d088b601"
+    },
+    {
+      "file": "before-complete/before-customers-dark-390x844.png",
+      "kind": "ordinary-viewport",
+      "width": 390,
+      "height": 844,
+      "bytes": 58934,
+      "sha256": "6fa3ad8fd163e1147f0d039513e0590448ca3cac9ccc9dde19a0cbdc53ddd8c3"
+    },
+    {
+      "file": "before-complete/before-customers-dark-768x1024.png",
+      "kind": "ordinary-viewport",
+      "width": 768,
+      "height": 1024,
+      "bytes": 114594,
+      "sha256": "44593e6180d81ee948e9291db4539c6a951dfa969a2f79a8d585039f486a9f1b"
+    },
+    {
+      "file": "before-complete/before-customers-light-1280-native-200.png",
+      "kind": "native-200",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 107600,
+      "sha256": "0599f580158c4384b8ee398d7f32b7559647498c0789642bd8734e7ad20942a6"
+    },
+    {
+      "file": "before-complete/before-customers-light-1366x768.png",
+      "kind": "ordinary-viewport",
+      "width": 1366,
+      "height": 768,
+      "bytes": 141330,
+      "sha256": "ac1390d6369c5bf7fd7755e2d71d9fb3ef669e01ec9716f144d5a23c7e34bdfb"
+    },
+    {
+      "file": "before-complete/before-customers-light-1440x900.png",
+      "kind": "ordinary-viewport",
+      "width": 1440,
+      "height": 900,
+      "bytes": 177293,
+      "sha256": "d1b12402d6cd68025d68283791833c28b6a00beb1210ca5af7ceb0c59f044a62"
+    },
+    {
+      "file": "before-complete/before-customers-light-1920-native-200.png",
+      "kind": "native-200",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 147950,
+      "sha256": "edc52d63f833ec070ebe1b3ace9ee0bf85155d5c7cf0e6333e2b29593db04f4e"
+    },
+    {
+      "file": "before-complete/before-customers-light-1920x1080.png",
+      "kind": "ordinary-viewport",
+      "width": 1920,
+      "height": 1080,
+      "bytes": 231826,
+      "sha256": "c061ebfdd0edc068a134ae0598e0088256b8745760cb1b0bda92984418f97cf3"
+    },
+    {
+      "file": "before-complete/before-customers-light-390x844.png",
+      "kind": "ordinary-viewport",
+      "width": 390,
+      "height": 844,
+      "bytes": 57884,
+      "sha256": "196f3c913fe44e1476e98777a20c6d8ac6b5a04edd0a4375caa96852800f68bc"
+    },
+    {
+      "file": "before-complete/before-customers-light-768x1024.png",
+      "kind": "ordinary-viewport",
+      "width": 768,
+      "height": 1024,
+      "bytes": 113125,
+      "sha256": "e1c31f42209f2ec7a6aba8d079b07fc210cd9bd2333d042289b824a37a857b8b"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-1280-native-200.png",
+      "kind": "native-200",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 79331,
+      "sha256": "8e98daf9522490e8dc3f17776f34028c6c99a2ef25e81565340e0e83d5d675eb"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-1366x768.png",
+      "kind": "ordinary-viewport",
+      "width": 1366,
+      "height": 768,
+      "bytes": 154587,
+      "sha256": "268143599ccce7ac4e3646398c7e8c9979e0f455e458a7848ce9bdab9cfff285"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-1440x900.png",
+      "kind": "ordinary-viewport",
+      "width": 1440,
+      "height": 900,
+      "bytes": 215794,
+      "sha256": "81b29028b6b5a28fa7088b5236cca57a472f9d47431e37b6eee9d5fc310e4461"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-1920-native-200.png",
+      "kind": "native-200",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 151442,
+      "sha256": "7a3f14d71b04426064f026badf004ef8b63f093eea130b2a76ad68e1b7c9f2f5"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-1920x1080.png",
+      "kind": "ordinary-viewport",
+      "width": 1920,
+      "height": 1080,
+      "bytes": 268413,
+      "sha256": "21ece5257dfbe26e1ae8cf0e0477f483c891d3efc390098fd566a129f8695673"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-390x844.png",
+      "kind": "ordinary-viewport",
+      "width": 390,
+      "height": 844,
+      "bytes": 67040,
+      "sha256": "16d03c3e7845b4c865e34e9e2bba5f43e6643aa57d2dd50c1c4b9b29843114ba"
+    },
+    {
+      "file": "before-complete/before-organizations-dark-768x1024.png",
+      "kind": "ordinary-viewport",
+      "width": 768,
+      "height": 1024,
+      "bytes": 90148,
+      "sha256": "fd4b4f2dd8774245593f585809f8bc2e17d950fc21dbb6646ce46269ec8447c6"
+    },
+    {
+      "file": "before-complete/before-organizations-light-1280-native-200.png",
+      "kind": "native-200",
+      "width": 1280,
+      "height": 1000,
+      "bytes": 78655,
+      "sha256": "b552d7b88792e7b6e4b3f3a2da9a165b019f4e97520fb7252141bd33021f29a3"
+    },
+    {
+      "file": "before-complete/before-organizations-light-1366x768.png",
+      "kind": "ordinary-viewport",
+      "width": 1366,
+      "height": 768,
+      "bytes": 152914,
+      "sha256": "6b2d91a7d3dac197e0fb9e9b0503b5e6b471fe6634b1e307848a74abf699561b"
+    },
+    {
+      "file": "before-complete/before-organizations-light-1440x900.png",
+      "kind": "ordinary-viewport",
+      "width": 1440,
+      "height": 900,
+      "bytes": 212413,
+      "sha256": "7c079c41f4ca70e721eb59e940f74fcefc34c3bba2e4bbe536415ac8b5278d51"
+    },
+    {
+      "file": "before-complete/before-organizations-light-1920-native-200.png",
+      "kind": "native-200",
+      "width": 1920,
+      "height": 1000,
+      "bytes": 150526,
+      "sha256": "8d4b0e54d6bba39dfb521dd8b56d7eeb88885ec5bbeb1666ff967855f4abf31b"
+    },
+    {
+      "file": "before-complete/before-organizations-light-1920x1080.png",
+      "kind": "ordinary-viewport",
+      "width": 1920,
+      "height": 1080,
+      "bytes": 264490,
+      "sha256": "00816be8e530626beb9aed981670708cd9f8ad967ab95dc146299e79cd628e8b"
+    },
+    {
+      "file": "before-complete/before-organizations-light-390x844.png",
+      "kind": "ordinary-viewport",
+      "width": 390,
+      "height": 844,
+      "bytes": 65509,
+      "sha256": "146a92c743b2f63c01d9df78f637b3be581216d5759f71a5ec8714bd9e8b00bb"
+    },
+    {
+      "file": "before-complete/before-organizations-light-768x1024.png",
+      "kind": "ordinary-viewport",
+      "width": 768,
+      "height": 1024,
+      "bytes": 88569,
+      "sha256": "d7c1baaa94653298f5f34f08696fd7518251df3b8411d16114bae2b70a8484e2"
+    }
+  ],
+  "assetCounts": {
+    "ordinary": 30,
+    "native200": 12,
+    "total": 42
+  },
+  "assetBytes": 5500677,
+  "historicalEvidence": "Earlier representative before PNGs and their original receipt remain unchanged. The complete set uses the verified full baseline graph. Unpaged full-page raw captures remain under work only.",
+  "runs": [
+    {
+      "kind": "native-200",
+      "selectedCases": 4,
+      "rawRunStats": {
+        "startTime": "2026-11-11T17:58:49.824Z",
+        "duration": 66787.009,
+        "expected": 6,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "rawReport": {
+        "path": "/workspace/work/evidence/directories-baseline-complete-results.json",
+        "sha256": "971f5bb63256492d556611f7089c1bf66a6ed3ced5456089abd248790498b985"
+      },
+      "selection": "Four native cases retained; raw full-page ordinary captures from this first run remain under work only."
+    },
+    {
+      "kind": "ordinary-viewport",
+      "selectedCases": 2,
+      "rawRunStats": {
+        "startTime": "2026-11-11T18:02:36.684Z",
+        "duration": 20691.619,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "rawReport": {
+        "path": "/workspace/work/evidence/directories-baseline-viewport-results.json",
+        "sha256": "6b6f32767a8651cb2b688066ccb3156f6962cbda0ac2f7f434d4f43132d7c8a2"
+      }
+    }
+  ],
+  "captureCommands": [
+    "/workspace/rateldesk/node_modules/.bin/playwright test --config /workspace/work/directory-baseline-complete.config.cjs",
+    "/workspace/rateldesk/node_modules/.bin/playwright test --config /workspace/work/directory-baseline-viewport.config.cjs --grep 'baseline ordinary complete matrix'"
+  ],
+  "ordinaryCapture": "Actual viewport PNGs using page.screenshot(fullPage:false), with no image postprocessing. Dimensions verified against each requested viewport."
+}

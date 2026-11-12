@@ -382,6 +382,19 @@ public sealed class RequestCreateEndpointsTests
         Assert.Equal("TicketResolved", harness.Notification.LastNotificationKind);
         Assert.Equal("REQ-GENERIC", harness.Notification.LastTicket?.TrackingId);
         Assert.Equal("generic@example.com", harness.Notification.LastRecipientEmail);
+        Assert.All(await harness.Requests.GetAllAsync(), request => Assert.Equal(TicketState.Resolved, request.State));
+        await using var scope = harness.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        var markers = await db.Notifications.AsNoTracking()
+            .Where(marker => marker.Category == RequestSnapshotJournal.Category)
+            .OrderBy(marker => marker.Reference).ToListAsync();
+        Assert.Equal(["request-1", "request-2"], markers.Select(marker => marker.Reference));
+        Assert.All(markers, marker =>
+        {
+            Assert.Equal("corr-test", marker.CorrelationId);
+            Assert.Null(marker.UserId);
+            Assert.False(marker.IsGlobal);
+        });
     }
 
     private sealed class RequestCreateTestHarness : IAsyncDisposable
@@ -407,6 +420,7 @@ public sealed class RequestCreateEndpointsTests
         }
 
         public HttpClient Client { get; }
+        public IServiceProvider Services => app.Services;
         public InMemoryRepository<Request> Requests { get; }
         public CapturingTicketNotificationService Notification { get; }
 
@@ -436,6 +450,8 @@ public sealed class RequestCreateEndpointsTests
             builder.Services.AddSingleton<IRequestTaskGenerationService, NoopRequestTaskGenerationService>();
             builder.Services.AddSingleton<IWorkflowEngine, NoopWorkflowEngine>();
             builder.Services.AddSingleton<ITicketNotificationService>(notification);
+            builder.Services.AddSingleton<IDomainEventPublisher, NoopDomainEventPublisher>();
+            builder.Services.AddSingleton<ICorrelationContext, TestCorrelationContext>();
             builder.Services.AddSingleton<IHtmlSanitizerService, HtmlSanitizerService>();
             builder.Services.AddSingleton<IHtmlToPlainTextConverter, HtmlToPlainTextConverter>();
             builder.Services.AddScoped<ICurrentUserAccessService, ClaimsCurrentUserAccessService>();

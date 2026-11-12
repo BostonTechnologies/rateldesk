@@ -97,7 +97,7 @@ public sealed class PairingConnectionsPageTests
         Assert.Equal(automation, mapping.RunAutomation);
         Assert.Equal(0, api.TestCount);
         html = await view.HtmlAsync();
-        Assert.Contains("Connected. The selected mapping and capabilities are active.", html);
+        Assert.Contains("Connection configured. Test this mapping to verify current access.", html);
         Assert.Contains("Office monitoring to support", html);
         Assert.DoesNotContain("system-connection-save-form", html);
         // Other approval panels use a synthetic example code as a placeholder.
@@ -198,7 +198,7 @@ public sealed class PairingConnectionsPageTests
         Assert.Equal(failedSave ? 2 : 1, api.Saves.Count);
         Assert.Equal(0, api.TestCount);
         var html = await view.HtmlAsync();
-        Assert.Contains("Connected. The selected mapping and capabilities are active.", html);
+        Assert.Contains("Connection configured. Test this mapping to verify current access.", html);
         Assert.DoesNotContain("system-connection-save-form", html);
         Assert.Contains("Escalation team", html);
         Assert.Contains("Escalation customer", html);
@@ -269,7 +269,9 @@ public sealed class PairingConnectionsPageTests
         await using var view = await RenderAsync(api);
         await view.InvokeAsync("TestAsync", api.Rows[0]);
         Assert.Equal(1, api.TestCount);
-        Assert.Contains("Current mapping and permissions verified", await view.HtmlAsync());
+        var testedHtml = await view.HtmlAsync();
+        Assert.Contains("Current mapping and permissions verified", testedHtml);
+        Assert.Equal(new[] { selected.Id, other.Id }, Regex.Matches(testedHtml, "data-connection-id=\"([^\"]+)\"").Select(match => match.Groups[1].Value));
         await view.InvokeAsync("DeleteAsync", api.Rows[0]);
         Assert.Equal(selected.Id, Assert.Single(api.DeletedMappingIds));
         var remaining = Assert.Single(ReadField<List<PairingConnectionDto>>(view.Panel, "connections"));
@@ -436,6 +438,57 @@ public sealed class PairingConnectionsPageTests
         Assert.DoesNotContain("Old mapping passed", await view.HtmlAsync());
     }
 
+    [Fact]
+    public async Task Configuration_and_test_outcomes_are_independent_and_filter_the_actual_rendered_cards()
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "Never checked", "42", "organization-7", "customer-9", true, false);
+        var recent = mapping with { Id = "44444444-4444-4444-4444-444444444444", Name = "Recently checked" };
+        var stale = mapping with { Id = "55555555-5555-5555-5555-555555555555", Name = "Old successful check" };
+        var failed = mapping with { Id = "66666666-6666-6666-6666-666666666666", Name = "Rejected check" };
+        var api = new FixtureApi { Rows = [Paired(mapping, "connected"),
+            Paired(recent, "connected") with { LastTest = new(true, "Recent permitted access", DateTimeOffset.UtcNow.AddMinutes(-1)) },
+            Paired(stale, "connected") with { LastTest = new(true, "Historical permitted access", DateTimeOffset.UtcNow.AddDays(-1)) },
+            Paired(failed, "connected") with { LastTest = new(false, "Review the selected tenant permissions.", DateTimeOffset.UtcNow) }] };
+        await using var view = await RenderAsync(api);
+        var html = await view.HtmlAsync();
+        Assert.Equal(4, Regex.Matches(html, "data-testid=\"system-connection-row\"").Count);
+        Assert.Contains("Never tested", html);
+        Assert.Contains("Last test passed", html);
+        Assert.Contains("Stale snapshot", html);
+        Assert.Contains("Last test failed", html);
+        Assert.Contains("Test details", html);
+        Assert.Contains("Capability direction", html);
+        Assert.DoesNotContain("Healthy", html);
+        Assert.Equal(0, api.TestCount);
+        await view.ChangeSelectionAsync("connection-status-filter", "stale");
+        html = await view.HtmlAsync();
+        Assert.Single(Regex.Matches(html, "data-testid=\"system-connection-row\""));
+        Assert.Contains(stale.Name, html);
+        Assert.DoesNotContain(recent.Name, html);
+        await view.ChangeSelectionAsync("connection-status-filter", "never-tested");
+        html = await view.HtmlAsync();
+        Assert.Contains(mapping.Name, html);
+        Assert.DoesNotContain(stale.Name, html);
+        Assert.Empty(api.Saves);
+    }
+
+    [Fact]
+    public async Task Unavailable_name_lookup_retains_the_saved_mapping_identity_and_local_actions()
+    {
+        var mapping = new PairingMapping("33333333-3333-3333-3333-333333333333", PairId, "Saved mapping", "42", "organization-7", "customer-9", true, true);
+        var api = new FixtureApi { Rows = [Paired(mapping, "connected")], FailDirectory = true };
+        await using var view = await RenderAsync(api);
+        var html = await view.HtmlAsync();
+        Assert.Contains("Saved mapping (42); name unavailable", html);
+        Assert.Contains("Saved mapping (organization-7); name unavailable", html);
+        Assert.Contains("Saved mapping (customer-9); name unavailable", html);
+        Assert.Contains("Add mapping", html);
+        Assert.Contains("Delete connection", html);
+        Assert.Contains("Never tested", html);
+        Assert.Empty(api.Saves);
+        Assert.Equal(0, api.TestCount);
+    }
+
     [Theory]
     [InlineData("host.lan:5100/", "https://host.lan:5100")]
     [InlineData("https://desk.lan///", "https://desk.lan")]
@@ -535,7 +588,7 @@ public sealed class PairingConnectionsPageTests
         public List<PairingMapping> Saves { get; } = [];
         public List<string> DeletedMappingIds { get; } = [];
         public int GenerateCount, TestCount, ListCount;
-        public bool FailSave, LoseFirstPairResponse, RejectPairCode, ExpirePairSession, FailTest;
+        public bool FailSave, LoseFirstPairResponse, RejectPairCode, ExpirePairSession, FailTest, FailDirectory;
         public TaskCompletionSource<PairingSetupDirectory>? HeldDirectory;
         public TaskCompletionSource<PairingTestResult>? HeldTest;
         public TaskCompletionSource TestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -557,6 +610,7 @@ public sealed class PairingConnectionsPageTests
             if (path.EndsWith("/code", StringComparison.Ordinal)) { GenerateCount++; return Json(new PairingCodeDto("JKLM-NPQR", DateTimeOffset.UtcNow.AddMinutes(5))); }
             if (path.EndsWith("/directory", StringComparison.Ordinal))
             {
+                if (FailDirectory) throw new HttpRequestException("Synthetic unavailable directory.");
                 if (HeldDirectory is { } held) { HeldDirectory = null; DirectoryStarted.TrySetResult(); return Json(await held.Task.WaitAsync(ct)); }
                 return Json(Choices);
             }

@@ -10,12 +10,12 @@ users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role:
 const categoryOne = '79000000-0000-0000-0000-000000000001';
 const categoryTwo = '79000000-0000-0000-0000-000000000002';
 const categoryThree = '79000000-0000-0000-0000-000000000003';
-let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions, worklogs;
+let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions, worklogs, requestTasks;
 let held = [];
 const hold = kind => new Promise(resolve => held.push({ kind, resolve }));
 function release() { const pending = held; held = []; pending.forEach(item => item.resolve()); }
 function reset() {
-  release(); slaActions = []; worklogs = [];
+  release(); slaActions = []; worklogs = []; requestTasks = [];
   categories = [{ id: categoryOne, name: 'Network Operations', isActive: true, type: 0 }, { id: categoryTwo, name: 'Historical selection', isActive: false, type: 0 }, { id: categoryThree, name: 'R&D + 100%_\\', isActive: true, type: 0 }]; categorySearches = []; searches = []; completedQueries = []; saves = []; fault = ''; reader = false;
   tickets = Object.fromEntries(['incidents', 'requests', 'changes'].map(module => [module, {
     id: `${module}-1`, subject: 'Picker incident', title: `Picker ${module}`, description: 'Fixture ticket',
@@ -33,6 +33,22 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, worklogs, held: held.map(item => item.kind) });
+  // Presentation fixtures only. Real persisted gateway SSE acceptance is owned by
+  // RequestLiveProgressTests; these rows do not establish provider/live outcomes.
+  if (url.pathname === '/fixture/request-tasks' && req.method === 'POST') {
+    const { count = 3, state = 'running' } = await body();
+    requestTasks = Array.from({ length: count }, (_, i) => ({
+      id: `presentation-task-${i}`, order: i + 1, name: i === 0 ? 'Long harmless automation task with a readable complete disclosure name' : `Harmless automation ${i + 1}`,
+      description: i === 0 ? 'A deliberately long synthetic description to verify bounded primary text and accessible full task details in narrow and zoomed layouts.' : `Harmless automation ${i + 1}`,
+      type: 2, status: state === 'unknown' ? 4 : 2, lastAutomationStatus: state === 'unknown' ? 'ExecutionUnknownManualReconcile' : 'running',
+      orchestrationExternalRunId: `synthetic-provider-run-${i}`, orchestrationExternalRequestId: `synthetic-provider-request-${i}`,
+      automationBindingId: `synthetic-binding-${i}`, automationBindingSyncState: 1, assignedToId: 'user-0',
+      startedAt: '2026-11-11T10:00:00Z', lastAutomationUpdatedAt: '2026-11-11T10:01:00Z', expectedRuntimeSeconds: 300, graceSeconds: 30, hardTimeoutSeconds: 600
+    }));
+    tickets.requests.workflowStatus = state === 'unknown' ? 'NeedsReconciliation' : 'InProgress';
+    tickets.requests.workflowBlockReason = state === 'unknown' ? 'The execution deadline elapsed. The remote outcome is unknown; support must reconcile this attempt.' : null;
+    return reply({ count: requestTasks.length });
+  }
   if (url.pathname === '/fixture/ticket-scope' && req.method === 'POST') {
     const scope = await body();
     for (const ticket of Object.values(tickets)) {
@@ -122,6 +138,7 @@ http.createServer(async (req, res) => {
     }
     if (action === ticket.id) { const snapshot = structuredClone(ticket); if (fault === 'hold-refresh') { fault = ''; await hold('refresh'); } return reply(snapshot); }
     if (action === `${module}-2`) return reply({ ...ticket, id: `${module}-2`, categoryIds: [categoryThree] });
+    if (module === 'requests' && action?.endsWith('/tasks')) return reply(requestTasks);
     if (action?.endsWith('/workflow-timeline')) { const group = url.searchParams.get('categories')?.includes('Sla') ? 'SLA' : 'Tasks'; const snapshot = { items: [{ id: group, title: `${group} workflow event`, category: group, severity: 'Info', createdAt: '2026-10-01T10:00:00Z' }], totalCount: 1 }; if (fault === 'hold-workflow') { fault = ''; await hold('workflow'); } return reply(snapshot); }
     if (action?.endsWith('/peek')) return reply({ incidentId: ticket.id, text: 'Fixture message', html: '<p>Fixture message</p>' });
     if (action?.endsWith('/timeline/count')) return reply(0);

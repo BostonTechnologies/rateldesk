@@ -1,0 +1,4 @@
+.organization-access-review { min-width: 0; }
+.organization-access-selected { max-height: 10rem; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; margin-bottom: .75rem; }
+.organization-access-selected ::deep .mud-chip { max-width: 100%; height: auto; min-height: 2rem; }
+.organization-access-selected ::deep .mud-chip-content { overflow-wrap: anywhere; white-space: normal; }

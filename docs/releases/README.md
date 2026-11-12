@@ -1,5 +1,23 @@
 # Releases
 
+## 0.1.3-beta.10 candidate — premium workspaces and durable request execution
+
+[Release notes and owner walkthrough](../release-notes/0.1.3-beta.10.md) cover
+the complete #381 campaign and #380, including trusted requester resolution,
+durable deadlines, genuine request updates and account retirement. The compatible
+provider is NetRatel **0.1.5-beta.5**; upgrade it first and retain existing pairings.
+Back up both application stores and protection keys before the forward migrations.
+The [delivery register](../implementation/381-premium-campaign.md) separates
+scoped tests, exact-source hosted gates and public distribution evidence.
+
+Both tag prefixes, draft/public releases and all three image families were unused
+before assigning this version. After reviewed merge and all six normal jobs on
+exact current main, dispatch the existing hosted `release.yml` from `main` with
+`tag=v0.1.3-beta.10` and that full `source_revision`. Inspect the complete staged
+draft, publish as a prerelease with `latest=false`, and independently verify all
+seven archives and three multi-platform image families, checksums, source labels,
+immutable digests, SBOM and provenance. Preserve earlier bytes and stable latest.
+
 ## 0.1.3-beta.9 candidate — canonical NetRatel job automation
 
 [Release notes](../release-notes/0.1.3-beta.9.md) describe target-aware browsing,

@@ -1,0 +1,120 @@
+{
+  "scope": "Local Self Service query, rendering, error and responsive acceptance. Reviewed PR/main CI, real provider pairing and public release remain campaign gates.",
+  "product": {
+    "sourceRevision": "10f4e0e424bb5b7073d80713e0b051037f419413",
+    "version": "0.1.3-beta.9",
+    "webSha256": "12d300cf5c74179e5b4ec346971c3d3a274e703a7dffa0ec44d13f5bd374f2bf",
+    "sdk": "10.0.400",
+    "freshRuntimeStartedUtc": "2026-11-11T16:46:57.690000+00:00",
+    "freshRuntimePid": 95690
+  },
+  "drivers": {
+    "playwright": "1.64.1",
+    "chromium": "official Playwright Chromium 1248",
+    "workers": 1,
+    "nativeSpecRevision": "45458ab1bf280cbe54c29c50f69448fe29934041",
+    "nativeSpecSha256": "8125449bb86989aae8dd8f3def9f76d549eb1b4a38e447d07e04e1eb85d8cc08"
+  },
+  "unitRuns": [
+    {
+      "receipt": "self-service-workspaces.trx",
+      "passed": 84,
+      "failed": 0,
+      "skipped": 0,
+      "sourceBoundary": "Build began at e205b9285ea5b23d242c8009b46d7a30f9ec21f4 with implementation working-tree changes later committed as 252b6576/627751a1. This is not an exact final-build receipt.",
+      "classes": {
+        "SelfServiceMyRequestsEndpointsTests": 13,
+        "NavMenuRenderedTests": 63,
+        "SelfServiceShellRenderedTests": 6,
+        "ServiceBrowserRenderedTests": 2
+      },
+      "providers": "Real SQLite and PostgreSQL included for full-query and ownership cases."
+    },
+    {
+      "receipt": "my-requests-read-errors.trx",
+      "testAssemblyRevision": "e7213caffb550c149fb13d008d65cda3f900f1d3",
+      "webSubjectRevision": "10f4e0e424bb5b7073d80713e0b051037f419413",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "Typed open-circuit/read-timeout fallback, retained rows, sanitized error, working refresh and no writes."
+    }
+  ],
+  "browserRuns": [
+    {
+      "receipt": "self-service-final.json",
+      "productRevision": "10f4e0e424bb5b7073d80713e0b051037f419413",
+      "passed": 28,
+      "failed": 2,
+      "skipped": 0,
+      "failureBoundary": "Two final folder assertions used ambiguous text shared by breadcrumb and heading; operations succeeded before that assertion. Test-only selector fixed in e7213caf."
+    },
+    {
+      "receipt": "self-service-catalog-final.json",
+      "driverRevision": "e7213caffb550c149fb13d008d65cda3f900f1d3",
+      "productRevision": "10f4e0e424bb5b7073d80713e0b051037f419413",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "Both corrected light/dark catalog error/retry/no-match/keyboard navigation cases."
+    },
+    {
+      "receipt": "self-service-query-final.json",
+      "driverRevision": "9e0befad28a3baa3d5e4fded2581043d55e8e488",
+      "productRevision": "10f4e0e424bb5b7073d80713e0b051037f419413",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "Existing query case strengthened with actual native 25/50/100/50 pager choices, whole-query search, last page, keyboard sort and retained section state."
+    },
+    {
+      "receipt": "self-service-native-final.log",
+      "productRevision": "10f4e0e424bb5b7073d80713e0b051037f419413",
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "Light/dark × 1280/1920 physical widths; chrome.tabs.setZoom(2) and layout width half; physical CDP PNG dimensions; one/two card columns, reachable fixed pager and no overflow."
+    }
+  ],
+  "coverage": {
+    "uniqueOrdinaryCases": 30,
+    "formCases": 11,
+    "workspaceCases": 19,
+    "nativeCases": 4,
+    "dataSetRows": 137,
+    "viewports": [
+      [
+        1920,
+        1080
+      ],
+      [
+        1440,
+        900
+      ],
+      [
+        1366,
+        768
+      ],
+      [
+        768,
+        1024
+      ],
+      [
+        390,
+        844
+      ]
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "syntheticBeforeImages": 36
+  },
+  "excludedRuns": "Earlier mixed Docker-network and reused-server runs are retained in workspace history and do not establish fresh-runtime acceptance. Dedicated config now rejects existing fixture/Web listeners.",
+  "quality": {
+    "layout": "passed",
+    "documentation": "197 Markdown files and 917 local links passed.",
+    "slopwatch": "0 issues; baseline unchanged"
+  },
+  "publicationBoundary": "Before PNGs and source/dimension/SHA256 receipts are committed here. Owning tests copy matching before images beside generated after evidence into the existing hosted deep artifact directories. Local runtime receipts remain workspace artifacts until the integrated hosted lane publishes its exact-source run."
+}

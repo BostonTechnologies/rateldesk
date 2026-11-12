@@ -24,7 +24,7 @@ export async function authenticate(page: Page): Promise<void> {
   }
 
   await page.goto('/home');
-  await expect(page.getByRole('heading', { name: 'Operations Dashboard' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Operations Overview' })).toBeVisible();
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
 }
 

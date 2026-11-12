@@ -24,6 +24,9 @@ public sealed class MyRequestDetailDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
     public string PayloadJson { get; set; } = "{}";
+    public string? WorkflowStatus { get; set; }
+    public string? WorkflowBlockReason { get; set; }
+    public DateTimeOffset? WorkflowUpdatedAt { get; set; }
 }
 
 public sealed class MyRequestTaskDto
@@ -39,6 +42,7 @@ public sealed class MyRequestTaskDto
     public DateTimeOffset? DueAt { get; set; }
     public int RetryCount { get; set; }
     public string? FailureReason { get; set; }
+    public string? LastAutomationStatus { get; set; }
     public List<MyRequestPendingApprovalDto> PendingApprovals { get; set; } = new();
 }
 

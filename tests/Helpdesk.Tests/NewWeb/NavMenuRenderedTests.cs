@@ -30,7 +30,7 @@ public sealed class NavMenuRenderedTests
         await using var context = Context("HelpdeskAdmin");
         var menu = context.Render<NavMenu>();
         var expected = Account.Where(x => x != "/account/integration-credentials").Concat(GlobalAdministration).Concat([
-            "self-service", "self-service/my-requests", "incidents", "requests", "tasks", "changes",
+            "self-service", "incidents", "requests", "tasks", "changes",
             "/ops", "/ai/chat", "/ai/ops", "/ai/prompts", "assets", "/admin/resources/data-management"
         ]).OrderBy(route => route).ToArray();
 
@@ -68,7 +68,7 @@ public sealed class NavMenuRenderedTests
     }
 
     [Theory]
-    [InlineData("SelfService.User", "self-service,self-service/my-requests", "Portal")]
+    [InlineData("SelfService.User", "self-service", "")]
     [InlineData("Incident.Read", "incidents,/ai/chat", "Workspace,AI Ops")]
     [InlineData("Incident.Manager", "incidents,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
     [InlineData("Request.User", "requests", "Workspace")]
@@ -84,7 +84,7 @@ public sealed class NavMenuRenderedTests
         await using var context = Context(role);
         var menu = context.Render<NavMenu>();
         Assert.Equal(Account.Concat(routes.Split(',')).OrderBy(route => route), Hrefs(menu));
-        Assert.Equal(groups.Split(',').Append("Operations").Distinct().OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
+        Assert.Equal(groups.Split(',', StringSplitOptions.RemoveEmptyEntries).Append("Operations").Distinct().OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
         if (!groups.Contains("Administration", StringComparison.Ordinal))
             Assert.DoesNotContain("Administration", menu.FindAll(".nav-section-heading").Select(element => element.TextContent));
     }
@@ -92,8 +92,9 @@ public sealed class NavMenuRenderedTests
     [Theory]
     [InlineData("/self-service", "self-service")]
     [InlineData("/self-service/?catalog=all#list", "self-service")]
-    [InlineData("/self-service/my-requests", "self-service/my-requests")]
-    [InlineData("/self-service/my-requests/detail/example?mode=view#comments", "self-service/my-requests")]
+    [InlineData("/self-service/my-requests", "self-service")]
+    [InlineData("/self-service/my-requests/detail/example?mode=view#comments", "self-service")]
+    [InlineData("/self-service/request/example", "self-service")]
     [InlineData("/admin/automation", "/admin/automation")]
     [InlineData("/admin/automation/edit/example", "/admin/automation")]
     [InlineData("/admin/automation/integration", "/admin/integration")]
@@ -139,7 +140,7 @@ public sealed class NavMenuRenderedTests
     }
 
     [Theory]
-    [InlineData("/self-service/my-requests", "Portal")]
+    [InlineData("/self-service/my-requests", "")]
     [InlineData("/incidents/detail/example", "Workspace")]
     [InlineData("/ops/slas", "Operations")]
     [InlineData("/admin/resources/data-management", "Resources")]
@@ -156,7 +157,7 @@ public sealed class NavMenuRenderedTests
         await using var context = Context("HelpdeskAdmin");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(route);
         var menu = context.Render<NavMenu>();
-        Assert.Equal(expandedTitles.Split(',').OrderBy(title => title), menu.FindComponents<MudNavGroup>().Where(group => group.Find("button").GetAttribute("aria-expanded") == "true").Select(group => group.Instance.Title).OrderBy(title => title));
+        Assert.Equal(expandedTitles.Split(',', StringSplitOptions.RemoveEmptyEntries).OrderBy(title => title), menu.FindComponents<MudNavGroup>().Where(group => group.Find("button").GetAttribute("aria-expanded") == "true").Select(group => group.Instance.Title).OrderBy(title => title));
         foreach (var href in menu.FindAll("a[aria-current='page']")) Assert.Equal("0", href.GetAttribute("tabindex"));
     }
 

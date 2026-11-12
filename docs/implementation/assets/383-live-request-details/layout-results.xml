@@ -1,0 +1,26 @@
+<testsuites id="" name="" tests="11" failures="0" skipped="0" errors="0" time="26.258932">
+<testsuite name="ticket-details.spec.ts" timestamp="2026-11-11T17:53:38.507Z" hostname="" tests="11" failures="0" skipped="0" time="22.477" errors="0">
+<testcase name="request execution layout light 1920x1080" classname="ticket-details.spec.ts" time="2.462">
+</testcase>
+<testcase name="request execution layout light 1440x900" classname="ticket-details.spec.ts" time="1.842">
+</testcase>
+<testcase name="request execution layout light 1366x768" classname="ticket-details.spec.ts" time="1.994">
+</testcase>
+<testcase name="request execution layout light 768x1024" classname="ticket-details.spec.ts" time="1.803">
+</testcase>
+<testcase name="request execution layout light 390x844" classname="ticket-details.spec.ts" time="1.926">
+</testcase>
+<testcase name="request execution layout dark 1920x1080" classname="ticket-details.spec.ts" time="2.04">
+</testcase>
+<testcase name="request execution layout dark 1440x900" classname="ticket-details.spec.ts" time="2.206">
+</testcase>
+<testcase name="request execution layout dark 1366x768" classname="ticket-details.spec.ts" time="2.272">
+</testcase>
+<testcase name="request execution layout dark 768x1024" classname="ticket-details.spec.ts" time="2.047">
+</testcase>
+<testcase name="request execution layout dark 390x844" classname="ticket-details.spec.ts" time="2.16">
+</testcase>
+<testcase name="request execution empty and uncertain presentation retain truthful actions" classname="ticket-details.spec.ts" time="1.725">
+</testcase>
+</testsuite>
+</testsuites>

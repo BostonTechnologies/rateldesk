@@ -247,7 +247,13 @@ test.describe('focused admin tasks', () => {
   expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(1);
   await page.getByRole('tab', { name: 'Working calendars', exact: true }).click();
   await page.getByRole('button', { name: 'Revert', exact: true }).click();
-  await select(page, 'Tenant', 'Birch Tenant'); await page.getByRole('tab', { name: 'Reporting', exact: true }).click();
+  await select(page, 'Tenant', 'Birch Tenant');
+  // A tenant change replaces the keyed tab set. Wait for its default panel
+  // before clicking Reporting so the click cannot target the previous tenant.
+  await expect(page.getByRole('combobox', { name: 'Tenant', exact: true })).toContainText('Birch Tenant');
+  await expect(page.getByRole('tab', { name: 'Policies', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: 'Reporting', exact: true }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Reporting', exact: true })).toBeVisible();
   await expect(page.getByText('No report subscriptions for this tenant.')).toBeVisible();
  });
  test('routing concerns are focused; opening and cancelling edits or diagnostics performs no writes', async ({ page, request }) => {

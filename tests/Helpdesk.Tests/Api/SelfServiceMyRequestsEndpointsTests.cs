@@ -21,6 +21,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Testcontainers.PostgreSql;
 using Xunit;
 
 namespace Helpdesk.Tests.Api;
@@ -89,30 +90,132 @@ public sealed class SelfServiceMyRequestsEndpointsTests
         Assert.Empty(payload.Items);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Complete_query_filters_sorts_counts_and_clamps_beyond_one_hundred_records(bool postgres)
+    {
+        await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync(postgres: postgres);
+        await harness.SeedDirectoryAsync();
+        var first = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>("/api/v1/self-service/requests?sortBy=title&descending=false");
+        Assert.NotNull(first);
+        Assert.Equal(138, first.TotalCount);
+        Assert.Equal(25, first.PageSize);
+        Assert.Equal(25, first.Items.Count);
+        Assert.DoesNotContain(first.Items, x => x.Id == "request-2");
+
+        var pages = new List<MyRequestListItemDto>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var result = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>($"/api/v1/self-service/requests?page={page}&pageSize=50&sortBy=created&descending=false");
+            Assert.Equal(138, result!.TotalCount);
+            pages.AddRange(result.Items);
+        }
+        Assert.Equal(138, pages.Count);
+        Assert.Equal(138, pages.Select(x => x.Id).Distinct().Count());
+        var tiedRows = pages.Where(x => x.Id.StartsWith("bulk-", StringComparison.Ordinal)).ToList();
+        Assert.Equal(tiedRows.Select(x => x.Id).OrderBy(x => x, StringComparer.Ordinal), tiedRows.Select(x => x.Id));
+
+        var exact = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>(
+            "/api/v1/self-service/requests?q=REQUEST%20136&state=3&releaseStage=1&createdFromUtc=2026-11-01T00:00:00Z&createdBeforeUtc=2026-11-02T00:00:00Z&updatedFromUtc=2026-11-03T00:00:00Z&updatedBeforeUtc=2026-11-04T00:00:00Z&sortBy=updated");
+        Assert.Equal("bulk-136", Assert.Single(exact!.Items).Id);
+        Assert.Equal(1, exact.TotalCount);
+        var dateOnly = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>(
+            "/api/v1/self-service/requests?createdFromUtc=2026-11-01&createdBeforeUtc=2026-11-02&updatedFromUtc=2026-11-03&updatedBeforeUtc=2026-11-04");
+        Assert.Equal(137, dateOnly!.TotalCount);
+
+        var last = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>("/api/v1/self-service/requests?page=2147483647&pageSize=100&sortBy=trackingId&descending=false");
+        Assert.Equal(2, last!.Page);
+        Assert.Equal(38, last.Items.Count);
+        var noMatch = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>("/api/v1/self-service/requests?page=19&q=absent");
+        Assert.Equal(1, noMatch!.Page);
+        Assert.Equal(0, noMatch.TotalCount);
+        Assert.Empty(noMatch.Items);
+
+        foreach (var sort in new[] { "created", "updated", "trackingId", "title", "state" })
+        {
+            var ascending = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>($"/api/v1/self-service/requests?sortBy={sort}&descending=false&pageSize=100");
+            var descending = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>($"/api/v1/self-service/requests?sortBy={sort}&descending=true&pageSize=100");
+            Assert.Equal(138, ascending!.TotalCount);
+            Assert.Equal(138, descending!.TotalCount);
+            Assert.Equal(100, ascending.Items.Count);
+            Assert.Equal(100, descending.Items.Count);
+            Assert.Equal(sort is "created" or "updated" ? "bulk-000" : "request-1", ascending.Items[0].Id);
+            Assert.Equal(sort switch
+            {
+                "created" or "updated" => "request-1",
+                "state" => "bulk-001",
+                _ => "bulk-136"
+            }, descending.Items[0].Id);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Filters_preserve_owned_request_fences_and_authorized_instance_administrator_exception(bool postgres)
+    {
+        await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync(postgres: postgres);
+        await harness.SeedDirectoryAsync();
+        var hidden = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>("/api/v1/self-service/requests?q=foreign");
+        Assert.Empty(hidden!.Items);
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "Admin");
+        var admin = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>("/api/v1/self-service/requests?q=foreign&releaseStage=0");
+        Assert.Equal("foreign-request", Assert.Single(admin!.Items).Id);
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "IntegrationB");
+        var denied = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>("/api/v1/self-service/requests?q=Request&state=3&page=999");
+        Assert.Empty(denied!.Items);
+        Assert.Equal(0, denied.TotalCount);
+        Assert.Equal(1, denied.Page);
+    }
+
+    [Theory]
+    [InlineData("sortBy=unsupported")]
+    [InlineData("state=999")]
+    [InlineData("releaseStage=999")]
+    [InlineData("createdFromUtc=2026-11-03&createdBeforeUtc=2026-11-02")]
+    [InlineData("updatedFromUtc=2026-11-03&updatedBeforeUtc=2026-11-03")]
+    public async Task Invalid_query_has_a_useful_bad_request(string query)
+    {
+        await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync();
+        var response = await harness.Client.GetAsync("/api/v1/self-service/requests?" + query);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Invalid request filters", await response.Content.ReadAsStringAsync());
+    }
+
     private sealed class SelfServiceMyRequestsTestHarness : IAsyncDisposable
     {
         private readonly SqliteConnection _connection;
         private readonly WebApplication _app;
+        private readonly PostgreSqlContainer? _postgres;
 
         private SelfServiceMyRequestsTestHarness(
             SqliteConnection connection,
             WebApplication app,
             HttpClient client,
-            string requestId)
+            string requestId,
+            PostgreSqlContainer? postgres)
         {
             _connection = connection;
             _app = app;
             Client = client;
             RequestId = requestId;
+            _postgres = postgres;
         }
 
         public HttpClient Client { get; }
         public string RequestId { get; }
 
-        public static async Task<SelfServiceMyRequestsTestHarness> CreateAsync(string authHeader = "SelfService")
+        public static async Task<SelfServiceMyRequestsTestHarness> CreateAsync(string authHeader = "SelfService", bool postgres = false)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
+            PostgreSqlContainer? container = null;
+            if (postgres)
+            {
+                container = new PostgreSqlBuilder("postgres:16").Build();
+                await container.StartAsync();
+            }
 
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
@@ -120,7 +223,12 @@ public sealed class SelfServiceMyRequestsEndpointsTests
             });
             builder.WebHost.UseTestServer();
             builder.Services.AddHttpContextAccessor();
-            builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection));
+            builder.Logging.ClearProviders();
+            builder.Services.AddDbContext<HelpdeskDbContext>(options =>
+            {
+                if (container is null) options.UseSqlite(connection);
+                else options.UseNpgsql(container.GetConnectionString());
+            });
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("tenant-1", "user-1", isHelpdeskAdmin: false));
             builder.Services.AddScoped<ISelfServiceAudienceService, AllowingSelfServiceAudienceService>();
             builder.Services.AddScoped<ICurrentUserAccessService, ClaimsCurrentUserAccessService>();
@@ -189,7 +297,7 @@ public sealed class SelfServiceMyRequestsEndpointsTests
                     OrganizationId = "tenant-1",
                     RequestFormId = "form-1",
                     State = TicketState.New,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc)
                 };
 
                 var otherRequest = new Request
@@ -216,7 +324,33 @@ public sealed class SelfServiceMyRequestsEndpointsTests
             await app.StartAsync();
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", authHeader);
-            return new SelfServiceMyRequestsTestHarness(connection, app, client, "request-1");
+            return new SelfServiceMyRequestsTestHarness(connection, app, client, "request-1", container);
+        }
+
+        public async Task SeedDirectoryAsync()
+        {
+            await using var scope = _app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.RequestForms.Add(new RequestForm
+            {
+                Id = "foreign-form", Title = "Foreign form", ServiceId = "service-foreign",
+                OrganizationId = "tenant-2", ReleaseStatus = RequestFormReleaseStatus.InTesting
+            });
+            db.Requests.Add(new Request
+            {
+                Id = "foreign-request", TrackingId = "REQ-FOREIGN", Title = "Foreign request",
+                CustomerId = "customer-1", OrganizationId = "tenant-2", RequestFormId = "foreign-form"
+            });
+            for (var i = 0; i < 137; i++)
+                db.Requests.Add(new Request
+                {
+                    Id = $"bulk-{i:D3}", TrackingId = $"REQ-BULK-{i:D3}", Title = $"Request {i:D3}",
+                    CustomerId = "customer-1", OrganizationId = "tenant-1", RequestFormId = "form-1",
+                    State = i % 2 == 0 ? TicketState.InProgress : TicketState.OnHold,
+                    CreatedAt = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc)
+                });
+            await db.SaveChangesAsync();
         }
 
         public async ValueTask DisposeAsync()
@@ -224,6 +358,7 @@ public sealed class SelfServiceMyRequestsEndpointsTests
             Client.Dispose();
             await _app.DisposeAsync();
             await _connection.DisposeAsync();
+            if (_postgres is not null) await _postgres.DisposeAsync();
         }
     }
 
@@ -273,7 +408,14 @@ public sealed class SelfServiceMyRequestsEndpointsTests
 
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            var claims = Request.Headers.Authorization.ToString().Contains("IntegrationB", StringComparison.OrdinalIgnoreCase)
+            var claims = Request.Headers.Authorization.ToString().Contains("Admin", StringComparison.OrdinalIgnoreCase)
+                ? new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, "user-1"),
+                    new Claim(ClaimTypes.Name, "Administrator"),
+                    new Claim(ClaimTypes.Role, "HelpdeskAdmin")
+                }
+                : Request.Headers.Authorization.ToString().Contains("IntegrationB", StringComparison.OrdinalIgnoreCase)
                 ? new[]
                 {
                     new Claim(ClaimTypes.NameIdentifier, "user-1"),

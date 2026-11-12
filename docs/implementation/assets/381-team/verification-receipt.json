@@ -1,0 +1,549 @@
+{
+  "scope": "Issue387 isolated source verification; reviewed merge, exact-main normal/deep CI, paired campaign execution and public release remain campaign gates.",
+  "testedSourceCommit": "7e171b238c3a291aafc7ac6eefc1eed2e887a0b7",
+  "runtimeSourceCommit": "e2be6b48a9a39f5486e4523a1ae8deacc931a85c",
+  "sourceBoundary": "7e171b23 changes only the rendered query-test navigation setup. Runtime source is byte-identical to e2be6b48. The 68-test batch ran after the scoped API/Web/test builds completed; no tracked source changed during coverage collection.",
+  "sdk": "10.0.400",
+  "tests": {
+    "passed": 68,
+    "failed": 0,
+    "skipped": 0,
+    "trxSha256": "01ff8b3ce06d194147ead6b02acf4278a18d6945e316e9dc21c3d5c7ee233ec0",
+    "times": {
+      "creation": "2026-11-11T17:48:52.5493903+00:00",
+      "queuing": "2026-11-11T17:48:52.5493904+00:00",
+      "start": "2026-11-11T17:48:38.7138126+00:00",
+      "finish": "2026-11-11T17:50:43.0129719+00:00"
+    },
+    "results": [
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Linked_active_customer_gets_default_user_permissions_and_tenant",
+        "outcome": "Passed",
+        "duration": "00:00:00.0013429"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_can_create_activate_a_second_administrator_and_last_admin_guard_still_applies",
+        "outcome": "Passed",
+        "duration": "00:00:01.2749675"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_transport_failures_remain_open_and_retry_the_same_idempotent_delete(failure: \"cancellation\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0046477"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Local_scoped_role_assignments_for_disabled_organizations_are_ignored",
+        "outcome": "Passed",
+        "duration": "00:00:00.0044705"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Shared_identity_dependency_is_rejected_and_unlinked_domain_profile_has_supported_retirement(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.2422572"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Technical_user_gets_msp_managed_tenants",
+        "outcome": "Passed",
+        "duration": "00:00:00.0674901"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Local_scoped_role_assignments_keep_permissions_in_their_assigned_organization",
+        "outcome": "Passed",
+        "duration": "00:00:00.0017679"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Existing_tenant_administrator_definition_is_reconciled_with_scoped_customer_and_sla_permissions",
+        "outcome": "Passed",
+        "duration": "00:00:01.7679063"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalSessionValidatorTests.Bearer_stream_cannot_outlive_its_original_access_token",
+        "outcome": "Passed",
+        "duration": "00:00:00.0006841"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Local_account_link_grants_customer_access_without_using_email_as_an_identity_key",
+        "outcome": "Passed",
+        "duration": "00:00:00.0711033"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.IntegrationCredentialManagementAuthorizationTests.Local_enabled_account_can_manage_its_own_credentials",
+        "outcome": "Passed",
+        "duration": "00:00:00.0048979"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_respects_mode_route_availability_while_Delete_remains_distinct(mode: \"Hybrid\", localActions: True)",
+        "outcome": "Passed",
+        "duration": "00:00:00.0190887"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.IntegrationCredentialManagementAuthorizationTests.Non_interactive_credentials_cannot_become_a_management_session(authenticationMode: \"gateway\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0578813"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Delete_user_revokes_existing_cookie_and_password_and_cannot_be_reversed_with_Enable",
+        "outcome": "Passed",
+        "duration": "00:00:02.5254720"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalSessionValidatorTests.Existing_stream_session_detects_updated_stamp_even_when_the_user_was_already_tracked",
+        "outcome": "Passed",
+        "duration": "00:00:00.0404656"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalSessionValidatorTests.Stream_session_expires_without_waiting_for_a_new_http_request",
+        "outcome": "Passed",
+        "duration": "00:00:00.0017367"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Instance_administrator_integration_credential_is_limited_to_its_requested_permission_tuple",
+        "outcome": "Passed",
+        "duration": "00:00:00.0019670"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.IntegrationCredentialManagementAuthorizationTests.Non_interactive_credentials_cannot_become_a_management_session(authenticationMode: \"mcp\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0102715"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Protected_built_in_role_definitions_seed_idempotently",
+        "outcome": "Passed",
+        "duration": "00:00:00.0135195"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_transport_failures_remain_open_and_retry_the_same_idempotent_delete(failure: \"io\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0059319"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Integration_credential_projects_scoped_organization_and_only_keeps_matching_customer_identity(requestedOrganizationId: \"org-b\", expectedCustomerId: null)",
+        "outcome": "Passed",
+        "duration": "00:00:00.0154385"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Self_last_admin_and_failed_audit_do_not_commit_partial_retirement(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.1735694"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Integration_credential_projects_scoped_organization_into_tenant_filter_without_foreign_customer(isInstanceAdministrator: True)",
+        "outcome": "Passed",
+        "duration": "00:00:00.0045557"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"disabled-link\", expected: Disabled, canActivate: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.4267985"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Email_match_without_a_verified_identity_link_does_not_grant_access",
+        "outcome": "Passed",
+        "duration": "00:00:00.0015619"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Retirement_migrations_preserve_existing_long_identity_data_and_default_to_active(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:16.3719445"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_transport_failures_show_retained_query_and_retry_without_crashing_the_component(failure: \"cancellation\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0235214"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"deleted-account\", expected: Disabled, canActivate: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.2051304"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.UserEndpointsTests.Oidc_only_mode_does_not_map_local_authentication_routes",
+        "outcome": "Passed",
+        "duration": "00:00:02.5980366"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Sign_in_timeout_keeps_the_separate_setting_dialog_open_and_retries_only_that_setting",
+        "outcome": "Passed",
+        "duration": "00:00:00.0094874"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.IntegrationCredentialManagementAuthorizationTests.Disabled_linked_account_cannot_manage_credentials",
+        "outcome": "Passed",
+        "duration": "00:00:00.0018155"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_respects_mode_route_availability_while_Delete_remains_distinct(mode: \"Oidc\", localActions: False)",
+        "outcome": "Passed",
+        "duration": "00:00:00.0184977"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"pending\", expected: Pending, canActivate: True)",
+        "outcome": "Passed",
+        "duration": "00:00:01.2766192"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Directory_search_filter_sort_count_and_clamp_cover_more_than_one_hundred_rows(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:09.2870640"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_respects_mode_route_availability_while_Delete_remains_distinct(mode: \"Local\", localActions: True)",
+        "outcome": "Passed",
+        "duration": "00:00:00.0375609"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Client_admin_group_does_not_treat_identity_provider_tenant_as_application_scope",
+        "outcome": "Passed",
+        "duration": "00:00:00.0027192"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Delete_atomically_retires_access_and_delivery_material_preserves_history_and_is_idempotent(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:11.2877566"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Delegated_tenant_user_management_never_grants_global_deletion_or_sign_in_controls",
+        "outcome": "Passed",
+        "duration": "00:00:01.2718432"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_transport_failures_remain_open_and_retry_the_same_idempotent_delete(failure: \"timeout\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0041634"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_transport_failures_show_retained_query_and_retry_without_crashing_the_component(failure: \"io\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0407248"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.External_subject_tombstone_blocks_claims_and_automatic_reprovisioning_without_deleting_customer(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:07.3654485"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Retirement_migrations_preserve_existing_long_identity_data_and_default_to_active(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:03.8628738"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"external\", expected: Active, canActivate: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.4859541"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Disabled_local_identity_account_has_no_effective_access",
+        "outcome": "Passed",
+        "duration": "00:00:00.0024405"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_transport_failures_show_retained_query_and_retry_without_crashing_the_component(failure: \"circuit\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.9614169"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_is_explicit_keeps_error_open_and_retries_same_delete_without_status_or_disable_requests(errorBody: \"[]\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0410352"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_transport_failures_remain_open_and_retry_the_same_idempotent_delete(failure: \"circuit\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0041918"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Persisted_custom_role_permissions_are_scoped_to_the_assigned_tenant",
+        "outcome": "Passed",
+        "duration": "00:00:00.0046470"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Shared_identity_dependency_is_rejected_and_unlinked_domain_profile_has_supported_retirement(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:07.9523092"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"missing-domain\", expected: Disabled, canActivate: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.8676123"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.External_subject_tombstone_blocks_claims_and_automatic_reprovisioning_without_deleting_customer(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:00.6197133"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_is_explicit_keeps_error_open_and_retries_same_delete_without_status_or_disable_requests(errorBody: \"\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0057998"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.External_identity_uses_its_verified_link_for_scoped_custom_role_grants",
+        "outcome": "Passed",
+        "duration": "00:00:00.0069732"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Linked_oidc_identity_resolves_its_persisted_instance_administrator_account",
+        "outcome": "Passed",
+        "duration": "00:00:00.2368873"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Integration_credential_projects_scoped_organization_into_tenant_filter_without_foreign_customer(isInstanceAdministrator: False)",
+        "outcome": "Passed",
+        "duration": "00:00:00.1657646"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Self_last_admin_and_failed_audit_do_not_commit_partial_retirement(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:08.1532933"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.UserRetirementOidcSessionTests.Retired_oidc_subject_cannot_use_generic_or_fixed_scheme_routes_and_public_routes_remain_anonymous(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:00.7540720"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"deleted-domain\", expected: Disabled, canActivate: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.8241879"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.IntegrationCredentialManagementAuthorizationTests.Linked_oidc_identity_resolves_the_persisted_application_account_not_the_provider_subject",
+        "outcome": "Passed",
+        "duration": "00:00:00.0057712"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Integration_credential_projects_scoped_organization_and_only_keeps_matching_customer_identity(requestedOrganizationId: \"org-a\", expectedCustomerId: \"customer-a\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0362915"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Delete_atomically_retires_access_and_delivery_material_preserves_history_and_is_idempotent(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:01.2070832"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Delete_is_explicit_keeps_error_open_and_retries_same_delete_without_status_or_disable_requests(errorBody: \"<html>untrusted raw error</html>\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0097928"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.Persistence.UserRetirementProviderTests.Directory_search_filter_sort_count_and_clamp_cover_more_than_one_hundred_rows(postgres: False)",
+        "outcome": "Passed",
+        "duration": "00:00:00.9100611"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Enable_disable_is_a_separately_named_operation_using_the_projected_account_id",
+        "outcome": "Passed",
+        "duration": "00:00:00.0056088"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.UserRetirementOidcSessionTests.Retired_oidc_subject_cannot_use_generic_or_fixed_scheme_routes_and_public_routes_remain_anonymous(postgres: True)",
+        "outcome": "Passed",
+        "duration": "00:00:08.5408542"
+      },
+      {
+        "name": "Helpdesk.Tests.NewWeb.UserLifecycleDialogTests.Team_transport_failures_show_retained_query_and_retry_without_crashing_the_component(failure: \"timeout\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0626053"
+      },
+      {
+        "name": "Helpdesk.Tests.Infrastructure.CurrentUserAccessServiceTests.Disabled_customer_gets_no_tenant_permissions",
+        "outcome": "Passed",
+        "duration": "00:00:00.0015895"
+      },
+      {
+        "name": "Helpdesk.Tests.Api.IntegrationCredentialManagementAuthorizationTests.Non_interactive_credentials_cannot_become_a_management_session(authenticationMode: \"integration\")",
+        "outcome": "Passed",
+        "duration": "00:00:00.0001908"
+      }
+    ],
+    "command": "dotnet test tests/Helpdesk.Tests/Helpdesk.Tests.csproj --no-build --no-restore --filter 'FullyQualifiedName~UserRetirementProviderTests|FullyQualifiedName~UserRetirementOidcSessionTests|FullyQualifiedName~UserLifecycleDialogTests|FullyQualifiedName~LocalAuthenticationEndpointsTests.Delete_user_revokes_existing_cookie|FullyQualifiedName~LocalAuthenticationEndpointsTests.Delegated_tenant_user_management|FullyQualifiedName~LocalAuthenticationEndpointsTests.Legacy_customer_local_activation|FullyQualifiedName~LocalAuthenticationEndpointsTests.Administrator_can_create_activate_a_second_administrator_and_last_admin_guard_still_applies|FullyQualifiedName~UserEndpointsTests.Oidc_only_mode_does_not_map_local_authentication_routes|FullyQualifiedName~CurrentUserAccessServiceTests|FullyQualifiedName~IntegrationCredentialManagementAuthorizationTests|FullyQualifiedName~LocalSessionValidatorTests' --collect 'XPlat Code Coverage' --settings /workspace/work/team.coverage.runsettings --logger 'trx;LogFileName=team-final.trx' --results-directory /workspace/work/team-test-results/final-current"
+  },
+  "coverage": {
+    "tool": "Coverlet OpenCover + ReportGenerator5.6.0",
+    "summary": {
+      "generatedon": "2026-11-11T17:51:29Z",
+      "parser": "OpenCover",
+      "assemblies": 3,
+      "classes": 10,
+      "files": 10,
+      "coveredlines": 926,
+      "uncoveredlines": 173,
+      "coverablelines": 1099,
+      "totallines": 1549,
+      "linecoverage": 84.2,
+      "coveredbranches": 579,
+      "totalbranches": 762,
+      "branchcoverage": 75.9,
+      "coveredmethods": 56,
+      "fullcoveredmethods": 39,
+      "totalmethods": 62,
+      "methodcoverage": 90.3,
+      "fullmethodcoverage": 62.9
+    },
+    "classes": {
+      "Helpdesk.API.Endpoints.Authentication.LocalSessionValidator": {
+        "coverage": 95.6,
+        "branchcoverage": 76.9,
+        "coveredlines": 22,
+        "coverablelines": 23
+      },
+      "Helpdesk.API.Endpoints.Customers.CustomerAuthEndpoints": {
+        "coverage": 66.8,
+        "branchcoverage": 46.3,
+        "coveredlines": 163,
+        "coverablelines": 244
+      },
+      "Helpdesk.API.Endpoints.Users.UserDirectoryQuery": {
+        "coverage": 94.1,
+        "branchcoverage": 82,
+        "coveredlines": 113,
+        "coverablelines": 120
+      },
+      "Helpdesk.API.Middleware.UserAccessClaimsMiddleware": {
+        "coverage": 95.1,
+        "branchcoverage": 90.3,
+        "coveredlines": 79,
+        "coverablelines": 83
+      },
+      "Helpdesk.API.Services.Users.UserRetirement": {
+        "coverage": 92.3,
+        "branchcoverage": 83.5,
+        "coveredlines": 169,
+        "coverablelines": 183
+      },
+      "Helpdesk.Infrastructure.Auth.Rbac.CurrentUserAccessService": {
+        "coverage": 86.2,
+        "branchcoverage": 80.2,
+        "coveredlines": 313,
+        "coverablelines": 363
+      },
+      "Helpdesk.Infrastructure.Identity.OidcApplicationAccount": {
+        "coverage": 81,
+        "branchcoverage": 50,
+        "coveredlines": 30,
+        "coverablelines": 37
+      },
+      "HelpDesk.NewWeb.Components.Pages.Admin.User.ChangeUserSignInDialog": {
+        "coverage": 87.5,
+        "branchcoverage": 62.5,
+        "coveredlines": 14,
+        "coverablelines": 16
+      },
+      "HelpDesk.NewWeb.Components.Pages.Admin.User.DeleteUserDialog": {
+        "coverage": 93.7,
+        "branchcoverage": 75,
+        "coveredlines": 15,
+        "coverablelines": 16
+      },
+      "HelpDesk.NewWeb.Services.UserLifecycleErrors": {
+        "coverage": 57.1,
+        "branchcoverage": 40,
+        "coveredlines": 8,
+        "coverablelines": 14
+      }
+    },
+    "refactor": {
+      "retirementAsyncCyclomaticBefore": 98,
+      "retirementAsyncCyclomaticAfter": 16,
+      "directoryReadCyclomaticBefore": 64,
+      "directoryReadCyclomaticAfter": 2,
+      "retirementHelpersCyclomaticMaximum": 18,
+      "pureDtoMapperCyclomatic": 42,
+      "pureDtoMapperLineCoverage": 95.0,
+      "pureDtoMapperBranchCoverage": 83.33
+    },
+    "boundary": "Focused owning/related regressions; unrelated external invitation actions and existing role-policy branches are not claimed fully covered. No coverage baseline or warning suppression changed.",
+    "settingsFile": "coverage.runsettings",
+    "settingsSha256": "7d6b73d37941ba733d8914fc9f5af1c8ec51b854d58d9486ec273f7d95a0dfee"
+  },
+  "quality": {
+    "slopwatch": {
+      "command": "dotnet tool run slopwatch analyze -d . --fail-on warning",
+      "issues": 0,
+      "baselineModified": false,
+      "logSha256": "109ba5996d5c617a56e3893ee2172b46323de9512ace094588aadd0eb354cbfc"
+    },
+    "documentation": {
+      "command": "python3 tools/ci/validate-docs.py",
+      "result": "Passed 197 Markdown files and 930 local links",
+      "logSha256": "b0c1843df4e727f6b525310364e8c9301a2585ffe22dce88f15ab1be94e3ea98"
+    },
+    "layout": {
+      "command": "bash tools/ci/validate-layout.sh",
+      "result": "Passed after adding the scoped register and comparison assets",
+      "logSha256": "6d8373022106f764eba6933df38597b90400fe19f34f0413c185de243c428ff5"
+    }
+  },
+  "browserReceipt": "browser-receipt.json",
+  "builds": {
+    "api": {
+      "command": "dotnet build src/Helpdesk.API/Helpdesk.API.csproj --no-restore -m:1 -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false",
+      "errors": 0,
+      "warnings": 2,
+      "logSha256": "46752ea9250589b0cf8251ecee0b527d424a6e63b9d2aa6f33c2a918110ad124"
+    },
+    "web": {
+      "command": "dotnet build src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj --no-restore -m:1 -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false",
+      "errors": 0,
+      "warnings": 0,
+      "logSha256": "04a9cef430f88ea720b2fe349a1c989f44921f469c255e283b086a90b3e759aa"
+    },
+    "tests": {
+      "command": "dotnet build tests/Helpdesk.Tests/Helpdesk.Tests.csproj --no-restore -m:1 -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false",
+      "errors": 0,
+      "warnings": 25,
+      "logSha256": "acf54b8b4ca198e97b0def19066dac34ce0e88619a552f451da7cf5fc8439faa"
+    }
+  },
+  "sourceInputs": [
+    {
+      "path": "src/Helpdesk.API/Services/Users/UserRetirement.cs",
+      "sha256": "8ae8586ca3a5baa5f01e8e9b0e3c517d74f47cd78924cadfd614c302c9329adb"
+    },
+    {
+      "path": "src/Helpdesk.API/Endpoints/Users/UserDirectoryQuery.cs",
+      "sha256": "f1945ad10a99438c972d232472707bb96668323823796d513f50e88d730fdfef"
+    },
+    {
+      "path": "src/Helpdesk.API/Middleware/UserAccessClaimsMiddleware.cs",
+      "sha256": "38f1e145f15794a1cd9067738f261a604847c2a172180154cc3178e6beca28f2"
+    },
+    {
+      "path": "src/Helpdesk.API/Endpoints/Customers/CustomerAuthEndpoints.cs",
+      "sha256": "b9b8e2792abb461edf8c5c811478cb9c106e007cd4d983d60a23673c508ce0c6"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/UserManagement.razor",
+      "sha256": "3f6fe8423db48b7980d7bfdd1c0984a4958f37bfafe4c942ffba05adef473f39"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/DeleteUserDialog.razor",
+      "sha256": "29c46d3e4dddf22e1b1423ae652224aed265d3fc12b1853249d6ed7880c88621"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Components/Pages/Admin/User/ChangeUserSignInDialog.razor",
+      "sha256": "1ceedd4e5a4e0425ac674b6a37d516eff2d38a5e8d8e1e0421015ffa398e5fd2"
+    },
+    {
+      "path": "src/HelpDesk.NewWeb/Services/UserLifecycleErrors.cs",
+      "sha256": "7df9936a90e47ab4cae69eb7c2b4d6dd9bb671b6e21b2b171ceeb9f3db8af653"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/Infrastructure/Persistence/UserRetirementProviderTests.cs",
+      "sha256": "71e6dfc98c32f6c9ac00d054e4f09e8721b5b3ec3a943da252acf80bb881f6b2"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/Api/UserRetirementOidcSessionTests.cs",
+      "sha256": "a138c7c4d0097127f3c8c727c7746eae2b0eb4cbf521c2d290f19ea6a1ee7301"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/Api/LocalAuthenticationEndpointsTests.Retirement.cs",
+      "sha256": "29919be9b6842616d24b2dc6c665a5a45c1aa45b6ab6f63963ee2d59d4eb823e"
+    },
+    {
+      "path": "tests/Helpdesk.Tests/NewWeb/UserLifecycleDialogTests.cs",
+      "sha256": "a22758eefa6bca7492e7926ca0b9d9fb891efd1279e6192db8cca684131cb6df"
+    }
+  ]
+}

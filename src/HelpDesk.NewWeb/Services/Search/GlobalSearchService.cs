@@ -27,7 +27,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
 
     private static readonly SectionDefinition[] Sections =
     [
-        new("self-service", "Self service requests", Icons.Material.Filled.Storefront, "/self-service", SearchAudience.Authenticated),
+        new("self-service", "Service Catalog", Icons.Material.Filled.Storefront, "/self-service", SearchAudience.Authenticated),
         new("incidents", "Incidents", Icons.Material.Filled.ListAlt, "/incidents", SearchAudience.Workspace),
         new("requests", "Requests", Icons.Material.Filled.List, "/requests", SearchAudience.Workspace),
         new("changes", "Changes", Icons.Material.Filled.ChangeCircle, "/changes", SearchAudience.Workspace),
@@ -392,7 +392,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         };
 
     private static GlobalSearchResult ToSelfServiceResult(ServiceItemDto item) => new(
-        "Self service requests",
+        "Service Catalog",
         item.Name,
         item.ItemType == ServiceItemType.RequestForm ? "Request form" : "Service",
         item.Description,

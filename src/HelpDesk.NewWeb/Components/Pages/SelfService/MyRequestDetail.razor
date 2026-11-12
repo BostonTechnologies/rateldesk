@@ -1,4 +1,7 @@
 @page "/self-service/my-requests/{Id}"
+@layout SelfServiceLayout
+@implements IDisposable
+@using HelpDesk.NewWeb.Models
 
 @attribute [Authorize(Roles = "SelfService.User,HelpdeskAdmin")]
 
@@ -32,6 +35,7 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Class="self-service-detail-heading">
                     <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">@request.Title</MudText>
                     <MudSpacer />
+                    <RequestLiveUpdates @key="Id" RequestId="@Id" SelfService="true" OnRefresh="RefreshAsync" />
                     @if (request.ReleaseStatus.HasValue)
                     {
                         <MudChip T="string"
@@ -40,11 +44,16 @@
                             @(request.ReleaseStatus == Helpdesk.Shared.Models.RequestFormReleaseStatus.Production ? "Production" : "In Testing")
                         </MudChip>
                     }
-                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@request.State</MudChip>
+                    <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined" data-testid="own-request-state">@RequestProgressLabels.Readable(request.State.ToString())</MudChip>
                 </MudStack>
                 <MudText Typo="Typo.body2" Class="mt-2"><b>Tracking ID:</b> @request.TrackingId</MudText>
                 <MudText Typo="Typo.body2"><b>Created:</b> @request.CreatedAt.LocalDateTime.ToString("g")</MudText>
                 <MudText Typo="Typo.body2"><b>Updated:</b> @((request.UpdatedAt ?? request.CreatedAt).LocalDateTime.ToString("g"))</MudText>
+                <MudText Typo="Typo.body2" Class="mt-2" data-testid="own-request-workflow">Workflow: @RequestProgressLabels.Readable(request.WorkflowStatus ?? "Not started")</MudText>
+                @if (!string.IsNullOrWhiteSpace(request.WorkflowBlockReason))
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">Request progress is on hold. Support is reviewing the next step.</MudAlert>
+                }
                 @if (!string.IsNullOrWhiteSpace(request.Description))
                 {
                     <MudDivider Class="my-3" />
@@ -88,7 +97,7 @@
                         <RowTemplate>
                             <MudTd DataLabel="Step">@context.TaskName</MudTd>
                             <MudTd DataLabel="Approver">@context.ApproverName (@context.ApproverEmail)</MudTd>
-                            <MudTd DataLabel="Status">@context.Status</MudTd>
+                            <MudTd DataLabel="Status">@RequestProgressLabels.Readable(context.Status.ToString())</MudTd>
                             <MudTd DataLabel="Due">@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
                         </RowTemplate>
                     </MudTable>
@@ -114,8 +123,8 @@
                         <RowTemplate>
                             <MudTd DataLabel="Order">@context.Order</MudTd>
                             <MudTd DataLabel="Name">@context.Name</MudTd>
-                            <MudTd DataLabel="Type">@context.Type</MudTd>
-                            <MudTd DataLabel="Status">@context.Status</MudTd>
+                            <MudTd DataLabel="Type">@RequestProgressLabels.Readable(context.Type.ToString())</MudTd>
+                            <MudTd DataLabel="Status" data-task-id="@context.Id">@OwnTaskStatus(context)</MudTd>
                             <MudTd DataLabel="Completed">@context.CompletedAt?.LocalDateTime.ToString("g")</MudTd>
                         </RowTemplate>
                     </MudTable>
@@ -135,6 +144,7 @@
 
 @code {
     [Parameter] public string Id { get; set; } = string.Empty;
+    [CascadingParameter] public SelfServiceNavigationState? SelfServiceNavigation { get; set; }
 
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private bool loading = true;
@@ -145,47 +155,63 @@
     private List<MyRequestPendingApprovalDto> PendingApprovals =>
         tasks.SelectMany(x => x.PendingApprovals).ToList();
 
+    private string? loadedId;
+    private int scopeVersion, refreshVersion;
+    private bool disposed;
+    private CancellationTokenSource lifetime = new();
+
     protected override async Task OnParametersSetAsync()
     {
-        await LoadAsync();
-    }
-
-    private async Task LoadAsync()
-    {
+        if (loadedId == Id) return;
+        loadedId = Id;
+        scopeVersion++;
+        lifetime.Cancel(); lifetime.Dispose(); lifetime = new();
         loading = true;
         loadError = null;
         request = null;
         tasks.Clear();
         payloadRows.Clear();
-
-        try
+        var version = scopeVersion;
+        try { await RefreshAsync(); }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { loadError = "Request loading was cancelled."; }
+        catch (Exception)
         {
-            request = await Api.GetFromJsonAsync<MyRequestDetailDto>($"api/v1/self-service/requests/{Id}");
-            if (request is null)
-            {
-                loadError = "Request not found.";
-                return;
-            }
+            if (version != scopeVersion || disposed) return;
+            loadError = "Could not load this request. Check your access and try again.";
+        }
+        finally { if (version == scopeVersion && !disposed) loading = false; }
+    }
 
-            tasks = await Api.GetFromJsonAsync<List<MyRequestTaskDto>>($"api/v1/self-service/requests/{Id}/tasks")
-                ?? new List<MyRequestTaskDto>();
+    private async Task RefreshAsync()
+    {
+        var id = Id;
+        var version = scopeVersion;
+        var refresh = ++refreshVersion;
+        var token = lifetime.Token;
+        var detail = Api.GetFromJsonAsync<MyRequestDetailDto>($"api/v1/self-service/requests/{id}", token);
+        var steps = Api.GetFromJsonAsync<List<MyRequestTaskDto>>($"api/v1/self-service/requests/{id}/tasks", token);
+        await Task.WhenAll(detail, steps);
+        if (disposed || version != scopeVersion || refresh != refreshVersion) return;
+        request = await detail;
+        if (request is null) throw new HttpRequestException("The request is no longer available.");
+        tasks = await steps ?? new();
+        payloadRows.Clear();
+        payloadRows.AddRange(ParsePayloadRows(request.PayloadJson));
+    }
 
-            payloadRows.AddRange(ParsePayloadRows(request.PayloadJson));
-        }
-        catch (Exception ex)
-        {
-            loadError = $"Failed to load request: {ex.Message}";
-            Snackbar.Add(loadError, Severity.Error);
-        }
-        finally
-        {
-            loading = false;
-        }
+    private static string OwnTaskStatus(MyRequestTaskDto task) => task.LastAutomationStatus is "SubmitUncertainManualReconcile" or "ExecutionUnknownManualReconcile"
+        ? "Needs reconciliation" : RequestProgressLabels.Readable(task.Status.ToString());
+
+    public void Dispose()
+    {
+        disposed = true;
+        scopeVersion++;
+        lifetime.Cancel(); lifetime.Dispose();
     }
 
     private void GoBack()
     {
-        Navigation.NavigateTo("/self-service/my-requests");
+        Navigation.NavigateTo(SelfServiceNavigation?.MyRequestsUrl ?? "/self-service/my-requests");
     }
 
     private static IReadOnlyList<PayloadRow> ParsePayloadRows(string? payloadJson)

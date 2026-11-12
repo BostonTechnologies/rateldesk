@@ -5,7 +5,7 @@
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment HostEnvironment
 @inject IConfiguration Configuration
 
-<PageTitle>@_branding.ApplicationName</PageTitle>
+<PageTitle>@EffectiveApplicationName</PageTitle>
 <HeadContent><link rel="icon" href="@_branding.FaviconUrl" /></HeadContent>
 
 <ThemePreferenceProvider Context="themePreference">
@@ -23,15 +23,16 @@
                                aria-label="Toggle navigation"
                                data-testid="navigation-toggle" Disabled="@(!interactive)" />
             </AuthorizeView>
-            <MudText Typo="Typo.h6" Class="helpdesk-appbar-title">@_branding.ApplicationName</MudText>
+            <MudText Typo="Typo.h6" Class="helpdesk-appbar-title">@EffectiveApplicationName</MudText>
         </div>
         <AuthorizeView>
             <Authorized>
                 <div class="helpdesk-appbar-search-wrap">
-                    <button type="button" class="helpdesk-appbar-search" @onclick="OpenSearch" disabled="@(!interactive)">
+                    <button @ref="searchTrigger" type="button" class="helpdesk-appbar-search" @onclick="OpenSearch" disabled="@(!interactive)"
+                            aria-label="@SearchLabel" title="@SearchLabel" aria-keyshortcuts="Shift+S" data-testid="global-search-trigger">
                         <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" />
-                        <span>Search</span>
-                        <kbd>Shift + S</kbd>
+                        <span>@SearchLabel</span>
+                        <kbd aria-hidden="true">Shift + S</kbd>
                     </button>
                 </div>
                 <div class="helpdesk-appbar-actions">
@@ -121,7 +122,7 @@
     <MudMainContent Class="helpdesk-main-content pa-4" data-testid="app-main-content" data-interactive="@interactive.ToString().ToLowerInvariant()">
         @Body
     </MudMainContent>
-    <GlobalSearchOverlay Open="searchOpen" OpenChanged="OnSearchOpenChanged" />
+    <GlobalSearchOverlay Open="searchOpen" OpenChanged="OnSearchOpenChanged" ApplicationName="@EffectiveApplicationName" />
 </MudLayout>
 </ThemePreferenceProvider>
 
@@ -141,12 +142,16 @@
 
     private bool _drawerOpen = true;
     private bool searchOpen;
+    private bool returnSearchFocus;
     private bool interactive;
     private Helpdesk.Shared.Build.BuildInfo _appBarVersion = new("dev", "unknown", "unknown", "HelpDesk.NewWeb", "unknown");
     private DotNetObjectReference<MainLayout>? dotNetRef;
     private int? hotkeyRegistrationId;
     private int? navigationRegistrationId;
     private BrandingSnapshot _branding = new();
+    private ElementReference searchTrigger;
+    private string EffectiveApplicationName => string.IsNullOrWhiteSpace(_branding.ApplicationName) ? "RatelDesk" : _branding.ApplicationName.Trim();
+    private string SearchLabel => $"Search {EffectiveApplicationName}";
 
     protected override void OnInitialized()
     {
@@ -160,7 +165,7 @@
             _branding = await HttpClientFactory.CreateClient("HelpdeskApi")
                 .GetFromJsonAsync<BrandingSnapshot>("api/v1/branding") ?? _branding;
         }
-        catch (HttpRequestException exception)
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
         {
             System.Diagnostics.Debug.WriteLine($"Branding endpoint unavailable while rendering the application shell: {exception.Message}");
         }
@@ -168,6 +173,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (returnSearchFocus && !searchOpen)
+        {
+            returnSearchFocus = false;
+            await searchTrigger.FocusAsync(preventScroll: true);
+        }
         if (!firstRender)
         {
             return;
@@ -209,6 +219,7 @@
     private Task OnSearchOpenChanged(bool value)
     {
         searchOpen = value;
+        returnSearchFocus = !value;
         return Task.CompletedTask;
     }
 

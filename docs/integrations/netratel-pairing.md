@@ -20,7 +20,7 @@ remain in their separate tab.
 5. Select **Save** once. It validates the current permissions and selected
    resources, provisions the connector or automation binding, and activates
    the connection. **Configured** describes a saved and authorized mapping;
-   **Not tested** remains until the real read-only connection test succeeds.
+   **Never tested** remains until the real read-only connection test runs.
 
 Pairing alone permits setup and authorized directory choices. It does not
 permit incident creation or automation. Only existing authorized tenants,
@@ -28,17 +28,29 @@ organizations and customers are selectable; pairing creates none of them.
 There is no consent page, second sign-in, approval checkbox, enable switch or
 mandatory test. If Save fails, correct the actionable inline error and retry
 the same form. Refresh preserves the existing unconfigured pairing. Its compact
-row shows **Needs attention** and **Continue setup**; resume that record instead
+card shows **Setup required** and **Continue setup**; resume that record instead
 of generating a replacement code or duplicate connection. Setup opens in a
 focused dialog with bounded scrolling and stable actions.
 
 ## Manage a connection
 
-The list shows the connection name, peer address, mapped tenants, enabled
-directions, status and last test result/time. **View** opens its configuration.
+The cards separate the provider/connection identity, source tenant and destination
+organization, capability directions, configuration state and last test snapshot.
+**View** opens the saved configuration and exact connection identity.
 **Test connection** checks authenticated access, the current mapping and
 selected capabilities without creating an incident or task. Testing is
 optional after Save.
+
+A saved **Configured** mapping is not a live health result. The card distinguishes
+**Never tested**, a recent passing/failed check and a **Stale snapshot**. A test
+older than 15 minutes is stale; the timestamp and expandable **Test details**
+retain its original result and any safe diagnostic reference. Refresh retrieves
+saved snapshots and does not automatically run a test. Search and the status
+filter can isolate configuration work or a particular test state.
+
+**Add mapping** adds another tenant/organization mapping to the already paired
+system. It does not replace the selected connection, re-pair the installations
+or change existing job bindings. Review and save that new mapping explicitly.
 
 Administration/account entry points preserve the selected tab and authorized
 `organizationId` context across navigation and refresh. An organization URL
@@ -69,9 +81,40 @@ storage. Long-lived credentials stay protected on the server. The pairing
 retains each administrator's setup authority and rechecks current permissions
 when selecting resources, saving and using a business capability.
 
+## Durable execution and requester upgrades
+
+The requester/deadline upgrade adds forward migrations for stable submission
+receipts, identity-bound requester contacts, per-attempt execution deadlines,
+reconciliation leases and state versions, operator holds, and application-user
+retirement. SQLite and PostgreSQL remain supported. Back up the domain and
+identity databases and persistent protection keys, replace older API/worker
+replicas, and apply the normal migrations before admitting new work. Preserve
+saved connections, tenant mappings, existing runs and protected credentials.
+Do not repair identity links or move organizations through SQL. Downgrading an
+identity-bound contact database requires restoring its matching backup; managed
+contacts can legitimately share an email with unrelated legacy contacts.
+
+Use the exact paired versions and tested revisions listed in the release notes.
+The compatible NetRatel execution-receipt contract adds an authenticated read of
+the original request/run with the recorded RatelDesk request, task and attempt
+headers. It reuses the existing read grant and current saved connection; it does
+not require another pairing, credential or admission. Upgrade the provider first
+when adopting outcome reads. An older or unavailable provider cannot confirm
+termination: RatelDesk records **Timed out — outcome unknown / Needs
+reconciliation**, retains the original identifiers and holds dependent work.
+It does not infer remote cancellation, invoke ordinary failure/Continue policy,
+create a confirmed-failure incident, or resubmit automatically.
+
+A confirmed late outcome for that same attempt recomputes the task and parent
+and clears only its uncertainty hold. Historical timeout timing remains visible;
+an independent operator hold remains until explicitly released. The durable
+continuation resumes eligible work after that release without requiring another
+callback. See [execution timing and recovery](netratel-orchestrator.md) and
+[application user deletion](../security/rbac.md#application-user-deletion).
+
 ## Target-aware self-service automation
 
-The compatible pair is RatelDesk **0.1.3-beta.9** and NetRatel **0.1.5-beta.4**.
+For that target-aware repair, the compatible pair is RatelDesk **0.1.3-beta.9** and NetRatel **0.1.5-beta.4**.
 Upgrade NetRatel first, complete its ordinary automatic database migrations and
 replace older API replicas before admitting modern automation. Then upgrade
 RatelDesk. Keep the current pairing, named tenant connections, primary

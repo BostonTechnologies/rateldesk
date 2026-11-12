@@ -263,6 +263,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
 test('change participant searches keep duplicate-label approver chips and reset scope without losing draft text', async ({ page, request }) => {
   await grid(page, 'changes'); await page.getByRole('button', { name: 'Create', exact: true }).click();
   const dialog = page.getByRole('dialog').first();
+  await expect(dialog.locator('.mud-focus-trap > .fixed[tabindex="-1"]')).toBeFocused();
   await dialog.getByRole('textbox', { name: /^Title\*?$/ }).fill('Retain this draft');
   const organization = dialog.getByRole('combobox', { name: /^Organization\*?$/ });
   await organization.fill('Customer organization');
@@ -277,11 +278,20 @@ test('change participant searches keep duplicate-label approver chips and reset 
   await expect(approvers).toBeEditable();
   await expect(approvers).toBeFocused();
   await expect(approvers).toHaveValue('');
-  await page.keyboard.type('Duplicate');
+  // A late lookup can reopen the previous Duplicate menu after the clear.
+  // Establish a different query before searching for those same labels again,
+  // so cached options cannot satisfy the keyboard navigation preconditions.
+  await approvers.fill('Alpha');
+  await expect(approvers).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('option')).toHaveCount(20);
+  await approvers.fill('Duplicate');
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await expect(approvers).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('option', { name: /one@example.test/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('option', { name: /two@example.test/ })).toBeVisible();
-  await page.keyboard.press('ArrowDown');
+  await approvers.press('ArrowDown');
   await expect(page.getByRole('option', { name: /two@example.test/ })).toHaveAttribute('aria-selected', 'true');
-  await page.keyboard.press('Enter');
+  await approvers.press('Enter');
   const selected = dialog.getByLabel('Selected approvers', { exact: true });
   await expect(selected).toContainText('one@example.test'); await expect(selected).toContainText('two@example.test');
   await approvers.fill('no match');
@@ -360,9 +370,16 @@ for (const theme of ['light', 'dark']) {
     await page.screenshot({ path: testInfo.outputPath(`${theme}-creation-search-mobile.png`), fullPage: true });
     await page.getByRole('option', { name: /Zulu Partner/ }).click();
     await expect(organization).toHaveValue(/Zulu Partner/);
-    await organization.press('Tab'); await noError(page);
-    // Close the directory layer explicitly before addressing the dialog footer.
-    await page.keyboard.press('Escape');
+    await organization.press('Tab');
+    const customer = dialog.getByRole('combobox', { name: /^User the ticket is for\*?$/ });
+    // Tab focuses the next picker, whose asynchronous focus handler opens its
+    // directory. Dismiss that current menu after it has finished opening.
+    await expect(customer).toBeFocused();
+    await expect(customer).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('option', { name: /^Alpha customer/ })).toHaveCount(20);
+    await noError(page);
+    await customer.press('Escape');
+    await expect(customer).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('option')).toHaveCount(0);
     // The native zoom suite owns browser zoom; this checks the equally narrow CSS viewport.
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();

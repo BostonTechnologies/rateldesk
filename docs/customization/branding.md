@@ -12,6 +12,13 @@ Without configuration, the application displays **RatelDesk**, uses the bundled 
 
 Deployment-managed values are visible in the Admin page and labelled as environment-managed. They cannot be changed there. Tenant email branding remains supported and is applied above the effective global brand for tenant-specific name, logo, footer, colour, sender, and reply-to settings.
 
+The global search trigger uses this same effective application name: **Search
+RatelDesk** by default or **Search {application name}** after configuration. Long
+names truncate within the app bar while the full accessible name remains
+available. The search overlay, click and **Shift + S** shortcut share that label;
+**Escape** closes the overlay and returns focus to the trigger. Display branding
+does not change the search scope or product/runtime identities.
+
 ## Environment variables
 
 Use the names in [`.env.example`](../../.env.example): `Branding__ApplicationName`, `Branding__OrganizationName`, `Branding__ApplicationUrl`, `Branding__OrganizationUrl`, `Branding__SupportUrl`, `Branding__SupportEmail`, `Branding__LogoUrl`, `Branding__CompactLogoUrl`, `Branding__FaviconUrl`, `Branding__EmailFromDisplayName`, and `Branding__Tagline`.

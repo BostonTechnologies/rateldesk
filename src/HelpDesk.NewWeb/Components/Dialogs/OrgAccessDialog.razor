@@ -10,8 +10,11 @@
     </TitleContent>
 
     <DialogContent>
+        <div class="organization-access-review">
+        <MudText Typo="Typo.body2" Class="mb-2">@selectedOrgIds.Count assigned organizations</MudText>
         @if (selectedOrgIds.Count > 0)
         {
+            <div class="organization-access-selected" role="region" aria-label="Assigned organizations" tabindex="0">
             <MudChipSet T="string"
                         AllClosable="true"
                         Filter="false"
@@ -27,7 +30,10 @@
                     </MudChip>
                 }
             </MudChipSet>
+            </div>
         }
+
+        <MudTextField T="string" @bind-Value="organizationSearch" Label="Search available organizations" Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
 
         <MudSelect T="string"
                    Label="Permitted organizations"
@@ -36,11 +42,13 @@
                    MultiSelectionTextFunc="GetSelectionText"
                    SelectedValues="@selectedOrgIds"
                    SelectedValuesChanged="@(v => selectedOrgIds = v?.ToHashSet() ?? new())">
-            @foreach (var org in Organizations)
+            @foreach (var org in VisibleOrganizations)
             {
                 <MudSelectItem T="string" Value="@org.Id">@org.Name</MudSelectItem>
             }
         </MudSelect>
+        @if (!VisibleOrganizations.Any()) { <MudText Typo="Typo.body2" Class="mud-text-secondary">No matching organizations. Assigned organizations are retained.</MudText> }
+        </div>
     </DialogContent>
 
     <DialogActions>
@@ -59,6 +67,8 @@
 
     private HashSet<string> selectedOrgIds = new(StringComparer.OrdinalIgnoreCase);
     private bool saving;
+    private string? organizationSearch;
+    private IEnumerable<OrganizationDto> VisibleOrganizations => Organizations.Where(organization => string.IsNullOrWhiteSpace(organizationSearch) || organization.Name.Contains(organizationSearch.Trim(), StringComparison.OrdinalIgnoreCase)).OrderBy(organization => organization.Name, StringComparer.OrdinalIgnoreCase);
 
     protected override void OnInitialized()
     {
