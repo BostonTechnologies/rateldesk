@@ -370,9 +370,16 @@ for (const theme of ['light', 'dark']) {
     await page.screenshot({ path: testInfo.outputPath(`${theme}-creation-search-mobile.png`), fullPage: true });
     await page.getByRole('option', { name: /Zulu Partner/ }).click();
     await expect(organization).toHaveValue(/Zulu Partner/);
-    await organization.press('Tab'); await noError(page);
-    // Close the directory layer explicitly before addressing the dialog footer.
-    await page.keyboard.press('Escape');
+    await organization.press('Tab');
+    const customer = dialog.getByRole('combobox', { name: /^User the ticket is for\*?$/ });
+    // Tab focuses the next picker, whose asynchronous focus handler opens its
+    // directory. Dismiss that current menu after it has finished opening.
+    await expect(customer).toBeFocused();
+    await expect(customer).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('option', { name: /^Alpha customer/ })).toHaveCount(20);
+    await noError(page);
+    await customer.press('Escape');
+    await expect(customer).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('option')).toHaveCount(0);
     // The native zoom suite owns browser zoom; this checks the equally narrow CSS viewport.
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
