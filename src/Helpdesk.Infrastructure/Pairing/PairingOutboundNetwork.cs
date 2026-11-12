@@ -11,12 +11,20 @@ public static class PairingOutboundNetwork
             throw new PairingFailure("wrong_business_origin", "The business request must target the paired installation's verified API origin.", 403);
         IntegrationEndpointPolicy.Validate(uri, field, true);
         if (uri.AbsolutePath != "/connect/token" && uri.AbsolutePath != "/internal/health" && uri.AbsolutePath != "/internal/ingest" &&
-            !uri.AbsolutePath.StartsWith("/internal/catalog", StringComparison.Ordinal) && uri.AbsolutePath != "/api/v1/system/m2m/ping")
+            !uri.AbsolutePath.StartsWith("/internal/catalog", StringComparison.Ordinal) && uri.AbsolutePath != "/api/v1/system/m2m/ping" && !IsExecutionReadRoute(uri))
             throw new PairingFailure("wrong_business_route", "The system connection does not authorize this business route.", 403);
     }
     public static void PrepareRequest(HttpRequestMessage request, OrchestrationResolvedSettings settings)
     {
         Validate(request.RequestUri!, "Business endpoint", settings);
+        if (IsExecutionReadRoute(request.RequestUri!) && request.Method != HttpMethod.Get)
+            throw new PairingFailure("wrong_business_method", "Execution reconciliation only authorizes a read of the recorded execution.", 403);
         request.Options.Set(IntegrationSafeHttpMessageHandler.AllowPrivateHttpOption, true);
+    }
+
+    private static bool IsExecutionReadRoute(Uri uri)
+    {
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments is ["internal", "executions", { Length: > 0 }, { Length: > 0 }];
     }
 }

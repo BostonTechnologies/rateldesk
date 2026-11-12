@@ -30,9 +30,11 @@ public static class RequestEndpoints
     public static void MapRequestEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/requests")
+            .AddEndpointFilter<Helpdesk.API.Endpoints.RequestTasks.RequestStateConcurrencyFilter>()
             .WithTags("Requests")
             .RequireAuthorization("RequestAccess");
         var staffGroup = app.MapGroup("/api/v1/requests")
+            .AddEndpointFilter<Helpdesk.API.Endpoints.RequestTasks.RequestStateConcurrencyFilter>()
             .WithTags("Requests")
             .RequireAuthorization("RequestManager");
 
@@ -185,6 +187,12 @@ public static class RequestEndpoints
                     ExpectedRuntimeSeconds = t.ExpectedRuntimeSeconds,
                     GraceSeconds = t.GraceSeconds,
                     HardTimeoutSeconds = t.HardTimeoutSeconds,
+                    AutomationDeadlineUtcTicks = t.AutomationDeadlineUtcTicks,
+                    AutomationTimedOutAt = t.AutomationTimedOutAt,
+                    AutomationTimedOutAttemptId = t.AutomationTimedOutAttemptId,
+                    AutomationAttemptCorrelationId = t.AutomationAttemptCorrelationId,
+                    OrchestrationLinkId = t.OrchestrationLinkId,
+                    OrchestrationLinkRevision = t.OrchestrationLinkRevision,
                     TimeoutIncidentId = t.TimeoutIncidentId,
                     AutomationBindingEnabled = bindingState?.Enabled,
                     AutomationBindingSyncState = bindingState?.SyncState,
@@ -374,12 +382,13 @@ public static class RequestEndpoints
             if (dto.Priority.HasValue && !Enum.IsDefined(dto.Priority.Value)) return Results.BadRequest("Invalid ticket priority.");
             var previousState = existing.State;
 
-            existing.State = dto.State ?? existing.State;
-            ApplyClosedAtTransition(existing, previousState, existing.State);
             existing.Priority = dto.Priority ?? existing.Priority;
             existing.UpdatedAt = DateTime.UtcNow;
 
             await using var tx = await db.Database.BeginTransactionAsync(token);
+            if (dto.State.HasValue)
+                await ApplyActorStateAsync(existing, dto.State.Value, db, token);
+            ApplyClosedAtTransition(existing, previousState, existing.State);
 
             if (dto.CategoryIds is not null)
             {
@@ -412,6 +421,7 @@ public static class RequestEndpoints
             }
 
             var updated = await repo.UpdateAsync(existing);
+            await db.SaveChangesAsync(token);
             await tx.CommitAsync(token);
 
             if (previousState != TicketState.Resolved && updated!.State == TicketState.Resolved)
@@ -496,7 +506,7 @@ public static class RequestEndpoints
             foreach (var request in requests)
             {
                 var previousState = request.State;
-                request.State = req.NewState;
+                await ApplyActorStateAsync(request, req.NewState, db, token);
                 ApplyClosedAtTransition(request, previousState, request.State);
                 request.UpdatedAt = DateTime.UtcNow;
                 if (previousState != TicketState.Resolved && request.State == TicketState.Resolved)
@@ -514,6 +524,7 @@ public static class RequestEndpoints
                 }
             }
 
+            await db.SaveChangesAsync(token);
             if (transaction is not null) await transaction.CommitAsync(token);
             foreach (var request in resolvedTransitions.Where(x => string.IsNullOrWhiteSpace(x.RequestFormId)))
             {
@@ -574,6 +585,7 @@ public static class RequestEndpoints
             ClaimsPrincipal user,
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] IRepository<Request> repo,
+            [FromServices] HelpdeskDbContext db,
             [FromServices] ITicketSlaCompletionService ticketSlaCompletionService,
             [FromServices] ITicketNotificationService ticketNotificationService,
             CancellationToken token) =>
@@ -591,16 +603,20 @@ public static class RequestEndpoints
             }
 
             if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid ticket state.");
-            var previousState = request.State;
-            if (previousState == req.NewState)
-            {
+            if (request.State == req.NewState && (req.NewState == TicketState.OnHold
+                    ? request.OperatorHold == true : !RequestHoldPolicy.IsOperatorHeld(request)))
                 return Results.Ok(new { request.Id, State = request.State });
-            }
-
-            request.State = req.NewState;
+            var previousState = request.State;
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(token) : null;
+            // Repeating OnHold explicitly takes ownership even when a timeout
+            // already installed the same public state.
+            await ApplyActorStateAsync(request, req.NewState, db, token);
             ApplyClosedAtTransition(request, previousState, request.State);
             request.UpdatedAt = DateTime.UtcNow;
             await repo.UpdateAsync(request);
+            await db.SaveChangesAsync(token);
+            if (transaction is not null) await transaction.CommitAsync(token);
 
             if (request.State == TicketState.Resolved)
             {
@@ -1005,6 +1021,52 @@ public static class RequestEndpoints
             .Distinct()
             .ToList()
             ?? new List<Guid>();
+    }
+
+    private static async Task ApplyActorStateAsync(Request request, TicketState requestedState, HelpdeskDbContext db, CancellationToken ct)
+    {
+        var wasOperatorHeld = RequestHoldPolicy.IsOperatorHeld(request);
+        request.OperatorHold = requestedState == TicketState.OnHold;
+        var unknown = await db.RequestTasks.AnyAsync(task => task.RequestId == request.Id
+            && task.Type == RequestTaskType.Automation && task.LastAutomationStatus != null
+            && (task.LastAutomationStatus.ToLower() == "executionunknownmanualreconcile"
+                || task.LastAutomationStatus.ToLower() == "submituncertainmanualreconcile"), ct);
+        var unrelated = RequestHoldPolicy.HasUnrelatedWorkflowHold(request);
+        request.State = request.OperatorHold == true || unknown || unrelated ? TicketState.OnHold : requestedState;
+        if (!unrelated)
+        {
+            if (unknown)
+            {
+                request.WorkflowStatus = "NeedsReconciliation";
+                request.WorkflowBlockReason = AutomationTaskStatuses.ReconciliationHoldReason;
+            }
+            else if (request.OperatorHold == true)
+            {
+                request.WorkflowStatus = RequestHoldPolicy.OperatorStatus;
+                request.WorkflowBlockReason = RequestHoldPolicy.OperatorReason;
+            }
+            else if (RequestHoldPolicy.OwnsOperatorMetadata(request) || RequestHoldPolicy.OwnsReconciliationHold(request))
+            {
+                request.WorkflowStatus = requestedState == TicketState.Resolved ? "Completed" : "InProgress";
+                request.WorkflowBlockReason = null;
+            }
+            request.WorkflowUpdatedAt = DateTimeOffset.UtcNow;
+        }
+        if (wasOperatorHeld && request.OperatorHold == false && !unknown && !unrelated)
+        {
+            // Reuse the durable continuation worker after an operator releases
+            // a known outcome; no callback has to arrive a second time.
+            var continuation = await db.RequestTasks.Where(task => task.RequestId == request.Id)
+                .OrderBy(task => task.Type == RequestTaskType.Automation ? 0 : 1)
+                .ThenBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(ct);
+            if (continuation is not null)
+            {
+                continuation.AutomationContinuationPending = true;
+                // A fresh wake-up must advance the version even when an older
+                // worker already owns this same true marker.
+                db.Entry(continuation).Property(task => task.AutomationStateVersion).IsModified = true;
+            }
+        }
     }
 
     private static void ApplyClosedAtTransition(Ticket ticket, TicketState previousState, TicketState currentState)

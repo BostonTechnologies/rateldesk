@@ -10,7 +10,8 @@ public sealed class RequestTaskStateService(
     IRepository<RequestTask> requestTasks,
     IDomainEventPublisher domainEvents,
     ICorrelationContext correlationContext,
-    ITicketNotificationService? ticketNotificationService = null) : IRequestTaskStateService
+    ITicketNotificationService? ticketNotificationService = null,
+    IRequestTaskReadStore? requestTaskReadStore = null) : IRequestTaskStateService
 {
     private readonly IRepository<Request> _requests = requests;
     private readonly IRepository<RequestTask> _requestTasks = requestTasks;
@@ -55,21 +56,15 @@ public sealed class RequestTaskStateService(
             return true;
         }
 
-        var tasks = (await _requestTasks.GetAllAsync())
-            .Where(x => x.RequestId == requestId)
-            .ToList();
+        var tasks = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestId, cancellationToken);
 
-        var nextState = ResolveState(tasks);
-        if (request.State == nextState)
-        {
-            return false;
-        }
-
-        var previousState = request.State;
-        request.State = nextState;
-        request.UpdatedAt = DateTime.UtcNow;
-        request.ClosedAt = nextState == TicketState.Resolved ? DateTimeOffset.UtcNow : null;
-        request.WorkflowStatus = nextState switch
+        var needsReconciliation = tasks.Any(task => task.Type == RequestTaskType.Automation
+            && AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus));
+        var operatorHeld = RequestHoldPolicy.IsOperatorHeld(request);
+        if (request.OperatorHold is null) request.OperatorHold = operatorHeld;
+        var nextState = needsReconciliation || operatorHeld ? TicketState.OnHold : ResolveState(tasks);
+        var nextWorkflowStatus = needsReconciliation ? "NeedsReconciliation"
+            : operatorHeld ? RequestHoldPolicy.OperatorStatus : nextState switch
         {
             TicketState.Resolved => "Completed",
             TicketState.PendingApproval => "PendingApproval",
@@ -77,7 +72,24 @@ public sealed class RequestTaskStateService(
             TicketState.New when tasks.Count > 0 => "InProgress",
             _ => null
         };
-        request.WorkflowBlockReason = null;
+        var timeoutOwnedHold = RequestHoldPolicy.OwnsReconciliationHold(request);
+        // Preserve an independently recorded hold. Only the status installed for
+        // uncertainty is ours to remove when this exact attempt becomes known.
+        if (!timeoutOwnedHold && !RequestHoldPolicy.OwnsOperatorMetadata(request)
+            && request.State == TicketState.OnHold && !string.IsNullOrWhiteSpace(request.WorkflowBlockReason))
+            return false;
+        if (request.State == nextState && request.WorkflowStatus == nextWorkflowStatus
+            && (!timeoutOwnedHold || needsReconciliation))
+            return false;
+
+        var previousState = request.State;
+        request.State = nextState;
+        request.UpdatedAt = DateTime.UtcNow;
+        request.ClosedAt = nextState == TicketState.Resolved ? DateTimeOffset.UtcNow : null;
+        request.WorkflowStatus = nextWorkflowStatus;
+        request.WorkflowBlockReason = needsReconciliation
+            ? AutomationTaskStatuses.ReconciliationHoldReason
+            : operatorHeld ? RequestHoldPolicy.OperatorReason : null;
         request.WorkflowUpdatedAt = DateTimeOffset.UtcNow;
 
         await _requests.UpdateAsync(request);

@@ -45,6 +45,7 @@
                         <MudTd DataLabel="Type">@GetSourceLabel(context)</MudTd>
                         <MudTd DataLabel="Select">
                             <MudIconButton Icon="@Icons.Material.Filled.Check"
+                                           aria-label="@($"Select {context.Name}")"
                                            Color="Color.Primary"
                                            Size="Size.Small"
                                            OnClick="@(() => Select(context))" />

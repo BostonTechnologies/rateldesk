@@ -20,7 +20,9 @@ public sealed class RequestTaskLifecycleService(
     IFailurePolicyEngine failurePolicyEngine,
     IDomainEventPublisher domainEvents,
     ICorrelationContext correlationContext,
-    ILogger<RequestTaskLifecycleService> logger) : IRequestTaskLifecycleService
+    ILogger<RequestTaskLifecycleService> logger,
+    IRequestTaskReadStore? requestTaskReadStore = null,
+    IRequestTaskStartFence? startFence = null) : IRequestTaskLifecycleService
 {
     private readonly IRepository<RequestTask> _requestTasks = requestTasks;
     private readonly IRepository<Request> _requests = requests;
@@ -53,9 +55,9 @@ public sealed class RequestTaskLifecycleService(
             throw new InvalidOperationException("Approval tasks are started by the approval workflow.");
         }
 
-        var requestTasks = (await _requestTasks.GetAllAsync())
-            .Where(x => x.RequestId == task.RequestId)
-            .ToList();
+        var requestTasks = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, task.RequestId, ct);
+        if (requestTasks.Any(sibling => AutomationTaskStatuses.RequiresManualReconciliation(sibling.LastAutomationStatus)))
+            throw new InvalidOperationException("Reconcile the unresolved automation attempt before starting more work on this request.");
         if (RequestTaskApprovalGate.IsBlockedByEarlierApproval(task, requestTasks))
         {
             throw new InvalidOperationException("Task is blocked by an earlier approval step.");
@@ -67,24 +69,17 @@ public sealed class RequestTaskLifecycleService(
         }
 
         var correlationId = task.Type == RequestTaskType.Automation
-            ? task.AutomationAttemptCorrelationId ??= GetCorrelationId()
+            ? task.AutomationAttemptCorrelationId ?? GetCorrelationId()
             : GetCorrelationId();
 
-        task.Status = RequestTaskStatus.InProgress;
-        task.State = TicketState.InProgress;
-        task.StartedAt = DateTimeOffset.UtcNow;
-        task.UpdatedAt = DateTime.UtcNow;
-
-        if (task.TaskSlaMinutes is > 0)
+        var startIntent = new RequestTaskStartIntent(DateTimeOffset.UtcNow, correlationId);
+        if (startFence is not null)
+            await startFence.PersistAsync(task, startIntent, ct);
+        else
         {
-            task.SlaStartedAt = task.StartedAt;
-            task.DueAt = task.StartedAt.Value.AddMinutes(task.TaskSlaMinutes.Value);
-            task.Escalated = false;
-            task.EscalatedAt = null;
-            task.SlaBreached = false;
+            startIntent.Apply(task);
+            await _requestTasks.UpdateAsync(task);
         }
-
-        await _requestTasks.UpdateAsync(task);
 
         await _domainEvents.PublishAsync(
             new RequestTaskStartedEvent(
@@ -307,6 +302,11 @@ public sealed class RequestTaskLifecycleService(
         task.Status = RequestTaskStatus.Completed;
         task.State = TicketState.Resolved;
         task.CompletedAt = DateTimeOffset.UtcNow;
+        if (task.Type == RequestTaskType.Automation)
+        {
+            task.AutomationNextCheckUtcTicks = null;
+            task.AutomationContinuationPending = true;
+        }
         task.UpdatedAt = DateTime.UtcNow;
 
         if (!string.IsNullOrWhiteSpace(notes))
@@ -357,6 +357,11 @@ public sealed class RequestTaskLifecycleService(
 
         task.Status = RequestTaskStatus.Failed;
         task.State = TicketState.OnHold;
+        if (task.Type == RequestTaskType.Automation)
+        {
+            task.AutomationNextCheckUtcTicks = null;
+            task.AutomationContinuationPending = true;
+        }
         task.FailureReason = string.IsNullOrWhiteSpace(reason) ? task.FailureReason : reason;
         task.ResultJson = string.IsNullOrWhiteSpace(reason) ? task.ResultJson : reason;
         task.UpdatedAt = DateTime.UtcNow;
@@ -433,6 +438,9 @@ public sealed class RequestTaskLifecycleService(
             task.OrchestrationRequestDefinitionId, task.OrchestrationJobDefinitionId,
             task.OrchestrationExternalRequestId, task.OrchestrationExternalRunId,
             task.OrchestratorExecutionId, task.LastAutomationStatus,
+            task.OrchestrationLinkId, task.OrchestrationPeerInstanceId, task.OrchestrationLinkRevision,
+            task.AutomationDeadlineUtcTicks, task.AutomationTimedOutAt, task.AutomationTimedOutAttemptId,
+            task.ExpectedRuntimeSeconds, task.GraceSeconds, task.HardTimeoutSeconds, task.LastAutomationUpdatedAt,
             task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson,
             RetriedAtUtc = DateTimeOffset.UtcNow
         }));
@@ -444,6 +452,13 @@ public sealed class RequestTaskLifecycleService(
         task.Status = RequestTaskStatus.Pending;
         task.State = TicketState.New;
         task.StartedAt = null;
+        task.AutomationDeadlineUtcTicks = null;
+        task.AutomationNextCheckUtcTicks = null;
+        task.AutomationTimedOutAt = null;
+        task.AutomationTimedOutAttemptId = null;
+        task.AutomationReconciliationLeaseId = null;
+        task.AutomationReconciliationLeaseUntilUtcTicks = null;
+        task.AutomationContinuationPending = false;
         task.CompletedAt = null;
         task.SlaStartedAt = null;
         task.DueAt = null;
@@ -467,7 +482,7 @@ public sealed class RequestTaskLifecycleService(
 
         if (parent is not null && (parent.WorkflowStatus is "Blocked" or "Failed"))
         {
-            var siblings = (await _requestTasks.GetAllAsync()).Where(x => x.RequestId == task.RequestId).ToList();
+            var siblings = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, task.RequestId, ct);
             var taskFailureBlock = siblings.Any(x => parent.WorkflowBlockReason == $"Task '{x.Name}' failed."
                 || parent.WorkflowBlockReason == $"Critical task '{x.Name}' failed.");
             if (taskFailureBlock && !siblings.Any(x => x.Status is RequestTaskStatus.Failed or RequestTaskStatus.Cancelled))
@@ -563,6 +578,8 @@ public sealed class RequestTaskLifecycleService(
         task.CompletedAt = DateTimeOffset.UtcNow;
         task.FailureReason = null;
         task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.AutomationNextCheckUtcTicks = null;
+        task.AutomationContinuationPending = true;
         task.UpdatedAt = DateTime.UtcNow;
         await _requestTasks.UpdateAsync(task);
 
@@ -597,6 +614,8 @@ public sealed class RequestTaskLifecycleService(
         task.FailureReason = reason;
         task.ResultJson = reason;
         task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+        task.AutomationNextCheckUtcTicks = null;
+        task.AutomationContinuationPending = true;
         task.UpdatedAt = DateTime.UtcNow;
         await _requestTasks.UpdateAsync(task);
 

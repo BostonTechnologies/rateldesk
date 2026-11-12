@@ -120,6 +120,33 @@ public class HelpdeskDbContext(
     public DbSet<AiInvestigationWorklogEntry> AiInvestigationWorklogEntries => Set<AiInvestigationWorklogEntry>();
     public DbSet<AiAssistantWebhookAuditRecord> AiAssistantWebhookAuditRecords => Set<AiAssistantWebhookAuditRecord>();
 
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        AdvanceAutomationVersions();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        AdvanceAutomationVersions();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void AdvanceAutomationVersions()
+    {
+        ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<RequestTask>().Where(entry => entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified))
+        {
+            var version = entry.Property(task => task.AutomationStateVersion);
+            version.CurrentValue = checked(version.OriginalValue + 1);
+        }
+        foreach (var entry in ChangeTracker.Entries<Request>().Where(entry => entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified))
+        {
+            var version = entry.Property(request => request.WorkflowStateVersion);
+            version.CurrentValue = checked(version.OriginalValue + 1);
+        }
+    }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The rc.7 cleanup is an explicit terminal migration, while the
@@ -133,6 +160,8 @@ public class HelpdeskDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Request>().Property(request => request.WorkflowStateVersion)
+            .IsConcurrencyToken().HasDefaultValue(0L);
         modelBuilder.Entity<Helpdesk.Infrastructure.Email.PendingEmailOperationRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
@@ -331,6 +360,11 @@ public class HelpdeskDbContext(
             entity.Property(x => x.Escalated).HasDefaultValue(false);
             entity.Property(x => x.SlaBreached).HasDefaultValue(false);
             entity.Property(x => x.RetryCount).HasDefaultValue(0);
+            entity.Property(x => x.AutomationStateVersion).IsConcurrencyToken().HasDefaultValue(0L);
+            entity.Property(x => x.AutomationContinuationPending).HasDefaultValue(false);
+            entity.Property(x => x.AutomationReconciliationLeaseId).HasMaxLength(64);
+            entity.HasIndex(x => new { x.Type, x.AutomationNextCheckUtcTicks });
+            entity.HasIndex(x => new { x.Type, x.AutomationContinuationPending });
             entity.HasIndex(x => x.RequestId);
             entity.HasIndex(x => new { x.RequestId, x.IsBlocked });
             entity.HasIndex(x => x.Status);
@@ -415,6 +449,10 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => new { x.OrganizationId, x.SourceTicketId });
             entity.Property(x => x.SourceTicketId).HasMaxLength(64);
             entity.Property(x => x.SourceAutomationBindingId).HasMaxLength(64);
+            entity.Property(x => x.SelfServiceSubmissionId).HasMaxLength(32);
+            entity.Property(x => x.SelfServiceSubmitterId).HasMaxLength(128);
+            entity.Property(x => x.SelfServiceSubmissionHash).HasMaxLength(64);
+            entity.HasIndex(x => new { x.SelfServiceSubmitterId, x.SelfServiceSubmissionId }).IsUnique();
         });
 
         modelBuilder.Entity<NetclawConnectivitySettings>(entity =>
@@ -757,7 +795,10 @@ public class HelpdeskDbContext(
 
         modelBuilder.Entity<Customer>()
             .HasIndex(c => c.Email)
-            .IsUnique();
+            .IsUnique().HasFilter("\"IdentityUserId\" IS NULL");
+        modelBuilder.Entity<Customer>().Property(customer => customer.IdentityUserId).HasMaxLength(128);
+        modelBuilder.Entity<Customer>().HasIndex(customer => customer.IdentityUserId)
+            .IsUnique().HasFilter("\"IdentityUserId\" IS NOT NULL");
 
         modelBuilder.Entity<ScopedRoleAssignment>(entity =>
         {

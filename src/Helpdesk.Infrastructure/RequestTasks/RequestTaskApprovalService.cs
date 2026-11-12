@@ -65,18 +65,7 @@ public sealed partial class RequestTaskApprovalService(
         var now = DateTimeOffset.UtcNow;
         var allowedDays = Math.Clamp(template.ApprovalAllowedDays ?? DefaultApprovalDays, 1, 14);
         var wasAlreadyPendingApproval = task.Status == RequestTaskStatus.PendingApproval;
-        task.Status = RequestTaskStatus.PendingApproval;
-        task.State = TicketState.PendingApproval;
-        task.StartedAt ??= now;
-        task.DueAt ??= now.AddDays(allowedDays);
-        task.SlaStartedAt = task.StartedAt;
-        task.UpdatedAt = DateTime.UtcNow;
-
-        request.State = TicketState.PendingApproval;
-        request.WorkflowStatus = "PendingApproval";
-        request.WorkflowBlockReason = $"Waiting for approval for task '{task.Name}'.";
-        request.WorkflowUpdatedAt = now;
-        request.UpdatedAt = DateTime.UtcNow;
+        var startIntent = new RequestTaskApprovalStartIntent(now, allowedDays);
 
         var existingEmails = await db.RequestTaskApprovals
             .Where(x => x.RequestTaskId == task.Id)
@@ -112,7 +101,13 @@ public sealed partial class RequestTaskApprovalService(
                 createdRows);
         }
 
-        await db.SaveChangesAsync(ct);
+        if (db.Database.IsRelational())
+            await new RequestTaskStartFence(db).PersistApprovalAsync(task, startIntent, ct);
+        else
+        {
+            startIntent.Apply(task, request);
+            await db.SaveChangesAsync(ct);
+        }
 
         var approvalRows = await db.RequestTaskApprovals
             .Where(x => x.RequestTaskId == task.Id && x.Status == RequestTaskApprovalStatus.Pending)
@@ -208,8 +203,32 @@ public sealed partial class RequestTaskApprovalService(
         task.ResultJson = $"Approved by {approval.ApproverName} ({approval.ApproverEmail}).";
         task.UpdatedAt = DateTime.UtcNow;
 
-        request.WorkflowStatus = null;
-        request.WorkflowBlockReason = null;
+        if (request.WorkflowStatus == "PendingApproval"
+            && (string.IsNullOrWhiteSpace(request.WorkflowBlockReason)
+                || request.WorkflowBlockReason == $"Waiting for approval for task '{task.Name}'."))
+        {
+            request.WorkflowStatus = null;
+            request.WorkflowBlockReason = null;
+        }
+        var unknown = await db.RequestTasks.AnyAsync(sibling => sibling.RequestId == request.Id
+            && sibling.Type == RequestTaskType.Automation && sibling.LastAutomationStatus != null
+            && (sibling.LastAutomationStatus.ToLower() == "executionunknownmanualreconcile"
+                || sibling.LastAutomationStatus.ToLower() == "submituncertainmanualreconcile"), ct);
+        if (!RequestHoldPolicy.HasUnrelatedWorkflowHold(request))
+        {
+            if (unknown)
+            {
+                request.State = TicketState.OnHold;
+                request.WorkflowStatus = "NeedsReconciliation";
+                request.WorkflowBlockReason = AutomationTaskStatuses.ReconciliationHoldReason;
+            }
+            else if (RequestHoldPolicy.IsOperatorHeld(request))
+            {
+                request.State = TicketState.OnHold;
+                request.WorkflowStatus = RequestHoldPolicy.OperatorStatus;
+                request.WorkflowBlockReason = RequestHoldPolicy.OperatorReason;
+            }
+        }
         request.WorkflowUpdatedAt = now;
         request.UpdatedAt = DateTime.UtcNow;
 
@@ -319,7 +338,11 @@ public sealed partial class RequestTaskApprovalService(
 
         foreach (var task in tasksMissingRows)
         {
-            await StartApprovalAsync(task, ct);
+            try { await StartApprovalAsync(task, ct); }
+            catch (RequestProgressionHeldException)
+            {
+                logger.LogInformation("Approval recovery deferred while request {RequestId} is on hold.", task.RequestId);
+            }
         }
     }
 
@@ -435,6 +458,12 @@ public sealed partial class RequestTaskApprovalService(
 
         foreach (var requestTask in tasks.Where(x => !IsTerminalTaskStatus(x.Status)))
         {
+            // Cancelling the local graph cannot prove a recorded remote execution
+            // stopped. Keep it eligible for exact-attempt outcome reconciliation.
+            if (requestTask.Type == RequestTaskType.Automation
+                && (requestTask.Status == RequestTaskStatus.InProgress
+                    || AutomationTaskStatuses.RequiresManualReconciliation(requestTask.LastAutomationStatus)))
+                continue;
             requestTask.Status = RequestTaskStatus.Cancelled;
             requestTask.State = TicketState.OnHold;
             requestTask.FailureReason = reason;

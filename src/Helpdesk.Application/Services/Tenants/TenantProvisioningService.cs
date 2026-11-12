@@ -67,7 +67,7 @@ public class TenantProvisioningService(
         var normalizedEmail = NormalizeEmail(email);
         var organization = await GetOrCreateOrganizationByDomainAsync(domain);
 
-        var existingCustomer = await FindCustomerAsync(normalizedEmail);
+        var existingCustomer = await FindCustomerAsync(normalizedEmail, organization.Id);
         if (existingCustomer is not null)
         {
             var didChange = false;
@@ -75,12 +75,6 @@ public class TenantProvisioningService(
             if (!string.Equals(existingCustomer.Name, normalizedName, StringComparison.Ordinal))
             {
                 existingCustomer.Name = normalizedName;
-                didChange = true;
-            }
-
-            if (!string.Equals(existingCustomer.OrganizationId, organization.Id, StringComparison.Ordinal))
-            {
-                existingCustomer.OrganizationId = organization.Id;
                 didChange = true;
             }
 
@@ -114,7 +108,7 @@ public class TenantProvisioningService(
         }
         catch
         {
-            var raceWinner = await FindCustomerAsync(normalizedEmail);
+            var raceWinner = await FindCustomerAsync(normalizedEmail, organization.Id);
             if (raceWinner is not null)
             {
                 return (raceWinner, false);
@@ -132,10 +126,11 @@ public class TenantProvisioningService(
             || o.Name.Equals(normalizedDomain, StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task<Customer?> FindCustomerAsync(string normalizedEmail)
+    private async Task<Customer?> FindCustomerAsync(string normalizedEmail, string organizationId)
     {
         var customers = await customerRepository.GetAllAsync();
-        return customers.FirstOrDefault(c => c.Email.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase));
+        return customers.FirstOrDefault(c => c.IdentityUserId is null && c.OrganizationId == organizationId &&
+            c.Email.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string NormalizeDomain(string domain)

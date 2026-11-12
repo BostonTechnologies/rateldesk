@@ -417,6 +417,7 @@ builder.Services.AddScoped<SlaEvaluationHangfireJob>();
 builder.Services.AddScoped<SlaReportDispatchHangfireJob>();
 builder.Services.AddScoped<TaskEscalationHangfireJob>();
 builder.Services.AddScoped<RequestTaskRetryHangfireJob>();
+builder.Services.AddScoped<AutomationExecutionDeadlineHangfireJob>();
 builder.Services.AddScoped<RequestTaskApprovalTimeoutHangfireJob>();
 builder.Services.AddScoped<GraphDatasetSyncHangfireJob>();
 builder.Services.AddHealthChecks()
@@ -1358,6 +1359,14 @@ if (useHangfireRuntime)
         {
             TimeZone = TimeZoneInfo.Utc
         });
+    recurringJobManager.AddOrUpdate<AutomationExecutionDeadlineHangfireJob>(
+        recurringJobId: "automation-execution-deadlines",
+        queue: hangfireSettings.QueueName,
+        methodCall: job => job.RunAsync(CancellationToken.None),
+        cronExpression: "* * * * *",
+        options: new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+    app.Services.GetRequiredService<IBackgroundJobClient>().Enqueue<AutomationExecutionDeadlineHangfireJob>(
+        hangfireSettings.QueueName, job => job.RunAsync(CancellationToken.None));
     recurringJobManager.AddOrUpdate<RequestTaskRetryHangfireJob>(
         recurringJobId: "request-task-retry",
         queue: hangfireSettings.QueueName,
@@ -1453,9 +1462,10 @@ static void MapCrudEndpoints<T>(WebApplication app, string route) where T : clas
         if (entity is Customer requestedCustomer)
         {
             var existingCustomer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(customer => customer.Id == id);
+            requestedCustomer.IdentityUserId = existingCustomer?.IdentityUserId;
             if (existingCustomer is not null &&
                 !string.Equals(existingCustomer.OrganizationId, requestedCustomer.OrganizationId, StringComparison.OrdinalIgnoreCase) &&
-                await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == id))
+                (existingCustomer.IdentityUserId is not null || await db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == id)))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {

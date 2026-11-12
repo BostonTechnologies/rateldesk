@@ -145,13 +145,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // creation reconciliation and four tested Graph import/status operations.
         // 0.1.3-beta.8 adds five actor-bound pending-email operation methods,
         // full-history audit paging and read-only Change template validation.
+        // Trusted self submission adds one read-only requester/organization context.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(480, operationCount);
+        Assert.Equal(481, operationCount);
 #else
-        Assert.Equal(479, operationCount);
+        Assert.Equal(480, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, method, operationId, tag) in new[]
@@ -159,6 +160,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             ("/api/v1/ticketing/organizations/search", "get", "SearchCreationOrganizations", "Ticket Lookups"),
             ("/api/v1/ticketing/customers/search", "get", "SearchCreationCustomers", "Ticket Lookups"),
             ("/api/v1/ticketing/change-participants/search", "get", "SearchCreationChangeParticipants", "Ticket Lookups"),
+            ("/api/v1/self-service/submission-context", "get", "GetSelfServiceSubmissionContext", "Self-Service"),
             ("/api/v1/changes/{id}/lifecycle-options", "get", "GetChangeLifecycleOptions", "Changes"),
             ("/api/v1/resources/datasets/create-requests/{requestId}", "get", "ReconcileDatasetCreation", "Resources"),
             ("/api/v1/resources/datasets/graph-settings/test", "post", "TestGraphDatasetConnection", "Resources"),

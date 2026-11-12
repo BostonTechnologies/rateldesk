@@ -2,6 +2,8 @@ using System.Data.Common;
 using System.Globalization;
 using System.Text.Json;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Services;
+using Microsoft.AspNetCore.Http;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
@@ -35,7 +37,11 @@ public sealed class Stable011UpgradeTests
         await using (var identity = fixture.Identity())
         {
             await identity.GetService<IMigrator>().MigrateAsync(postgres ? PostgresIdentityBaseline : SqliteIdentityBaseline);
-            identity.Users.Add(new() { Id = "upgrade-owner", UserName = "upgrade-owner", Email = "owner@example.test", IsEnabled = true, IsInstanceAdministrator = true });
+            // The published identity schema predates application retirement columns.
+            await identity.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "AspNetUsers" ("Id", "UserName", "DisplayName", "Email", "IsEnabled", "IsInstanceAdministrator", "EmailConfirmed", "PhoneNumberConfirmed", "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount", "AuthorizationRevision")
+                VALUES ({"upgrade-owner"}, {"upgrade-owner"}, {"Synthetic owner"}, {"owner@example.test"}, {true}, {true}, {false}, {false}, {false}, {false}, {0}, {0L})
+                """);
             identity.IntegrationCredentials.Add(new() { Id = Guid.NewGuid(), OwnerUserId = "upgrade-owner", Name = "Preserved API credential", Prefix = "rdk_upgrade",
                 SecretHash = new string('a', 64), Purpose = "api", OrganizationId = "upgrade-org", Permissions = "Incident.Read", CreatedAtUtc = now,
                 CreatedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(), ExpiresAtUtc = now.AddDays(30) });
@@ -44,31 +50,33 @@ public sealed class Stable011UpgradeTests
         await using (var db = fixture.Open())
         {
             await db.GetService<IMigrator>().MigrateAsync(postgres ? PostgresBaseline : SqliteBaseline);
-            db.Organizations.Add(new() { Id = "upgrade-org", Name = "Synthetic upgrade organization" });
-            db.Customers.Add(new() { Id = "upgrade-customer", OrganizationId = "upgrade-org", Name = "Synthetic customer", Email = "customer@example.test" });
-            db.InstanceInitializations.Add(new() { InstanceId = instance, OperationId = Guid.NewGuid(), SetupVersion = "0.1.1-beta.22", CompletedAtUtc = now });
-            db.InstanceBrandings.Add(new() { ApplicationName = "Synthetic helpdesk", ApplicationUrl = "https://desk.example.test", UpdatedUtc = now.UtcDateTime });
-            db.WorkingCalendars.Add(new() { Id = "upgrade-calendar", Name = "Synthetic business calendar", TimeZoneId = "Africa/Johannesburg" });
-            db.TenantSlaSettings.Add(new() { TenantId = "upgrade-org", CalendarId = "upgrade-calendar", UseBusinessHours = true });
-            db.Roles.Add(new() { Id = "upgrade-role", Key = "upgrade-custom", Name = "Custom analyst", Scope = RoleScopeKind.Tenant, OwnerOrganizationId = "upgrade-org",
+            await using var seed = new PublishedDomainContext(
+                (DbContextOptions<HelpdeskDbContext>)db.GetService<IDbContextOptions>());
+            seed.Organizations.Add(new() { Id = "upgrade-org", Name = "Synthetic upgrade organization" });
+            seed.Customers.Add(new() { Id = "upgrade-customer", OrganizationId = "upgrade-org", Name = "Synthetic customer", Email = "customer@example.test" });
+            seed.InstanceInitializations.Add(new() { InstanceId = instance, OperationId = Guid.NewGuid(), SetupVersion = "0.1.1-beta.22", CompletedAtUtc = now });
+            seed.InstanceBrandings.Add(new() { ApplicationName = "Synthetic helpdesk", ApplicationUrl = "https://desk.example.test", UpdatedUtc = now.UtcDateTime });
+            seed.WorkingCalendars.Add(new() { Id = "upgrade-calendar", Name = "Synthetic business calendar", TimeZoneId = "Africa/Johannesburg" });
+            seed.TenantSlaSettings.Add(new() { TenantId = "upgrade-org", CalendarId = "upgrade-calendar", UseBusinessHours = true });
+            seed.Roles.Add(new() { Id = "upgrade-role", Key = "upgrade-custom", Name = "Custom analyst", Scope = RoleScopeKind.Tenant, OwnerOrganizationId = "upgrade-org",
                 Permissions = [new() { Permission = "Incident.Read" }] });
-            db.ScopedRoleAssignments.Add(new() { Id = "upgrade-assignment", UserId = "upgrade-owner", RoleKey = "upgrade-custom", OrganizationId = "upgrade-org" });
-            db.TicketCategories.Add(new() { Id = category, Name = "Synthetic service category", Type = TicketCategoryType.Service, CreatedUtc = now.UtcDateTime });
-            db.Incidents.Add(new() { Id = "upgrade-incident", TrackingId = "INC-UPGRADE", Title = "Preserved incident", OrganizationId = "upgrade-org", CustomerId = "upgrade-customer",
+            seed.ScopedRoleAssignments.Add(new() { Id = "upgrade-assignment", UserId = "upgrade-owner", RoleKey = "upgrade-custom", OrganizationId = "upgrade-org" });
+            seed.TicketCategories.Add(new() { Id = category, Name = "Synthetic service category", Type = TicketCategoryType.Service, CreatedUtc = now.UtcDateTime });
+            seed.Incidents.Add(new() { Id = "upgrade-incident", TrackingId = "INC-UPGRADE", Title = "Preserved incident", OrganizationId = "upgrade-org", CustomerId = "upgrade-customer",
                 OriginalEmailHtml = "<p style=\"color:#111;background:#fff\">Preserved original</p>", OriginalEmailText = "Preserved original",
                 CategoryLinks = [new() { TicketCategoryId = category }] });
-            db.Requests.Add(new() { Id = "upgrade-request", TrackingId = "REQ-UPGRADE", Title = "Preserved request", OrganizationId = "upgrade-org", CustomerId = "upgrade-customer",
+            seed.Requests.Add(new() { Id = "upgrade-request", TrackingId = "REQ-UPGRADE", Title = "Preserved request", OrganizationId = "upgrade-org", CustomerId = "upgrade-customer",
                 CategoryLinks = [new() { TicketCategoryId = category }] });
-            db.Set<Change>().Add(new() { Id = "upgrade-change", TrackingId = "CHG-UPGRADE", Title = "Preserved change", OrganizationId = "upgrade-org",
+            seed.Set<Change>().Add(new() { Id = "upgrade-change", TrackingId = "CHG-UPGRADE", Title = "Preserved change", OrganizationId = "upgrade-org",
                 RequestedForUserId = "upgrade-owner", CategoryLinks = [new() { TicketCategoryId = category }] });
-            db.WorkLogs.Add(new() { Id = "upgrade-worklog", TicketId = "upgrade-incident", NotesHtml = "<p>Preserved work</p>", NotesText = "Preserved work", Hours = 0.5,
+            seed.WorkLogs.Add(new() { Id = "upgrade-worklog", TicketId = "upgrade-incident", NotesHtml = "<p>Preserved work</p>", NotesText = "Preserved work", Hours = 0.5,
                 TechnicianId = "upgrade-owner", LoggedAt = now.UtcDateTime });
-            db.Attachments.Add(new() { Id = Guid.NewGuid(), TicketId = "upgrade-incident", FileName = "synthetic.txt", FilePath = "fixture/synthetic.txt",
+            seed.Attachments.Add(new() { Id = Guid.NewGuid(), TicketId = "upgrade-incident", FileName = "synthetic.txt", FilePath = "fixture/synthetic.txt",
                 ContentType = "text/plain", SizeBytes = 4, CreatedAt = now.UtcDateTime, UploadedById = "upgrade-owner" });
-            db.Set<MailboxOutboxEffect>().Add(new() { Id = effect, DeliveryEventId = delivery, EffectKey = "upgrade-delivery", DispatchGroup = "upgrade-group", Kind = MailboxEffectKind.Email,
+            seed.Set<MailboxOutboxEffect>().Add(new() { Id = effect, DeliveryEventId = delivery, EffectKey = "upgrade-delivery", DispatchGroup = "upgrade-group", Kind = MailboxEffectKind.Email,
                 State = MailboxEffectState.NeedsReview, Attempts = 2, Fence = 7, LastErrorCode = "SubmissionOutcomeUnknown", Payload = "{\"synthetic\":true}",
                 RecipientOutcomeJson = "{\"AcceptedRecipients\":[],\"RejectedRecipients\":[\"recipient@example.test\"]}" });
-            await db.SaveChangesAsync();
+            await seed.SaveChangesAsync();
             // Insert through the shipped schema: a candidate may add computed
             // sort columns, so its current EF INSERT/RETURNING is not the baseline.
             await db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -119,6 +127,23 @@ public sealed class Stable011UpgradeTests
             Assert.Equal("Incident.Read", credential.Permissions);
             Assert.Equal(now.AddDays(30), credential.ExpiresAtUtc);
         }
+    }
+
+    private sealed class PublishedDomainContext(DbContextOptions<HelpdeskDbContext> options)
+        : HelpdeskDbContext(options, new AdminTenant(), new HttpContextAccessor())
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+            PublishedCampaignSeedModel.Configure(builder);
+        }
+    }
+
+    private sealed class AdminTenant : ITenantContext
+    {
+        public string? TenantId => null;
+        public string? UserId => null;
+        public bool IsHelpdeskAdmin => true;
     }
 
     private sealed record TableSnapshot(string[] Columns, string[] Rows);

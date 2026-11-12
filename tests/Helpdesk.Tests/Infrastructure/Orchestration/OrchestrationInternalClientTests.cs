@@ -13,6 +13,95 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 public sealed class OrchestrationInternalClientTests
 {
     [Theory]
+    [InlineData("/internal/executions/request", "GET")]
+    [InlineData("/internal/executions/request/run/extra", "GET")]
+    [InlineData("/internal/executions/request/run", "POST")]
+    [InlineData("/internal/executions/request/run", "DELETE")]
+    public void Paired_execution_route_does_not_authorize_other_paths_or_execution_writes(string path, string method)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(method), "https://netratel.example.test" + path);
+        Assert.Throws<PairingFailure>(() => PairingOutboundNetwork.PrepareRequest(request, Settings()));
+    }
+
+    [Fact]
+    public void Paired_execution_read_retains_generic_query_and_foreign_origin_denial()
+    {
+        using var query = new HttpRequestMessage(HttpMethod.Get, "https://netratel.example.test/internal/executions/request/run?requestId=parent");
+        Assert.Throws<ArgumentException>(() => PairingOutboundNetwork.PrepareRequest(query, Settings()));
+        using var foreign = new HttpRequestMessage(HttpMethod.Get, "https://other.example.test/internal/executions/request/run");
+        Assert.Throws<PairingFailure>(() => PairingOutboundNetwork.PrepareRequest(foreign, Settings()));
+    }
+
+    [Theory]
+    [InlineData("pending", false)]
+    [InlineData("running", false)]
+    [InlineData("succeeded", false)]
+    [InlineData("failed", false)]
+    [InlineData("cancelled", false)]
+    [InlineData("unknown", false)]
+    [InlineData("succeeded", true)]
+    public async Task Execution_reconciliation_is_an_exact_identity_GET_and_never_an_ingest_replay(string status, bool wrongAttempt)
+    {
+        var reads = 0;
+        var execution = new OrchestrationExecutionQuery("parent-1", "task-1", "attempt-1", "remote-request-1", "remote-run-1");
+        var handler = new RecordingHandler(request =>
+        {
+            reads++;
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal("/internal/executions/remote-request-1/remote-run-1", request.RequestUri!.AbsolutePath);
+            Assert.Empty(request.RequestUri.Query);
+            Assert.Equal("parent-1", request.Headers.GetValues("X-RatelDesk-Request-Id").Single());
+            Assert.Equal("task-1", request.Headers.GetValues("X-RatelDesk-Task-Id").Single());
+            Assert.Equal("attempt-1", request.Headers.GetValues("X-Correlation-Id").Single());
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new
+                {
+                    requestId = execution.RequestId, requestTaskId = execution.RequestTaskId,
+                    correlationId = wrongAttempt ? "older-attempt" : execution.CorrelationId,
+                    orchestrationRequestId = execution.OrchestrationRequestId,
+                    orchestrationRunId = execution.OrchestrationRunId, status
+                }))
+            };
+        });
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
+        var tokens = Substitute.For<IOrchestrationTokenService>();
+        tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("synthetic-token");
+        var result = await new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance)
+            .ReadExecutionAsync(Settings(), execution);
+        Assert.Equal(1, reads);
+        Assert.Empty(handler.RequestBodies);
+        if (wrongAttempt) Assert.Null(result);
+        else
+        {
+            Assert.NotNull(result);
+            Assert.Equal(status, result.Status);
+            Assert.Equal(execution.CorrelationId, result.CorrelationId);
+            Assert.Equal(execution.OrchestrationRequestId, result.RequestId);
+            Assert.Equal(execution.OrchestrationRunId, result.OrchestrationRunId);
+        }
+    }
+
+    [Theory][InlineData(404)][InlineData(405)][InlineData(501)]
+    public async Task Unsupported_execution_read_remains_unconfirmed_without_fallback_submission(int status)
+    {
+        var calls = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            calls++; Assert.Equal(HttpMethod.Get, request.Method);
+            return new HttpResponseMessage((HttpStatusCode)status);
+        });
+        var factory = Substitute.For<IHttpClientFactory>(); factory.CreateClient(PairingTransport.ClientName).Returns(new HttpClient(handler));
+        var tokens = Substitute.For<IOrchestrationTokenService>();
+        tokens.GetAccessTokenAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<CancellationToken>()).Returns("synthetic-token");
+        var client = new OrchestrationInternalClient(factory, tokens, NullLogger<OrchestrationInternalClient>.Instance);
+        Assert.Null(await client.ReadExecutionAsync(Settings(), new("parent", "task", "attempt", "remote-request", "remote-run")));
+        Assert.Equal(1, calls);
+        Assert.Empty(handler.RequestBodies);
+    }
+
+    [Theory]
     [InlineData("{\"issuer\":\"netratel\",\"audience\":\"orchestration\",\"client_id\":\"managed\",\"tenant_id\":\"tenant-a\"}", true)]
     [InlineData("{\"claims\":{\"sub\":[\"legacy\"]}}", true)]
     [InlineData("{\"issuer\":\"netratel\",\"audience\":\"orchestration\",\"client_id\":\"managed\",\"tenant_id\":null}", true)]

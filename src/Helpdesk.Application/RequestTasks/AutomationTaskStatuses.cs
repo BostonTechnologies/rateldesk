@@ -6,6 +6,7 @@ public static class AutomationTaskStatuses
     public const string SubmitRejectedManualRetry = "SubmitRejectedManualRetry";
     public const string SubmitUncertainManualReconcile = "SubmitUncertainManualReconcile";
     public const string ExecutionUnknownManualReconcile = "ExecutionUnknownManualReconcile";
+    public const string ReconciliationHoldReason = "Automation outcome is unknown. Reconcile the recorded attempt before continuing.";
 
     public static bool RequiresManualRetry(string? status)
         => string.Equals(status, SubmitFailedManualRetry, StringComparison.OrdinalIgnoreCase)

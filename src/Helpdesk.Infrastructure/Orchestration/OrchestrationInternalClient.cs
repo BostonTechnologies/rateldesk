@@ -172,6 +172,53 @@ public sealed class OrchestrationInternalClient(
 
     }
 
+    public async Task<OrchestrationCallbackDto?> ReadExecutionAsync(OrchestrationResolvedSettings settings,
+        OrchestrationExecutionQuery execution, CancellationToken cancellationToken = default)
+    {
+        // A replayed ingest is a write. Reconciliation uses only the provider's
+        // managed, exact-admission read contract and never changes the target.
+        if (settings.Pairing is null || new[] { execution.RequestId, execution.RequestTaskId,
+            execution.CorrelationId, execution.OrchestrationRequestId, execution.OrchestrationRunId }.Any(string.IsNullOrWhiteSpace))
+            return null;
+        var path = $"/internal/executions/{Uri.EscapeDataString(execution.OrchestrationRequestId)}/{Uri.EscapeDataString(execution.OrchestrationRunId)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, await BuildAbsoluteUriAsync(settings, path, cancellationToken));
+        request.Headers.Add("X-RatelDesk-Request-Id", execution.RequestId);
+        request.Headers.Add("X-RatelDesk-Task-Id", execution.RequestTaskId);
+        request.Headers.Add("X-Correlation-Id", execution.CorrelationId);
+        await AttachAuthHeaderAsync(settings, request, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(RequestTimeout);
+        using var response = await _httpClientFactory.CreateClient(PairingTransport.ClientName)
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        if ((int)response.StatusCode is 404 or 405 or 501) return null;
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"The provider execution read could not be confirmed (HTTP {(int)response.StatusCode}).");
+        var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
+        OrchestrationCallbackDto? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<OrchestrationCallbackDto>(content, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch (JsonException error)
+        {
+            _logger.LogDebug("The provider execution read returned malformed JSON. ErrorCode={ErrorCode}", error.GetType().Name);
+            return null;
+        }
+        if (result is null || result.RequestId != execution.RequestId || result.RequestTaskId != execution.RequestTaskId
+            || result.CorrelationId != execution.CorrelationId || result.OrchestrationRequestId != execution.OrchestrationRequestId
+            || result.OrchestrationRunId != execution.OrchestrationRunId)
+            return null;
+        result.Status = result.Status.Trim().ToLowerInvariant();
+        if (result.Status is not ("pending" or "running" or "succeeded" or "failed" or "cancelled" or "unknown")) return null;
+        result.Message = string.IsNullOrWhiteSpace(result.Message) ? null
+            : IntegrationErrorSafety.ProviderMessage(result.Message, 500, settings.ClientSecret, request.Headers.Authorization?.Parameter);
+        // The callback's legacy RequestId alias denotes the external request.
+        // Its original parent identity was checked above before normalizing.
+        result.RequestId = execution.OrchestrationRequestId;
+        result.ExecutionId = execution.OrchestrationRunId;
+        return result;
+    }
+
     private static async Task<string> ReadBoundedContentAsync(HttpContent content, CancellationToken cancellationToken)
     {
         await using var stream = await content.ReadAsStreamAsync(cancellationToken);

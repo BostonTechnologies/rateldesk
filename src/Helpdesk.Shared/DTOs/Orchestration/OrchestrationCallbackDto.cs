@@ -2,6 +2,7 @@ namespace Helpdesk.Shared.DTOs.Orchestration;
 
 public sealed class OrchestrationCallbackDto
 {
+    public string? CorrelationId { get; set; }
     public string? RequestTaskId { get; set; }
     public string? RequestId { get; set; }
     public string? ExecutionId { get; set; }

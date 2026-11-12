@@ -586,6 +586,7 @@ public sealed class RequestCreateEndpointsTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await db.Database.EnsureCreatedAsync();
+                db.Organizations.Add(new Organization { Id = "org-1", Name = "Example Organization", IsEnabled = true });
                 db.Customers.Add(new Customer
                 {
                     Id = "customer-1",
@@ -619,6 +620,14 @@ public sealed class RequestCreateEndpointsTests
         {
             await using var scope = app.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var existing = await db.Organizations.FindAsync(id);
+            if (existing is not null)
+            {
+                existing.Name = name;
+                existing.ItSupportOrganizationId = itSupportOrganizationId;
+                await db.SaveChangesAsync();
+                return;
+            }
             db.Organizations.Add(new Organization
             {
                 Id = id,

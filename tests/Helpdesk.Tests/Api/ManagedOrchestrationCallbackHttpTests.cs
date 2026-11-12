@@ -11,7 +11,7 @@ using Xunit;
 namespace Helpdesk.Tests.Api;
 
 [Collection("Incident receiver")]
-public sealed class ManagedOrchestrationCallbackHttpTests
+public sealed partial class ManagedOrchestrationCallbackHttpTests
 {
     private const string ExternalRequest = "recorded-external-request";
     private const string Execution = "recorded-execution";

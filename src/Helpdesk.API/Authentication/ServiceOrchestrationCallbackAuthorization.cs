@@ -1,4 +1,6 @@
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.API.Background;
+using Helpdesk.API.Endpoints.Orchestration;
 using Microsoft.AspNetCore.Authorization;
 
 namespace Helpdesk.API.Authentication;
@@ -26,6 +28,8 @@ public static class ServiceOrchestrationCallbackRegistration
 {
     public static IServiceCollection AddServiceOrchestrationCallbacks(this IServiceCollection services)
     {
+        services.AddScoped<AutomationExecutionOutcomeService>();
+        services.AddScoped<AutomationExecutionDeadlineProcessor>();
         services.AddScoped<IAuthorizationHandler, ServiceOrchestrationCallbackHandler>();
         services.Configure<AuthorizationOptions>(options => options.AddPolicy("PairingCallbackOnly", policy =>
         {

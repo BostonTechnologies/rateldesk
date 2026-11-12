@@ -96,7 +96,7 @@ public sealed class InboundEmailActionExecutor(
         try
         {
             var requesterEmail = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();
-            var customer = await db.Customers.SingleOrDefaultAsync(x => x.Email.ToLower() == requesterEmail, ct);
+            var customer = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == null && x.Email.ToLower() == requesterEmail, ct);
             if (customer is not null && (customer.OrganizationId != tenantResult.Organization.Id || customer.State != Helpdesk.Shared.Models.EntityState.Enabled))
             {
                 await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, "Requester ownership conflict or blocked requester.", ct);
