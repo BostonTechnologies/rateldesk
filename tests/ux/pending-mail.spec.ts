@@ -279,7 +279,18 @@ for (const environment of ['normal browser', 'embedded browser']) {
       await expect(page.getByRole('dialog')).toBeHidden();
       await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
       await request.get(`${fixture}/action-options?fail=false`);
+      const filteredQueryCount = async () => {
+        const state = await (await request.get(`${fixture}/state`)).json();
+        return state.requests.filter((query: { search?: string }) => query.search === 'INC-SYN-0004').length;
+      };
+      const beforeRefresh = await filteredQueryCount();
       await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await expect.poll(filteredQueryCount).toBeGreaterThan(beforeRefresh);
+      await expect(page.locator('.pending-mail tbody tr')).toHaveCount(1);
+      await expect(page.getByRole('link', { name: 'INC-SYN-0004', exact: true })).toBeVisible();
+      await expect(page.getByText('1-1 of 1', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Review / retry', exact: true })).toBeEnabled();
       await page.getByRole('button', { name: 'Review / retry', exact: true }).click();
       await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
