@@ -209,6 +209,8 @@ and ingestion-state safeguards permit it. Retained service principals, revoked
 secret verifiers, receipts, processing history, delivery outcomes and source
 cursors keep their audit identity and credential-denial evidence. They are not
 erased to make an organization disappear.
+Disabled support routes, owning groups and notification subscriptions also retain
+their organization identity; enabled groups and coverage require review first.
 
 For genuinely retired organizations with safe retained history, select **Keep
 this organization disabled with its retained history**, then **Retain disabled**.

@@ -15,6 +15,42 @@ namespace Helpdesk.Tests.Api;
 public sealed class OrganizationRetentionTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Disabled_support_configuration_retains_identity_and_active_routes_require_resolution(bool postgres)
+    {
+        await using var server = postgres ? new PostgreSqlBuilder("postgres:16-alpine").Build() : null;
+        if (server is not null) await server.StartAsync();
+        await using var sqlite = postgres ? null : new SqliteConnection("Data Source=:memory:");
+        if (sqlite is not null) await sqlite.OpenAsync();
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>();
+        if (server is not null) options.UseNpgsql(server.GetConnectionString()); else options.UseSqlite(sqlite!);
+        await using var db = new HelpdeskDbContext(options.Options, Substitute.For<ITenantContext>(), new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync();
+        foreach (var active in new[] { false, true })
+        {
+            var organization = new Helpdesk.Shared.Models.Organization { Name = "Synthetic support owner " + active };
+            var customer = new Helpdesk.Shared.Models.Organization { Name = "Synthetic covered customer " + active };
+            var group = new SupportGroup { Name = "Synthetic retained support group", OwningOrganizationId = organization.Id, IsEnabled = active };
+            db.Organizations.AddRange(organization, customer);
+            db.SupportGroups.Add(group);
+            db.OrganizationSupportCoverages.Add(new() { CustomerOrganizationId = customer.Id, ProviderOrganizationId = organization.Id, SupportGroupId = group.Id, IsEnabled = active });
+            db.SupportNotificationSubscriptions.Add(new() { CustomerOrganizationId = organization.Id, RecipientId = group.Id, IsEnabled = active });
+            await db.SaveChangesAsync();
+            var assessment = await OrganizationRetentionEndpoint.AssessAsync(organization, db, default);
+            Assert.False(assessment.CanDelete);
+            Assert.Equal(!active, assessment.CanRetire);
+            foreach (var code in new[] { "support_coverage_retention", "support_group_retention", "support_subscription_retention" })
+                Assert.Contains(assessment.Dependencies, item => item.Code == code && item.Count == 1);
+            var result = await OrganizationRetentionEndpoint.RetireAsync(organization.Id, db, default);
+            Assert.Equal(active ? 409 : 204, ((IStatusCodeHttpResult)result).StatusCode);
+            Assert.True(await db.SupportGroups.AnyAsync(x => x.Id == group.Id));
+            Assert.True(await db.OrganizationSupportCoverages.AnyAsync(x => x.SupportGroupId == group.Id));
+            Assert.True(await db.SupportNotificationSubscriptions.AnyAsync(x => x.RecipientId == group.Id));
+        }
+    }
+
+    [Theory]
     [InlineData("23503")]
     [InlineData("40001")]
     [InlineData("40P01")]
