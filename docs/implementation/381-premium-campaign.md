@@ -338,7 +338,7 @@ Windows filesystem ACLs. None is newly required campaign/provider acceptance;
 the final delivery receipt records their exact names and source reasons.
 
 The first complete functional run executed 4,015 cases: 3,999 passed, eight failed
-and eight pre-existing optional cases were skipped. It is retained as a failed
+and eight pre-existing cases were skipped. It is retained as a failed
 run. Five failures came from historical fixtures that seeded current fields into
 an old schema or attempted reverse migration through a forward-only identity
 upgrade. One dashboard fixture expected an obsolete status label. Two failures
@@ -530,3 +530,35 @@ executions include predefined repetitions; they are not 29 distinct test cases.
 They use the retained frozen Web whose relevant picker/SLA/state-popup, layout
 and stylesheet sources match the candidate, rather than claiming a fresh release
 build. The new hosted final-head dispatch rebuilds the full candidate.
+
+The subsequent hosted run `43157067199` passed all other browser lanes, with
+597 browser cases passed. A different ordinary pending-mail error/recovery case
+clicked Review immediately after Refresh, then waited for a nonexistent dialog:
+the final Cancel wait began 8.248 seconds into its 60-second budget. The retained
+report establishes the missing completed-refresh precondition; the exact guarded
+Busy return is inferred from source, rather than claimed as a captured trace.
+The driver now waits for an additional filtered query and the loaded row, range
+and enabled controls before Review. Its original failure, Cancel, mutation-count,
+zero-submission and 60-second assertions remain unchanged. Six independent fresh-
+Web fault journeys passed, followed by the full 34 ordinary cases in 144.5 seconds,
+with zero failed, skipped, flaky or retried cases, using the matching frozen Web.
+
+Repeated deliberate 503 faults in one shared validation process separately
+produced five passes and one earlier-phase failure. A bounded diagnostic directly
+recorded `HelpdeskApi-standard` circuit opening; its actual result was three
+passes, one timeout, one interrupted case and one unrun case. These receipts
+remain distinct from the six passing fresh-process cases. The complete ordinary
+suite at its normal cadence recorded no circuit opening. Product resilience,
+timeouts and retry settings were not changed to accommodate the diagnostic.
+
+Deep acceptance is recorded by actual run and matching source, rather than
+describing the failed aggregate as green. The prior hosted pending-mail lane in
+`43155757946` passed all 34 ordinary and four native cases; its native test,
+fixture, build inputs and complete application `src` tree are unchanged. The
+later run's other browser/ownership/native, mailbox, Compose, image and archive
+lanes passed. Together with the corrected owning suite, these supply composed
+deep evidence. The existing six normal jobs still require a fresh successful run
+on the final correction head and again on the exact merged main; no earlier
+missing .NET artifact is rehabilitated. This final source-preparation snapshot
+leaves subsequent merge, exact-main and public distribution receipts on PR #397,
+campaign #381 and the immutable release.
