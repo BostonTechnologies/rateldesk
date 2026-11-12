@@ -13,7 +13,9 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     await capture('built-in-roles', 'pages-admin-role-rolemanagement-1');
     await expect(page.getByRole('button', { name: 'Edit role', exact: true })).toHaveCount(0);
     await page.getByRole('tab', { name: /^Custom roles/ }).click();
-    await page.getByRole('button', { name: '237 assignments', exact: true }).click();
+    const customRole = page.getByRole('row').filter({ hasText: 'synthetic-custom' });
+    await expect(customRole).toBeVisible();
+    await customRole.getByRole('button', { name: '237 assignments', exact: true }).click();
     await page.getByRole('dialog').getByRole('tab', { name: 'Assignments', exact: true }).click();
     await expect(page.getByText('Synthetic Operator 000', { exact: true })).toBeVisible();
     await capture('role-assignments', 'pages-admin-role-roleassignmentdetailsdialog-1');
@@ -65,6 +67,7 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     await open('/admin/layouts');
     if (baselineReview) await page.locator('table tbody tr').first().getByRole('button').first().click();
     else await page.getByRole('button', { name: 'Edit layout', exact: true }).first().click();
+    await page.locator('iframe[title="Layout Preview"]').scrollIntoViewIfNeeded();
     const authored = page.frameLocator('iframe[title="Layout Preview"]');
     await expect(authored.locator('table[role="presentation"]')).toBeVisible();
     await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');
