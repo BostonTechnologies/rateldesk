@@ -562,3 +562,18 @@ on the final correction head and again on the exact merged main; no earlier
 missing .NET artifact is rehabilitated. This final source-preparation snapshot
 leaves subsequent merge, exact-main and public distribution receipts on PR #397,
 campaign #381 and the immutable release.
+
+The canceled .NET job in `43157067199` also retained one real failure before
+cancellation: the Incident rendered effort test threw inside
+`SqliteConnection.Close` during harness disposal. It is not counted as a passed
+test or dismissed because the run was superseded. The unchanged baseline harness
+shared one externally opened SQLite connection across overlapping EF request and
+stream scopes. Its fixture now keeps a uniquely named in-memory database alive
+with one keeper while each EF scope owns its own connection; the app stops and
+disposes before the keeper closes. PostgreSQL, product source, displayed-effort
+assertions and stream timing are unchanged. The complete owning class passed
+24/24: eighteen SQLite cases, including all three rendered modules, and six
+PostgreSQL cases, with zero failures/skips/retries. The formerly failing Incident
+case passed in 262 ms without exposing a masked body assertion. Focused leaf
+builds used source-checked cached prerequisites; this remains owning evidence,
+with fresh full normal validation required on this final fixture correction.
