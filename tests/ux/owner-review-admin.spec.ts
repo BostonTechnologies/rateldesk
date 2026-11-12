@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { modeName, reviewCapture, reviewModes, reviewOpen, reviewPage } from './owner-review-matrix';
+import { baselineReview, modeName, reviewCapture, reviewModes, reviewOpen, reviewPage } from './owner-review-matrix';
 
 const fixture = 'http://127.0.0.1:18500/fixture';
 for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}`, async ({ browser, request, baseURL }, info) => {
@@ -27,6 +27,12 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     await capture('sla-calendars', 'pages-admin-sla-tenantworkingcalendarspanel-1');
     await page.getByRole('tabpanel', { name: 'Working calendars', exact: true }).getByRole('button', { name: 'Edit', exact: true }).first().click();
     await capture('calendar-editor', 'pages-admin-sla-workingcalendardialog-1');
+    if (!baselineReview) {
+      await page.getByRole('textbox', { name: 'Start', exact: true }).nth(1).click();
+      await expect(page.locator('.mud-picker-time-container')).toBeVisible();
+      await page.getByRole('button', { name: 'Cancel', exact: true }).last().click();
+      await expect(page.getByRole('dialog')).toHaveCount(1);
+    }
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await open('/admin/support-routing');

@@ -8,6 +8,7 @@ for (const mode of reviewModes) test(`all Self Service table contexts ${modeName
     const capture = (name: string, ...ids: string[]) => reviewCapture(page, info, mode, name, ids);
     await open('/self-service');
     await expect(page.getByText('Synthetic access request', { exact: true })).toBeVisible();
+    await capture('catalogue-root');
     await page.getByText('Synthetic access request', { exact: true }).click();
     await page.getByRole('button', { name: 'Select', exact: true }).click();
     await capture('submit-on-behalf', 'pages-selfservice-submitonbehalfdialog-1');

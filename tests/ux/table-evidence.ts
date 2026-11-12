@@ -92,6 +92,10 @@ export async function captureTables(page: Page) {
       expect(Math.abs(after.pagerTop - before.pagerTop!), `${id}: pager stays outside body scrolling`).toBeLessThan(2);
       expect(after.pagerBottom!, `${id}: pager is reachable`).toBeLessThanOrEqual(before.viewport.height + 2);
     }
+    await scroll.evaluate(element => {
+      element.scrollTop = 0; element.scrollLeft = 0;
+      return new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
     const screenshot = `${id}-${instance}.png`;
     const target = await surface.evaluate(element => element.matches('table')) ? surface.locator('xpath=..') : surface;
     await target.screenshot({ path: path.join(destination, screenshot), animations: 'disabled',

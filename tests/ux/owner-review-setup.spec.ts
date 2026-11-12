@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { modeName, reviewCapture, reviewModes, reviewOpen, reviewPage } from './owner-review-matrix';
+let lastUnlock = 0;
+test.beforeEach(async () => {
+  // Exercise the real setup service within its five-unlocks-per-minute limit.
+  await delay(Math.max(0, lastUnlock + 13_000 - Date.now()));
+  lastUnlock = Date.now();
+});
 for (const mode of reviewModes) test(`first-run semantic review ${modeName(mode)}`, async ({ browser, baseURL }, info) => {
   await reviewPage(browser, baseURL!, mode, async page => {
     await reviewOpen(page, baseURL!, '/setup');

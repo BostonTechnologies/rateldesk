@@ -189,7 +189,11 @@
 
 <style>
     .sla-calendar-editor {
-        min-width: 960px;
+        min-width: 0;
+    }
+
+    .sla-calendar-editor > .mud-grid-item {
+        min-width: 0;
     }
 
     .sla-settings-card {
@@ -198,7 +202,12 @@
     }
 
     .sla-weekly-wrap {
-        overflow-x: auto;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .sla-weekly-table .mud-table-root {
+        min-width: 34rem;
     }
 
     .sla-weekly-table th,

@@ -29,7 +29,12 @@ http.createServer(async (req, res) => {
  if (path === '/fixture/reset') { reset(); return reply({ ok: true }); }
  if (path === '/fixture/state') return reply({ saves, reads, roles, datasets, settings, subscriptions, graph, graphTests, importStatuses, attempts, credentials: Object.fromEntries(credentials) });
  if (path === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; if(fault==='no-datasets')datasets=[]; if(fault==='many-organizations')creationOrganizations.push(...Array.from({length:40},(_,i)=>({id:`many-org-${i}`,name:`Synthetic organization ${String(i).padStart(2,'0')}`}))); if(fault==='built-in-zero'||fault==='unknown-graph-count'){datasets.push(...[1,2,3,4].map(type=>({...clone(datasets[0]),id:`graph-${type}`,name:`Graph source ${type}`,sourceType:type})));Object.assign(graph['org-1'],{enableUsers:true,enableDevices:true,enableGroups:true,enableSharePointSites:true});} if(fault==='graph-existing'){graph['org-1']={...graph['org-1'],tenantId:'existing-tenant',clientId:'existing-client',hasStoredSecret:true,credentialRevision:'stored-revision',enableUsers:true,backgroundSyncEnabled:true,backgroundSyncCronExpression:'0 2 * * *'};} if (fault === 'no-custom') roles = roles.filter(x => x.isBuiltIn); if (fault === 'many-roles') roles.push(...Array.from({ length: 60 }, (_, i) => ({ ...roles.find(x => !x.isBuiltIn), id: `many-${i}`, key: `many-${i}`, name: `Custom role ${String(i).padStart(2, '0')}`, assignmentCount: 0 }))); return reply({ ok: true }); }
- if (path === '/fixture/table-review') roles.forEach(role => role.assignmentCount = 237);
+ if (path === '/fixture/table-review') {
+  roles.forEach(role => role.assignmentCount = 237);
+  roles.push(...Array.from({ length: 65 }, (_, i) => ({ ...roles.find(role => !role.isBuiltIn), id: `review-role-${i}`, key: `review-role-${i}`, name: `Synthetic custom role ${String(i).padStart(3, '0')} with a deliberately long permission scope name`, assignmentCount: 0 })));
+  roles.push(...Array.from({ length: 35 }, (_, i) => ({ ...roles.find(role => role.isBuiltIn), id: `review-built-${i}`, key: `review-built-${i}`, name: `Synthetic protected role ${String(i).padStart(3, '0')} with a deliberately long name`, assignmentCount: 0 })));
+  calendars.forEach(calendar => calendar.weeklyRules = Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, isWorkingDay: dayOfWeek > 0 && dayOfWeek < 6, workingHours: dayOfWeek > 0 && dayOfWeek < 6 ? [{ start: '08:00:00', end: '17:00:00' }] : [] })));
+ }
  if (await handleTableReview(req, res, url)) return;
  if (await handleTeamDirectory(req, res, url)) return;
  if (await handleDirectoryRequest(req, res, url)) return;
