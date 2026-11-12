@@ -510,3 +510,23 @@ reviewed RatelDesk merges, all six exact-main jobs and verified public
 distribution remain required; their immutable receipts belong to #381 and the
 release. The runtime `src` tree remains
 `0e75a6d32dc60877d53e54e6b4fdb6ec648f4be7`, matching the complete paired run.
+
+The follow-up hosted run `43155757946` passed all 34 pending-mail ordinary
+cases and all four native-zoom cases. It exposed three further baseline driver
+races: Escape before the newly focused customer picker finished opening; Enter
+before the state popup finished closing; and Reporting clicked before a tenant
+change replaced the keyed SLA tabs. Retained DOM/focus evidence and unchanged
+baseline product/test sources identify the missing readiness conditions.
+The owning tests now wait for the current focused/open customer menu, explicit
+state-popup closed/open attributes, and the new tenant's default selected tab.
+All original geometry, zero-option dismissal, keyboard-activation, draft,
+mutation-count and persisted-readback assertions remain. No sleeps, retries,
+product changes or required-case exclusions were added. This superseded run is
+not a passed final gate; fresh final-head CI remains required.
+The focused corrections passed ten light/dark customer-picker executions, ten
+complete SLA draft/tab journeys and nine state-popup journeys across all three
+ticket modules, with zero failed, skipped, flaky or retried cases. These 29
+executions include predefined repetitions; they are not 29 distinct test cases.
+They use the retained frozen Web whose relevant picker/SLA/state-popup, layout
+and stylesheet sources match the candidate, rather than claiming a fresh release
+build. The new hosted final-head dispatch rebuilds the full candidate.
