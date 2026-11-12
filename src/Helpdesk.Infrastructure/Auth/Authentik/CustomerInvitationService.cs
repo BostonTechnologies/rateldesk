@@ -39,7 +39,16 @@ public sealed class CustomerInvitationService(
     {
         var customer = await FindCustomerAsync(customerId, ct);
         var link = await FindLinkAsync(customerId, ct);
-        return ToStatus(customer, link);
+        var status = ToStatus(customer, link);
+        if (await IsRetiredCustomerAsync(customer, ct) || await IsRetiredAsync(link, ct))
+        {
+            status.InviteStatus = CustomerInviteStatus.Disabled;
+            status.StatusText = "Application access deleted";
+            status.CanInvite = false;
+            status.CanResend = false;
+            status.CanDisableLogin = false;
+        }
+        return status;
     }
 
     public Task<CustomerAuthStatusDto> InviteAsync(string customerId, string invitedByUserId, CancellationToken ct = default)
@@ -137,6 +146,8 @@ public sealed class CustomerInvitationService(
         }
 
         var link = await FindOrCreateLinkAsync(customer, ct);
+        if (await IsRetiredAsync(link, ct))
+            throw new InvalidOperationException("This identity's application access was deleted. Invitations cannot restore deleted users; create a separately reviewed identity instead.");
         if (!allowExistingInvite && link.InviteStatus is CustomerInviteStatus.Pending or CustomerInviteStatus.Active)
         {
             return ToStatus(customer, link);
@@ -227,6 +238,12 @@ public sealed class CustomerInvitationService(
 
     private async Task<CustomerAuthLink> FindOrCreateLinkAsync(Customer customer, CancellationToken ct)
     {
+        if (customer.IdentityUserId is not null)
+            throw new InvalidOperationException("This contact belongs to an application-managed identity. Manage its sign-in in Team; external invitations cannot replace that identity.");
+        if (await IsRetiredCustomerAsync(customer, ct))
+            throw new InvalidOperationException("Application access has been deleted. A retired identity cannot be invited or reactivated.");
+        if (await _db.CustomerAuthLinks.AnyAsync(link => link.CustomerId == customer.Id && link.AuthProviderType == "Local", ct))
+            throw new InvalidOperationException("This contact uses an application-managed sign-in. Manage that account separately.");
         var link = await FindLinkAsync(customer.Id, ct);
         if (link is not null)
         {
@@ -363,6 +380,19 @@ public sealed class CustomerInvitationService(
         return rendered;
     }
 
+    private async Task<bool> IsRetiredCustomerAsync(Customer customer, CancellationToken ct)
+    {
+        if (customer.IdentityUserId is not null && !await _db.Users.AsNoTracking()
+            .AnyAsync(user => user.Id == customer.IdentityUserId && !user.IsDeleted, ct)) return true;
+        return await _db.CustomerAuthLinks.AsNoTracking().AnyAsync(link => link.CustomerId == customer.Id &&
+            _db.Users.Any(user => user.IsDeleted && (user.Id == link.DomainUserId || user.Id == link.LocalAccountId)), ct);
+    }
+
+    private Task<bool> IsRetiredAsync(CustomerAuthLink? link, CancellationToken ct) => link is null
+        ? Task.FromResult(false)
+        : _db.Users.AsNoTracking().AnyAsync(user => user.IsDeleted &&
+            (user.Id == link.DomainUserId || user.Id == link.LocalAccountId), ct);
+
     private CustomerAuthStatusDto ToStatus(Customer customer, CustomerAuthLink? link)
     {
         var status = link?.InviteStatus ?? CustomerInviteStatus.NotInvited;
@@ -392,11 +422,11 @@ public sealed class CustomerInvitationService(
             LastAuthSyncAtUtc = link?.LastAuthSyncAtUtc,
             LastAuthError = link?.LastAuthError,
             InviteLinkExpiresAtUtc = link?.InviteLinkExpiresAtUtc,
-            CanInvite = _options.IsConfigured && customer.IsEnabled &&
+            CanInvite = customer.IdentityUserId is null && _options.IsConfigured && customer.IsEnabled &&
                 status is CustomerInviteStatus.NotInvited or CustomerInviteStatus.Failed or CustomerInviteStatus.Expired,
-            CanResend = _options.IsConfigured && customer.IsEnabled &&
+            CanResend = customer.IdentityUserId is null && _options.IsConfigured && customer.IsEnabled &&
                 status is CustomerInviteStatus.Pending or CustomerInviteStatus.Failed or CustomerInviteStatus.Expired,
-            CanDisableLogin = _options.IsConfigured &&
+            CanDisableLogin = customer.IdentityUserId is null && _options.IsConfigured &&
                 status is CustomerInviteStatus.Pending or CustomerInviteStatus.Active
         };
     }

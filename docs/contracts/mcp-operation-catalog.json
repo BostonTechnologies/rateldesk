@@ -1,7 +1,7 @@
 {
-  "schemaHash": "3e1d92e27443fefb7a937d2a236316cba95268e4d277a3c9686b4283a6a8da39",
-  "catalogRevision": "2026-11-11.trusted-requesters-v30",
-  "catalogHash": "cc8506957da5f4d2ea2794252e4dd023e9ba3a9d79f3388a3e8f2a1e3350f6d0",
+  "schemaHash": "1bcb486221da69a0efed8daa4385069c3b6e4576e5d09c95fde126f4eda35bd7",
+  "catalogRevision": "2026-11-11.premium-workspaces-v31",
+  "catalogHash": "76bc8987f45c886f52e47f04ee8e7dff6f936f188e30c3fbaa9618bd2afc6e39",
   "operationCount": 390,
   "operations": [
     {
@@ -11032,7 +11032,7 @@
       "readOnly": false,
       "confirmationRequired": true,
       "previewSupported": true,
-      "description": "delete_user operation.",
+      "description": "Retire the application user and revoke application sign-in, sessions and credentials while retaining historical attribution. This operation is distinct from reversible Enable/Disable. Self/last-administrator, identity-link and organization safeguards remain authoritative; external identity-provider accounts are retained.",
       "sensitiveResultFields": [],
       "transports": [
         "stdio",
@@ -11065,7 +11065,8 @@
         }
       ],
       "prerequisites": [
-        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Existing active application user and current instance-administrator authority. Retirement is idempotent and preserves historical attribution; self-deletion, last-administrator removal and ambiguous/shared identity ownership are rejected. External identity-provider accounts are retained and retired application identities cannot silently reprovision."
       ],
       "requestSchema": {
         "type": "object",
@@ -45418,7 +45419,7 @@
             "properties": {
               "operation": {
                 "const": "delete_user",
-                "description": "delete_user operation. Select this operation in the outer operation field."
+                "description": "Retire the application user and revoke application sign-in, sessions and credentials while retaining historical attribution. This operation is distinct from reversible Enable/Disable. Self/last-administrator, identity-link and organization safeguards remain authoritative; external identity-provider accounts are retained. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",

@@ -2,6 +2,48 @@
 
 The administration pages keep organization or tenant context visible while you work. Changing tabs retains local drafts; changing context or leaving a page requires saving or explicitly discarding pending changes. Active saves and focused routing dialogs keep their context fixed until they finish.
 
+## Customers, Organizations and Ticket Categories
+
+Open `/admin/customers`, `/admin/organizations` or `/admin/categories` as an
+instance administrator. These directories search, filter, count and sort the
+complete authorized dataset before selecting a page. The native pager defaults
+to 25 rows and offers 25, 50 and 100. Search, filters, sorting and page position
+are retained in the URL when you refresh or return from another route. Editing
+or deleting a row refreshes the current query; a page that no longer exists is
+clamped to the last available page. Failed refreshes show an error and retain
+previously loaded rows.
+
+**Customers** searches names, email and organization and filters customer state
+separately from login/invitation state. Access summaries come from a bounded
+server projection, including local activation/disabled state and external
+invitation expiry. Loading or refreshing the directory never sends an invitation.
+Invite/resend remains an explicit eligible action and is revalidated by the
+existing invitation endpoint. Local account activation and sign-in are managed
+in Team.
+
+**Organizations** searches name, DNS and contact information, with state,
+support-organization and saved-orchestration-mapping filters. Support names are
+resolved in the page query. An orchestration mapping displays its persisted name
+and tenant identifier; a saved mapping is configuration evidence, not a live
+connectivity test. A remote catalog outage cannot remove it. The delegated
+General & settings / Members & access views retain their organization context
+and authority; the instance directory is not exposed to delegated administrators.
+
+**Ticket Categories** searches names/descriptions and provides exact ticket-type,
+active/inactive, global/organization and built-in/custom filters. All types is
+explicit; creating from All requires choosing a valid type. Organization filters
+use a bounded searchable selector. Built-in categories remain read-only. Deleting
+a custom category requires confirmation and is blocked while a ticket or child
+category references it; make it inactive to preserve historical assignments.
+Failed saves retain the dialog and entered values. `/admin/categories0` remains a
+compatible route.
+
+The additive `GET /api/v1/admin/directories/{customers|organizations|categories}`
+queries return `PagedResponse<T>` with zero-based `page`, validated `pageSize`
+(25/50/100), `totalCount` and `items`. Legacy customer/organization array APIs and
+bounded category pickers retain their response shapes; the category picker still
+includes Service categories where it did before. The admin type filter is exact.
+
 ## Data Management
 
 Open `/admin/resources/data-management` with HelpdeskAdmin or the organization-scoped `DataManagement.Admin` permission. The searchable **Organization** control searches the permitted Data Management population. The page separates **Custom datasets** from **Built-in integrations**; their actions and credentials have different scopes.

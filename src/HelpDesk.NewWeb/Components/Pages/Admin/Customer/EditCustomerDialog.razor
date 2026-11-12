@@ -5,6 +5,7 @@
 @using System.Text.Json
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
+@inject HelpDesk.NewWeb.Models.WebAuthenticationMode AuthenticationMode
 
 <MudDialog>
     <TitleContent>
@@ -76,8 +77,10 @@
                 }
                 else if (string.Equals(authStatus?.AuthProviderType, "Local", StringComparison.OrdinalIgnoreCase))
                 {
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Local activation and account lifecycle actions are managed from the organization member editor.</MudText>
-                    @if (authStatus.InviteStatus == CustomerInviteStatus.Pending)
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@(AuthenticationMode.SupportsLocalAccounts
+                        ? "Local activation and account lifecycle actions are managed from the organization member editor."
+                        : "Local credentials are unavailable in the configured authentication mode.")</MudText>
+                    @if (AuthenticationMode.SupportsLocalAccounts && authStatus.InviteStatus == CustomerInviteStatus.Pending)
                     {
                         <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="GenerateLocalActivationToken">Generate activation token</MudButton>
                     }

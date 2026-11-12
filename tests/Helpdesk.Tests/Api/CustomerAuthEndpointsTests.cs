@@ -6,10 +6,12 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
 using Helpdesk.API;
+using Helpdesk.API.Ops;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Tests.Mcp;
 using NSubstitute;
 using Helpdesk.Infrastructure.Auth.Authentik;
+using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Customer;
 using Helpdesk.Shared.Models;
@@ -17,6 +19,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -27,6 +30,54 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class CustomerAuthEndpointsTests
 {
+    [Theory]
+    [InlineData("active")]
+    [InlineData("retired")]
+    [InlineData("missing")]
+    public async Task Managed_identity_without_a_link_never_advertises_or_creates_an_external_login(string ownerState)
+    {
+        var invitation = new ThrowingInvitationService(new InvalidOperationException("Managed identity must not reach external invitation actions."));
+        using var factory = CreateFactory(invitation);
+        await SeedCustomerAsync(factory);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            (await db.Customers.SingleAsync(customer => customer.Id == "customer-1")).IdentityUserId = "managed-owner";
+            if (ownerState != "missing") db.Users.Add(new User { Id = "managed-owner", Name = "Managed owner",
+                Email = "managed@example.test", OrganizationId = "organization-1", IsDeleted = ownerState == "retired" });
+            await db.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        using var statusResponse = await client.GetAsync("/api/v1/customers/customer-1/auth/status");
+        var errors = factory.Services.GetRequiredService<AiAgentOpsLogBuffer>().Query(null, "Error", null, null, 50).Items;
+        Assert.True(statusResponse.IsSuccessStatusCode, await statusResponse.Content.ReadAsStringAsync() + "\n" +
+            string.Join("\n", errors.Select(error => $"{error.ExceptionType}: {error.ExceptionMessage}")));
+        var status = await statusResponse.Content.ReadFromJsonAsync<CustomerAuthStatusDto>();
+        Assert.NotNull(status);
+        Assert.Equal(ownerState == "active" ? CustomerInviteStatus.Failed : CustomerInviteStatus.Disabled, status.InviteStatus);
+        Assert.False(status.CanInvite);
+        Assert.False(status.CanResend);
+        Assert.False(status.CanDisableLogin);
+        Assert.False(status.IsLinkedLogin);
+        foreach (var action in new[] { "invite", "resend-invite", "disable-login", "sync-authentik" })
+        {
+            using var denied = await client.PostAsync("/api/v1/customers/customer-1/auth/" + action, null);
+            Assert.Equal(HttpStatusCode.Conflict, denied.StatusCode);
+        }
+        Assert.Equal(0, invitation.InvocationCount);
+        await AssertSeedVisibleFromNewScopeAsync(factory, 0);
+        await using var readback = factory.Services.CreateAsyncScope();
+        var domain = readback.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        Assert.Equal("managed-owner", (await domain.Customers.AsNoTracking().SingleAsync(customer => customer.Id == "customer-1")).IdentityUserId);
+        var owner = await domain.Users.AsNoTracking().SingleOrDefaultAsync(user => user.Id == "managed-owner");
+        if (ownerState == "missing") Assert.Null(owner);
+        else { Assert.NotNull(owner); Assert.Equal(ownerState == "retired", owner.IsDeleted); }
+        var identity = readback.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+        Assert.Empty(await identity.Users.AsNoTracking().ToListAsync());
+        Assert.Empty(await identity.UserLogins.AsNoTracking().ToListAsync());
+    }
+
     [Fact]
     public async Task ResendInvite_ReturnsServiceUnavailable_WhenAuthentikAdminIsNotConfigured()
     {
@@ -310,6 +361,12 @@ public sealed class CustomerAuthEndpointsTests
 
             builder.ConfigureServices(services =>
             {
+                // Match the domain test store while retaining the real Identity services.
+                // Startup migrations are skipped by this host; no external database is available.
+                var identityDatabaseName = $"customer-auth-identity-{Guid.NewGuid():N}";
+                services.RemoveAll<DbContextOptions<RatelDeskIdentityDbContext>>();
+                services.RemoveAll<IDbContextOptionsConfiguration<RatelDeskIdentityDbContext>>();
+                services.AddDbContext<RatelDeskIdentityDbContext>(options => options.UseInMemoryDatabase(identityDatabaseName));
                 services.RemoveAll<ICustomerInvitationService>();
                 if (invitationService is not null) services.AddSingleton(invitationService);
                 else services.AddScoped<ICustomerInvitationService, CustomerInvitationService>();

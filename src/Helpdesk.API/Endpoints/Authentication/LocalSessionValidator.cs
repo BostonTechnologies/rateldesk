@@ -30,7 +30,7 @@ public static class LocalSessionValidator
         cancellationToken.ThrowIfCancellationRequested();
         var db = context.RequestServices.GetRequiredService<RatelDeskIdentityDbContext>();
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(account => account.Id == userId, cancellationToken);
-        return user is { IsEnabled: true }
+        return user is { IsEnabled: true, IsDeleted: false }
             && string.Equals(context.User.FindFirstValue("security_stamp"), user.SecurityStamp, StringComparison.Ordinal)
             && string.Equals(context.User.FindFirstValue("authorization_revision"),
                 user.AuthorizationRevision.ToString(global::System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)

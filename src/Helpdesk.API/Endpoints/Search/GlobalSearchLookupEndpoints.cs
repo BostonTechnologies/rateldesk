@@ -24,7 +24,7 @@ public static class GlobalSearchLookupEndpoints
         {
             var term = q?.Trim();
             var take = Math.Clamp(pageSize ?? 6, 1, 25);
-            var query = db.Users.AsNoTracking();
+            var query = db.Users.AsNoTracking().Where(user => !user.IsDeleted);
 
             if (!string.IsNullOrWhiteSpace(term))
             {

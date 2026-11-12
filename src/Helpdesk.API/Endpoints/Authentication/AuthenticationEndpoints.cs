@@ -52,7 +52,7 @@ public static class AuthenticationEndpoints
         {
             var allUsers = await users.GetAllAsync();
             var user = allUsers.FirstOrDefault(u => u.Email == request.Email);
-            if (user is null || string.IsNullOrEmpty(user.HashedPassword) || !BCrypt.Net.BCrypt.Verify(request.Password, user.HashedPassword))
+            if (user is null || user.IsDeleted || string.IsNullOrEmpty(user.HashedPassword) || !BCrypt.Net.BCrypt.Verify(request.Password, user.HashedPassword))
             {
                 return Results.Unauthorized();
             }

@@ -1,0 +1,25 @@
+Summary
+  Generated on: 11/11/2026 - 17:30:43
+  Parser: MultiReport (2x OpenCover)
+  Assemblies: 1
+  Classes: 4
+  Files: 4
+  Line coverage: 94.8%
+  Covered lines: 201
+  Uncovered lines: 11
+  Coverable lines: 212
+  Total lines: 354
+  Branch coverage: 66.6% (116 of 174)
+  Covered branches: 116
+  Total branches: 174
+  Method coverage: 88.4% (23 of 26)
+  Full method coverage: 84.6% (22 of 26)
+  Covered methods: 23
+  Fully covered methods: 22
+  Total methods: 26
+
+HelpDesk.NewWeb                                                                94.8%
+  HelpDesk.NewWeb.Components.Pages.Admin.Organization.EditOrganizationDialog   95.6%
+  HelpDesk.NewWeb.Components.Shared.OrganizationDirectorySelector              97.6%
+  HelpDesk.NewWeb.Models.AdminDirectoryQueryState                              95.2%
+  HelpDesk.NewWeb.Services.AdminDirectoryDataSource<T>                         91.5%

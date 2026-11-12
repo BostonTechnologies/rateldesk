@@ -146,13 +146,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // 0.1.3-beta.8 adds five actor-bound pending-email operation methods,
         // full-history audit paging and read-only Change template validation.
         // Trusted self submission adds one read-only requester/organization context.
+        // Premium administration adds five paged directory queries.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(481, operationCount);
+        Assert.Equal(486, operationCount);
 #else
-        Assert.Equal(480, operationCount);
+        Assert.Equal(485, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, method, operationId, tag) in new[]
@@ -161,6 +162,11 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             ("/api/v1/ticketing/customers/search", "get", "SearchCreationCustomers", "Ticket Lookups"),
             ("/api/v1/ticketing/change-participants/search", "get", "SearchCreationChangeParticipants", "Ticket Lookups"),
             ("/api/v1/self-service/submission-context", "get", "GetSelfServiceSubmissionContext", "Self-Service"),
+            ("/api/v1/admin/directories/customers", "get", "QueryAdminCustomers", "Administration Directories"),
+            ("/api/v1/admin/directories/organizations", "get", "QueryAdminOrganizations", "Administration Directories"),
+            ("/api/v1/admin/directories/organizations/lookup", "get", "LookupAdminDirectoryOrganizations", "Administration Directories"),
+            ("/api/v1/admin/directories/categories", "get", "QueryAdminTicketCategories", "Administration Directories"),
+            ("/api/v1/users/query", "get", "SearchAdminUsers", "Users"),
             ("/api/v1/changes/{id}/lifecycle-options", "get", "GetChangeLifecycleOptions", "Changes"),
             ("/api/v1/resources/datasets/create-requests/{requestId}", "get", "ReconcileDatasetCreation", "Resources"),
             ("/api/v1/resources/datasets/graph-settings/test", "post", "TestGraphDatasetConnection", "Resources"),

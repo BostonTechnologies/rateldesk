@@ -14,6 +14,7 @@ internal static class InboundForwarderAuthorization
     public static async Task<CurrentUserAccessProfile?> ResolveAsync(
         HelpdeskDbContext db, RatelDeskIdentityDbContext? identityDb, User user, CancellationToken cancellationToken)
     {
+        if (user.IsDeleted) return null;
         var account = identityDb is null ? null : await identityDb.Users.AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == user.Id, cancellationToken);
         var localLink = await db.CustomerAuthLinks.AsNoTracking()
@@ -21,7 +22,7 @@ internal static class InboundForwarderAuthorization
         ClaimsPrincipal principal;
         if (account is not null || localLink)
         {
-            if (account?.IsEnabled != true) return null;
+            if (account?.IsEnabled != true || account.IsDeleted) return null;
             principal = new ClaimsPrincipal(new ClaimsIdentity([
                 new Claim(ClaimTypes.NameIdentifier, user.Id), new Claim("auth_mode", "local")
             ], "local-email-forwarder"));

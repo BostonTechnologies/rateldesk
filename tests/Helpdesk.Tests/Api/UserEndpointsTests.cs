@@ -9,6 +9,7 @@ using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -83,6 +84,18 @@ public class UserEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         updateResp.EnsureSuccessStatusCode();
         var updated = await updateResp.Content.ReadFromJsonAsync<UserDto>();
         Assert.Equal("org-2", updated!.OrganizationId);
+    }
+
+    [Fact]
+    public async Task Oidc_only_mode_does_not_map_local_authentication_routes()
+    {
+        await using var oidc = _factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Authentication:Mode"] = "Oidc" })));
+        using var client = oidc.CreateClient();
+        var endpoints = oidc.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToArray();
+        Assert.Contains(endpoints, endpoint => endpoint.RoutePattern.RawText == "/api/v1/users/query");
+        Assert.DoesNotContain(endpoints,
+            endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/v1/local-auth", StringComparison.Ordinal) == true);
     }
 
     [Fact]

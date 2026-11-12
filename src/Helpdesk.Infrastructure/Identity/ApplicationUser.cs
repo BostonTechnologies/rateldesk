@@ -8,6 +8,10 @@ public sealed class ApplicationUser : IdentityUser
 
     public bool IsEnabled { get; set; } = true;
 
+    public bool IsDeleted { get; set; }
+
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+
     public bool IsInstanceAdministrator { get; set; }
 
     public DateTimeOffset? DisabledAtUtc { get; set; }

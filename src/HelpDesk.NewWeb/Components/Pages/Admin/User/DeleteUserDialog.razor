@@ -1,59 +1,38 @@
-
+@using HelpDesk.NewWeb.Services
 @inject IHttpClientFactory HttpClientFactory
-@inject HelpDesk.NewWeb.Models.WebAuthenticationMode AuthenticationMode
 <MudDialog>
     <DialogContent>
-        @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
-        <MudText Typo="Typo.body1">Are you sure you want to @ActionName @User.Name?</MudText>
+        <MudText Typo="Typo.body1">Delete application access for <strong>@User.Name</strong> (@User.Email)?</MudText>
+        <MudText Typo="Typo.body2" Class="mt-3">This permanently retires the user from active directories and revokes application sign-in, sessions, integration credentials and role grants. Ticket, worklog and audit attribution remains readable.</MudText>
+        <MudText Typo="Typo.body2" Class="mt-2">Enable cannot restore a deleted user. An external identity provider account is retained and cannot automatically regain this application's access.</MudText>
+        @if (error is not null) { <MudAlert Severity="Severity.Error" Class="mt-3" role="alert">@error</MudAlert> }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton OnClick="Delete" Color="Color.Error" Variant="Variant.Filled">@ActionName</MudButton>
+        <MudButton OnClick="Cancel" Disabled="busy">Cancel</MudButton>
+        <MudButton OnClick="Delete" Disabled="busy" Color="Color.Error" Variant="Variant.Filled">@(busy ? "Deleting…" : "Delete user")</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private bool SupportsLocalAccounts => AuthenticationMode.SupportsLocalAccounts;
     private string? error;
-    private bool? isLocalAccountEnabled;
-    private string ActionName => isLocalAccountEnabled switch
-    {
-        true => "Disable",
-        false => "Enable",
-        _ => "Delete"
-    };
+    private bool busy;
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public Helpdesk.Shared.DTOs.User.UserDto User { get; set; } = default!;
 
-    protected override async Task OnInitializedAsync()
-    {
-        if (!SupportsLocalAccounts)
-        {
-            return;
-        }
-
-        var response = await HelpdeskApi.GetAsync($"api/v1/local-auth/users/{User.Id}/status");
-        if (response.IsSuccessStatusCode)
-        {
-            isLocalAccountEnabled = (await response.Content.ReadFromJsonAsync<LocalAccountStatusResponse>())?.IsEnabled;
-        }
-    }
-
     private async Task Delete()
     {
-        var response = isLocalAccountEnabled is { } enabled
-            ? await HelpdeskApi.PostAsync($"api/v1/local-auth/users/{User.Id}/{(enabled ? "disable" : "enable")}", content: null)
-            : await HelpdeskApi.DeleteAsync($"api/v1/users/{User.Id}");
-
-        if (response.IsSuccessStatusCode)
+        if (busy) return;
+        busy = true;
+        error = null;
+        try
         {
-            Dialog.Close(DialogResult.Ok(true));
+            using var response = await HttpClientFactory.CreateClient("HelpdeskApi").DeleteAsync($"api/v1/users/{Uri.EscapeDataString(User.Id)}");
+            if (response.IsSuccessStatusCode) Dialog.Close(DialogResult.Ok(true));
+            else error = await UserLifecycleErrors.ReadAsync(response, "The user could not be deleted. Refresh and retry. Their application access has not been reported as deleted.");
         }
-        else error = "The account could not be changed. The last enabled administrator must remain active. Use Manage local account for local credentials.";
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception)) { error = "The account service is unavailable. Keep this dialog open and retry; repeated deletion is safe."; }
+        finally { busy = false; }
     }
 
     private void Cancel() => Dialog.Cancel();
-
-    private sealed record LocalAccountStatusResponse(bool IsEnabled);
 }

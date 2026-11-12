@@ -80,7 +80,7 @@ internal static class CreationLookupEndpoints
             var access = await accessService.ResolveAsync(user, token);
             if (!access.CanCreateChange(organizationId, null, null)) return Results.Forbid();
             if (!await db.Organizations.AsNoTracking().AnyAsync(x => x.Id == organizationId && x.State == EntityState.Enabled, token)) return Results.NotFound();
-            var users = db.Users.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+            var users = db.Users.AsNoTracking().Where(x => !x.IsDeleted && x.OrganizationId == organizationId)
                 .Select(x => new { x.Id, x.Name, x.Email, x.Role, x.OrganizationId });
             var contacts = db.Customers.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.State == EntityState.Enabled && !db.Users.Any(u => u.Id == x.Id && u.OrganizationId == organizationId))
                 .Select(x => new { x.Id, x.Name, x.Email, Role = "Customer", OrganizationId = (string?)x.OrganizationId });

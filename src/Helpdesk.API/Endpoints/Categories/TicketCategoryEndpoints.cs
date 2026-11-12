@@ -250,10 +250,17 @@ public static class TicketCategoryEndpoints
     private static async Task<IResult> DeleteCategory(
         [FromRoute] Guid id,
         [FromServices] HelpdeskDbContext db,
-        [FromServices] ITenantContext tenant)
+        [FromServices] ITenantContext tenant,
+        CancellationToken cancellationToken)
     {
         var tenantId = ParseTenantId(tenant.TenantId);
-        var entity = await db.TicketCategories.FirstOrDefaultAsync(x => x.Id == id);
+        await using var transaction = await db.Database.BeginTransactionAsync(
+            db.Database.IsNpgsql() ? global::System.Data.IsolationLevel.ReadCommitted : global::System.Data.IsolationLevel.Serializable,
+            cancellationToken);
+        // Keep the dependency check and deletion indivisible with concurrent category assignments.
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlRawAsync("LOCK TABLE \"TicketCategories\", \"IncidentCategoryLinks\", \"RequestCategoryLinks\", \"ChangeCategoryLinks\" IN SHARE ROW EXCLUSIVE MODE", cancellationToken);
+        var entity = await db.TicketCategories.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (entity is null)
         {
             return Results.NotFound();
@@ -264,25 +271,25 @@ public static class TicketCategoryEndpoints
             return Results.BadRequest("System categories are read-only.");
         }
 
-        if (tenant.IsHelpdeskAdmin)
-        {
-            db.TicketCategories.Remove(entity);
-            await db.SaveChangesAsync();
-            return Results.NoContent();
-        }
-
-        if (!tenantId.HasValue)
+        if (!tenant.IsHelpdeskAdmin && !tenantId.HasValue)
         {
             return Results.BadRequest("Tenant context required to manage categories.");
         }
 
-        if (!tenantId.HasValue || entity.TenantId != tenantId.Value)
+        if (!tenant.IsHelpdeskAdmin && entity.TenantId != tenantId)
         {
             return Results.Forbid();
         }
 
+        if (await db.TicketCategories.AnyAsync(category => category.ParentCategoryId == id, cancellationToken) ||
+            await db.IncidentCategoryLinks.AnyAsync(link => link.TicketCategoryId == id, cancellationToken) ||
+            await db.RequestCategoryLinks.AnyAsync(link => link.TicketCategoryId == id, cancellationToken) ||
+            await db.ChangeCategoryLinks.AnyAsync(link => link.TicketCategoryId == id, cancellationToken))
+            return Results.Conflict("This category is in use. Make it inactive to preserve existing assignments.");
+
         db.TicketCategories.Remove(entity);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return Results.NoContent();
     }
 

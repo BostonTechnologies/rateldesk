@@ -1,177 +1,256 @@
 @page "/admin/users"
 @attribute [Authorize(Roles = "Tenant.Users.Manage,Tenant.Roles.Assign,HelpdeskAdmin")]
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
+@inject NavigationManager Navigation
 @inject HelpDesk.NewWeb.Models.WebAuthenticationMode AuthenticationMode
+@using Helpdesk.Shared.DTOs
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.User
+@using Microsoft.AspNetCore.WebUtilities
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Authorization
+@using HelpDesk.NewWeb.Services
 
 <PageTitle>Team</PageTitle>
-
 <AuthorizeView Roles="HelpdeskAdmin" Context="instanceAdministrator">
 <Authorized>
-<div class="helpdesk-page">
+<div class="helpdesk-page team-directory directory-workspace">
 <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="helpdesk-page-header">
-        <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText>
-        <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateDialog">Create</MudButton>
-    </MudStack>
-    <MudTextField T="string"
-                  @bind-Value="searchText"
-                  Label="Search team"
-                  Variant="Variant.Outlined"
-                  Margin="Margin.Dense"
-                  Adornment="Adornment.Start"
-                  AdornmentIcon="@Icons.Material.Filled.Search"
-                  Class="helpdesk-list-search mb-3"
-                  Immediate="true" />
-    <MudTable Items="filteredUsers" Hover="true" Dense="true" T="UserDto" Breakpoint="Breakpoint.Sm" Class="helpdesk-table">
+    <header class="team-header">
+        <div class="team-heading"><MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText><MudText Typo="Typo.body2">People, organization roles and application access</MudText></div>
+        <div class="team-header-actions">
+        <MudTooltip Text="Refresh current query"><MudIconButton aria-label="Refresh team" Icon="@Icons.Material.Filled.Refresh" OnClick="Refresh" /></MudTooltip>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create user</MudButton>
+        </div>
+    </header>
+    <div class="team-query-toolbar" role="search" aria-label="Find team members">
+        <MudTextField T="string" Value="@searchText" ValueChanged="SearchChanged" Label="Search name or email" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" DebounceInterval="300" Immediate="true" Clearable="true" />
+        <MudAutocomplete T="TenantLookupDto" Value="selectedOrganization" ValueChanged="OrganizationChanged" SearchFunc="FindOrganizations" ToStringFunc="@(item => item?.Name ?? string.Empty)"
+                         Label="Organization" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" ResetValueOnEmptyText="true" MinCharacters="0" DebounceInterval="300" MaxItems="50" />
+        <MudTextField T="string" Value="@roleFilter" ValueChanged="RoleChanged" Label="Role or scoped role key" Placeholder="User, Technician or a scoped role key" DebounceInterval="300" Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudSelect T="string" Value="@stateFilter" ValueChanged="StateChanged" Label="Application access" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@(string.Empty)">All access states</MudSelectItem>
+            @foreach (var state in new[] { "Enabled", "Disabled", "External", "Profile" }) { <MudSelectItem T="string" Value="@state">@StateLabel(state)</MudSelectItem> }
+        </MudSelect>
+        <MudSelect T="bool?" Value="testFilter" ValueChanged="CohortChanged" Label="Self-service cohort" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="bool?" Value="@((bool?)null)">All cohorts</MudSelectItem>
+            <MudSelectItem T="bool?" Value="@((bool?)true)">Testing</MudSelectItem><MudSelectItem T="bool?" Value="@((bool?)false)">Production</MudSelectItem>
+        </MudSelect>
+        <MudButton Variant="Variant.Text" Disabled="@(!HasFilters)" OnClick="ClearFilters">Clear filters</MudButton>
+    </div>
+    <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? $"{total:N0} team members" : "Team unavailable")</MudText>
+    @if (organizationError is not null) { <MudAlert Severity="Severity.Warning" role="alert">@organizationError</MudAlert> }
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="Refresh">Retry</MudButton></MudAlert> }
+    <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Team directory. Scroll horizontally to reach all columns and actions." tabindex="0">
+    <MudTable T="UserDirectoryDto" @ref="table" ServerData="LoadServerData" Dense="true" Hover="true" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.None"
+              Height="clamp(14rem, calc(100dvh - 24rem), 44rem)" RowsPerPage="pageSize" CurrentPage="pageIndex" RowsPerPageChanged="PageSizeChanged" CurrentPageChanged="PageChanged" Class="team-table">
+        <ColGroup><col style="width:28%" /><col style="width:24%" /><col style="width:16%" /><col style="width:12%" /><col style="width:20%" /></ColGroup>
         <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Email</MudTh>
-            <MudTh>Role</MudTh>
-            <MudTh>Organization</MudTh>
-            <MudTh class="text-center">Cohort</MudTh>
-            <MudTh class="text-end"></MudTh>
+            <MudTh aria-sort="@SortState("name")"><button type="button" class="team-sort" aria-label="Sort by name" @onclick="@(() => ChangeSort("name"))">Name<MudIcon Icon="@SortIcon("name")" Size="Size.Small" /></button></MudTh>
+            <MudTh aria-sort="@SortState("email")"><button type="button" class="team-sort" aria-label="Sort by email" @onclick="@(() => ChangeSort("email"))">Email<MudIcon Icon="@SortIcon("email")" Size="Size.Small" /></button></MudTh>
+            <MudTh aria-sort="@SortState("organization")"><button type="button" class="team-sort" aria-label="Sort by organization" @onclick="@(() => ChangeSort("organization"))">Organization<MudIcon Icon="@SortIcon("organization")" Size="Size.Small" /></button></MudTh>
+            <MudTh aria-sort="@SortState("state")"><button type="button" class="team-sort" aria-label="Sort by access" @onclick="@(() => ChangeSort("state"))">Access<MudIcon Icon="@SortIcon("state")" Size="Size.Small" /></button></MudTh><MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Name">@context.Name</MudTd>
-            <MudTd DataLabel="Email">@context.Email</MudTd>
-            <MudTd DataLabel="Role">@context.Role</MudTd>
-            <MudTd DataLabel="Organization">@GetOrganizationName(context.OrganizationId)</MudTd>
-            <MudTd DataLabel="Cohort" Class="text-center">
-                <MudTooltip Text="@(context.IsTestUser ? "Self-service test user" : "Self-service production user")">
-                    <MudIconButton Icon="@(context.IsTestUser ? Icons.Material.Filled.Science : Icons.Material.Filled.CheckCircle)"
-                                   Color="@(context.IsTestUser ? Color.Warning : Color.Success)"
-                                   Size="Size.Small"
-                                   aria-label="@(context.IsTestUser ? "Self-service test user" : "Self-service production user")" />
-                </MudTooltip>
-            </MudTd>
-            <MudTd Class="text-end">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                               Color="Color.Primary"
-                               Size="Size.Small"
-                               aria-label="Edit user"
-                               OnClick="() => OpenEditDialog(context)" />
-                @if (AuthenticationMode.SupportsLocalAccounts)
+            <MudTd DataLabel="Name"><div class="team-identity"><strong title="@context.Name">@context.Name</strong><span title="@context.Role">@RoleSummary(context) · @(context.IsTestUser ? "Testing" : "Production")</span></div></MudTd>
+            <MudTd DataLabel="Email"><span class="team-cell-text" title="@context.Email">@context.Email</span></MudTd>
+            <MudTd DataLabel="Organization"><span class="team-cell-text" title="@context.OrganizationName">@(context.OrganizationName ?? "No organization")</span></MudTd>
+            <MudTd DataLabel="Access"><span>@StateLabel(context.AccountState)</span><span class="team-access-summary" title="@context.IdentitySummary">@context.IdentitySummary</span></MudTd>
+            <MudTd DataLabel="Actions"><div class="team-row-actions">
+                <MudTooltip Text="Edit user and roles"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-label="Edit user" OnClick="() => OpenEditDialog(context)" /></MudTooltip>
+                @if (AuthenticationMode.SupportsLocalAccounts && context.CanManageAccount) { <MudTooltip Text="Manage local credentials"><MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small" aria-label="Manage local account" OnClick="() => OpenResetDialog(context)" /></MudTooltip> }
+                @if (AuthenticationMode.SupportsLocalAccounts && context.AccountId is not null)
                 {
-                    <MudIconButton Icon="@Icons.Material.Filled.Key" Color="Color.Primary" Size="Size.Small"
-                                   aria-label="Manage local account" OnClick="() => OpenResetDialog(context)" />
+                    <MudTooltip Text="@(context.CanChangeSignIn ? (AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in") : context.DeleteBlockedReason)"><span><MudIconButton Icon="@(AccountEnabled(context) ? Icons.Material.Outlined.Block : Icons.Material.Outlined.CheckCircle)" Size="Size.Small" Disabled="@(!context.CanChangeSignIn)"
+                        aria-label="@(AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in")" OnClick="() => OpenSignInDialog(context)" /></span></MudTooltip>
                 }
-                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                               Color="Color.Error"
-                               Size="Size.Small"
-                               aria-label="Delete user"
-                               OnClick="() => OpenDeleteDialog(context)" />
-            </MudTd>
+                <MudTooltip Text="@(context.DeleteBlockedReason ?? "Delete user")"><span><MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Size="Size.Small" aria-label="Delete user" Disabled="@(!context.CanDelete)" OnClick="() => OpenDeleteDialog(context)" /></span></MudTooltip>
+            </div></MudTd>
         </RowTemplate>
+        <LoadingContent><MudText>Loading team members…</MudText></LoadingContent>
+        <NoRecordsContent><MudText>@(loadError is not null ? "Team members could not be loaded. Retry the query." : HasFilters ? "No team members match these filters." : "No team members have been created.")</MudText></NoRecordsContent>
+        <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" InfoFormat="{first_item}-{last_item} of {all_items}" /></PagerContent>
     </MudTable>
+    </div>
 </MudPaper>
 </div>
 </Authorized>
 <NotAuthorized>
-    <div class="helpdesk-page">
-        <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
-            <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText>
-            <MudText Typo="Typo.body2" Class="mb-4">Manage membership and application roles for an authorized tenant. Shared account credentials and lifecycle remain instance-administrator actions.</MudText>
-            <TenantAdministration IsCanonical="true" />
-        </MudPaper>
-    </div>
+    <div class="helpdesk-page"><MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
+        <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">Manage membership and application roles for an authorized tenant. Shared account credentials and lifecycle remain instance-administrator actions.</MudText>
+        <TenantAdministration IsCanonical="true" />
+    </MudPaper></div>
 </NotAuthorized>
 </AuthorizeView>
 
 @code {
-    [SupplyParameterFromQuery(Name = "search")]
-    public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "search")] public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "organizationId")] public string? QueryOrganization { get; set; }
+    [SupplyParameterFromQuery(Name = "role")] public string? QueryRole { get; set; }
+    [SupplyParameterFromQuery(Name = "state")] public string? QueryState { get; set; }
+    [SupplyParameterFromQuery(Name = "cohort")] public string? QueryCohort { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? QueryPage { get; set; }
+    [SupplyParameterFromQuery(Name = "pageSize")] public int? QueryPageSize { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "descending")] public bool QueryDescending { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private MudTable<UserDirectoryDto>? table;
+    private TenantLookupDto? selectedOrganization;
+    private string searchText = string.Empty, roleFilter = string.Empty, stateFilter = string.Empty, sortBy = "name";
+    private string? organizationId, loadError, organizationError, appliedLocation;
+    private bool? testFilter;
+    private int pageIndex, pageSize = 25, total, generation;
+    private bool descending, disposed, reloadAfterRender, focusDirectoryAfterRender;
+    private ElementReference directoryRegion;
+    private CancellationTokenSource? queryCancellation;
+    private TableData<UserDirectoryDto> lastData = new() { Items = [], TotalItems = 0 };
+    private bool HasFilters => !string.IsNullOrWhiteSpace(searchText) || !string.IsNullOrWhiteSpace(organizationId) || !string.IsNullOrWhiteSpace(roleFilter) || !string.IsNullOrWhiteSpace(stateFilter) || testFilter.HasValue;
 
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private List<UserDto> users = new();
-    private List<OrganizationDto> organizations = new();
-    private string searchText = string.Empty;
-    private string? appliedQuerySearch;
-
-    private IEnumerable<UserDto> filteredUsers => string.IsNullOrWhiteSpace(searchText)
-        ? users
-        : users.Where(user =>
-            Contains(user.Name, searchText) ||
-            Contains(user.Email, searchText) ||
-            Contains(user.Role, searchText) ||
-            Contains(GetOrganizationName(user.OrganizationId), searchText));
-
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        await LoadUsers();
+        if (appliedLocation == Navigation.Uri) return;
+        appliedLocation = Navigation.Uri;
+        searchText = QuerySearch ?? string.Empty; organizationId = QueryOrganization;
+        roleFilter = QueryRole ?? string.Empty; stateFilter = QueryState ?? string.Empty;
+        testFilter = QueryCohort switch { "testing" => true, "production" => false, _ => null };
+        pageIndex = Math.Max(0, (QueryPage ?? 1) - 1); pageSize = QueryPageSize is 50 or 100 ? QueryPageSize.Value : 25;
+        sortBy = QuerySort is "email" or "organization" or "state" ? QuerySort : "name"; descending = QueryDescending;
+        var actor = AuthenticationStateTask is null ? null : (await AuthenticationStateTask).User;
+        if (actor?.IsInRole("HelpdeskAdmin") != true) return;
+        if (!string.IsNullOrWhiteSpace(organizationId))
+        {
+            var requestedOrganization = organizationId;
+            try
+            {
+                var organizations = await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(requestedOrganization)}");
+                if (disposed || organizationId != requestedOrganization) return;
+                selectedOrganization = organizations?.FirstOrDefault(); organizationError = null;
+            }
+            catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
+            {
+                if (disposed || organizationId != requestedOrganization) return;
+                selectedOrganization = new() { Id = requestedOrganization, Name = "Selected organization" };
+                organizationError = "Organization lookup is unavailable. Your selection is retained; retry the lookup.";
+            }
+        }
+        else selectedOrganization = null;
+        reloadAfterRender = table is not null;
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!string.Equals(appliedQuerySearch, QuerySearch, StringComparison.Ordinal))
+        if (reloadAfterRender && table is not null) { reloadAfterRender = false; await table.ReloadServerData(); }
+        if (focusDirectoryAfterRender) { focusDirectoryAfterRender = false; await directoryRegion.FocusAsync(); }
+    }
+
+    private async Task<TableData<UserDirectoryDto>> LoadServerData(TableState state, CancellationToken ct)
+    {
+        queryCancellation?.Cancel(); queryCancellation?.Dispose();
+        queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var current = ++generation;
+        var token = queryCancellation.Token;
+        if (!string.IsNullOrWhiteSpace(state.SortLabel)) { sortBy = state.SortLabel; descending = state.SortDirection == SortDirection.Descending; }
+        pageIndex = state.Page; pageSize = state.PageSize;
+        var parameters = new Dictionary<string, string?> {
+            ["search"] = searchText, ["organizationId"] = organizationId, ["role"] = roleFilter, ["state"] = stateFilter,
+            ["isTestUser"] = testFilter?.ToString().ToLowerInvariant(), ["page"] = (pageIndex + 1).ToString(), ["pageSize"] = pageSize.ToString(),
+            ["sortBy"] = sortBy, ["descending"] = descending.ToString().ToLowerInvariant() };
+        try
         {
-            appliedQuerySearch = QuerySearch;
-            searchText = QuerySearch ?? string.Empty;
+            var page = await Api.GetFromJsonAsync<PagedResult<UserDirectoryDto>>(QueryHelpers.AddQueryString("api/v1/users/query", parameters), token)
+                ?? throw new JsonException("Missing team query response.");
+            if (current != generation || disposed) return lastData;
+            loadError = null; total = page.Total; pageIndex = page.Page - 1;
+            lastData = new() { Items = page.Items, TotalItems = page.Total };
+            WriteLocation();
+            await InvokeAsync(StateHasChanged);
+            if (state.Page != pageIndex && table is not null) table.NavigateTo(pageIndex);
+            return lastData;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return lastData; }
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
+        {
+            if (current == generation && !disposed)
+            {
+                loadError = "Team members could not be loaded. Your query is retained; retry when the service is available.";
+                await InvokeAsync(StateHasChanged);
+            }
+            return new() { Items = [], TotalItems = 0 };
         }
     }
 
-    private async Task LoadUsers()
+    private async Task<IEnumerable<TenantLookupDto>> FindOrganizations(string search, CancellationToken ct)
     {
-        var usersTask = HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users");
-        var organizationsTask = HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations");
-
-        users = await usersTask ?? new();
-        organizations = await organizationsTask ?? new();
+        try
+        {
+            organizationError = null;
+            return await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", ct) ?? [];
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return []; }
+        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
+        {
+            organizationError = "Organization lookup is unavailable. Your selection is retained; retry the search.";
+            await InvokeAsync(StateHasChanged);
+            return [];
+        }
     }
-
+    private Task SearchChanged(string value) { searchText = value ?? string.Empty; return QueryChanged(); }
+    private Task RoleChanged(string value) { roleFilter = value; return QueryChanged(); }
+    private Task StateChanged(string value) { stateFilter = value; return QueryChanged(); }
+    private Task CohortChanged(bool? value) { testFilter = value; return QueryChanged(); }
+    private Task OrganizationChanged(TenantLookupDto? value) { selectedOrganization = value; organizationId = value?.Id; return QueryChanged(); }
+    private Task ClearFilters() { searchText = roleFilter = stateFilter = string.Empty; organizationId = null; selectedOrganization = null; testFilter = null; return QueryChanged(); }
+    private string SortState(string key) => sortBy == key ? descending ? "descending" : "ascending" : "none";
+    private string SortIcon(string key) => sortBy == key ? descending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward : Icons.Material.Filled.UnfoldMore;
+    private Task ChangeSort(string key) { descending = sortBy == key && !descending; sortBy = key; return QueryChanged(); }
+    private Task QueryChanged() { pageIndex = 0; WriteLocation(); table?.NavigateTo(0); return Refresh(); }
+    private Task Refresh() => table?.ReloadServerData() ?? Task.CompletedTask;
+    private void PageChanged(int value) { pageIndex = value; WriteLocation(); }
+    private void PageSizeChanged(int value) { pageSize = value; pageIndex = 0; WriteLocation(); }
+    private void WriteLocation()
+    {
+        var uri = Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> {
+            ["search"] = string.IsNullOrWhiteSpace(searchText) ? null : searchText, ["organizationId"] = organizationId,
+            ["role"] = string.IsNullOrWhiteSpace(roleFilter) ? null : roleFilter, ["state"] = string.IsNullOrWhiteSpace(stateFilter) ? null : stateFilter,
+            ["cohort"] = testFilter switch { true => "testing", false => "production", _ => null }, ["page"] = pageIndex == 0 ? null : pageIndex + 1,
+            ["pageSize"] = pageSize == 25 ? null : pageSize, ["sort"] = sortBy == "name" ? null : sortBy, ["descending"] = descending ? true : null });
+        appliedLocation = uri;
+        if (Navigation.Uri != uri) Navigation.NavigateTo(uri, replace: true);
+    }
     private async Task OpenCreateDialog()
     {
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CreateUserDialog>("Create User", options);
-        var result = await dialog.Result;
-        await LoadUsers();
+        var dialog = await DialogService.ShowAsync<CreateUserDialog>("Create user", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Refresh();
     }
-
-    private async Task OpenEditDialog(UserDto user)
+    private async Task OpenEditDialog(UserDirectoryDto user)
     {
-        var parameters = new DialogParameters { ["User"] = user };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<EditUserDialog>("Edit User", parameters, options);
-        var result = await dialog.Result;
-        if (!result.Canceled)
-        {
-            await LoadUsers();
-        }
+        var dialog = await DialogService.ShowAsync<EditUserDialog>("Edit user", new DialogParameters { ["User"] = ToUser(user) }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Refresh();
     }
-
-    private async Task OpenResetDialog(UserDto user)
+    private async Task OpenResetDialog(UserDirectoryDto user)
     {
-        var parameters = new DialogParameters { ["User"] = user };
-        await DialogService.ShowAsync<ResetLocalAccountDialog>("Manage local account", parameters,
-            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var profile = ToUser(user) with { Id = user.AccountId ?? user.Id };
+        var dialog = await DialogService.ShowAsync<ResetLocalAccountDialog>("Manage local account", new DialogParameters { ["User"] = profile }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Refresh();
     }
-
-    private async Task OpenDeleteDialog(UserDto user)
+    private async Task OpenSignInDialog(UserDirectoryDto user)
     {
-        var parameters = new DialogParameters { ["User"] = user };
-        var options = new DialogOptions { MaxWidth = MaxWidth.ExtraSmall };
-        var dialog = await DialogService.ShowAsync<DeleteUserDialog>("Delete User", parameters, options);
-        var result = await dialog.Result;
-        if (!result.Canceled)
-        {
-            await LoadUsers();
-        }
+        var dialog = await DialogService.ShowAsync<ChangeUserSignInDialog>(AccountEnabled(user) ? "Disable sign-in" : "Enable sign-in", new DialogParameters { ["User"] = user }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await Refresh();
     }
-
-    private static bool Contains(string? value, string search) =>
-        !string.IsNullOrWhiteSpace(value) && value.Contains(search, StringComparison.OrdinalIgnoreCase);
-
-    private string GetOrganizationName(string? organizationId)
+    private async Task OpenDeleteDialog(UserDirectoryDto user)
     {
-        if (string.IsNullOrWhiteSpace(organizationId))
-        {
-            return "-";
-        }
-
-        return organizations.FirstOrDefault(x => x.Id == organizationId)?.Name ?? organizationId;
+        var dialog = await DialogService.ShowAsync<DeleteUserDialog>("Delete user", new DialogParameters { ["User"] = ToUser(user) }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) { await Refresh(); focusDirectoryAfterRender = true; StateHasChanged(); }
     }
-
+    private static string RoleSummary(UserDirectoryDto user) => user.RoleKeys.Count > 0 ? string.Join(", ", user.RoleKeys) : user.Role;
+    private static UserDto ToUser(UserDirectoryDto user) => new(user.Id, user.Name, user.Email, user.Role, user.IsTestUser, user.OrganizationId);
+    private static bool AccountEnabled(UserDirectoryDto user) => user.AccountSignInEnabled ?? user.AccountState == "Enabled";
+    private static string StateLabel(string value) => value switch { "Enabled" => "Enabled", "Disabled" => "Disabled", "External" => "External identity", _ => "Profile only" };
+    public void Dispose() { disposed = true; queryCancellation?.Cancel(); queryCancellation?.Dispose(); }
 }

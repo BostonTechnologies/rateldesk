@@ -1,233 +1,129 @@
 @page "/admin/customers"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
+@implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
-@using Helpdesk.Shared.DTOs.Customer
-@using Helpdesk.Shared.DTOs.Organization
-@using Helpdesk.Shared.Enums
-@using Helpdesk.Shared.Models
-@using System.Text.Json
+@inject NavigationManager NavigationManager
+@using HelpDesk.NewWeb.Models
 
-<PageTitle>Customer Management</PageTitle>
+<PageTitle>Customers</PageTitle>
 
-<MudPaper Class="pa-4">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-        <MudText Typo="Typo.h5">Customer Management</MudText>
-        <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateDialog">Create</MudButton>
-    </MudStack>
-    <MudTextField T="string"
-                  @bind-Value="searchText"
-                  Label="Search customers"
-                  Variant="Variant.Outlined"
-                  Margin="Margin.Dense"
-                  Adornment="Adornment.Start"
-                  AdornmentIcon="@Icons.Material.Filled.Search"
-                  Class="mb-3"
-                  Immediate="true" />
-    <MudTable Items="filteredCustomers" Hover="true" Dense="true" T="CustomerDto">
-        <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Email</MudTh>
-            <MudTh>Organization</MudTh>
-            <MudTh>State</MudTh>
-            <MudTh>Access</MudTh>
-            <MudTh class="text-end"></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Name">@context.Name</MudTd>
-            <MudTd DataLabel="Email">@context.Email</MudTd>
-            <MudTd DataLabel="Organization">@context.OrganizationName</MudTd>
-            <MudTd DataLabel="State">
-                <MudTooltip Text="@context.State.Description()">
-                    <MudIconButton Icon="@(context.IsEnabled ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Block)"
-                                   Color="@(context.IsEnabled ? Color.Success : Color.Error)"
-                                   Size="Size.Small"
-                                   aria-label="@($"Customer {context.State.DisplayName()}")" />
-                </MudTooltip>
-            </MudTd>
-            <MudTd DataLabel="Access">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudChip T="string"
-                             Dense="true"
-                             Color="@GetAuthStatusColor(context.AuthStatus?.InviteStatus)"
-                             Variant="Variant.Outlined">
-                        @(context.AuthStatus?.StatusText ?? "Not invited")
-                    </MudChip>
-                    <MudTooltip Text="@GetInviteTooltip(context)">
-                        <MudIconButton Icon="@GetInviteIcon(context.AuthStatus?.InviteStatus)"
-                                       Color="@GetAuthStatusColor(context.AuthStatus?.InviteStatus)"
-                                       Size="Size.Small"
-                                       Disabled="@IsInviteActionDisabled(context)"
-                                       aria-label="@GetInviteActionLabel(context)"
-                                       OnClick="() => RunInviteAction(context)" />
-                    </MudTooltip>
-                </MudStack>
-            </MudTd>
-            <MudTd Class="text-end">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                               Color="Color.Primary"
-                               Size="Size.Small"
-                               aria-label="Edit customer"
-                               OnClick="() => OpenEditDialog(context)" />
-                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                               Color="Color.Error"
-                               Size="Size.Small"
-                               aria-label="Delete customer"
-                               OnClick="() => OpenDeleteDialog(context)" />
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-</MudPaper>
+<AdminDirectoryWorkspace Title="Customers" Subtitle="Manage contacts and their application access."
+                         TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="@source.Error" OnRefresh="ReloadAsync">
+    <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create customer</MudButton></PrimaryAction>
+    <ToolbarContent>
+        <MudTextField T="string" Value="query.Search" ValueChanged="SearchChangedAsync" Label="Search name, email or organization"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" MaxLength="120" />
+        <OrganizationDirectorySelector Value="@query.Get("organizationId")" ValueChanged="@(value => FilterChangedAsync("organizationId", value))" />
+        <MudSelect T="string" Value="@(query.Get("enabled") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("enabled", value))" Label="Customer state" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All states</MudSelectItem><MudSelectItem Value="@("true")">Enabled</MudSelectItem><MudSelectItem Value="@("false")">Disabled</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="string" Value="@(query.Get("access") ?? string.Empty)" ValueChanged="@(value => FilterChangedAsync("access", value))" Label="Access / invitation" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="@(string.Empty)">All access states</MudSelectItem><MudSelectItem Value="@("unlinked")">No linked login</MudSelectItem><MudSelectItem Value="@("linked")">Linked login</MudSelectItem>
+            <MudSelectItem Value="@("pending")">Pending</MudSelectItem><MudSelectItem Value="@("active")">Active</MudSelectItem><MudSelectItem Value="@("disabled")">Login disabled</MudSelectItem><MudSelectItem Value="@("failed")">Failed / needs review</MudSelectItem><MudSelectItem Value="@("expired")">Expired</MudSelectItem>
+        </MudSelect>
+        <MudButton OnClick="ClearAsync" Disabled="@(!query.HasFilters)" StartIcon="@Icons.Material.Outlined.FilterAltOff">Clear filters</MudButton>
+    </ToolbarContent>
+    <ChildContent>
+        <MudTable T="CustomerDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
+                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
+            <HeaderContent>
+                <DirectorySortHeader Column="name" Label="Customer" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="email" Label="Email" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="organization" Label="Organization" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="state" Label="State" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <DirectorySortHeader Column="access" Label="Access" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
+                <MudTh Class="directory-action-column">Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Customer"><span class="directory-primary">@context.Name</span></MudTd>
+                <MudTd DataLabel="Email"><span class="directory-secondary">@context.Email</span></MudTd>
+                <MudTd DataLabel="Organization">@context.OrganizationName</MudTd>
+                <MudTd DataLabel="State">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
+                <MudTd DataLabel="Access">@(context.AuthStatus?.StatusText ?? "Access unavailable")</MudTd>
+                <MudTd DataLabel="Actions"><div class="directory-actions">
+                    <WorkspaceAction Label="Edit customer" Icon="@Icons.Material.Outlined.Edit" OnClick="() => OpenEditDialog(context)" />
+                    <WorkspaceAction Label="@GetInviteActionLabel(context)" Icon="@GetInviteIcon(context.AuthStatus?.InviteStatus)"
+                                     Disabled="@(IsInviteActionDisabled(context) || busyCustomerId == context.Id)" DisabledReason="@GetInviteTooltip(context)" OnClick="() => RunInviteAction(context)" />
+                    <WorkspaceAction Label="Delete customer" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="() => OpenDeleteDialog(context)" />
+                </div></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No customers match these filters." : "No customers yet. Create a customer to begin.")</MudText></NoRecordsContent>
+            <LoadingContent><MudText>Loading customers…</MudText></LoadingContent>
+            <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" ShowFirstLast="true" /></PagerContent>
+        </MudTable>
+    </ChildContent>
+</AdminDirectoryWorkspace>
 
 @code {
-    [SupplyParameterFromQuery(Name = "search")]
-    public string? QuerySearch { get; set; }
-
+    [SupplyParameterFromQuery(Name = "search")] public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "organizationId")] public string? QueryOrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "enabled")] public string? QueryEnabled { get; set; }
+    [SupplyParameterFromQuery(Name = "access")] public string? QueryAccess { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? QueryPage { get; set; }
+    [SupplyParameterFromQuery(Name = "pageSize")] public string? QueryPageSize { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "descending")] public string? QueryDescending { get; set; }
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private List<CustomerDto> customers = new();
-    private List<OrganizationDto> organizations = new();
-    private string searchText = string.Empty;
-    private string? appliedQuerySearch;
-
-    private IEnumerable<CustomerDto> filteredCustomers => string.IsNullOrWhiteSpace(searchText)
-        ? customers
-        : customers.Where(customer =>
-            Contains(customer.Name, searchText) ||
-            Contains(customer.Email, searchText) ||
-            Contains(customer.OrganizationName, searchText));
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadData();
-    }
+    private readonly AdminDirectoryQueryState query = new("organizationId", "enabled", "access");
+    private readonly AdminDirectoryDataSource<CustomerDto> source = new();
+    private MudTable<CustomerDto>? table;
+    private string? busyCustomerId;
 
     protected override void OnParametersSet()
     {
-        if (!string.Equals(appliedQuerySearch, QuerySearch, StringComparison.Ordinal))
-        {
-            appliedQuerySearch = QuerySearch;
-            searchText = QuerySearch ?? string.Empty;
-        }
+        if (query.Read(NavigationManager.Uri) && table is not null) _ = table.ReloadServerData();
     }
-
-    private async Task LoadData()
+    private async Task<TableData<CustomerDto>> LoadAsync(TableState state, CancellationToken ct)
     {
-        organizations = await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new();
-        var raw = await HelpdeskApi.GetFromJsonAsync<List<CustomerDto>>("api/v1/customers") ?? new();
-        foreach (var c in raw)
-        {
-            c.OrganizationName = organizations.FirstOrDefault(o => o.Id == c.OrganizationId)?.Name ?? string.Empty;
-            c.AuthStatus = await HelpdeskApi.GetFromJsonAsync<CustomerAuthStatusDto>($"api/v1/customers/{c.Id}/auth/status");
-        }
-        customers = raw;
+        var loading = source.LoadAsync(HelpdeskApi, query.ApiUrl("api/v1/admin/directories/customers", state), ct);
+        await InvokeAsync(StateHasChanged);
+        var data = await loading;
+        if (source.HasLoaded) query.Page = source.Page;
+        query.Remember(NavigationManager);
+        await InvokeAsync(StateHasChanged);
+        return data;
     }
+    private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
+    private async Task ResetPageAsync() { query.Page = 0; query.Remember(NavigationManager); if (table is not null) { table.NavigateTo(0); await table.ReloadServerData(); } }
+    private Task SortChangedAsync(string column) { query.Descending = query.Sort == column && !query.Descending; query.Sort = column; return ResetPageAsync(); }
+    private Task SearchChangedAsync(string? value) { query.Search = value; return ResetPageAsync(); }
+    private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
+    private Task ClearAsync() { query.Clear(); return ResetPageAsync(); }
 
+    private async Task<List<OrganizationDto>> DialogOrganizationsAsync() => await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
     private async Task OpenCreateDialog()
     {
-        var parameters = new DialogParameters { ["Organizations"] = organizations };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("Create Customer", parameters, options);
-        var result = await dialog.Result;
-        if (!result.Canceled)
-        {
-            await LoadData();
-        }
+        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("Create Customer", new DialogParameters { ["Organizations"] = await DialogOrganizationsAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
     private async Task OpenEditDialog(CustomerDto customer)
     {
-        var parameters = new DialogParameters
-        {
-            ["Customer"] = customer,
-            ["Organizations"] = organizations
-        };
-        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
-        var dialog = await DialogService.ShowAsync<EditCustomerDialog>("Edit Customer", parameters, options);
-        var result = await dialog.Result;
-        if (!result.Canceled)
-        {
-            await LoadData();
-        }
+        var dialog = await DialogService.ShowAsync<EditCustomerDialog>("Edit Customer", new DialogParameters { ["Customer"] = customer, ["Organizations"] = await DialogOrganizationsAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
     private async Task OpenDeleteDialog(CustomerDto customer)
     {
-        var parameters = new DialogParameters { ["Customer"] = customer };
-        var options = new DialogOptions { MaxWidth = MaxWidth.ExtraSmall };
-        var dialog = await DialogService.ShowAsync<DeleteCustomerDialog>("Delete Customer", parameters, options);
-        var result = await dialog.Result;
-        if (!result.Canceled)
-        {
-            await LoadData();
-        }
+        var dialog = await DialogService.ShowAsync<DeleteCustomerDialog>("Delete Customer", new DialogParameters { ["Customer"] = customer }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall });
+        if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
-
-    private static bool Contains(string? value, string search) =>
-        !string.IsNullOrWhiteSpace(value) && value.Contains(search, StringComparison.OrdinalIgnoreCase);
-
     private async Task RunInviteAction(CustomerDto customer)
     {
+        if (busyCustomerId is not null || IsInviteActionDisabled(customer)) return;
+        busyCustomerId = customer.Id;
         var status = customer.AuthStatus?.InviteStatus ?? CustomerInviteStatus.NotInvited;
-        var route = status switch
-        {
-            CustomerInviteStatus.Pending or CustomerInviteStatus.Failed or CustomerInviteStatus.Expired => "resend-invite",
-            _ => "invite"
-        };
-
+        var route = status is CustomerInviteStatus.Pending or CustomerInviteStatus.Failed or CustomerInviteStatus.Expired ? "resend-invite" : "invite";
         try
         {
-            var response = await HelpdeskApi.PostAsync($"api/v1/customers/{customer.Id}/auth/{route}", null);
-            if (!response.IsSuccessStatusCode)
-            {
-                await RefreshAuthStatus(customer);
-                Snackbar.Add(await ReadProblemMessageAsync(response), Severity.Error);
-                return;
-            }
-
-            customer.AuthStatus = await response.Content.ReadFromJsonAsync<CustomerAuthStatusDto>();
-            Snackbar.Add(route == "invite" ? "Invite sent." : "Invite resent.", Severity.Success);
+            using var response = await HelpdeskApi.PostAsync($"api/v1/customers/{customer.Id}/auth/{route}", null);
+            if (!response.IsSuccessStatusCode) Snackbar.Add($"Invitation could not be sent (HTTP {(int)response.StatusCode}). Review the customer access state and retry.", Severity.Error);
+            else Snackbar.Add(route == "invite" ? "Invite sent." : "Invite resent.", Severity.Success);
+            await ReloadAsync();
         }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Invite failed: {ex.Message}", Severity.Error);
-        }
+        catch (HttpRequestException) { Snackbar.Add("Invitation service could not be reached. Review access state before retrying.", Severity.Error); }
+        finally { busyCustomerId = null; }
     }
-
-    private async Task RefreshAuthStatus(CustomerDto customer)
-    {
-        try
-        {
-            customer.AuthStatus = await HelpdeskApi.GetFromJsonAsync<CustomerAuthStatusDto>($"api/v1/customers/{customer.Id}/auth/status");
-        }
-        catch
-        {
-            // Keep the existing row state if the status refresh also fails.
-        }
-    }
-
-    private static async Task<string> ReadProblemMessageAsync(HttpResponseMessage response)
-    {
-        var body = await response.Content.ReadAsStringAsync();
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return $"Invite failed ({(int)response.StatusCode}).";
-        }
-
-        try
-        {
-            var problem = JsonSerializer.Deserialize<ProblemResponse>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            return problem?.Detail ?? problem?.Title ?? body;
-        }
-        catch (JsonException)
-        {
-            return body;
-        }
-    }
-
-    private sealed record ProblemResponse(string? Title, string? Detail);
-
     private static bool IsInviteActionDisabled(CustomerDto customer)
     {
         if (!customer.IsEnabled)
@@ -259,9 +155,12 @@
         };
     }
 
-    private static string GetInviteTooltip(CustomerDto customer) => customer.IsEnabled
-        ? GetInviteActionLabel(customer)
-        : "Enable the customer before inviting.";
+    private static string GetInviteTooltip(CustomerDto customer) => !customer.IsEnabled
+        ? "Enable the customer before inviting."
+        : customer.AuthStatus?.HasMultipleIdentityLinks == true ? "Review the multiple linked identities before changing access."
+        : customer.AuthStatus?.AuthProviderType == "Local" ? "Manage local account activation and sign-in in Team."
+        : IsInviteActionDisabled(customer) ? customer.AuthStatus?.IdentitySummary ?? "Invitation requires an enabled organization and configured external invitation provider."
+        : GetInviteActionLabel(customer);
 
     private static string GetInviteIcon(CustomerInviteStatus? status) => status switch
     {
@@ -283,4 +182,5 @@
         _ => Color.Default
     };
 
+    public void Dispose() => source.Dispose();
 }

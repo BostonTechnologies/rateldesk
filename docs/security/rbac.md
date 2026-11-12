@@ -57,6 +57,48 @@ inside the selected tenant.
 Instance administrators use the full Team administration flow for all broader
 account actions.
 
+### Application user deletion
+
+Instance administrators use the Team directory's separate **Enable/Disable
+sign-in** and **Delete user** actions. Enable/Disable is reversible. Delete
+permanently retires application access and removes the person from active Team,
+tenant member, search and assignment directories. The directory searches,
+filters, counts and sorts all active users on the server before applying its
+25/50/100 page size (default 25). Existing user array and lookup contracts retain
+their shapes; `GET /api/v1/users/query` is the additive administration query.
+
+Deletion retains the domain user, customer contacts, verified identity links and
+Identity login keys as tombstones so ticket, worklog and audit attribution remains
+readable. It clears password/authenticator material, invalidates sessions,
+revokes application integration credentials and pending credential deliveries,
+removes role grants and disables support memberships/subscriptions. No external
+identity provider account is deleted. Both application and identity changes,
+including the actor/target audit record, commit in one database transaction on
+SQLite and PostgreSQL; a failure rolls the entire retirement back.
+
+Deleted access cannot be restored by Enable, activation, invitations, tenant
+membership changes or automatic OIDC provisioning. Local account names and
+verified external subjects remain reserved; a genuinely different identity needs
+an explicit administrator onboarding review. A same-email contact in another
+organization is never an identity match or permission to revive a deleted user.
+Self deletion and deletion of the last enabled instance administrator are
+rejected. Tenant delegates retain their narrower membership controls and cannot
+delete global application access.
+
+A legacy external link containing only a provider directory ID must first record
+its verified OIDC issuer and subject through a normal sign-in. Delete explains
+this dependency and remains blocked until all related application credentials can
+be identified. Email matching never substitutes for that identity link. Legacy
+customer activation routes also reject deleted access, disabled links and accounts
+whose credentials belong to an external identity provider.
+
+The delete dialog remains open on a rejected operation. A lost response can be
+retried against the same user: completed deletion is idempotent and does not
+duplicate its audit record. Refresh the current query after success; a deleted
+last-page item clamps the page while retaining search and filters. Upgrades apply
+the additive user/identity retirement fields through each database provider's
+normal migration history; historical records are retained.
+
 The API remains authoritative for the page and all direct requests:
 
 - `GET /api/v1/tenant-admin/organizations?permission=…` accepts only supported

@@ -31,6 +31,8 @@ internal static class SelfServiceRequesterResolver
             customer = await db.Customers.SingleOrDefaultAsync(x => x.Id == access.CustomerId, ct);
             if (customer?.IsEnabled != true)
                 return Denied("requester_unavailable", "Your requester profile is unavailable. Ask an administrator to review your account.");
+            if (customer.IdentityUserId is not null && !await db.Users.AsNoTracking().AnyAsync(x => x.Id == customer.IdentityUserId && !x.IsDeleted, ct))
+                return Denied("requester_unavailable", "Your requester identity is retired or unavailable. Ask an administrator to review it.");
             var localId = principal.FindFirstValue("auth_mode") is "local" or "integration"
                 ? principal.FindFirstValue(ClaimTypes.NameIdentifier) : null;
             var issuer = principal.FindFirstValue("iss")?.TrimEnd('/');
@@ -61,13 +63,13 @@ internal static class SelfServiceRequesterResolver
             if (identityDb is null || string.IsNullOrWhiteSpace(accountId))
                 return Denied("requester_unavailable", "Your account has no eligible requester profile. Ask an administrator to review its organization membership.");
             var account = await identityDb.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == accountId, ct);
-            if (account?.IsEnabled != true)
+            if (account?.IsEnabled != true || account.IsDeleted)
                 return Denied("requester_unavailable", "Your account is unavailable. Ask an administrator to review your access.");
             var link = await db.CustomerAuthLinks.AsNoTracking().SingleOrDefaultAsync(x => x.LocalAccountId == accountId || x.DomainUserId == accountId, ct);
             if (link is not null)
                 return Denied("requester_unavailable", "Your linked requester profile is unavailable. Ask an administrator to review it before retrying.");
             domainUser = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == accountId, ct);
-            if (domainUser is null || string.IsNullOrWhiteSpace(domainUser.Email))
+            if (domainUser is null || domainUser.IsDeleted || string.IsNullOrWhiteSpace(domainUser.Email))
                 return Denied("requester_unavailable", "Your account has no eligible requester profile. Ask an administrator to review its organization membership.");
             customer = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == domainUser.Id, ct);
             if (customer is not null && !customer.IsEnabled)

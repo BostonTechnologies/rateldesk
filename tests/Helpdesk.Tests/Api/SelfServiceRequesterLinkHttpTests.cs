@@ -32,32 +32,35 @@ public sealed class SelfServiceRequesterLinkHttpTests
     public async Task Disabled_provider_id_only_link_denies_context_and_direct_submission_without_writes(string claim)
     {
         await using var h = await CreateAsync(claim);
+        var linkId = Guid.NewGuid().ToString("N");
+        var disabledAt = DateTimeOffset.UtcNow;
         await h.EditAsync(db =>
         {
             db.CustomerAuthLinks.Add(new CustomerAuthLink
             {
-                CustomerId = h.CustomerId, AuthentikUserId = ProviderUserId,
-                InviteStatus = CustomerInviteStatus.Disabled, DisabledAtUtc = DateTimeOffset.UtcNow
+                Id = linkId, CustomerId = h.CustomerId, AuthentikUserId = ProviderUserId,
+                InviteStatus = CustomerInviteStatus.Disabled, DisabledAtUtc = disabledAt
             });
             return Task.CompletedTask;
         });
 
         using var context = await SendAsync(h, HttpMethod.Get, "/api/v1/self-service/submission-context?requestFormId=legacy-form");
-        Assert.Equal(HttpStatusCode.OK, context.StatusCode);
-        var preview = await context.Content.ReadFromJsonAsync<SelfServiceSubmissionContextDto>();
-        Assert.False(preview!.CanSubmit);
-        Assert.Equal("requester_unavailable", preview.ErrorCode);
+        // The access policy rejects the disabled identity before either handler
+        // can produce a submission-context or requester-error response body.
+        Assert.Equal(HttpStatusCode.Forbidden, context.StatusCode);
         await AssertUnchangedAsync(h, 1);
 
         using var submission = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", Submission());
         Assert.Equal(HttpStatusCode.Forbidden, submission.StatusCode);
-        Assert.Contains("requester_unavailable", await submission.Content.ReadAsStringAsync());
         await AssertUnchangedAsync(h, 1);
         await h.EditAsync(async db =>
         {
             var link = await db.CustomerAuthLinks.SingleAsync();
+            Assert.Equal(linkId, link.Id);
+            Assert.Equal(h.CustomerId, link.CustomerId);
+            Assert.Equal(ProviderUserId, link.AuthentikUserId);
             Assert.Equal(CustomerInviteStatus.Disabled, link.InviteStatus);
-            Assert.NotNull(link.DisabledAtUtc);
+            Assert.Equal(disabledAt, link.DisabledAtUtc);
             Assert.Null(link.OidcIssuer);
             Assert.Null(link.OidcSubject);
         });

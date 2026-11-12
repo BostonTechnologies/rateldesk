@@ -29,7 +29,7 @@
                         <MudAlert Severity="Severity.Warning">@orchestrationTenantsError</MudAlert>
                     }
                     <MudSelect T="int?" @bind-Value="model.OrchestrationTenantId" Label="External orchestration Tenant" Clearable="true" Disabled="orchestrationTenantsLoading">
-                        @foreach (var tenant in orchestrationTenants)
+                        @foreach (var tenant in OrchestrationTenantOptions)
                         {
                             <MudSelectItem T="int?" Value="@tenant.TenantId">@tenant.Name (@tenant.TenantId)</MudSelectItem>
                         }
@@ -59,6 +59,13 @@
     private bool orchestrationTenantsLoading;
     private string? orchestrationTenantsError;
     private IEnumerable<OrganizationDto> ManagerOrganizationOptions => Organizations.Where(x => x.IsEnabled && !string.Equals(x.Id, Organization.Id, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase);
+    // A display-only fallback preserves the saved choice without persisting a
+    // placeholder as if it were a name returned by the remote tenant catalog.
+    private IEnumerable<OrchestrationCatalogTenantDto> OrchestrationTenantOptions => Organization.OrchestrationTenantId is { } savedId &&
+        !orchestrationTenants.Any(tenant => tenant.TenantId == savedId)
+        ? orchestrationTenants.Append(new OrchestrationCatalogTenantDto
+            { TenantId = savedId, Name = Organization.OrchestrationTenantName ?? "Saved tenant (name unavailable)" })
+        : orchestrationTenants;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -66,7 +73,7 @@
         {
             Name = Organization.Name, DnsName = Organization.DnsName, ContactInfo = Organization.ContactInfo,
             ItSupportOrganizationId = Organization.ItSupportOrganizationId, OrchestrationTenantId = Organization.OrchestrationTenantId,
-            OrchestrationTenantLinkedAtUtc = Organization.OrchestrationTenantLinkedAtUtc, State = Organization.State,
+            State = Organization.State,
             Enabled = Organization.State == EntityState.Enabled
         };
         await LoadOrchestrationTenantsAsync();
@@ -77,23 +84,34 @@
         await form.ValidateAsync();
         if (!form.IsValid) return;
         model.State = model.Enabled ? EntityState.Enabled : EntityState.Blocked;
-        var response = await Api.PutAsJsonAsync($"api/v1/organizations/{Organization.Id}", new
+        using var response = await Api.PutAsJsonAsync($"api/v1/organizations/{Organization.Id}", new
         {
             model.Name, model.DnsName, model.ContactInfo,
             ItSupportOrganizationId = string.IsNullOrWhiteSpace(model.ItSupportOrganizationId) ? null : model.ItSupportOrganizationId,
             model.State, model.OrchestrationTenantId,
-            OrchestrationTenantName = orchestrationTenants.FirstOrDefault(x => x.TenantId == model.OrchestrationTenantId)?.Name,
-            OrchestrationTenantLinkedAtUtc = model.OrchestrationTenantId.HasValue ? (DateTimeOffset?)(model.OrchestrationTenantLinkedAtUtc ?? DateTimeOffset.UtcNow) : null
+            OrchestrationTenantName = orchestrationTenants.FirstOrDefault(x => x.TenantId == model.OrchestrationTenantId)?.Name
+                ?? (model.OrchestrationTenantId == Organization.OrchestrationTenantId ? Organization.OrchestrationTenantName : null),
+            OrchestrationTenantLinkedAtUtc = !model.OrchestrationTenantId.HasValue ? (DateTimeOffset?)null
+                : model.OrchestrationTenantId == Organization.OrchestrationTenantId ? Organization.OrchestrationTenantLinkedAtUtc : DateTimeOffset.UtcNow
         });
         if (response.IsSuccessStatusCode) { Dialog.Close(DialogResult.Ok(true)); return; }
-        Snackbar.Add(await response.Content.ReadAsStringAsync(), Severity.Error);
+        Snackbar.Add($"Organization could not be saved (HTTP {(int)response.StatusCode}). Your changes are retained; review them and retry.", Severity.Error);
     }
 
     private async Task LoadOrchestrationTenantsAsync()
     {
         orchestrationTenantsLoading = true;
-        try { orchestrationTenants = await Api.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>("api/v1/admin/orchestration/catalog/tenants") ?? new(); }
-        catch (Exception ex) { orchestrationTenantsError = $"External orchestration tenant catalog could not be loaded: {ex.Message}"; }
+        orchestrationTenants = [];
+        try
+        {
+            orchestrationTenantsError = null;
+            orchestrationTenants = await Api.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>("api/v1/admin/orchestration/catalog/tenants") ?? new();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException or
+            Polly.CircuitBreaker.BrokenCircuitException or Polly.Timeout.TimeoutRejectedException)
+        {
+            orchestrationTenantsError = "The external tenant catalog is unavailable. Your saved mapping is retained.";
+        }
         finally { orchestrationTenantsLoading = false; }
     }
 
@@ -104,7 +122,6 @@
         public string? ContactInfo { get; set; }
         public string? ItSupportOrganizationId { get; set; }
         public int? OrchestrationTenantId { get; set; }
-        public DateTimeOffset? OrchestrationTenantLinkedAtUtc { get; set; }
         public EntityState State { get; set; }
         public bool Enabled { get; set; }
     }
