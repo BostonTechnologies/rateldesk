@@ -4,7 +4,7 @@ import path from 'node:path';
 const captures = new Map<string, number>();
 
 /** Optional rendered evidence for the owner's complete table audit. Never reads a remote instance. */
-export async function captureTables(page: Page) {
+export async function captureTables(page: Page, contextLabel?: string) {
   const directory = process.env.RATELDESK_TABLE_EVIDENCE_DIR;
   if (!directory || page.isClosed() || page.url() === 'about:blank') return;
   const url = new URL(page.url());
@@ -100,7 +100,7 @@ export async function captureTables(page: Page) {
     const target = await surface.evaluate(element => element.matches('table')) ? surface.locator('xpath=..') : surface;
     await target.screenshot({ path: path.join(destination, screenshot), animations: 'disabled',
       mask: [page.locator('[data-sensitive], [data-testid*=secret], [class*=credential-secret], input[type=password]')] });
-    receipts.push({ id, instance, hostContext, route: url.pathname, test: info.title, screenshot, before, after,
+    receipts.push({ id, instance, hostContext, context: contextLabel ?? info.title, route: url.pathname, test: info.title, screenshot, before, after,
       checked: { contained: true, scroll: scrolled, stickyHeader: scrolled && before.headerVisible, reachablePager: after.pagerTop !== null, keyboardFocus },
       headerMode: before.headerVisible ? 'column headers' : before.headers ? 'responsive labels' : 'semantic content without a column header' });
     await scrollHandle.dispose();

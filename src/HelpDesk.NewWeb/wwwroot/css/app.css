@@ -1454,7 +1454,7 @@ body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
 .compact-content-table :is(td, th) { padding: .375rem .625rem; font-size: .875rem; overflow-wrap: anywhere; }
 .compact-tabs .mud-tab { min-height: 36px; text-transform: none; font-size: .875rem; color: var(--mud-palette-text-secondary); }
 .compact-tabs .mud-tab.mud-tab-active { color: var(--mud-palette-text-primary); background: var(--mud-palette-action-default-hover); }
-.compact-tabs .mud-tabs-slider { background: var(--mud-palette-text-secondary); }
+.compact-tabs .mud-tab-slider { background: var(--mud-palette-text-secondary); }
 .organization-dependency { padding-block: .625rem; border-bottom: 1px solid var(--mud-palette-divider); }
 .compact-filter-options .mud-list-item { min-height: 32px; padding-block: .25rem; }
 .compact-filter-options .filter-option-label { font-size: .875rem; line-height: 1.35; overflow-wrap: anywhere; }

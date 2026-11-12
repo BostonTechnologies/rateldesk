@@ -30,7 +30,8 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     if (!baselineReview) {
       await page.getByRole('textbox', { name: 'Start', exact: true }).nth(1).click();
       await expect(page.locator('.mud-picker-time-container')).toBeVisible();
-      await page.getByRole('button', { name: 'Cancel', exact: true }).last().click();
+      await page.getByRole('dialog', { name: 'Start', exact: true }).press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Start', exact: true })).toBeHidden();
       await expect(page.getByRole('dialog')).toHaveCount(1);
     }
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -62,7 +63,8 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
       }
     }
     await open('/admin/layouts');
-    await page.getByRole('button', { name: 'Edit layout', exact: true }).first().click();
+    if (baselineReview) await page.locator('table tbody tr').first().getByRole('button').first().click();
+    else await page.getByRole('button', { name: 'Edit layout', exact: true }).first().click();
     const authored = page.frameLocator('iframe[title="Layout Preview"]');
     await expect(authored.locator('table[role="presentation"]')).toBeVisible();
     await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');

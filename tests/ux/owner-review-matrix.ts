@@ -64,8 +64,21 @@ export async function reviewCapture(page: Page, info: TestInfo, mode: ReviewMode
     await page.addStyleTag({ content: ':root { --mud-palette-primary: #6868aa; --mud-palette-secondary: #547f80; --mud-palette-table-lines: #9381aa; --mud-palette-divider: #9381aa; }' });
   }
   if (!baselineReview) for (const id of expectedIds) await expect(page.locator(`[data-table-surface="${id}"]:visible`).first()).toBeVisible();
+  if (!baselineReview) for (const tabs of await page.locator('.compact-tabs:visible').all()) {
+    const slider = tabs.locator('.mud-tab-slider').first();
+    if (!await slider.isVisible()) continue;
+    const neutral = await tabs.evaluate(element => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--mud-palette-text-secondary)';
+      element.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    await expect(slider, 'Tabs use the neutral theme indicator').toHaveCSS('background-color', neutral);
+  }
   await page.evaluate(async () => { await document.fonts.ready; });
-  await captureTables(page);
+  await captureTables(page, label);
   const screenshot = info.outputPath(`${label}.png`);
   await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled', mask: [page.locator('input[type=password], [data-sensitive]')] });
   await writeFile(info.outputPath(`${label}.json`), JSON.stringify({ baseline: baselineReview, route: new URL(page.url()).pathname, mode, expectedIds, screenshot: path.basename(screenshot), visibleTables: await page.locator('table:visible').count() }, null, 2));
