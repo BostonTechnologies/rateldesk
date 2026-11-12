@@ -67,8 +67,9 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     await open('/admin/layouts');
     if (baselineReview) await page.locator('table tbody tr').first().getByRole('button').first().click();
     else await page.getByRole('button', { name: 'Edit layout', exact: true }).first().click();
-    await page.locator('iframe[title="Layout Preview"]').scrollIntoViewIfNeeded();
+    await page.bringToFront();
     await expect(page.locator('iframe[title="Layout Preview"]')).toHaveAttribute('srcdoc', /View Ticket/);
+    await page.locator('iframe[title="Layout Preview"]').scrollIntoViewIfNeeded();
     const authored = page.frameLocator('iframe[title="Layout Preview"]');
     await expect(authored.locator('table[role="presentation"]')).toBeVisible();
     await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');

@@ -60,6 +60,10 @@ through 1366×768, 1440×900, 390×844, light/dark palettes, browser-only custom
 palettes and native Chrome 200% zoom. Set `RATELDESK_REVIEW_OWNER` to the owning
 suite and `RATELDESK_TABLE_EVIDENCE_DIR` to an artifact directory. This deep audit
 is separate from normal CI; it does not replace required gates.
+Native zoom uses headed Chromium (an Xvfb display on headless Linux) and real
+viewport screenshots. Full-page/element screenshot emulation changes native
+zoom geometry and must not be used to manufacture zoom evidence. Raw run
+statistics and bounded reruns remain visible in the evidence register.
 
 Record actual DOM geometry, scrolling, pager reachability, visible content and
 screenshots. A source `FixedHeader` flag or audit identifier alone establishes

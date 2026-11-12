@@ -20,12 +20,12 @@ const setup = defineConfig({
       env: { ASPNETCORE_ENVIRONMENT: 'Development', ASPNETCORE_URLS: 'https://127.0.0.1:5255', ApiBaseUrl: 'http://127.0.0.1:5256/', Authentication__Mode: 'Local' } }
   ]
 });
-const owners = { admin, operations, details, editor, 'self-service': selfService, integrations, premium, ai, filters, pending, setup };
+const owners = { admin, email: admin, operations, details, editor, 'self-service': selfService, integrations, premium, ai, filters, pending, setup };
 const name = process.env.RATELDESK_REVIEW_OWNER as keyof typeof owners;
 if (!owners[name]) throw new Error('Set RATELDESK_REVIEW_OWNER to the owning synthetic suite.');
 const owner = owners[name];
 const servers = (owner.webServer as any[]).slice(0, name === 'admin' ? 3 : 2).map(server => ({ ...server, reuseExistingServer: false }));
-if (name === 'admin') for (const [index, server] of servers.slice(1).entries()) {
+if (name === 'admin' || name === 'email') for (const [index, server] of servers.slice(1).entries()) {
   server.url = `https://127.0.0.1:${5260 + index}/health`;
   server.env = { ...server.env, ASPNETCORE_URLS: `https://127.0.0.1:${5260 + index}` };
 }
@@ -37,5 +37,5 @@ export default defineConfig({
   timeout: 240_000, expect: { timeout: 15_000 }, webServer: servers,
   outputDir: process.env.RATELDESK_REVIEW_OUTPUT ?? `test-results/owner-review-${name}`,
   reporter: [['list'], ['json', { outputFile: process.env.RATELDESK_REVIEW_REPORT ?? `test-results/owner-review-${name}.json` }]],
-  use: { baseURL: name === 'admin' ? 'https://127.0.0.1:5260' : owner.use?.baseURL, ignoreHTTPSErrors: true, screenshot: 'off', trace: 'off', actionTimeout: 15_000, navigationTimeout: 30_000 }
+  use: { baseURL: name === 'admin' || name === 'email' ? 'https://127.0.0.1:5260' : owner.use?.baseURL, ignoreHTTPSErrors: true, screenshot: 'off', trace: 'off', actionTimeout: 15_000, navigationTimeout: 30_000 }
 });

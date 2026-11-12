@@ -20,7 +20,10 @@ export async function reviewPage(browser: Browser, origin: string, mode: ReviewM
   const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', headless: false, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
   let page: Page | undefined;
   try {
-    await context.addInitScript(theme => localStorage.setItem('helpdesk.theme.preference', theme), mode.theme);
+    await context.addInitScript(theme => {
+      if (window === window.top && ['127.0.0.1', 'localhost'].includes(location.hostname))
+        localStorage.setItem('helpdesk.theme.preference', theme);
+    }, mode.theme);
     page = await context.newPage();
     await page.bringToFront();
     await page.goto(`${origin}/auth/development`);
