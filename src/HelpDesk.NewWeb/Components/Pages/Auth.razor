@@ -19,7 +19,7 @@
 <AuthorizeView>
     <Authorized>
         <MudGrid Spacing="4">
-            
+
             @* Card 1: User Profile *@
             <MudItem xs="12" md="4">
                 <MudPaper Elevation="3" Class="pa-4" Height="100%">
@@ -47,7 +47,7 @@
                                       Lines="5"
                                       ReadOnly="true"
                                       Label="Your Access Token" />
-                        <MudButton Variant="Variant.Filled" 
+                        <MudButton Variant="Variant.Filled"
                                    Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.ContentCopy"
                                    OnClick="CopyToClipboard"
@@ -58,11 +58,11 @@
                     }
                 </MudPaper>
             </MudItem>
-            
+
             @* Card 3: Claims Table *@
             <MudItem xs="12">
                 <MudPaper Elevation="3" Class="pa-4">
-                    <MudTable Items="@context.User.Claims" Hover="true" Dense="true" Elevation="0">
+                    <MudTable Items="@context.User.Claims" Hover="true" Dense="true" Elevation="0" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-auth-1">
                         <HeaderContent>
                             <MudTh>Claim Type</MudTh>
                             <MudTh>Claim Value</MudTh>

@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { chromium, expect, test, type Page } from '@playwright/test';
 import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -369,6 +370,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
         await settleFiniteAnimations(page);
         await expect.poll(() => drawer.evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(1);
+        await captureTables(page);
         const cdp = await context.newCDPSession(page);
         let screenshot: Buffer;
         try {

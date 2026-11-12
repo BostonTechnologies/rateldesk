@@ -4,13 +4,17 @@
 <MudDialog>
     <TitleContent><MudText Typo="Typo.h6">@Role.Name assignments</MudText></TitleContent>
     <DialogContent>
-        <MudTabs>
+        <MudTabs Class="compact-tabs">
             <MudTabPanel Text="Permissions"><MudList T="string" Dense="true">@foreach (var permission in Role.Permissions) { <MudListItem T="string" Value="@permission">@permission</MudListItem> }</MudList></MudTabPanel>
             <MudTabPanel Text="Assignments">
-                <MudText Typo="Typo.caption" Class="mb-2">Explicit user-role-organization assignments (up to 200).</MudText>
-                @if (loading) { <MudProgressLinear Indeterminate="true" /> }
-                else if (!string.IsNullOrWhiteSpace(error)) { <MudAlert Severity="Severity.Warning">@error <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="LoadAsync">Retry</MudButton></MudAlert> }
-                else { <MudTable Items="assignments" Dense="true"><HeaderContent><MudTh>Person</MudTh><MudTh>Email</MudTh><MudTh>Organization</MudTh></HeaderContent><RowTemplate><MudTd>@context.Name</MudTd><MudTd>@context.Email</MudTd><MudTd>@OrganizationName(context.OrganizationId)</MudTd></RowTemplate></MudTable> }
+                <MudText Typo="Typo.caption" Class="mb-2">Explicit user-role-organization assignments.</MudText>
+                @if (!string.IsNullOrWhiteSpace(error)) { <MudAlert Severity="Severity.Warning" role="alert">@error <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ReloadAsync">Retry</MudButton></MudAlert> }
+                <MudTable T="RoleAssignment" @ref="table" ServerData="LoadDataAsync" @bind-CurrentPage="currentPage" Dense="true" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-role-roleassignmentdetailsdialog-1">
+                    <HeaderContent><MudTh>Person</MudTh><MudTh>Email</MudTh><MudTh>Organization</MudTh></HeaderContent>
+                    <RowTemplate><MudTd DataLabel="Person">@context.Name</MudTd><MudTd DataLabel="Email">@context.Email</MudTd><MudTd DataLabel="Organization">@OrganizationName(context.OrganizationId)</MudTd></RowTemplate>
+                    <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+                    <NoRecordsContent><MudText Class="pa-3">@(error is null ? "No explicit assignments." : "Assignments unavailable. Retry the query.")</MudText></NoRecordsContent>
+                </MudTable>
             </MudTabPanel>
         </MudTabs>
     </DialogContent>
@@ -21,22 +25,23 @@
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public RoleManagement.RoleDefinition Role { get; set; } = default!;
     [Parameter] public IReadOnlyList<RoleManagement.TenantOrganization> Organizations { get; set; } = [];
-    private readonly List<RoleAssignment> assignments = [];
-    private bool loading = true;
+    private MudTable<RoleAssignment>? table;
+    private int currentPage;
     private string? error;
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
-    protected override Task OnInitializedAsync() => LoadAsync();
-    private async Task LoadAsync()
+    private Task ReloadAsync() => table?.ReloadServerData() ?? Task.CompletedTask;
+    private async Task<TableData<RoleAssignment>> LoadDataAsync(TableState state, CancellationToken ct)
     {
-        loading = true;
         error = null;
         try
         {
-            assignments.Clear();
-            assignments.AddRange(await Api.GetFromJsonAsync<List<RoleAssignment>>($"api/v1/admin/role-definitions/{Role.Id}/assignments") ?? []);
+            var response = await Api.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResponse<RoleAssignment>>($"api/v1/admin/role-definitions/{Role.Id}/assignments?paged=true&page={state.Page + 1}&pageSize={state.PageSize}", ct) ?? new();
+            ct.ThrowIfCancellationRequested(); currentPage = Math.Max(0, response.Page - 1);
+            return new() { Items = response.Items, TotalItems = response.TotalCount };
         }
-        catch (HttpRequestException) { error = "Role assignments could not be loaded."; }
-        finally { loading = false; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException)
+        { error = "Role assignments could not be loaded."; return new() { Items = [], TotalItems = 0 }; }
     }
     private string OrganizationName(string id) => Organizations.FirstOrDefault(organization => organization.Id == id)?.Name ?? id;
     private sealed record RoleAssignment(string UserId, string Name, string Email, string OrganizationId);

@@ -17,19 +17,9 @@
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="self-service-page">
   <div class="self-service-catalog">
     <section class="self-service-header">
-        <MudBreadcrumbs Items="_breadcrumbs" Class="self-service-breadcrumbs" />
-        <div class="self-service-heading-row">
-            <div class="self-service-heading-copy">
-                <MudText Typo="Typo.h3" HtmlTag="h1" Class="self-service-title">@CurrentCatalogTitle</MudText>
-                <MudText Typo="Typo.body2" Class="self-service-description">
-                    Browse available service folders and request cards. Pick a request to get started, or open a folder to find the right option.
-                </MudText>
-            </div>
-            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Class="self-service-total-chip">
-                @VisibleRequestSummary
-            </MudChip>
-        </div>
-        <MudDivider Class="self-service-divider" />
+        <h1 class="catalog-accessible-heading">@CurrentCatalogTitle</h1>
+        @if (!string.IsNullOrWhiteSpace(ServiceId))
+        { <MudBreadcrumbs Items="_breadcrumbs" Class="self-service-breadcrumbs" /> }
         <div class="self-service-toolbar" role="search" aria-label="Service catalogue">
         <MudTextField @bind-Value="searchString"
                       @bind-Value:after="PersistSearch"
@@ -42,6 +32,7 @@
                       Variant="Variant.Outlined"
                       Margin="Margin.Dense"
                       Class="self-service-search" />
+        <span class="self-service-result-count" role="status">@VisibleRequestSummary</span>
         </div>
     </section>
 

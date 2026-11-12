@@ -42,7 +42,7 @@
             {
             <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Overdue</MudText>
-            <MudTable T="TaskOpsRowDto" Items="overdue.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="TaskOpsRowDto" Items="overdue.Items" Dense="true" Hover="true" RowsPerPage="@PageSizeFor("overdue")" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-workflowopsdashboard-1">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Request</MudTh>
@@ -50,7 +50,7 @@
                     <MudTh>Assignee</MudTh>
                     <MudTh>Due At</MudTh>
                     <MudTh>Status</MudTh>
-                    <MudTh></MudTh>
+                    <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
@@ -58,9 +58,11 @@
                     <MudTd DataLabel="Assignee">@(context.AssignedToDisplayName ?? context.AssignedToId ?? "-")</MudTd>
                     <MudTd DataLabel="Due At">@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
                     <MudTd DataLabel="Status">@context.Status</MudTd>
-                    <MudTd DataLabel="Actions"><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
+                    <MudTd DataLabel="Actions"><div class="workspace-actions"><WorkspaceAction Href="@($"/requests/{context.RequestId}")" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" /></div></MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="@PageFor("overdue")" PageSize="@PageSizeFor("overdue")" Total="overdue.TotalCount" Busy="loading" Changed="@(request => ChangePageAsync("overdue", request))" /></PagerContent>
+</MudTable>
         </MudPaper>
             }
 
@@ -68,7 +70,7 @@
             {
             <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Escalated</MudText>
-            <MudTable T="TaskOpsRowDto" Items="escalated.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="TaskOpsRowDto" Items="escalated.Items" Dense="true" Hover="true" RowsPerPage="@PageSizeFor("escalated")" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-workflowopsdashboard-2">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Request</MudTh>
@@ -76,7 +78,7 @@
                     <MudTh>Assignee</MudTh>
                     <MudTh>Due At</MudTh>
                     <MudTh>Status</MudTh>
-                    <MudTh></MudTh>
+                    <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
@@ -84,9 +86,11 @@
                     <MudTd DataLabel="Assignee">@(context.AssignedToDisplayName ?? context.AssignedToId ?? "-")</MudTd>
                     <MudTd DataLabel="Due At">@context.DueAt?.LocalDateTime.ToString("g")</MudTd>
                     <MudTd DataLabel="Status">@context.Status</MudTd>
-                    <MudTd DataLabel="Actions"><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
+                    <MudTd DataLabel="Actions"><div class="workspace-actions"><WorkspaceAction Href="@($"/requests/{context.RequestId}")" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" /></div></MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="@PageFor("escalated")" PageSize="@PageSizeFor("escalated")" Total="escalated.TotalCount" Busy="loading" Changed="@(request => ChangePageAsync("escalated", request))" /></PagerContent>
+</MudTable>
         </MudPaper>
             }
 
@@ -96,7 +100,7 @@
             {
             <MudPaper Class="pa-3">
                 <MudText Typo="Typo.h6" Class="mb-2">Retries Pending</MudText>
-                <MudTable T="TaskOpsRowDto" Items="retriesPending.Items" Dense="true" Hover="true" Loading="@loading">
+                <MudTable T="TaskOpsRowDto" Items="retriesPending.Items" Dense="true" Hover="true" RowsPerPage="@PageSizeFor("retries")" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-workflowopsdashboard-3">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                     <HeaderContent>
                         <MudTh>Request</MudTh>
@@ -104,7 +108,7 @@
                         <MudTh>Next Retry</MudTh>
                         <MudTh>Retry Count</MudTh>
                         <MudTh>Status</MudTh>
-                        <MudTh></MudTh>
+                        <MudTh>Actions</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
@@ -114,12 +118,14 @@
                         <MudTd DataLabel="Status">@context.Status</MudTd>
                         <MudTd DataLabel="Actions">
                             <MudStack Row="true" Spacing="1">
-                                <MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton>
-                                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(async () => await RetryNowAsync(context.TaskId))">Retry now</MudButton>
+                                <WorkspaceAction Href="@($"/requests/{context.RequestId}")" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" />
+                                <WorkspaceAction OnClick="@(async () => await RetryNowAsync(context.TaskId))" Label="Retry now" Icon="@Icons.Material.Outlined.Replay" />
                             </MudStack>
                         </MudTd>
                     </RowTemplate>
-                </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="@PageFor("retries")" PageSize="@PageSizeFor("retries")" Total="retriesPending.TotalCount" Busy="loading" Changed="@(request => ChangePageAsync("retries", request))" /></PagerContent>
+</MudTable>
             </MudPaper>
             }
         }
@@ -128,7 +134,7 @@
             {
             <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Critical Failures (24h)</MudText>
-            <MudTable T="TaskOpsRowDto" Items="criticalFailures.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="TaskOpsRowDto" Items="criticalFailures.Items" Dense="true" Hover="true" RowsPerPage="@PageSizeFor("critical")" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-workflowopsdashboard-4">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Request</MudTh>
@@ -136,7 +142,7 @@
                     <MudTh>Failure Policy</MudTh>
                     <MudTh>Reason</MudTh>
                     <MudTh>Status</MudTh>
-                    <MudTh></MudTh>
+                    <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
@@ -144,9 +150,11 @@
                     <MudTd DataLabel="Failure Policy">@context.FailurePolicy</MudTd>
                     <MudTd DataLabel="Reason">@context.FailureReason</MudTd>
                     <MudTd DataLabel="Status">@context.Status</MudTd>
-                    <MudTd DataLabel="Actions"><MudButton Variant="Variant.Text" Href="@($"/requests/{context.RequestId}")">Open</MudButton></MudTd>
+                    <MudTd DataLabel="Actions"><div class="workspace-actions"><WorkspaceAction Href="@($"/requests/{context.RequestId}")" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" /></div></MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="@PageFor("critical")" PageSize="@PageSizeFor("critical")" Total="criticalFailures.TotalCount" Busy="loading" Changed="@(request => ChangePageAsync("critical", request))" /></PagerContent>
+</MudTable>
         </MudPaper>
             }
 
@@ -154,25 +162,27 @@
             {
             <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">External orchestration Callback Rejections (7d)</MudText>
-            <MudTable T="OrchestrationCallbackRejectionOpsDto" Items="callbackRejections.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="OrchestrationCallbackRejectionOpsDto" Items="callbackRejections.Items" Dense="true" Hover="true" RowsPerPage="@PageSizeFor("callbacks")" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-workflowopsdashboard-5">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>When</MudTh>
                     <MudTh>Reason</MudTh>
                     <MudTh>Caller</MudTh>
                     <MudTh>Correlation</MudTh>
-                    <MudTh></MudTh>
+                    <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="When">@context.CreatedUtc.ToLocalTime().ToString("g")</MudTd>
                     <MudTd DataLabel="Reason">@context.ReasonCode</MudTd>
                     <MudTd DataLabel="Caller">@(context.CallerClientId ?? "-")</MudTd>
                     <MudTd DataLabel="Correlation">@(context.CorrelationId ?? "-")</MudTd>
-                    <MudTd DataLabel="Actions">
-                        <MudButton Variant="Variant.Text" Href="@BuildNotificationsLink(context.CorrelationId)">Notifications</MudButton>
-                    </MudTd>
+                    <MudTd DataLabel="Actions"><div class="workspace-actions">
+                        <WorkspaceAction Href="@BuildNotificationsLink(context.CorrelationId)" Label="Notifications" Icon="@Icons.Material.Outlined.Notifications" />
+                    </div></MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="@PageFor("callbacks")" PageSize="@PageSizeFor("callbacks")" Total="callbackRejections.TotalCount" Busy="loading" Changed="@(request => ChangePageAsync("callbacks", request))" /></PagerContent>
+</MudTable>
         </MudPaper>
             }
 
@@ -180,7 +190,7 @@
             {
             <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Binding Issues</MudText>
-            <MudTable T="AutomationBindingIssueOpsDto" Items="bindingIssues.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="AutomationBindingIssueOpsDto" Items="bindingIssues.Items" Dense="true" Hover="true" RowsPerPage="@PageSizeFor("bindings")" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-workflowopsdashboard-6">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching issues.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Service</MudTh>
@@ -202,7 +212,9 @@
                     <MudTd DataLabel="External orchestration Target">@(context.OrchestrationRequestDefinitionName ?? context.OrchestrationRequestDefinitionId)</MudTd>
                     <MudTd DataLabel="Last Sync">@context.LastSyncedAtUtc?.LocalDateTime.ToString("g")</MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="@PageFor("bindings")" PageSize="@PageSizeFor("bindings")" Total="bindingIssues.TotalCount" Busy="loading" Changed="@(request => ChangePageAsync("bindings", request))" /></PagerContent>
+</MudTable>
         </MudPaper>
             }
         }
@@ -229,6 +241,10 @@
         "critical" => criticalFailures.TotalCount, "callbacks" => callbackRejections.TotalCount, _ => bindingIssues.TotalCount };
     private string CountLabel(string key) => errors.ContainsKey(key) ? "Unavailable" : loading ? "…" : Count(key).ToString();
     private bool loading;
+    private readonly Dictionary<string, WorkspacePageRequest> pages = new();
+    private int PageFor(string category) => pages.GetValueOrDefault(category)?.Page ?? 1;
+    private int PageSizeFor(string category) => pages.GetValueOrDefault(category)?.PageSize ?? 25;
+    private async Task ChangePageAsync(string category, WorkspacePageRequest request) { pages[category] = request; await LoadAllAsync(); }
     private bool isAdmin;
     private PagedResponse<TaskOpsRowDto> overdue = new();
     private PagedResponse<TaskOpsRowDto> escalated = new();
@@ -296,7 +312,15 @@
     {
         try
         {
-            return await HelpdeskApi.GetFromJsonAsync<PagedResponse<T>>(url, lifetime.Token) ?? new PagedResponse<T>();
+            url = url.Replace("page=1&pageSize=25", $"page={PageFor(label)}&pageSize={PageSizeFor(label)}", StringComparison.Ordinal);
+            var result = await HelpdeskApi.GetFromJsonAsync<PagedResponse<T>>(url, lifetime.Token) ?? new PagedResponse<T>();
+            var last = Math.Max(1, (int)Math.Ceiling((double)result.TotalCount / PageSizeFor(label)));
+            if (PageFor(label) > last)
+            {
+                var previous = PageFor(label); pages[label] = new(last, PageSizeFor(label));
+                result = await HelpdeskApi.GetFromJsonAsync<PagedResponse<T>>(url.Replace($"page={previous}&", $"page={last}&", StringComparison.Ordinal), lifetime.Token) ?? new();
+            }
+            return result;
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
         catch (HttpRequestException ex)

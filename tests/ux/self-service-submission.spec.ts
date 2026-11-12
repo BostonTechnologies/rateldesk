@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 
 const fixture = 'http://127.0.0.1:18440/fixture';
@@ -103,3 +104,6 @@ test('form cancel and successful return retain the catalog folder and search con
   await expect(page).toHaveURL(/\/self-service\/service-0\?search=access$/);
   await expect(page.getByRole('textbox', { name: 'Search services and requests' })).toHaveValue('access');
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

@@ -164,7 +164,7 @@
                     <MudStep Title="Review">
                         <h2>Review your setup</h2>
                         <p class="setup-stage-description">Initialize the instance to save these settings and create your administrator account.</p>
-                        <MudSimpleTable Dense="true"><tbody>
+                        <MudSimpleTable Dense="true" Class="compact-content-table" data-table-surface="pages-setup-1"><tbody>
                             <tr><td>Storage</td><td>@(_provider == "PostgreSql" ? (_storageManaged ? "PostgreSQL (managed by deployment)" : $"PostgreSQL at {_host}:{_port}/{_database}") : "Embedded SQLite")</td></tr>
                             <tr><td>Organization</td><td>@_organization</td></tr>
                             <tr><td>Application</td><td>@_applicationName</td></tr>

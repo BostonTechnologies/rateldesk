@@ -8,7 +8,7 @@ const originalRequests = Array.from({ length: 137 }, (_, i) => ({
   state: i % 7, releaseStatus: i % 2,
   createdAt: '2026-11-01T12:00:00Z', updatedAt: new Date(Date.UTC(2026, 10, 2, 12, i)).toISOString()
 }));
-let count = 7, fault = '', requests = [], rows = structuredClone(originalRequests), submissions = [], receipts = new Map(), formCard = false;
+let count = 7, fault = '', requests = [], rows = structuredClone(originalRequests), submissions = [], receipts = new Map(), formCard = false, tableReview = false;
 const catalogue = () => formCard ? [{ id: 'form-synthetic', name: 'Synthetic access request', description: 'Harmless rendered submission fixture', itemType: 1 }]
   : Array.from({ length: count }, (_, i) => ({ id: `service-${i}`, name: `Service ${i + 1} for synthetic access and device support`,
   description: i % 2 ? 'A short description.' : 'A longer description that remains accessible in full while the common card geometry reserves two lines and anchors all footers consistently.',
@@ -19,7 +19,11 @@ http.createServer(async (req, res) => {
   const path = url.pathname.replace(/\/$/, '');
   const reply = (value, status = 200) => { if (!res.destroyed) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); } };
   if (path === '/fixture/health') return reply({ ok: true });
-  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; return reply({ ok: true }); }
+  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; tableReview = false; return reply({ ok: true }); }
+  if (path === '/fixture/table-review') { tableReview = true; formCard = true; return reply({ synthetic: true }); }
+  if (tableReview && path === '/api/v1/captcha') return reply({ id: '79000000-0000-4000-8000-000000000001', imageBase64: 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="50"><text x="5" y="30">123456</text></svg>').toString('base64') });
+  if (tableReview && path === '/api/v1/public/tickets/submit') return reply({ id: 'synthetic-public-ticket', trackingId: 'INC-SYNTHETIC' });
+  if (tableReview && path.startsWith('/api/v1/request-approvals/public/')) return reply({ requestId: 'request-0', requestTaskId: 'task-0', trackingId: 'REQ-SYN-000', requestTitle: 'Synthetic public approval', requestDescription: 'Read-only completed approval fixture', taskName: 'Synthetic approval', approverName: 'Synthetic Approver', approverEmail: 'approver@example.test', approvalStatus: 2, canReview: false, payloadFields: Array.from({ length: 35 }, (_, i) => ({ key: `Field ${i}`, value: `Synthetic long submitted value ${i} for safe read-only review` })) });
   if (path === '/fixture/form-card') { formCard = true; return reply({ ok: true }); }
   if (path === '/fixture/state') return reply({ requests, count, submissions, receiptCount: receipts.size });
   if (path === '/fixture/catalogue') { count = Math.max(0, Math.min(100, Number(url.searchParams.get('count') ?? 7))); return reply({ ok: true }); }
@@ -79,8 +83,8 @@ http.createServer(async (req, res) => {
     receipt.completed = true;
     return reply(value);
   }
-  if (/^\/api\/v1\/self-service\/requests\/[^/]+$/.test(path)) return reply({ ...rows[0], description: 'Synthetic request detail', payloadJson: '{}' });
-  if (path.endsWith('/tasks')) return reply([]);
+  if (/^\/api\/v1\/self-service\/requests\/[^/]+$/.test(path)) return reply({ ...rows[0], description: 'Synthetic request detail', payloadJson: tableReview ? JSON.stringify(Object.fromEntries(Array.from({ length: 35 }, (_, i) => [`Field ${i}`, `Long synthetic submitted value ${i} for contained rendering`]))) : '{}' });
+  if (path.endsWith('/tasks')) return reply(tableReview ? Array.from({ length: 35 }, (_, i) => ({ id: `task-${i}`, name: `Synthetic task ${i}`, order: i, type: i % 3 + 1, status: i % 3 === 2 ? 6 : 1, pendingApprovals: i % 3 === 2 ? [{ id: `approval-${i}`, requestTaskId: `task-${i}`, taskName: `Synthetic task ${i}`, approverName: 'Synthetic Approver', approverEmail: 'approver@example.test', status: 1 }] : [] })) : []);
   if (path === '/api/v1/notifications') return reply({ items: [], totalCount: 0 });
   if (path.endsWith('/count')) return reply(0);
   if (path.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }

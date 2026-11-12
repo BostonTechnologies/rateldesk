@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -36,7 +37,7 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
     await expect(sections.getByRole('link')).toHaveCount(2);
     await expect(sections.getByRole('link', { name: 'Service Catalog' })).toHaveAttribute('aria-current', 'page');
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: info.outputPath('catalog-after.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: info.outputPath('catalog-after.png'), fullPage: true });
     await copyFile(path.resolve(`docs/implementation/assets/381-self-service/catalog-${width}x${height}-${theme}.png`), info.outputPath('catalog-before.png'));
     await copyFile(path.resolve('docs/implementation/assets/381-self-service/capture-receipt.json'), info.outputPath('baseline-source.json'));
 
@@ -62,7 +63,7 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
     expect(pagerCenters.length).toBeGreaterThan(1);
     expect(Math.max(...pagerCenters) - Math.min(...pagerCenters)).toBeLessThan(2);
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: info.outputPath('my-requests-after.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: info.outputPath('my-requests-after.png'), fullPage: true });
     await copyFile(path.resolve(`docs/implementation/assets/381-self-service/my-requests-${width}x${height}-${theme}.png`), info.outputPath('my-requests-before.png'));
   });
 }
@@ -81,7 +82,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 1920]) {
       expect(result.tracks).toBe(3);
       if (expectedWidth) expect(Math.abs(result.widths[0] - expectedWidth)).toBeLessThan(2);
       expectedWidth = result.widths[0];
-      await page.screenshot({ path: info.outputPath(`catalog-after-${count}-cards.png`), fullPage: true });
+      await captureTables(page); await page.screenshot({ path: info.outputPath(`catalog-after-${count}-cards.png`), fullPage: true });
       if (count === 1 || count === 2)
         await copyFile(path.resolve(`docs/implementation/assets/381-self-service/catalog-${count}-cards-${width}-${theme}.png`), info.outputPath(`catalog-before-${count}-cards.png`));
     }
@@ -99,7 +100,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 1920]) {
     await request.get(`${fixture}/catalogue?count=0`);
     await ready(page, '/self-service');
     await expect(page.getByText('No services or requests are available in this folder.')).toBeVisible();
-    await page.screenshot({ path: info.outputPath('catalog-empty.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: info.outputPath('catalog-empty.png'), fullPage: true });
   });
 }
 
@@ -180,12 +181,12 @@ test('superseded query, errors, no matches and page clamping remain truthful', a
   await expect(page.locator('.my-requests-table tbody tr')).toHaveCount(1);
   await search.fill('absent synthetic record');
   await expect(page.getByText('No requests match these filters. Try clearing a filter.')).toBeVisible();
-  await page.screenshot({ path: info.outputPath('my-requests-no-matches.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('my-requests-no-matches.png'), fullPage: true });
   await request.get(`${fixture}/fault?mode=requests`);
   await page.getByRole('button', { name: 'Refresh requests', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Requests could not be loaded', { timeout: 30_000 });
   await expect(search).toHaveValue('absent synthetic record');
-  await page.screenshot({ path: info.outputPath('my-requests-error.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('my-requests-error.png'), fullPage: true });
   await request.get(`${fixture}/fault`);
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
   await expect(page.locator('.my-requests-table tbody tr')).toHaveCount(25);
@@ -203,13 +204,13 @@ for (const theme of ['light', 'dark']) test(`catalog error, empty and no-match s
   await request.get(`${fixture}/fault?mode=catalogue`);
   await ready(page, '/self-service');
   await expect(page.getByRole('alert')).toContainText('Service Catalog could not be loaded', { timeout: 30_000 });
-  await page.screenshot({ path: info.outputPath('catalog-error.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('catalog-error.png'), fullPage: true });
   await request.get(`${fixture}/fault`);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.locator('.self-service-catalog-card')).toHaveCount(7);
   await page.getByRole('textbox', { name: 'Search services and requests' }).fill('No synthetic match');
   await expect(page.getByText('No services or requests match your search.')).toBeVisible();
-  await page.screenshot({ path: info.outputPath('catalog-no-matches.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('catalog-no-matches.png'), fullPage: true });
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();
   await expect(page.locator('.self-service-catalog-card')).toHaveCount(7);
   const first = page.locator('.self-service-catalog-card').first();
@@ -219,3 +220,6 @@ for (const theme of ['light', 'dark']) test(`catalog error, empty and no-match s
   await expect(page.getByRole('heading', { name: 'Synthetic hardware folder', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

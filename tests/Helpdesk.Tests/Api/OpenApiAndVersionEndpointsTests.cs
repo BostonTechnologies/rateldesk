@@ -147,17 +147,20 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // full-history audit paging and read-only Change template validation.
         // Trusted self submission adds one read-only requester/organization context.
         // Premium workspaces add five administration queries and an owned-request stream.
+        // Owner review adds administrator-only organization assessment and retirement.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(487, operationCount);
+        Assert.Equal(489, operationCount);
 #else
-        Assert.Equal(486, operationCount);
+        Assert.Equal(488, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, method, operationId, tag) in new[]
         {
+            ("/api/v1/organizations/{id}/deletion-assessment", "get", "GetOrganizationDeletionAssessment", "Organizations"),
+            ("/api/v1/organizations/{id}/retire", "post", "RetireOrganization", "Organizations"),
             ("/api/v1/ticketing/organizations/search", "get", "SearchCreationOrganizations", "Ticket Lookups"),
             ("/api/v1/ticketing/customers/search", "get", "SearchCreationCustomers", "Ticket Lookups"),
             ("/api/v1/ticketing/change-participants/search", "get", "SearchCreationChangeParticipants", "Ticket Lookups"),

@@ -23,7 +23,7 @@
                 Configuration @(importStatus.ConfigurationSaved ? "saved" : "not confirmed saved"). Import: @importStatus.Status.
                 @importStatus.Message
             </MudAlert>
-            <MudSimpleTable Class="mt-3" Dense="true"><thead><tr><th>Source</th><th>Import result</th><th>Rows</th><th>Completed (UTC)</th></tr></thead><tbody>
+            <MudSimpleTable Class="mt-3 compact-content-table" Dense="true" data-table-surface="pages-admin-resources-graphsetupwizard-1"><thead><tr><th>Source</th><th>Import result</th><th>Rows</th><th>Completed (UTC)</th></tr></thead><tbody>
                 @foreach (var source in importStatus.Sources) { <tr><td>@SourceName(source.SourceType)</td><td>@source.Status @source.Message</td><td>@(source.RowCount?.ToString() ?? "Unknown")</td><td>@(source.CompletedAtUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "Pending")</td></tr> }
             </tbody></MudSimpleTable>
             <MudText Typo="Typo.body2" Class="mt-3">Imported sources keep their committed results if another source fails. Closing this dialog does not cancel server work. Recurring scheduling is optional in Built-in integrations.</MudText>

@@ -13,7 +13,7 @@
     }
     else if (Items.Count > 0)
     {
-        <MudTable Items="Items" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm" Class="operations-recent-table">
+        <MudTable Items="Items" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm" Class="operations-recent-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="shared-operationsrecentpanel-1">
             <HeaderContent><MudTh>Tracking ID</MudTh><MudTh>Title</MudTh><MudTh>State</MudTh><MudTh>Updated</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Tracking ID"><MudLink Href="@context.Href" Class="operations-tracking">@context.TrackingId</MudLink></MudTd>

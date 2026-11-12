@@ -17,7 +17,7 @@
 
     <DialogContent>
         <MudForm @ref="form" Model="model" OnValidSubmit="Submit" Class="mt-2">
-            <MudTabs>
+            <MudTabs Class="compact-tabs">
                 <MudTabPanel Text="Details">
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
                     <MudTextField @bind-Value="model.Email" Label="Email" Required="true" />

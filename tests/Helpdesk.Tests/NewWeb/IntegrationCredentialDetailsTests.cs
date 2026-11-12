@@ -239,7 +239,7 @@ public sealed class IntegrationCredentialDetailsTests
     }
 
     private static IElement Button<T>(IRenderedComponent<T> view, string text) where T : IComponent =>
-        Assert.Single(view.FindAll("button"), button => button.TextContent.Trim() == text);
+        Assert.Single(view.FindAll("button"), button => button.TextContent.Trim() == text || button.GetAttribute("aria-label") == text);
 
     // The canonical permission token is a stable identity; the adjacent heading
     // intentionally presents the readable action rather than repeating that token.

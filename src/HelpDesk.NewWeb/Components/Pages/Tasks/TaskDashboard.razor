@@ -1,6 +1,7 @@
 @using HelpDesk.NewWeb.Models
 @using Helpdesk.Shared.Services
 @page "/tasks"
+@implements IDisposable
 @attribute [Authorize(Roles = "Request.Read,Request.Write,Request.Execute,Request.Manager,HelpdeskAdmin")]
 
 @using System.Net.Http.Json
@@ -30,6 +31,7 @@
     </MudStack>
 
     <div class="workspace-toolbar">
+        <TicketFilterLookup Module="task" Dimension="customer" Label="Tenant" Selected="SelectTenantAsync" />
         <MudSwitch T="bool" Value="assignedToMe" ValueChanged="OnAssignedToMeChanged" Color="Color.Primary" Label="Assigned to me" />
         <MudSelect T="RequestTaskStatus?" Value="statusFilter" ValueChanged="OnStatusChanged" Label="Status" Margin="Margin.Dense" Variant="Variant.Outlined">
             <MudSelectItem T="RequestTaskStatus?" Value="@((RequestTaskStatus?)null)">All</MudSelectItem>
@@ -41,6 +43,10 @@
         </MudSelect>
         <MudTextField T="string" Value="@search" ValueChanged="OnSearchChanged" Label="Search tasks" Immediate="true"
                       OnKeyUp="@(async _ => await DebouncedReload())" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Variant="Variant.Outlined" />
+    </div>
+    <div class="filter-chips" aria-label="Selected tenants">
+        @foreach (var id in organizationIds)
+        { <button type="button" class="task-tenant-chip" @onclick="() => RemoveTenantAsync(id)" aria-label="@($"Remove tenant {organizationLabels.GetValueOrDefault(id, id)}")">Tenant: @organizationLabels.GetValueOrDefault(id, id) <span aria-hidden="true">×</span></button> }
     </div>
     <details><summary>Advanced · request and service IDs</summary><MudGrid>        <MudItem xs="12" md="2">
             <MudTextField T="string" Value="@requestIdFilter" ValueChanged="OnRequestIdChanged" Label="Request ID" Dense="true" Variant="Variant.Outlined" />
@@ -75,12 +81,18 @@
               SelectedItemsChanged="@(x => _selected = x)"
               Dense="true"
               Hover="true" RowsPerPage="25" FixedHeader="true" FixedFooter="true"
-              Height="clamp(16rem, calc(100dvh - 23rem), 46rem)" Breakpoint="Breakpoint.Sm">
-        <ColGroup><col style="width:44px" /><col /><col /><col style="width:144px" /><col style="width:128px" /><col style="width:132px" /><col style="width:112px" /></ColGroup>
+              Height="clamp(16rem, calc(100dvh - 23rem), 46rem)" Breakpoint="Breakpoint.Sm" Class="compact-table" data-table-surface="pages-tasks-taskdashboard-1">
+        <ColGroup><col style="width:44px" /><col style="width:40px" /><col /><col /><col style="width:144px" /><col style="width:128px" /><col style="width:132px" /><col style="width:112px" /></ColGroup>
         <HeaderContent>
-            <MudTh>Request</MudTh><MudTh>Task</MudTh><MudTh>Status</MudTh><MudTh>Assignee</MudTh><MudTh>Created</MudTh><MudTh>Actions</MudTh>
+            <MudTh><span class="task-accessible-label">Details</span></MudTh><MudTh>Request</MudTh><MudTh>Task</MudTh><MudTh>Status</MudTh><MudTh>Assignee</MudTh><MudTh>Created</MudTh><MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Details">
+                <MudIconButton Icon="@(expandedTasks.Contains(context.Id) ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                    Size="Size.Small" Color="Color.Default" OnClick="() => ToggleDetails(context.Id)"
+                    aria-label="@($"{(expandedTasks.Contains(context.Id) ? "Collapse" : "Expand")} details for {context.Name}")"
+                    aria-expanded="@expandedTasks.Contains(context.Id).ToString().ToLowerInvariant()" aria-controls="@DetailsId(context)" />
+            </MudTd>
             <MudTd DataLabel="Request">
                 <MudLink Href="@($"/requests/{context.RequestId}")">@context.RequestTrackingId</MudLink>
                 <MudTooltip Text="@context.RequestTitle"><span class="workspace-secondary">@context.RequestTitle</span></MudTooltip>
@@ -109,23 +121,6 @@
                         <span class="workspace-secondary">External: @(RequiresManualReconciliation(context.LastAutomationStatus) ? "Reconciliation required" : WorkspaceLabels.Readable(context.LastAutomationStatus))</span>
                     </MudTooltip>
                 }
-                @if (context.Type == RequestTaskType.Automation && (context.StartedAt.HasValue || context.AutomationDeadlineUtcTicks.HasValue))
-                {
-                    <details class="task-execution-timing">
-                        <summary>Execution timing</summary>
-                        @if (context.StartedAt is { } started)
-                        { <span>Started: <time datetime="@started.ToString("O")">@started.LocalDateTime.ToString("g")</time></span><span>Time since start at refresh: @FormatElapsed(started)</span> }
-                        @if (context.AutomationDeadlineUtcTicks is { } ticks)
-                        { <span>Deadline: <time datetime="@(new DateTimeOffset(ticks, TimeSpan.Zero).ToString("O"))">@(new DateTimeOffset(ticks, TimeSpan.Zero).LocalDateTime.ToString("g"))</time></span> }
-                        <span>Last provider update: @(context.LastAutomationUpdatedAt?.LocalDateTime.ToString("g") ?? "Not confirmed")</span>
-                        @if (context.AutomationTimedOutAt.HasValue && RequiresManualReconciliation(context.LastAutomationStatus))
-                        { <span>The remote execution may still be running. Retry is held until its outcome is confirmed.</span> }
-                        else if (context.AutomationTimedOutAt.HasValue)
-                        { <span>The earlier timeout remains recorded. The provider outcome is now confirmed.</span> }
-                        @if (!string.IsNullOrWhiteSpace(context.FailureReason))
-                        { <span>@context.FailureReason</span> }
-                    </details>
-                }
             </MudTd>
             <MudTd DataLabel="Assignee"><MudTooltip Text="@GetAssigneeDisplay(context)"><span class="workspace-primary">@GetAssigneeDisplay(context)</span></MudTooltip></MudTd>
             <MudTd DataLabel="Created"><span>@context.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</span><span class="workspace-secondary">@context.CreatedAt.LocalDateTime.ToString("HH:mm")</span></MudTd>
@@ -150,12 +145,66 @@
                 </div>
             </MudTd>
         </RowTemplate>
+        <ChildRowContent>
+            @if (expandedTasks.Contains(context.Id))
+            {
+                <tr class="task-detail-row" @key="context.Id">
+                    <td colspan="8">
+                        <div class="task-detail-pane" id="@DetailsId(context)" data-testid="task-detail-pane">
+                            <section aria-label="Task and execution">
+                                <h3>Task and execution</h3>
+                                <dl><dt>Task</dt><dd>@context.Name</dd><dt>Request</dt><dd>@context.RequestTrackingId · @context.RequestTitle</dd>
+                                    <dt>Task ID</dt><dd>@context.Id</dd><dt>Type</dt><dd>@context.Type</dd>
+                                    <dt>Due</dt><dd>@(context.DueAt?.LocalDateTime.ToString("g") ?? "Not reported")</dd>
+                                    <dt>Expected runtime</dt><dd>@Seconds(context.ExpectedRuntimeSeconds)</dd>
+                                    <dt>Grace</dt><dd>@Seconds(context.GraceSeconds)</dd><dt>Hard timeout</dt><dd>@Seconds(context.HardTimeoutSeconds)</dd>
+                                    <dt>Retry count</dt><dd>@context.RetryCount</dd><dt>Next retry</dt><dd>@(context.NextRetryAt?.LocalDateTime.ToString("g") ?? "Not scheduled")</dd>
+                                </dl>
+                            </section>
+                @if (context.Type == RequestTaskType.Automation && (context.StartedAt.HasValue || context.AutomationDeadlineUtcTicks.HasValue))
+                {
+                    <section class="task-execution-timing" aria-label="Execution timing">
+                        <h3>Execution timing</h3>
+                        @if (context.StartedAt is { } started)
+                        { <span>Started: <time datetime="@started.ToString("O")">@started.LocalDateTime.ToString("g")</time></span><span>Time since start at refresh: @FormatElapsed(started)</span> }
+                        @if (context.AutomationDeadlineUtcTicks is { } ticks)
+                        { <span>Deadline: <time datetime="@(new DateTimeOffset(ticks, TimeSpan.Zero).ToString("O"))">@(new DateTimeOffset(ticks, TimeSpan.Zero).LocalDateTime.ToString("g"))</time></span> }
+                        <span>Last provider update: @(context.LastAutomationUpdatedAt?.LocalDateTime.ToString("g") ?? "Not confirmed")</span>
+                        @if (context.AutomationTimedOutAt.HasValue && RequiresManualReconciliation(context.LastAutomationStatus))
+                        { <span>The remote execution may still be running. Retry is held until its outcome is confirmed.</span> }
+                        else if (context.AutomationTimedOutAt.HasValue)
+                        { <span>The earlier timeout remains recorded. The provider outcome is now confirmed.</span> }
+                        @if (!string.IsNullOrWhiteSpace(context.FailureReason))
+                        { <span>@context.FailureReason</span> }
+                    </section>
+                }
+
+                            <section aria-label="Provider and recovery">
+                                <h3>Provider and recovery</h3>
+                                <dl><dt>Provider state</dt><dd>@(context.LastAutomationStatus ?? "Not reported")</dd>
+                                    <dt>External request</dt><dd>@(context.OrchestrationExternalRequestId ?? "Not reported")</dd>
+                                    <dt>External run</dt><dd>@(context.OrchestrationExternalRunId ?? "Not reported")</dd>
+                                    <dt>Binding</dt><dd>@(context.AutomationBlockReason ?? context.AutomationBindingSyncState?.ToString() ?? "Not reported")</dd>
+                                    <dt>Diagnostics</dt><dd class="workspace-diagnostics">@(context.FailureReason ?? "No diagnostic reported")</dd>
+                                </dl>
+                                @if (context.Type == RequestTaskType.Automation && HasAutomationRecoveryContext(context))
+                                { <MudLink Href="@BuildAutomationRecoveryLink(context)">Review execution recovery</MudLink> }
+                            </section>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </ChildRowContent>
         <NoRecordsContent><MudText>@(loadError is null ? "No tasks match these filters." : "Tasks unavailable. Retry the request.")</MudText></NoRecordsContent>
         <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
     </MudTable>
 </MudPaper>
 
 @code {
+    private readonly HashSet<string> expandedTasks = new(StringComparer.Ordinal);
+    private static string DetailsId(RequestTaskListItemDto task) => "task-details-" + task.Id;
+    private void ToggleDetails(string id) { if (!expandedTasks.Add(id)) expandedTasks.Remove(id); }
+    private static string Seconds(int? value) => value is { } seconds ? $"{seconds} seconds" : "Not reported";
     private CurrentUserAccessProfile? profile;
     private bool CanOperate(RequestTaskListItemDto task) => task.Type switch
     {
@@ -167,6 +216,11 @@
 
     [SupplyParameterFromQuery(Name = "search")]
     public string? QuerySearch { get; set; }
+    [SupplyParameterFromQuery(Name = "customerOrgId")] public string[]? QueryOrganizationIds { get; set; }
+    private readonly List<string> organizationIds = [];
+    private readonly Dictionary<string, string> organizationLabels = new(StringComparer.Ordinal);
+    private string? appliedOrganizationKey;
+    private CancellationTokenSource? tenantHydration;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
@@ -193,14 +247,53 @@
         await ResolveRolesAsync();
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
+        var next = (QueryOrganizationIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().Take(20).ToArray();
+        var key = string.Join('|', next);
+        if (appliedOrganizationKey != key)
+        {
+            appliedOrganizationKey = key; organizationIds.Clear(); organizationIds.AddRange(next); expandedTasks.Clear();
+            _selected.Clear(); _table?.NavigateTo(0);
+            _ = _table?.ReloadServerData();
+            tenantHydration?.Cancel(); tenantHydration?.Dispose(); tenantHydration = new();
+            if (next.Length > 0)
+            {
+                var token = tenantHydration.Token;
+                try
+                {
+                    var url = "api/v1/ticketing/filter-options?module=task&dimension=customer&take=20" + string.Concat(next.Select(id => "&selectedId=" + Uri.EscapeDataString(id)));
+                    var response = await HelpdeskApi.GetFromJsonAsync<TicketFilterOptionsDto>(url, token);
+                    if (token.IsCancellationRequested) return;
+                    foreach (var id in next)
+                        organizationLabels[id] = response?.Items?.FirstOrDefault(option => option.Id == id)?.Label ?? "Unavailable tenant";
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+                catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+                { foreach (var id in next) organizationLabels[id] = "Unavailable tenant"; }
+            }
+        }
         if (!string.Equals(appliedQuerySearch, QuerySearch, StringComparison.Ordinal))
         {
             appliedQuerySearch = QuerySearch;
             search = QuerySearch;
             _ = _table?.ReloadServerData();
         }
+    }
+
+    private Task SelectTenantAsync(TicketFilterOptionDto option)
+    {
+        if (organizationIds.Count >= 20 || organizationIds.Contains(option.Id)) return Task.CompletedTask;
+        organizationLabels[option.Id] = option.Label;
+        organizationIds.Add(option.Id);
+        return RememberTenantsAsync();
+    }
+    private Task RemoveTenantAsync(string id) { organizationIds.Remove(id); return RememberTenantsAsync(); }
+    private Task RememberTenantsAsync()
+    {
+        expandedTasks.Clear(); _selected.Clear();
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?> { ["customerOrgId"] = organizationIds.ToArray() }));
+        return Task.CompletedTask;
     }
 
     private async Task<TableData<RequestTaskListItemDto>> LoadServerData(TableState state, CancellationToken cancellationToken)
@@ -210,6 +303,7 @@
         var page = state.Page + 1;
         var pageSize = state.PageSize <= 0 ? 25 : state.PageSize;
         var url = $"api/v1/request-tasks?page={page}&pageSize={pageSize}&assignedToMe={assignedToMe.ToString().ToLowerInvariant()}";
+        foreach (var id in organizationIds) url += "&customerOrgId=" + Uri.EscapeDataString(id);
 
         if (historicOnly)
         {
@@ -244,6 +338,8 @@
         try
         {
             var response = await HelpdeskApi.GetFromJsonAsync<PagedResponse<RequestTaskListItemDto>>(url, cancellationToken) ?? new();
+            cancellationToken.ThrowIfCancellationRequested();
+            expandedTasks.IntersectWith((response.Items ?? []).Select(task => task.Id));
             return new TableData<RequestTaskListItemDto>
             {
                 Items = response.Items ?? new List<RequestTaskListItemDto>(),
@@ -483,6 +579,12 @@
     private sealed class BulkUpdateResult
     {
         public int Updated { get; set; }
+    }
+
+    public void Dispose()
+    {
+        tenantHydration?.Cancel(); tenantHydration?.Dispose();
+        _debounceCts?.Cancel(); _debounceCts?.Dispose();
     }
 
     private static string FormatElapsed(DateTimeOffset started)

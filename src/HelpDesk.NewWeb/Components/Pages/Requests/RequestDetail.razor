@@ -69,7 +69,7 @@ else
                 </MudAlert>
             }
 
-            <MudTabs Rounded="true" Outlined="true" PanelClass="pa-3" Class="flex-grow-1 mt-2">
+            <MudTabs Rounded="true" Outlined="true" PanelClass="pa-3" Class="flex-grow-1 mt-2 compact-tabs">
                 <MudTabPanel Text="Activity">
                     <TicketActivityTabs
                         TicketId="@Id"
@@ -91,7 +91,7 @@ else
                         }
                         else
                         {
-                            <MudTable T="RequestTaskRow" Items="taskRows" Dense="true" Hover="true" Class="request-tasks-table" Breakpoint="Breakpoint.Sm" data-testid="request-tasks-table">
+                            <MudTable T="RequestTaskRow" Items="taskRows" Dense="true" Hover="true" Class="request-tasks-table compact-table" Breakpoint="Breakpoint.Sm" data-testid="request-tasks-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-requests-requestdetail-1">
                                 <ColGroup><col style="width:3.5rem" /><col /><col style="width:6rem" /><col style="width:10rem" /><col style="width:8rem" /><col style="width:7rem" /></ColGroup>
                                 <HeaderContent>
                                     <MudTh>Order</MudTh><MudTh>Task</MudTh><MudTh>Type</MudTh><MudTh>Status</MudTh><MudTh>Assignee</MudTh><MudTh>Actions</MudTh>
@@ -111,7 +111,7 @@ else
                                         </span>
                                     </MudTd>
                                     <MudTd DataLabel="Assignee"><span class="request-task-assignee" title="@GetAssigneeDisplay(context.Task.AssignedToId)">@GetAssigneeDisplay(context.Task.AssignedToId)</span></MudTd>
-                                    <MudTd DataLabel="Actions">
+                                    <MudTd DataLabel="Actions"><div class="workspace-actions">
                                         <div class="request-task-actions">
                                             @if (context.Task.Status == RequestTaskStatus.Pending)
                                             {
@@ -136,7 +136,7 @@ else
                                                     aria-controls="@($"task-details-{context.Task.Id}")" OnClick="() => ToggleTaskDetails(context.Task.Id)" />
                                             </MudTooltip>
                                         </div>
-                                    </MudTd>
+                                    </div></MudTd>
                                 </RowTemplate>
                                 <ChildRowContent>
                                     @if (expandedTasks.Contains(context.Task.Id))

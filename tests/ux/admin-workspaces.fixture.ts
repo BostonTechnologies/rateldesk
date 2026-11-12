@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 const fixture = 'http://127.0.0.1:18500/fixture';
 const baseline = process.env.HELPDESK_ADMIN_BASELINE === 'true';
@@ -51,7 +52,7 @@ test('synthetic before and after workspace evidence', async ({ page }, info) => 
      const geometry = await page.locator(selector).evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
      expect(geometry.scroll).toBeLessThanOrEqual(geometry.client + 2);
     }
-    await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-${name}-${theme}-${width}.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-${name}-${theme}-${width}.png`), fullPage: true });
    }
 
   }
@@ -79,7 +80,7 @@ test.describe('focused admin tasks', () => {
      await expect(page.getByRole('radio', { name: 'Use name as display column', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('checkbox', { name: 'Search name column', exact: true }).first()).toBeVisible();
      await expect(page.getByRole('button', { name: 'Remove column id', exact: true })).toBeVisible();
-     await page.screenshot({ path: info.outputPath('after-dataset-schema-light-320.png'), fullPage: true });
+     await captureTables(page); await page.screenshot({ path: info.outputPath('after-dataset-schema-light-320.png'), fullPage: true });
     }
    }
   }
@@ -606,8 +607,11 @@ test.describe('grouped custom-role dialog',()=>{
     await page.setViewportSize({width,height:900});await open(page,'/admin/roles');await page.getByRole('button',{name:'Edit role',exact:true}).click();const editor=page.locator('.role-editor-dialog');await expect(editor).toBeVisible();
     await expect(editor.getByRole('button',{name:'Save role',exact:true})).toBeInViewport();await expect(editor.getByRole('button',{name:'Cancel',exact:true})).toBeInViewport();
     const box=await editor.evaluate(el=>({scroll:el.scrollWidth,client:el.clientWidth,top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom}));expect(box.scroll).toBeLessThanOrEqual(box.client+2);expect(box.top).toBeGreaterThanOrEqual(-1);expect(box.bottom).toBeLessThanOrEqual(901);
-    await settleEvidence(page);await page.screenshot({path:info.outputPath(`role-dialog-${theme}-${width}.png`)});await editor.getByRole('button',{name:'Cancel',exact:true}).click();await expect(editor).toBeHidden();
+    await settleEvidence(page);await captureTables(page); await page.screenshot({path:info.outputPath(`role-dialog-${theme}-${width}.png`)});await editor.getByRole('button',{name:'Cancel',exact:true}).click();await expect(editor).toBeHidden();
    }
   }
  });
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

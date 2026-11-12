@@ -1,5 +1,18 @@
 # Releases
 
+## 0.1.3-beta.11 candidate — owner-review campaign
+
+[Release notes and retest checklist](../release-notes/0.1.3-beta.11.md) cover
+#398–#409. The [campaign register](../implementation/401-owner-review-campaign.md)
+maps every table declaration to its owner and rendered evidence. Preparation
+checked both accepted tag forms, draft/public releases, concurrent work and the
+three registry image families before allocating the root product version.
+Recheck allocation before hosted dispatch from `main`; use the exact current
+merged-main revision after all six normal jobs succeed. Inspect the complete
+draft before explicit public prerelease publication with `latest=false`, then
+verify anonymous downloads/checksums and clean pulls of both image architectures.
+Preserve stable releases, stable `latest` and every previously published byte.
+
 ## 0.1.3-beta.10 candidate — premium workspaces and durable request execution
 
 [Release notes and owner walkthrough](../release-notes/0.1.3-beta.10.md) cover

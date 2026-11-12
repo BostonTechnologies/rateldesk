@@ -15,7 +15,7 @@ public static class LocalIdentityServiceCollectionExtensions
                 options.Lockout.AllowedForNewUsers = true;
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-                options.Password.RequiredLength = 15;
+                options.Password.RequiredLength = Helpdesk.Shared.Auth.LocalPasswordPolicy.MinimumLength;
                 options.Password.RequiredUniqueChars = 1;
                 options.Password.RequireDigit = false;
                 options.Password.RequireLowercase = false;

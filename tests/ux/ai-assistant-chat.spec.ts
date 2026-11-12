@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
 
@@ -56,7 +57,7 @@ for (const theme of ['Light', 'Dark'] as const) {
       await expect(heading).toHaveAttribute('aria-expanded', 'true');
       await expect(page.getByText('terminal_execute_13', { exact: false })).toBeVisible();
       await assertNoHorizontalOverflow(page);
-      await page.screenshot({ path: testInfo.outputPath('expanded.png'), fullPage: true });
+      await captureTables(page); await page.screenshot({ path: testInfo.outputPath('expanded.png'), fullPage: true });
       await heading.click();
       const input = page.getByRole('textbox', { name: 'Message Netclaw' });
       await input.fill('Composer focus test');
@@ -71,7 +72,7 @@ for (const theme of ['Light', 'Dark'] as const) {
       expect(styles.inputOutline).toBe('none');
       expect(styles.composerBorder).toBe('1px');
       await testInfo.attach('computed-composer-styles', { body: JSON.stringify(styles), contentType: 'application/json' });
-      await page.screenshot({ path: testInfo.outputPath('collapsed-composer.png'), fullPage: true });
+      await captureTables(page); await page.screenshot({ path: testInfo.outputPath('collapsed-composer.png'), fullPage: true });
     });
   }
 }
@@ -125,7 +126,7 @@ for (const mode of ['empty', 'processing', 'approval', 'failed', 'archived']) {
       await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toBeDisabled();
     }
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath(`${mode}.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`${mode}.png`), fullPage: true });
   });
 }
 
@@ -142,7 +143,7 @@ test('dark desktop approval callout remains visually distinct', async ({ page, r
   expect(styles.borderLeftWidth).toBe('4px');
   expect(styles.background).not.toBe('rgba(0, 0, 0, 0)');
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('dark-desktop-approval.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: testInfo.outputPath('dark-desktop-approval.png'), fullPage: true });
 });
 
 test('stop waiting shows authoritative uncertain-delivery recovery controls', async ({ page, request }) => {
@@ -236,7 +237,7 @@ for (const route of ['/incidents/ux-chat', '/ai/chat?organizationId=org&conversa
     await request.get('http://127.0.0.1:18299/fixture/replay');
     await expect(page.getByTestId('ai-assistant-response')).toHaveCount(3);
     await expect(page.getByTestId('ai-assistant-response').filter({ hasText: 'Repeated valid delegated report.' })).toHaveCount(2);
-    await page.screenshot({ path: testInfo.outputPath('delegated-followups.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath('delegated-followups.png'), fullPage: true });
     await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
     const counts = await (await request.get('http://127.0.0.1:18299/fixture/chat-counts')).json();
     expect(counts.sends).toBe(0);
@@ -328,7 +329,7 @@ test('mobile dark approval controls and bounded growing composer', async ({ page
   await expect(approval.getByRole('button', { name: 'Allow once' })).toBeVisible();
   await expect(approval.getByRole('button', { name: 'Deny', exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: testInfo.outputPath('mobile-dark-approval.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: testInfo.outputPath('mobile-dark-approval.png'), fullPage: true });
   await request.get('http://127.0.0.1:18299/fixture/reset?mode=empty');
   await openChat(page, 'Dark');
   const input = page.getByRole('textbox', { name: 'Message Netclaw' });
@@ -337,3 +338,6 @@ test('mobile dark approval controls and bounded growing composer', async ({ page
   expect((await input.boundingBox())!.height).toBeLessThanOrEqual(240);
   await assertNoHorizontalOverflow(page);
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

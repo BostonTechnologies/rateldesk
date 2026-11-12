@@ -11,7 +11,8 @@
         <MudText Typo="Typo.h5">AiAssistant Webhooks</MudText>
         <MudButton Color="Color.Primary" OnClick="NewConfiguration">Add webhook</MudButton>
     </MudStack>
-    <MudSelect T="string" Label="Tenant / Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Required="true" Class="mb-3">
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="ReloadAsync">Retry</MudButton></MudAlert> }
+    <MudSelect T="string" Margin="Margin.Dense" Variant="Variant.Outlined" Label="Tenant / Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Required="true" Class="mb-3">
         @foreach (var tenant in tenants)
         {
             <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem>
@@ -31,21 +32,46 @@
             <MudStack Row="true" Class="mt-2"><MudButton Color="Color.Primary" OnClick="SaveAsync">Save</MudButton><MudButton OnClick="Cancel">Cancel</MudButton></MudStack>
         </MudPaper>
     }
-    <MudTable Items="items" Dense="true" Hover="true">
-        <HeaderContent><MudTh>Name</MudTh><MudTh>Areas</MudTh><MudTh>Endpoint</MudTh><MudTh>Status</MudTh><MudTh></MudTh></HeaderContent>
+    <MudTable Items="items" Loading="loading" Dense="true" Hover="true" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-aiassistantwebhooks-1">
+        <HeaderContent><MudTh>Name</MudTh><MudTh>Areas</MudTh><MudTh>Endpoint</MudTh><MudTh>Status</MudTh><MudTh>Actions</MudTh></HeaderContent>
         <RowTemplate>
             <MudTd>@context.Name</MudTd><MudTd>@string.Join(", ", context.TicketAreas)</MudTd><MudTd>@context.Endpoint</MudTd><MudTd>@(context.IsArchived ? "Archived" : context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
-            <MudTd><MudButton Size="Size.Small" OnClick="() => Edit(context)">Edit</MudButton><MudButton Size="Size.Small" OnClick="() => SetState(context, !context.IsEnabled, context.IsArchived)">@(context.IsEnabled ? "Disable" : "Enable")</MudButton><MudButton Size="Size.Small" Color="Color.Error" OnClick="() => SetState(context, false, true)">Archive</MudButton></MudTd>
+            <MudTd><div class="workspace-actions"><WorkspaceAction OnClick="() => Edit(context)" Label="Edit" Icon="@Icons.Material.Outlined.Edit" /><WorkspaceAction OnClick="() => SetState(context, !context.IsEnabled, context.IsArchived)" Label="@(context.IsEnabled ? "Disable" : "Enable")" Icon="@Icons.Material.Outlined.ToggleOn" /><WorkspaceAction OnClick="() => SetState(context, false, true)" Label="Archive" Icon="@Icons.Material.Outlined.Archive" /></div></MudTd>
         </RowTemplate>
-    </MudTable>
+
+<PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+ <NoRecordsContent><MudText Class="pa-3">No matching records.</MudText></NoRecordsContent>
+</MudTable>
 </MudPaper>
 
 @code {
     private List<AiAssistantWebhookConfigurationDto> items = new(); private List<TenantLookupDto> tenants = new(); private string? selectedOrganizationId; private bool editing; private Guid? editingId; private Form form = new();
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
-    protected override async Task OnInitializedAsync() { tenants = await Api.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new(); selectedOrganizationId = tenants.FirstOrDefault()?.Id; await Load(); }
+    private bool loading;
+    private string? loadError;
+    protected override Task OnInitializedAsync() => ReloadAsync();
+    private async Task ReloadAsync()
+    {
+        loading = true; loadError = null;
+        try
+        {
+            tenants = await Api.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
+            selectedOrganizationId ??= tenants.FirstOrDefault()?.Id;
+            await Load();
+        }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { loadError = "Organizations could not be loaded. Retry the query."; }
+        finally { loading = false; }
+    }
     private async Task OnOrganizationChanged(string value) { selectedOrganizationId = value; editing = false; await Load(); }
-    private async Task Load() => items = string.IsNullOrWhiteSpace(selectedOrganizationId) ? new() : await Api.GetFromJsonAsync<List<AiAssistantWebhookConfigurationDto>>($"api/v1/admin/ai-assistant-webhooks/?organizationId={Uri.EscapeDataString(selectedOrganizationId)}") ?? new();
+    private async Task Load()
+    {
+        loading = true; loadError = null;
+        try { items = string.IsNullOrWhiteSpace(selectedOrganizationId) ? new() : await Api.GetFromJsonAsync<List<AiAssistantWebhookConfigurationDto>>($"api/v1/admin/ai-assistant-webhooks/?organizationId={Uri.EscapeDataString(selectedOrganizationId)}") ?? new(); }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { loadError = "Webhooks could not be loaded. Retry the query."; }
+        finally { loading = false; }
+    }
     private void NewConfiguration() { editingId = null; form = new(); editing = true; }
     private void Edit(AiAssistantWebhookConfigurationDto item) { editingId = item.Id; form = new() { Name = item.Name, Endpoint = item.Endpoint, RouteName = item.RouteName, PromptTemplate = item.PromptTemplate, Areas = item.TicketAreas.ToList() }; editing = true; }
     private void Cancel() => editing = false;

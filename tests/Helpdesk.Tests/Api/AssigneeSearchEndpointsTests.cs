@@ -243,6 +243,8 @@ public sealed class AssigneeSearchEndpointsTests
             var app = builder.Build();
             app.UseAuthentication(); app.UseAuthorization();
             app.MapTicketingLookupEndpoints(); app.MapIncidentEndpoints(); app.MapRequestEndpoints(); app.MapChangeEndpoints(); app.MapSystemTokenEndpoints(); app.MapGlobalSearchLookupEndpoints();
+            Helpdesk.API.Endpoints.RequestTasks.RequestTaskEndpoints.MapRequestTaskEndpoints(app);
+            Helpdesk.API.Endpoints.Authentication.RoleDefinitionEndpoints.MapRoleDefinitionEndpoints(app);
             Helpdesk.API.Endpoints.Organization.OrganizationChangeParticipantEndpoints.MapOrganizationChangeParticipantEndpoints(app);
             await app.StartAsync();
             var client = app.GetTestClient();
@@ -288,6 +290,7 @@ public sealed class AssigneeSearchEndpointsTests
                 claims.Add(new Claim(ClaimTypes.Role, module + (kind is "reader" or "request-only" ? ".Read" : kind is "own" or "change-user" ? ".User" : ".Write")));
             if (kind is "own" or "change-user") claims.Add(new Claim("customer_id", "contact"));
             if (kind == "admin") claims.Add(new Claim(ClaimTypes.Role, "HelpdeskAdmin"));
+            if (kind == "role-manager") claims.Add(new Claim(ClaimTypes.Role, "Tenant.Roles.Assign"));
             if (kind == "data-manager") claims.Add(new Claim(ClaimTypes.Role, "DataManagement.Admin"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name)));
         }

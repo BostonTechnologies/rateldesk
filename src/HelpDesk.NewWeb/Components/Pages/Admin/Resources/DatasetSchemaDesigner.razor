@@ -7,7 +7,7 @@
     {
         <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@issue.Value</MudAlert>
     }
-    <MudTable Items="Columns" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="dataset-schema-grid">
+    <MudTable Items="Columns" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="dataset-schema-grid compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-resources-datasetschemadesigner-1">
         <HeaderContent><MudTh>Field name</MudTh><MudTh>Type</MudTh><MudTh>Key</MudTh><MudTh>Display</MudTh><MudTh>Searchable</MudTh><MudTh>Order / remove</MudTh></HeaderContent>
         <RowTemplate>
             @{ var index = Columns.IndexOf(context); }

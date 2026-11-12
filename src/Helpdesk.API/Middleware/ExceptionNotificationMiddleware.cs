@@ -2,6 +2,7 @@ using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Events;
 using Helpdesk.Shared.DTOs.Notification;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Http.Timeouts;
 
 namespace Helpdesk.API.Middleware;
 
@@ -16,6 +17,15 @@ public class ExceptionNotificationMiddleware(RequestDelegate next, ILogger<Excep
         {
             await _next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested &&
+            context.Features.Get<IHttpRequestTimeoutFeature>()?.RequestTimeoutToken.IsCancellationRequested != true)
+        {
+            // Classify before the Error logger: it asynchronously persists notifications
+            // independently of the aborted request's cancellation token.
+            _logger.LogDebug("Request aborted at {Path}. CorrelationId={CorrelationId} ResponseStarted={ResponseStarted}",
+                context.Request.Path, context.Items[CorrelationConstants.HttpContextItemKey], context.Response.HasStarted);
+            throw;
+        }
         catch (Exception ex)
         {
             var correlationId = context.Items[CorrelationConstants.HttpContextItemKey] as string;
@@ -23,16 +33,25 @@ public class ExceptionNotificationMiddleware(RequestDelegate next, ILogger<Excep
             var traceId = System.Diagnostics.Activity.Current?.TraceId.ToString();
             var spanId = System.Diagnostics.Activity.Current?.SpanId.ToString();
             var tenantId = ResolveTenantId(context.User);
+            var cause = ex switch
+            {
+                TimeoutException => "dependency_timeout",
+                OperationCanceledException when context.Features.Get<IHttpRequestTimeoutFeature>()?.RequestTimeoutToken.IsCancellationRequested == true => "request_timeout",
+                OperationCanceledException => "unexpected_cancellation",
+                _ => "server_fault"
+            };
 
             _logger.LogError(
                 ex,
-                "Unhandled exception at path {Path}. CorrelationId={CorrelationId} TraceId={TraceId} SpanId={SpanId} TenantId={TenantId} SmokeScenario={SmokeScenario}",
+                "Unhandled exception at path {Path}. CorrelationId={CorrelationId} TraceId={TraceId} SpanId={SpanId} TenantId={TenantId} SmokeScenario={SmokeScenario} Cause={Cause} RequestAborted={RequestAborted} ExceptionTokenCancelled={ExceptionTokenCancelled} ResponseStarted={ResponseStarted}",
                 context.Request.Path,
                 correlationId,
                 traceId,
                 spanId,
                 tenantId,
-                smokeScenarioId);
+                smokeScenarioId, cause, context.RequestAborted.IsCancellationRequested,
+                ex is OperationCanceledException cancellation && cancellation.CancellationToken.IsCancellationRequested,
+                context.Response.HasStarted);
 
             try
             {
@@ -42,6 +61,7 @@ public class ExceptionNotificationMiddleware(RequestDelegate next, ILogger<Excep
                               $"SpanId: {spanId ?? "unknown"}{Environment.NewLine}" +
                               $"TenantId: {tenantId ?? "unknown"}{Environment.NewLine}" +
                               $"SmokeScenario: {smokeScenarioId ?? "none"}{Environment.NewLine}" +
+                              $"Cause: {cause}; RequestAborted: {context.RequestAborted.IsCancellationRequested}; ResponseStarted: {context.Response.HasStarted}{Environment.NewLine}" +
                               $"Message: {ex.Message}{Environment.NewLine}" +
                               $"StackTrace: {ex.StackTrace}";
 

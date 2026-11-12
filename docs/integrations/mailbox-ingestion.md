@@ -192,3 +192,46 @@ retains independent audit records. The additive
 pageSize=25|50|100, search, messageId, ticketId, tenantId, mailboxId, ruleId,
 status, from/to, sort=created|status|action and descending. The existing
 `/audit` list contract remains available to existing clients.
+
+## Organization cleanup and retained mailbox history
+
+In Organizations, Delete first reads an administrator-only dependency assessment.
+The dialog names each dependency and its supported next action. While a request
+is pending, accessible progress and disabled controls prevent duplicate commands.
+Failure keeps the dialog and selected organization; permission, missing-record,
+dependency, network and service failures offer distinct guidance. Refresh the
+assessment after correcting dependencies. Successful deletion or retirement
+refreshes the current filtered directory and clamps a stale final page.
+
+An empty organization can be deleted. An unused archived mailbox is disposed of
+in the same transaction only when the existing lease, receipt, rule, delivery
+and ingestion-state safeguards permit it. Retained service principals, revoked
+secret verifiers, receipts, processing history, delivery outcomes and source
+cursors keep their audit identity and credential-denial evidence. They are not
+erased to make an organization disappear.
+
+For genuinely retired organizations with safe retained history, select **Keep
+this organization disabled with its retained history**, then **Retain disabled**.
+This uses the existing disabled organization state, records the disposition in
+the activity audit and preserves historical identities and replay boundaries.
+It is retention, not physical deletion. Already disabled organizations show that
+state explicitly. Their records remain available to an authorized administrator.
+
+Before retirement, resolve active principals, active support relationships and
+coverage, in-progress request tasks, active mailboxes and leases, and pending,
+in-flight, submitting or NeedsReview delivery outcomes through their owning
+workspaces. **NeedsReview is an uncertain outcome**: reconcile it through Pending
+Emails using the existing confirmation and revision fences. Do not reset a
+cursor, re-enable an archived source, remove a constraint or replay an effect to
+clear a retention blocker. Completed/cancelled/removed history can remain with
+the disabled organization. Prefix/name search does not establish disposability.
+
+The compatible administrator contracts are
+`GET /api/v1/organizations/{id}/deletion-assessment`,
+`POST /api/v1/organizations/{id}/retire` and the existing DELETE route.
+Assessment returns `canDelete`, `canRetire`, `isDisabled` and structured
+dependencies with counts, next actions and resolution requirements. Mutations
+reassess in a serializable transaction. Expected dependencies return HTTP409
+before attempting a physical delete; a concurrent dependency/serialization
+conflict also requires a refreshed assessment. Unexpected database faults retain
+their normal diagnostics. There is no automatic dependency purge or replay.

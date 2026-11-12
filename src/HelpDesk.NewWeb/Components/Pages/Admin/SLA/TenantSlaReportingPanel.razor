@@ -78,18 +78,18 @@
         </fieldset>
     }
     <div class="sla-table-wrap">
-        <MudTable Items="FilteredSubscriptions" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm" Class="sla-compact-table">
+        <MudTable Items="FilteredSubscriptions" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm" Class="sla-compact-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-sla-tenantslareportingpanel-1">
             <HeaderContent><MudTh>Schedule</MudTh><MudTh>Recipients</MudTh><MudTh>Lookback</MudTh><MudTh>Active</MudTh><MudTh>Actions</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Schedule">@context.Frequency @(context.Frequency == ReportFrequency.Weekly ? context.WeeklyDay?.ToString() : "") · @context.SendTimeLocal.ToString(@"hh\:mm")<MudText Typo="Typo.caption">@context.TimeZoneId</MudText></MudTd>
                 <MudTd DataLabel="Recipients">@string.Join(", ", context.Targets.Select(x => x.Value))</MudTd>
                 <MudTd DataLabel="Lookback">@context.LookbackDays days</MudTd>
                 <MudTd DataLabel="Active">@(context.IsActive ? "Yes" : "No")</MudTd>
-                <MudTd DataLabel="Actions">
-                    <MudButton Size="Size.Small" OnClick="() => StartEdit(context)" Disabled="@(IsBusy || showEditor)">Edit</MudButton>
-                    <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => ToggleAsync(context)))" Disabled="@(IsBusy || showEditor)">@(context.IsActive ? "Disable" : "Enable")</MudButton>
-                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))" Disabled="@(IsBusy || showEditor)">Delete</MudButton>
-                </MudTd>
+                <MudTd DataLabel="Actions"><div class="workspace-actions">
+                    <WorkspaceAction OnClick="() => StartEdit(context)" Disabled="@(IsBusy || showEditor)" Label="Edit" Icon="@Icons.Material.Outlined.Edit" />
+                    <WorkspaceAction OnClick="@(() => RunActionAsync(() => ToggleAsync(context)))" Disabled="@(IsBusy || showEditor)" Label="@(context.IsActive ? "Disable" : "Enable")" Icon="@Icons.Material.Outlined.ToggleOn" />
+                    <WorkspaceAction OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))" Disabled="@(IsBusy || showEditor)" Label="Delete" Icon="@Icons.Material.Outlined.DeleteOutline" />
+                </div></MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText Class="pa-2">No report subscriptions for this tenant.</MudText></NoRecordsContent>
             <PagerContent><MudTablePager PageSizeOptions="@(new[] { 25, 50, 100 })" /></PagerContent>

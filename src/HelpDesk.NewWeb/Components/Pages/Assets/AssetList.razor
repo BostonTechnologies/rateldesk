@@ -12,25 +12,34 @@
         <MudSpacer />
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateDialog">Create</MudButton>
     </MudStack>
-    <MudTable Items="assets" Hover="true" Dense="true" T="Asset">
+    <MudTextField T="string" @bind-Value="search" Label="Search assets" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" />
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="LoadAssets">Retry</MudButton></MudAlert> }
+    <MudTable Items="FilteredAssets" Loading="loading" Hover="true" Dense="true" T="Asset" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-assets-assetlist-1">
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Type</MudTh>
-            <MudTh></MudTh>
+            <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Name">@context.Name</MudTd>
             <MudTd DataLabel="Type">@context.Type</MudTd>
-            <MudTd>
-                <MudButton Variant="Variant.Text" OnClick="() => NavigateToDetail(context.Id)">View</MudButton>
-            </MudTd>
+            <MudTd><div class="workspace-actions">
+                <WorkspaceAction OnClick="() => NavigateToDetail(context.Id)" Label="View" Icon="@Icons.Material.Outlined.Visibility" />
+            </div></MudTd>
         </RowTemplate>
-    </MudTable>
+
+<PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+ <NoRecordsContent><MudText Class="pa-3">No matching records.</MudText></NoRecordsContent>
+</MudTable>
 </MudPaper>
 
 @code {
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private List<Asset> assets = new();
+    private string search = "";
+    private bool loading;
+    private string? loadError;
+    private IEnumerable<Asset> FilteredAssets => assets.Where(asset => asset.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || asset.Type?.Contains(search, StringComparison.OrdinalIgnoreCase) == true).OrderBy(asset => asset.Name, StringComparer.OrdinalIgnoreCase).ThenBy(asset => asset.Id, StringComparer.Ordinal);
 
     protected override async Task OnInitializedAsync()
     {
@@ -39,7 +48,11 @@
 
     private async Task LoadAssets()
     {
-        assets = await HelpdeskApi.GetFromJsonAsync<List<Asset>>("api/v1/assets") ?? new();
+        loading = true; loadError = null;
+        try { assets = await HelpdeskApi.GetFromJsonAsync<List<Asset>>("api/v1/assets") ?? new(); }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { loadError = "Assets could not be loaded. Retry when the service is available."; }
+        finally { loading = false; }
     }
 
     private void NavigateToDetail(string id)

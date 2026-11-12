@@ -10,11 +10,12 @@ users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role:
 const categoryOne = '79000000-0000-0000-0000-000000000001';
 const categoryTwo = '79000000-0000-0000-0000-000000000002';
 const categoryThree = '79000000-0000-0000-0000-000000000003';
-let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions, worklogs, requestTasks;
+let categories, categorySearches, tickets, searches, completedQueries, saves, fault, reader, slaActions, worklogs, requestTasks, tableReview = false;
 let held = [];
 const hold = kind => new Promise(resolve => held.push({ kind, resolve }));
 function release() { const pending = held; held = []; pending.forEach(item => item.resolve()); }
 function reset() {
+  tableReview = false;
   release(); slaActions = []; worklogs = []; requestTasks = [];
   categories = [{ id: categoryOne, name: 'Network Operations', isActive: true, type: 0 }, { id: categoryTwo, name: 'Historical selection', isActive: false, type: 0 }, { id: categoryThree, name: 'R&D + 100%_\\', isActive: true, type: 0 }]; categorySearches = []; searches = []; completedQueries = []; saves = []; fault = ''; reader = false;
   tickets = Object.fromEntries(['incidents', 'requests', 'changes'].map(module => [module, {
@@ -33,6 +34,7 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, worklogs, held: held.map(item => item.kind) });
+  if (url.pathname === '/fixture/table-review') { tableReview = true; return reply({ synthetic: true }); }
   // Presentation fixtures only. Real persisted gateway SSE acceptance is owned by
   // RequestLiveProgressTests; these rows do not establish provider/live outcomes.
   if (url.pathname === '/fixture/request-tasks' && req.method === 'POST') {
@@ -116,7 +118,12 @@ http.createServer(async (req, res) => {
     const [, module, action] = match;
     const ticket = tickets[module];
     if (action?.endsWith('/worklogs') && req.method === 'POST') { worklogs.push({ module, ...await body() }); return reply({}); }
-    if (!action && req.method === 'GET') return reply({ items: [ticket], totalCount: 1 });
+    if (!action && req.method === 'GET') {
+      const all = tableReview && module === 'incidents' ? Array.from({ length: 65 }, (_, i) => ({ ...ticket, id: `target-${i}`, trackingId: `INC-SYN-${String(i).padStart(3, '0')}`, subject: `Synthetic relation target ${i} with a long incident subject` })) : [ticket];
+      const size = Number(url.searchParams.get('pageSize') ?? 25), page = Number(url.searchParams.get('page') ?? 1);
+      return reply({ items: all.slice((page - 1) * size, page * size), totalCount: all.length });
+    }
+    if (tableReview && module === 'incidents' && action?.endsWith('/relations')) return reply(Array.from({ length: 35 }, (_, i) => ({ id: `79000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, sourceTicketId: ticket.id, sourceTrackingId: ticket.trackingId, sourceSubject: ticket.subject, sourceState: 0, targetTicketId: `target-${i}`, targetTrackingId: `INC-SYN-${i}`, targetSubject: `Synthetic related incident ${i} with long retained context`, targetState: 0, relationType: 1, createdUtc: '2026-11-05T07:00:00Z', createdByUserName: 'Synthetic Operator', note: 'Synthetic relation only; no live incident linked', isOutgoing: true })));
     if (req.method === 'PUT' || (req.method === 'POST' && (action === 'bulk/assign' || action?.endsWith('/assignee')))) {
       const update = await body();
       if (fault === 'save') { fault = ''; return reply({ error: 'Fixture save rejected' }, 409); }

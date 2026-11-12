@@ -26,8 +26,8 @@
                       SelectOnRowClick="false"
                       SelectionChangeable="true"
                       Comparer="IncidentIdentityComparer.Instance"
-                      RowsPerPage="10"
-                      @bind-SelectedItems="selected">
+                      RowsPerPage="25"
+                      @bind-SelectedItems="selected" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-incidents-incidentrelationtargetpickerdialog-1">
                 <HeaderContent>
                     <MudTh>Tracking ID</MudTh>
                     <MudTh>Updated</MudTh>
@@ -47,7 +47,7 @@
                     </MudTd>
                 </RowTemplate>
                 <PagerContent>
-                    <MudTablePager PageSizeOptions="new[] { 10, 20, 50 }" />
+                    <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
                 </PagerContent>
             </MudTable>
         </MudStack>
@@ -83,7 +83,7 @@
     private async Task<TableData<IncidentDto>> LoadServerData(TableState state, CancellationToken token)
     {
         var page = state.Page + 1;
-        var pageSize = state.PageSize <= 0 ? 10 : state.PageSize;
+        var pageSize = state.PageSize <= 0 ? 25 : state.PageSize;
         var url = $"api/v1/incidents?page={page}&pageSize={pageSize}&activeOnly=true&summaryOnly=true";
 
         if (!string.IsNullOrWhiteSpace(SourceOrganizationId))

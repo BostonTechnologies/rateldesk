@@ -46,7 +46,7 @@
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="Refresh">Retry</MudButton></MudAlert> }
     <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Team directory. Scroll horizontally to reach all columns and actions." tabindex="0">
     <MudTable T="UserDirectoryDto" @ref="table" ServerData="LoadServerData" Dense="true" Hover="true" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.None"
-              Height="clamp(14rem, calc(100dvh - 24rem), 44rem)" RowsPerPage="pageSize" CurrentPage="pageIndex" RowsPerPageChanged="PageSizeChanged" CurrentPageChanged="PageChanged" Class="team-table">
+              Height="clamp(14rem, calc(100dvh - 24rem), 44rem)" RowsPerPage="pageSize" CurrentPage="pageIndex" RowsPerPageChanged="PageSizeChanged" CurrentPageChanged="PageChanged" Class="team-table compact-table" data-table-surface="pages-admin-user-usermanagement-1">
         <ColGroup><col style="width:28%" /><col style="width:24%" /><col style="width:16%" /><col style="width:12%" /><col style="width:20%" /></ColGroup>
         <HeaderContent>
             <MudTh aria-sort="@SortState("name")"><button type="button" class="team-sort" aria-label="Sort by name" @onclick="@(() => ChangeSort("name"))">Name<MudIcon Icon="@SortIcon("name")" Size="Size.Small" /></button></MudTh>
@@ -67,7 +67,7 @@
                     <MudTooltip Text="@(context.CanChangeSignIn ? (AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in") : context.DeleteBlockedReason)"><span><MudIconButton Icon="@(AccountEnabled(context) ? Icons.Material.Outlined.Block : Icons.Material.Outlined.CheckCircle)" Size="Size.Small" Disabled="@(!context.CanChangeSignIn)"
                         aria-label="@(AccountEnabled(context) ? "Disable sign-in" : "Enable sign-in")" OnClick="() => OpenSignInDialog(context)" /></span></MudTooltip>
                 }
-                <MudTooltip Text="@(context.DeleteBlockedReason ?? "Delete user")"><span><MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Size="Size.Small" aria-label="Delete user" Disabled="@(!context.CanDelete)" OnClick="() => OpenDeleteDialog(context)" /></span></MudTooltip>
+                <MudTooltip Text="@(context.DeleteBlockedReason ?? "Delete user")"><span><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" aria-label="Delete user" Disabled="@(!context.CanDelete)" OnClick="() => OpenDeleteDialog(context)" /></span></MudTooltip>
             </div></MudTd>
         </RowTemplate>
         <LoadingContent><MudText>Loading team members…</MudText></LoadingContent>

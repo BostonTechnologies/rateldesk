@@ -1,6 +1,6 @@
 <MudTooltip Text="@(Disabled && !string.IsNullOrWhiteSpace(DisabledReason) ? $"{Label}: {DisabledReason}" : Label)">
     <span class="workspace-action" @onclick:stopPropagation="true">
-        <MudIconButton Icon="@Icon" aria-label="@Label" Size="Size.Small" Color="@Color"
+        <MudIconButton Icon="@Icon" aria-label="@Label" Size="Size.Small" Color="@Color" @attributes="AdditionalAttributes"
                        Disabled="@Disabled" OnClick="OnClick" Href="@Href" />
     </span>
 </MudTooltip>
@@ -13,4 +13,5 @@
     [Parameter] public string? DisabledReason { get; set; }
     [Parameter] public Color Color { get; set; } = Color.Default;
     [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 }

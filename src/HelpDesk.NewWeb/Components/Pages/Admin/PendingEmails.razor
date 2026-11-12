@@ -85,7 +85,7 @@
     }
     <MudTable T="PendingEmailRow" @ref="table" @key="tableKey" ServerData="LoadTableAsync" Dense="true" Hover="true"
               CurrentPage="page" CurrentPageChanged="TablePageChanged" RowsPerPage="pageSize" RowsPerPageChanged="TableSizeChanged"
-              FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 26rem), 46rem)" Breakpoint="Breakpoint.Sm">
+              FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 26rem), 46rem)" Breakpoint="Breakpoint.Sm" Class="compact-table" data-table-surface="pages-admin-pendingemails-1">
         <HeaderContent>
             <MudTh Style="width:48px"><MudCheckBox T="bool?" Value="PageSelection" ValueChanged="TogglePage" TriState="false" Disabled="@(Busy || rows.Count == 0)" aria-label="Select this page" /></MudTh>
             <MudTh Style="width:140px"><MudTableSortLabel T="PendingEmailRow" SortLabel="created" InitialDirection="@(sort == "created" ? (descending ? SortDirection.Descending : SortDirection.Ascending) : SortDirection.None)">Created (UTC)</MudTableSortLabel></MudTh>
@@ -102,14 +102,14 @@
             </MudTd>
             <MudTd DataLabel="Recipient / sender"><MudTooltip Text="@context.EmailRecipient"><span class="workspace-primary">@context.EmailRecipient</span></MudTooltip><MudTooltip Text="@context.Sender"><span class="workspace-secondary">From: @(context.Sender ?? "Review sender binding")</span></MudTooltip></MudTd>
             <MudTd DataLabel="Status">@context.EmailStatus<MudTooltip Text="@context.DeliveryErrorCode"><span class="workspace-secondary">@HelpDesk.NewWeb.Models.WorkspaceLabels.Readable(context.DeliveryErrorCode)</span></MudTooltip></MudTd>
-            <MudTd DataLabel="Actions">
+            <MudTd DataLabel="Actions"><div class="workspace-actions">
                 <div class="pending-mail-actions">
                     <WorkspaceAction Label="Delivery details" Icon="@Icons.Material.Filled.Visibility" OnClick="() => detail = context" />
                     <WorkspaceAction Label="Review / retry" Icon="@Icons.Material.Filled.Replay" Disabled="@(Busy || context.EmailStatus != EmailDeliveryStatus.Failed)" DisabledReason="Only failed deliveries can be reviewed for retry" OnClick="() => ReviewAsync(context)" />
                     <WorkspaceAction Label="Cancel future delivery" Icon="@Icons.Material.Filled.Block" Disabled="@(Busy || !context.CanCancel)" DisabledReason="Submission or recipient outcome requires individual review" OnClick='() => ActAsync("cancel", [context])' />
-                    <WorkspaceAction Label="Remove queue entry" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Disabled="@(Busy || !context.CanRemove)" DisabledReason="Submission may be in progress" OnClick='() => ActAsync("remove", [context])' />
+                    <WorkspaceAction Label="Remove queue entry" Icon="@Icons.Material.Outlined.Delete" Disabled="@(Busy || !context.CanRemove)" DisabledReason="Submission may be in progress" OnClick='() => ActAsync("remove", [context])' />
                 </div>
-            </MudTd>
+            </div></MudTd>
         </RowTemplate>
         <NoRecordsContent><MudText>@(error is null ? "No deliveries match these filters." : "Delivery list unavailable. Refresh to try again.")</MudText></NoRecordsContent>
         <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>

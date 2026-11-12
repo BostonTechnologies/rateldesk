@@ -64,7 +64,7 @@
             <MudButton OnClick="() => cloneSource = null">Cancel clone</MudButton>
         </MudPaper>
     }
-    <MudTabs Rounded="true" Border="true" PanelClass="pt-3">
+    <MudTabs Rounded="true" Border="true" PanelClass="pt-3" Class="compact-tabs">
         <MudTabPanel Text="Rules" Icon="@Icons.Material.Filled.Rule">
             <div class="workspace-toolbar"><MudTextField T="string" Label="Search rules" @bind-Value="ruleSearch" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" /></div>
             @if (!loading && rules.Count == 0)
@@ -74,7 +74,7 @@
             else
             {
                 <div class="email-rules-table-wrap">
-                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="email-rules-table" RowsPerPage="25" FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 23rem), 46rem)">
+                    <MudTable Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="email-rules-table compact-table" RowsPerPage="25" FixedHeader="true" FixedFooter="true" Height="clamp(16rem, calc(100dvh - 23rem), 46rem)" data-table-surface="pages-admin-emailrules-emailrulesadmin-1">
                         <ColGroup><col /><col style="width:132px" /><col style="width:196px" /><col style="width:100px" /><col style="width:120px" /><col style="width:228px" /></ColGroup>
                         <HeaderContent>
                             <MudTh Class="email-rule-name">Name</MudTh>
@@ -156,7 +156,7 @@
             @if (auditError is not null) { <MudAlert Severity="Severity.Error">@auditError <MudButton OnClick="LoadAuditAsync">Retry</MudButton></MudAlert> }
             <MudTable T="InboundEmailAuditRow" @ref="auditTable" ServerData="LoadAuditPageAsync" Dense="true" Hover="true"
                       RowsPerPage="25" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.Sm"
-                      Height="clamp(16rem, calc(100dvh - 26rem), 46rem)" Class="email-audit-table">
+                      Height="clamp(16rem, calc(100dvh - 26rem), 46rem)" Class="email-audit-table compact-table" data-table-surface="pages-admin-emailrules-emailrulesadmin-2">
                 <HeaderContent>
                     <MudTh><MudTableSortLabel T="InboundEmailAuditRow" SortLabel="created" InitialDirection="SortDirection.Descending">Time</MudTableSortLabel></MudTh>
                     <MudTh>Rule</MudTh><MudTh>Organization / mailbox</MudTh>
@@ -174,7 +174,7 @@
                         @if (context.TicketRoute is not null) { <MudLink Href="@context.TicketRoute">@context.TicketTrackingId</MudLink> }
                         else { <span>@(context.Event.TicketId is null ? "—" : "Unavailable ticket")</span> }
                     </MudTd>
-                    <MudTd DataLabel="Details"><WorkspaceAction Label="Audit details" Icon="@Icons.Material.Outlined.Info" OnClick="() => auditDetail = context" /></MudTd>
+                    <MudTd DataLabel="Details"><div class="workspace-actions"><WorkspaceAction Label="Audit details" Icon="@Icons.Material.Outlined.Info" OnClick="() => auditDetail = context" /></div></MudTd>
                 </RowTemplate>
                 <NoRecordsContent><MudText>@(auditError is null ? "No audit events match these filters." : "Audit history unavailable. Retry the request.")</MudText></NoRecordsContent>
                 <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>

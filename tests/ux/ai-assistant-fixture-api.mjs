@@ -14,6 +14,7 @@ const generalRow = (id = conversation, organizationId = 'org', title = 'Syntheti
 const investigation = () => ({ id: conversation, organizationId: 'org', title: 'Synthetic ticket investigation', ticketId: 'ux-chat', ticketType: 'incidents', contextSnapshot: 'Pinned synthetic ticket and guidance', createdUtc: new Date().toISOString(), state });
 let netclawPresentationMode = 'first-run';
 let netclawPairResponseStatuses = [];
+let netclawTableReview = false;
 const streams = new Set();
 const tracePayloads = {
   skillArguments: JSON.stringify({ Name: 'example-skill', _rationale: 'Inspect synthetic authentication and token usage' }, null, 2),
@@ -150,6 +151,7 @@ http.createServer(async (req, res) => {
     for (const stream of streams) stream.write('event: state\ndata: 1\n\n'); return reply({});
   }
   if (url.pathname === '/fixture/netclaw') {
+    netclawTableReview = url.searchParams.get('tables') === 'true';
     const requestedMode = url.searchParams.get('mode');
     if (['first-run', 'legacy', 'connected', 'uncertain'].includes(requestedMode)) {
       netclawPresentationMode = requestedMode;
@@ -209,7 +211,7 @@ http.createServer(async (req, res) => {
       sourceKey: null, profileFingerprint: 'fixture-profile'
     });
   }
-  if (req.method === 'GET' && url.pathname === '/api/v1/admin/netclaw/legacy-sessions/unbound') return reply([]);
+  if (req.method === 'GET' && url.pathname === '/api/v1/admin/netclaw/legacy-sessions/unbound') return reply(netclawTableReview ? Array.from({ length: 35 }, (_, i) => ({ conversationId: `79000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, organizationId: 'org', ticketId: `synthetic-ticket-${i}`, ticketType: 'incident', lastActivityUtc: '2026-11-05T07:00:00Z' })) : []);
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/netclaw/pair-and-save') {
     if (netclawPresentationMode === 'legacy') {
       netclawPresentationMode = 'legacy-reviewed';
@@ -243,7 +245,7 @@ http.createServer(async (req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/netclaw/test') {
     netclawPresentationMode = 'connected';
-    return reply({ success: true, statusCode: 200, message: 'Authenticated SignalR verified.', sessionProtocol: 'SignalR' });
+    return reply({ success: true, statusCode: 200, message: 'Authenticated SignalR verified.', sessionProtocol: 'SignalR', probes: netclawTableReview ? Array.from({ length: 35 }, (_, i) => ({ probeName: `Synthetic probe ${i}`, success: i !== 0, statusCode: i === 0 ? 503 : 200, message: 'Synthetic diagnostics only; no daemon contacted', checkedAtUtc: '2026-11-05T07:00:00Z' })) : [] });
   }
   if (chatPath.endsWith('/chat/stream')) {
     streamOpens++;

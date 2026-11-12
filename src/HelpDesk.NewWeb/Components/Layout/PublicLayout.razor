@@ -19,7 +19,7 @@
             </MudMenuItem>
         </MudMenu>
     </div>
-    <MudMainContent Class="helpdesk-public-main">
+    <MudMainContent Class="helpdesk-public-main" data-testid="app-public-content" data-interactive="@RendererInfo.IsInteractive.ToString().ToLowerInvariant()">
         @Body
     </MudMainContent>
 </MudLayout>

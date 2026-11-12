@@ -30,13 +30,13 @@
             }
             else
             {
-                <MudTable Items="people" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm">
+                <MudTable Items="people" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.Sm" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-selfservice-submitonbehalfdialog-1">
                     <HeaderContent>
                         <MudTh>Name</MudTh>
                         <MudTh>Email</MudTh>
                         <MudTh>Organization</MudTh>
                         <MudTh>Type</MudTh>
-                        <MudTh></MudTh>
+                        <MudTh>Select</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Name">@context.Name</MudTd>
@@ -46,7 +46,7 @@
                         <MudTd DataLabel="Select">
                             <MudIconButton Icon="@Icons.Material.Filled.Check"
                                            aria-label="@($"Select {context.Name}")"
-                                           Color="Color.Primary"
+                                           Color="Color.Default"
                                            Size="Size.Small"
                                            OnClick="@(() => Select(context))" />
                         </MudTd>

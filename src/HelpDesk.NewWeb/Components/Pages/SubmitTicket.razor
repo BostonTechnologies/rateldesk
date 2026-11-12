@@ -39,7 +39,7 @@
                     </MudText>
                 </MudPaper>
 
-                <MudSimpleTable Dense="true">
+                <MudSimpleTable Dense="true" Class="compact-content-table" data-table-surface="pages-submitticket-1">
                     <tbody>
                         <tr>
                             <td><MudText Color="Color.Secondary">Name</MudText></td>
@@ -124,7 +124,7 @@ else
 
                                     <MudStep Title="Review & Submit">
                                         <MudText Typo="Typo.h6" GutterBottom="true">Please review your details:</MudText>
-                                        <MudSimpleTable Dense="true" Hover="true">
+                                        <MudSimpleTable Dense="true" Hover="true" Class="compact-content-table" data-table-surface="pages-submitticket-2">
                                             <tbody>
                                                 <tr><td><MudText><strong>Name:</strong></MudText></td><td><MudText>@_model.Name</MudText></td></tr>
                                                 <tr><td><MudText><strong>Email:</strong></MudText></td><td><MudText>@_model.Email</MudText></td></tr>
@@ -132,7 +132,7 @@ else
                                                 <tr><td><MudText><strong>Attachments:</strong></MudText></td><td><MudText>@(_model.Attachments.Count) file(s)</MudText></td></tr>
                                             </tbody>
                                         </MudSimpleTable>
-                                        
+
                                         <MudStack Class="mt-4 mb-2" Row="true" Spacing="2">
                                             <MudText Typo="Typo.subtitle2">Enter this text:</MudText>
                                             @if (!string.IsNullOrEmpty(_captchaImageBase64))

@@ -82,6 +82,9 @@ public static class RoleDefinitionEndpoints
 
         group.MapGet("/{id}/assignments", async (
             string id,
+            bool? paged,
+            int? page,
+            int? pageSize,
             HttpContext context,
             ICurrentUserAccessService accessService,
             HelpdeskDbContext db,
@@ -100,12 +103,24 @@ public static class RoleDefinitionEndpoints
                 assignments = assignments.Where(assignment => organizationIds.Contains(assignment.OrganizationId));
             }
 
-            return Results.Ok(await (
+            var query = (
                 from assignment in assignments
                 join user in db.Users.AsNoTracking() on assignment.UserId equals user.Id
-                orderby user.Name, assignment.OrganizationId
+                orderby user.Name, assignment.OrganizationId, user.Id
                 select new RoleAssignmentResponse(user.Id, user.Name, user.Email, assignment.OrganizationId)
-            ).Take(200).ToArrayAsync(cancellationToken));
+            );
+            if (paged == true)
+            {
+                var size = Math.Clamp(pageSize ?? 25, 1, 100);
+                var total = await query.CountAsync(cancellationToken);
+                var current = Math.Clamp(page ?? 1, 1, Math.Max(1, (int)Math.Ceiling((double)total / size)));
+                return Results.Ok(new Helpdesk.Shared.DTOs.PagedResponse<RoleAssignmentResponse>
+                {
+                    Page = current, PageSize = size, TotalCount = total,
+                    Items = await query.Skip((current - 1) * size).Take(size).ToListAsync(cancellationToken)
+                });
+            }
+            return Results.Ok(await query.Take(200).ToArrayAsync(cancellationToken));
         });
 
         group.MapPost("/", async (

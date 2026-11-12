@@ -34,7 +34,7 @@
     </ToolbarContent>
     <ChildContent>
         <MudTable T="TicketCategoryDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
-                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 28rem), 44rem)" Breakpoint="Breakpoint.None">
+                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 28rem), 44rem)" Breakpoint="Breakpoint.None" Class="compact-table" data-table-surface="pages-admin-categories-1">
             <HeaderContent>
                 <DirectorySortHeader Column="name" Label="Category" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <DirectorySortHeader Column="type" Label="Type" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
@@ -48,10 +48,10 @@
                 <MudTd DataLabel="Type">@context.Type</MudTd><MudTd DataLabel="Order">@context.SortOrder</MudTd>
                 <MudTd DataLabel="Scope">@(context.TenantId is null ? "Global" : context.TenantName ?? "Organization unavailable")<span class="directory-secondary">@(context.IsSystem ? "Built-in · read-only" : "Custom")</span></MudTd>
                 <MudTd DataLabel="Availability">@(context.IsActive ? "Active" : "Inactive")</MudTd>
-                <MudTd DataLabel="Actions"><div class="directory-actions">
+                <MudTd DataLabel="Actions"><div class="workspace-actions"><div class="directory-actions">
                     <WorkspaceAction Label="Edit category" Icon="@Icons.Material.Outlined.Edit" Disabled="context.IsSystem" DisabledReason="Built-in categories are read-only" OnClick="() => StartEditAsync(context)" />
-                    <WorkspaceAction Label="Delete category" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" Disabled="context.IsSystem" DisabledReason="Built-in categories are read-only" OnClick="() => DeleteAsync(context)" />
-                </div></MudTd>
+                    <WorkspaceAction Label="Delete category" Icon="@Icons.Material.Outlined.Delete" Disabled="context.IsSystem" DisabledReason="Built-in categories are read-only" OnClick="() => DeleteAsync(context)" />
+                </div></div></MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No categories match these filters." : "No categories yet. Create a category to begin.")</MudText></NoRecordsContent>
             <LoadingContent><MudText>Loading categories…</MudText></LoadingContent>

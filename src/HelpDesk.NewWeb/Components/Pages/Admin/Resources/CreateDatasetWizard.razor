@@ -38,7 +38,7 @@
                 {
                     <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3">Review &amp; create</MudText>
                     <dl class="data-wizard-summary"><dt>Organization</dt><dd>@OrganizationName</dd><dt>Name</dt><dd>@draft.Name</dd><dt>Status</dt><dd>@(draft.IsActive ? "Active" : "Disabled")</dd><dt>Key</dt><dd>@draft.Columns.FirstOrDefault(x => x.IsKey)?.Name</dd><dt>Display</dt><dd>@draft.Columns.FirstOrDefault(x => x.IsDisplay)?.Name</dd></dl>
-                    <MudSimpleTable Dense="true"><thead><tr><th>Field</th><th>Type</th><th>Searchable</th></tr></thead><tbody>@foreach (var field in draft.Columns) { <tr><td>@field.Name</td><td>@field.DataType</td><td>@(field.IsSearchable ? "Yes" : "No")</td></tr> }</tbody></MudSimpleTable>
+                    <MudSimpleTable Dense="true" Class="compact-content-table" data-table-surface="pages-admin-resources-createdatasetwizard-1"><thead><tr><th>Field</th><th>Type</th><th>Searchable</th></tr></thead><tbody>@foreach (var field in draft.Columns) { <tr><td>@field.Name</td><td>@field.DataType</td><td>@(field.IsSearchable ? "Yes" : "No")</td></tr> }</tbody></MudSimpleTable>
                     <MudAlert Severity="Severity.Info" Class="mt-3">API key creation is a separate, optional step after the dataset is saved.</MudAlert>
                 }
             </fieldset>

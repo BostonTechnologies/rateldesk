@@ -11,7 +11,8 @@
         <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateLayout">New Layout</MudButton>
     </MudStack>
 
-    <MudTable Items="_layouts" Hover="true">
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="LoadLayouts">Retry</MudButton></MudAlert> }
+    <MudTable Loading="loading" Items="_layouts" Hover="true" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" Dense="true" data-table-surface="pages-admin-emaillayoutmanagement-1">
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Scope</MudTh>
@@ -22,19 +23,22 @@
             <MudTd DataLabel="Name">@context.Name</MudTd>
             <MudTd DataLabel="Scope">@(context.IsSystem ? "System" : "Tenant")</MudTd>
             <MudTd DataLabel="Version">@context.Version</MudTd>
-            <MudTd Style="text-align: right">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" OnClick="@(() => OpenEditDialog(context))" />
-                <MudIconButton Icon="@Icons.Material.Filled.Preview" OnClick="@(() => OpenPreviewDialog(context))" />
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Disabled="context.IsSystem" OnClick="@(() => DeleteLayout(context))" />
-            </MudTd>
+            <MudTd DataLabel="Actions"><div class="workspace-actions">
+                <WorkspaceAction Icon="@Icons.Material.Filled.Edit" Label="Edit layout" OnClick="@(() => OpenEditDialog(context))" />
+                <WorkspaceAction Icon="@Icons.Material.Filled.Preview" Label="Preview layout" OnClick="@(() => OpenPreviewDialog(context))" />
+                <WorkspaceAction Icon="@Icons.Material.Filled.DeleteOutline" Label="Delete layout" Disabled="context.IsSystem" DisabledReason="System layouts are protected" OnClick="@(() => DeleteLayout(context))" />
+            </div></MudTd>
         </RowTemplate>
+<NoRecordsContent><MudText>@(loadError is null ? "No layouts." : "Layouts unavailable. Retry the query.")</MudText></NoRecordsContent>
         <PagerContent>
-            <MudTablePager />
+            <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
         </PagerContent>
     </MudTable>
 </MudPaper>
 
 @code {
+    private bool loading;
+    private string? loadError;
     private List<EmailLayout> _layouts = new();
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -45,7 +49,11 @@
 
     private async Task LoadLayouts()
     {
-        _layouts = await HelpdeskApi.GetFromJsonAsync<List<EmailLayout>>("api/v1/email-layouts") ?? new();
+        loading = true; loadError = null;
+        try { _layouts = await HelpdeskApi.GetFromJsonAsync<List<EmailLayout>>("api/v1/email-layouts") ?? new(); }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { loadError = "The layouts could not be loaded. Retry when the service is available."; }
+        finally { loading = false; }
     }
 
     private async Task CreateLayout()
@@ -82,6 +90,7 @@
 
     private async Task DeleteLayout(EmailLayout layout)
     {
+        if (layout.IsSystem || await DialogService.ShowMessageBoxAsync("Delete layout?", $"Delete {layout.Name}?", yesText: "Delete", cancelText: "Cancel") != true) return;
         var response = await HelpdeskApi.DeleteAsync($"api/v1/email-layouts/{layout.Id}");
         if (response.IsSuccessStatusCode)
         {

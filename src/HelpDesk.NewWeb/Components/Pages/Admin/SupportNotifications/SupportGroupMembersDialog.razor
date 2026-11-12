@@ -58,7 +58,7 @@
             }
             else
             {
-                <MudTable Items="members" Dense="true" Hover="true" T="SupportGroupMemberDto">
+                <MudTable Items="members" Dense="true" Hover="true" T="SupportGroupMemberDto" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-supportnotifications-supportgroupmembersdialog-1">
                     <HeaderContent>
                         <MudTh>User</MudTh>
                         <MudTh>Email</MudTh>
@@ -77,20 +77,18 @@
                                 @(context.IsEnabled ? "Enabled" : "Disabled")
                             </MudChip>
                         </MudTd>
-                        <MudTd Class="text-end">
-                            <MudButton Size="Size.Small"
-                                       Variant="Variant.Outlined"
-                                       Color="@(context.IsEnabled ? Color.Warning : Color.Success)"
-                                       OnClick="() => ToggleMemberAsync(context)">
-                                @(context.IsEnabled ? "Disable" : "Enable")
-                            </MudButton>
-                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="() => DeleteMemberAsync(context)">Remove</MudButton>
-                        </MudTd>
+                        <MudTd Class="text-end"><div class="workspace-actions">
+                            <WorkspaceAction
+                                       OnClick="() => ToggleMemberAsync(context)" Label="@(context.IsEnabled ? "Disable" : "Enable")" Icon="@Icons.Material.Outlined.ToggleOn" />
+                            <WorkspaceAction OnClick="() => DeleteMemberAsync(context)" Label="Remove" Icon="@Icons.Material.Outlined.PersonRemove" />
+                        </div></MudTd>
                     </RowTemplate>
                     <NoRecordsContent>
                         <MudText Typo="Typo.body2" Class="text-secondary">No members are configured for this group.</MudText>
                     </NoRecordsContent>
-                </MudTable>
+
+<PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
             }
         </MudStack>
     </DialogContent>

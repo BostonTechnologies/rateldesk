@@ -55,7 +55,7 @@
                 @if (historicalFeedback is not null) { <MudAlert Severity="Severity.Info">@historicalFeedback</MudAlert> }
                 @if (historicalPreview is not null)
                 {
-                    <MudTable Items="historicalPreview" Breakpoint="Breakpoint.Md" Dense="true">
+                    <MudTable Items="historicalPreview" Breakpoint="Breakpoint.Md" Dense="true" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-email-mailboxingestion-1">
                         <HeaderContent><MudTh>Select</MudTh><MudTh>Server date</MudTh><MudTh>Sender</MudTh><MudTh>Subject</MudTh><MudTh>Status</MudTh></HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Select"><input type="checkbox" checked="@historicalSelected.Contains(context.ReceiptId)"
@@ -76,7 +76,7 @@
                 }
             </MudPaper>
         }
-        <MudTable Items="diagnostics.Receipts" Breakpoint="Breakpoint.Md" Class="ingress-receipts">
+        <MudTable Items="diagnostics.Receipts" Breakpoint="Breakpoint.Md" Class="ingress-receipts compact-table" FixedHeader="true" FixedFooter="true" Dense="true" data-table-surface="pages-admin-email-mailboxingestion-2">
             <HeaderContent><MudTh>Received</MudTh><MudTh>Outcome</MudTh><MudTh>Reason</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Action</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Received">@Format(context.CreatedUnixMilliseconds)</MudTd>
@@ -84,10 +84,10 @@
                 <MudTd DataLabel="Reason">@context.Reason</MudTd>
                 <MudTd DataLabel="Organization">@context.OrganizationId</MudTd>
                 <MudTd DataLabel="Ticket">@context.TicketId</MudTd>
-                <MudTd DataLabel="Action">
+                <MudTd DataLabel="Action"><div class="workspace-actions">
                     @if (context.Outcome is InboundReceiptOutcome.NeedsReview or InboundReceiptOutcome.RetryableFailure)
-                    { <MudButton OnClick="() => RetryAsync(context.Id)" Disabled="loading">Retry</MudButton> }
-                </MudTd>
+                    { <WorkspaceAction OnClick="() => RetryAsync(context.Id)" Disabled="loading" Label="Retry" Icon="@Icons.Material.Outlined.Replay" /> }
+                </div></MudTd>
             </RowTemplate>
         </MudTable>
     }

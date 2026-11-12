@@ -24,7 +24,7 @@
     @if (loading) { <MudProgressLinear Indeterminate="true" /> }
     else
     {
-        <MudTable @ref="policyTable" Items="@VisiblePolicies" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" RowsPerPage="10">
+        <MudTable @ref="policyTable" Items="@VisiblePolicies" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-mcppolicies-1">
             <HeaderContent><MudTh>Select</MudTh><MudTh>Integration / owner</MudTh><MudTh>Scope / policy</MudTh><MudTh>Status</MudTh><MudTh>Expiry</MudTh><MudTh>Actions</MudTh></HeaderContent>
             <RowTemplate Context="policy">
                 <MudTd DataLabel="Select">@if (policy.State != "Deleted") { <input type="checkbox" aria-label="@($"Select policy for {CredentialName(policy)}")" checked="@selectedPolicies.Contains(policy.CredentialId)" @onchange="args => SelectPolicy(policy, args)" disabled="@(busy || draftRetained)" /> }</MudTd>
@@ -37,20 +37,20 @@
                 </MudTd>
                 <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(DisplayState(policy) == "Active" ? Color.Success : Color.Default)">@DisplayState(policy)</MudChip><small class="policy-secondary">Revision @policy.Revision</small></MudTd>
                 <MudTd DataLabel="Expiry">@policy.ExpiresUtc.ToString("dd MMM yyyy HH:mm 'UTC'")</MudTd>
-                <MudTd DataLabel="Actions"><div class="policy-actions">
+                <MudTd DataLabel="Actions"><div class="workspace-actions"><div class="policy-actions">
                     @if (policy.State is "Active" or "Disabled")
                     {
-                        <MudButton Size="Size.Small" OnClick="() => Edit(policy)" Disabled="@(busy || draftRetained)">Edit</MudButton>
-                        @if (policy.State == "Active") { <MudButton Size="Size.Small" OnClick='() => PreviewLifecycleAsync(policy, "Disabled")' Disabled="@(busy || draftRetained)">Disable</MudButton> }
-                        else { <MudButton Size="Size.Small" OnClick='() => PreviewLifecycleAsync(policy, "Active")' Disabled="@(busy || draftRetained)">Enable</MudButton> }
-                        <MudButton Size="Size.Small" Color="Color.Error" OnClick='() => PreviewLifecycleAsync(policy, "Revoked")' Disabled="@(busy || draftRetained)">Revoke</MudButton>
+                        <WorkspaceAction OnClick="() => Edit(policy)" Disabled="@(busy || draftRetained)" Label="Edit" Icon="@Icons.Material.Outlined.Edit" />
+                        @if (policy.State == "Active") { <WorkspaceAction OnClick='() => PreviewLifecycleAsync(policy, "Disabled")' Disabled="@(busy || draftRetained)" Label="Disable" Icon="@Icons.Material.Outlined.ToggleOff" /> }
+                        else { <WorkspaceAction OnClick='() => PreviewLifecycleAsync(policy, "Active")' Disabled="@(busy || draftRetained)" Label="Enable" Icon="@Icons.Material.Outlined.ToggleOn" /> }
+                        <WorkspaceAction OnClick='() => PreviewLifecycleAsync(policy, "Revoked")' Disabled="@(busy || draftRetained)" Label="Revoke" Icon="@Icons.Material.Outlined.Block" />
                     }
-                    @if (policy.State != "Deleted") { <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => PreviewDeleteAsync(policy)" Disabled="@(busy || draftRetained)">Delete</MudButton> }
-                    <MudButton Size="Size.Small" OnClick="() => AuditAsync(policy)" Disabled="@busy">History</MudButton>
-                </div></MudTd>
+                    @if (policy.State != "Deleted") { <WorkspaceAction OnClick="() => PreviewDeleteAsync(policy)" Disabled="@(busy || draftRetained)" Label="Delete" Icon="@Icons.Material.Outlined.DeleteOutline" /> }
+                    <WorkspaceAction OnClick="() => AuditAsync(policy)" Disabled="@busy" Label="History" Icon="@Icons.Material.Outlined.History" />
+                </div></div></MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText Class="pa-4">No policies match this view. Use the status filter to view retired policies.</MudText></NoRecordsContent>
-            <PagerContent><MudTablePager PageSizeOptions="@([10, 25, 50])" /></PagerContent>
+            <PagerContent><MudTablePager PageSizeOptions="@([25, 50, 100])" /></PagerContent>
         </MudTable>
     }
 </MudPaper>

@@ -27,7 +27,7 @@
     </ToolbarContent>
     <ChildContent>
         <MudTable T="CustomerDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
-                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
+                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None" Class="compact-table" data-table-surface="pages-admin-customer-customermanagement-1">
             <HeaderContent>
                 <DirectorySortHeader Column="name" Label="Customer" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <DirectorySortHeader Column="email" Label="Email" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
@@ -42,12 +42,12 @@
                 <MudTd DataLabel="Organization">@context.OrganizationName</MudTd>
                 <MudTd DataLabel="State">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
                 <MudTd DataLabel="Access">@(context.AuthStatus?.StatusText ?? "Access unavailable")</MudTd>
-                <MudTd DataLabel="Actions"><div class="directory-actions">
+                <MudTd DataLabel="Actions"><div class="workspace-actions"><div class="directory-actions">
                     <WorkspaceAction Label="Edit customer" Icon="@Icons.Material.Outlined.Edit" OnClick="() => OpenEditDialog(context)" />
                     <WorkspaceAction Label="@GetInviteActionLabel(context)" Icon="@GetInviteIcon(context.AuthStatus?.InviteStatus)"
                                      Disabled="@(IsInviteActionDisabled(context) || busyCustomerId == context.Id)" DisabledReason="@GetInviteTooltip(context)" OnClick="() => RunInviteAction(context)" />
-                    <WorkspaceAction Label="Delete customer" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="() => OpenDeleteDialog(context)" />
-                </div></MudTd>
+                    <WorkspaceAction Label="Delete customer" Icon="@Icons.Material.Outlined.Delete" OnClick="() => OpenDeleteDialog(context)" />
+                </div></div></MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No customers match these filters." : "No customers yet. Create a customer to begin.")</MudText></NoRecordsContent>
             <LoadingContent><MudText>Loading customers…</MudText></LoadingContent>

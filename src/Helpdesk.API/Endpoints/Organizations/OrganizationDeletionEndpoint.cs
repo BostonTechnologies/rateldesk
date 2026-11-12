@@ -2,6 +2,7 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 
 namespace Helpdesk.API.Endpoints.Organization;
 
@@ -14,9 +15,11 @@ public static class OrganizationDeletionEndpoint
         var organization = await organizations.GetAsync(id);
         if (organization is null) return Results.NotFound();
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var assessment = await OrganizationRetentionEndpoint.AssessAsync(organization, db, ct);
+            if (!assessment.CanDelete) return OrganizationRetentionEndpoint.Conflict(assessment);
             var mailboxes = await db.EmailInboxSettings.Where(x => x.OrganizationId == organization.Id).ToListAsync(ct);
             foreach (var mailbox in mailboxes)
             {
@@ -44,13 +47,7 @@ public static class OrganizationDeletionEndpoint
                 var ingestion = await db.Set<MailboxIngestionState>().SingleOrDefaultAsync(x => x.MailboxId == mailbox.Id, ct);
                 if (ingestion is not null)
                 {
-                    if (ingestion.Initialized || ingestion.Cursor is not null || ingestion.CurrentStage != "Never" ||
-                        ingestion.LastAttemptUnixMilliseconds is not null ||
-                        ingestion.LastSyncUnixMilliseconds is not null ||
-                        ingestion.BaselineCompletedUnixMilliseconds is not null || ingestion.SyncRequestedVersion != 0 ||
-                        ingestion.SyncCompletedVersion != 0 || ingestion.NextRetryUnixMilliseconds is not null ||
-                        ingestion.LastSyncCommandUnixMilliseconds is not null || ingestion.ErrorCode is not null ||
-                        ingestion.LastSyncCommandErrorCode is not null)
+                    if (OrganizationRetentionEndpoint.HasRetainedIngestion(ingestion))
                         return Conflict("mailbox_retained_ingestion_state", mailbox.Id);
                     db.Remove(ingestion);
                 }
@@ -66,10 +63,9 @@ public static class OrganizationDeletionEndpoint
             await transaction.CommitAsync(ct);
             return Results.NoContent();
         }
-        catch (DbUpdateException)
+        catch (Exception failure) when (OrganizationRetentionEndpoint.IsDependencyRace(failure))
         {
-            return Results.Conflict(new { code = "organization_dependency_conflict",
-                message = "Organization has retained dependent records; remove them through their supported workflow before deletion." });
+            return OrganizationRetentionEndpoint.ChangedDependencies();
         }
     }
 

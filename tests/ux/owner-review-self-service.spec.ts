@@ -1,0 +1,36 @@
+import { expect, test } from '@playwright/test';
+import { modeName, reviewCapture, reviewModes, reviewOpen, reviewPage } from './owner-review-matrix';
+const fixture = 'http://127.0.0.1:18440/fixture';
+for (const mode of reviewModes) test(`all Self Service table contexts ${modeName(mode)}`, async ({ browser, request, baseURL }, info) => {
+  await request.get(`${fixture}/reset`); await request.get(`${fixture}/table-review`);
+  await reviewPage(browser, baseURL!, mode, async page => {
+    const open = (route: string) => reviewOpen(page, baseURL!, route);
+    const capture = (name: string, ...ids: string[]) => reviewCapture(page, info, mode, name, ids);
+    await open('/self-service');
+    await expect(page.getByText('Synthetic access request', { exact: true })).toBeVisible();
+    await page.getByText('Synthetic access request', { exact: true }).click();
+    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await capture('submit-on-behalf', 'pages-selfservice-submitonbehalfdialog-1');
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    await open('/self-service/my-requests');
+    await capture('my-requests', 'pages-selfservice-myrequests-1');
+    await open('/self-service/my-requests/request-0');
+    await capture('my-request-detail', 'pages-selfservice-myrequestdetail-1', 'pages-selfservice-myrequestdetail-2', 'pages-selfservice-myrequestdetail-3');
+    await open('/request-approval/REQ-SYN-000/task-0?email=approver%40example.test&token=synthetic');
+    await capture('public-approval', 'pages-requestapproval-1');
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+    await open('/submit-ticket');
+    await page.getByRole('textbox', { name: /^Your Name\*?$/ }).fill('Synthetic public requester');
+    await page.getByRole('textbox', { name: /^Email(?: Address)?\*?$/ }).fill('requester@example.test');
+    await page.getByRole('textbox', { name: /^Confirm Email Address\*?$/ }).fill('requester@example.test');
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('textbox', { name: /^Subject of your issue\*?$/ }).fill('Synthetic request with long review content');
+    await page.getByRole('textbox', { name: 'Please describe the issue in detail', exact: true }).fill('Synthetic fixture only. No email or processing is executed.');
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await capture('public-ticket-review', 'pages-submitticket-2');
+    await page.getByRole('textbox', { name: /CAPTCHA|verification|text shown|Enter.*text/i }).fill('123456');
+    await page.getByRole('button', { name: 'Submit Ticket', exact: true }).click();
+    await capture('public-ticket-success', 'pages-submitticket-1');
+  });
+});

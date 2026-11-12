@@ -1,6 +1,6 @@
 // Synthetic browser-only fixture. Real API authorization is tested in the owning API suites.
 import http from 'node:http';
-let requests = [], mutations = [], fault = '', enabled = true, premium = false, receipts = new Set();
+let requests = [], mutations = [], fault = '', enabled = true, premium = false, manyDiagnostics = false, receipts = new Set();
 const streams = new Set();
 const uid = n => `56000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const originalTasks = Array.from({ length: 76 }, (_, i) => {
@@ -20,9 +20,15 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const reply = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
   if (url.pathname === '/fixture/health') return reply({ ok: true });
-  if (url.pathname === '/fixture/reset') { requests = []; mutations = []; rules = structuredClone(originalRules); tasks = structuredClone(originalTasks); fault = ''; enabled = true; premium = false; receipts.clear(); return reply({ ok: true }); }
+  if (url.pathname === '/fixture/reset') { requests = []; mutations = []; rules = structuredClone(originalRules); tasks = structuredClone(originalTasks); fault = ''; enabled = true; premium = false; manyDiagnostics = false; receipts.clear(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/state') return reply({ requests, mutations, rules, enabled, receipts: [...receipts] });
   if (url.pathname === '/fixture/fault') { fault = url.searchParams.get('category') ?? ''; return reply({ ok: true }); }
+  if (url.pathname === '/fixture/many-ops') {
+    manyDiagnostics = true;
+    rules[0].conditions = [{ type: 1, permissions: ['Incident.Read'] }, { type: 5, permissions: [] }];
+    rules[0].actions = [{ type: 0, actionKey: 'synthetic-retained-action-identity-with-long-readable-context' }];
+    return reply({ ok: true });
+  }
   if (url.pathname === '/fixture/premium') { premium = true; events = Array.from({ length: 80 }, (_, i) => newEvent(i + 1)); return reply({ ok: true }); }
   if (url.pathname === '/fixture/arrival') { const event = newEvent(events.length + 1); event.createdUtc = new Date().toISOString(); events.unshift(event); for (const stream of streams) { stream.write(`event: notification\ndata: ${JSON.stringify(event)}\n\n`); if (url.searchParams.has('duplicate')) stream.write(`event: notification\ndata: ${JSON.stringify(event)}\n\n`); } return reply(event); }
   if (url.pathname === '/fixture/disconnect') { for (const stream of streams) stream.end(); return reply({ ok: true }); }
@@ -44,7 +50,13 @@ http.createServer(async (req, res) => {
     requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), roles });
     if (fault === 'sla') return reply({}, 503);
     if (url.pathname.endsWith('/compliance')) return reply({ resolutionCompliancePercent: 75, responseCompliancePercent: 87.5, completedWithinResolutionSla: 6, completedWithinResponseSla: 7, completedTotal: 8 });
-    return reply({ items: [{ ticketId: 'synthetic-ticket', ticketNumber: 'SYN-001', title: 'Synthetic SLA example', ticketType: 0, tenantId: 'org-synthetic', responsePercentUsed: 85, resolutionPercentUsed: 92, responseRemainingSeconds: 1800, resolutionRemainingSeconds: 3600, responseDueAt: '2026-10-15T12:00:00Z', resolutionDueAt: '2026-10-15T13:00:00Z' }], total: url.pathname.endsWith('/breached') ? 3 : 5 });
+    const sparse = { items: [{ ticketId: 'synthetic-ticket', ticketNumber: 'SYN-001', title: 'Synthetic SLA example', ticketType: 0, tenantId: 'org-synthetic', responsePercentUsed: 85, resolutionPercentUsed: 92, responseRemainingSeconds: 1800, resolutionRemainingSeconds: 3600, responseDueAt: '2026-10-15T12:00:00Z', resolutionDueAt: '2026-10-15T13:00:00Z' }], total: url.pathname.endsWith('/breached') ? 3 : 5 };
+    if (manyDiagnostics) {
+      const rows=Array.from({length:137},(_,index)=>({...sparse.items[0],ticketId:`synthetic-ticket-${index}`,ticketNumber:`SYN-${String(index).padStart(3,'0')}`}));
+      const page=Number(url.searchParams.get('page')??1),size=Number(url.searchParams.get('pageSize')??25);
+      return reply({items:rows.slice((page-1)*size,page*size),total:rows.length});
+    }
+    return reply(sparse);
   }
   if (url.pathname.startsWith('/api/v1/ops/tasks')) {
     requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), roles });
@@ -52,6 +64,11 @@ http.createServer(async (req, res) => {
     const row = url.pathname.endsWith('callback-rejections') ? { createdUtc: '2026-10-15T06:00:00Z', reasonCode: 'Synthetic rejection', callerClientId: 'fixture', correlationId: 'synthetic correlation' }
       : url.pathname.endsWith('binding-issues') ? { serviceName: 'Synthetic service', requestFormTitle: 'Synthetic form', taskName: 'Synthetic binding', enabled: false, syncState: 0, orchestrationRequestDefinitionName: 'Synthetic target' }
       : { taskId: 'synthetic-task', requestId: 'synthetic-request', requestTrackingId: 'SYN-002', taskName: 'Synthetic task', assignedToDisplayName: 'Synthetic assignee', dueAt: '2026-10-15T06:00:00Z', nextRetryAt: '2026-10-15T08:00:00Z', retryCount: 2, failurePolicy: 'Retry', failureReason: 'Synthetic failure', status: 1 };
+    if (manyDiagnostics) {
+      const rows = Array.from({length:137},(_,index)=>({...row, taskId:`synthetic-task-${index}`, taskName:`Synthetic task ${String(index).padStart(3,'0')}`, correlationId:`synthetic-correlation-${index}`}));
+      const page=Number(url.searchParams.get('page')??1), size=Number(url.searchParams.get('pageSize')??25);
+      return reply({items:rows.slice((page-1)*size,page*size),totalCount:rows.length,page,pageSize:size});
+    }
     return reply({ items: [row], totalCount: 4 });
   }
   if (url.pathname === '/api/v1/ops/hangfire/settings') {
@@ -61,11 +78,16 @@ http.createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/hangfire')) { requests.push({ path: url.pathname, method: req.method }); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<title>Synthetic dashboard</title><p>Background dashboard fixture</p>'); }
   if (premium) {
+    if (url.pathname === '/api/v1/ticketing/filter-options') {
+      const term = (url.searchParams.get('q') ?? '').toLowerCase();
+      const options = [{ id: 'org-synthetic', label: 'Synthetic tenant' }, { id: 'org-other', label: 'Other synthetic tenant' }];
+      return reply({ items: options.filter(x => x.label.toLowerCase().includes(term)), hasMore: false });
+    }
     const body = async () => { let text = ''; for await (const part of req) text += part; return text ? JSON.parse(text) : {}; };
     if (url.pathname === '/api/v1/request-tasks') {
       requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), roles });
       if (fault === 'tasks') return reply({}, 503);
-      let rows = tasks.filter(x => url.searchParams.get('assignedToMe') !== 'true' || x.assignedToId === 'synthetic-operator');
+      let rows = tasks.filter(x => (url.searchParams.get('assignedToMe') !== 'true' || x.assignedToId === 'synthetic-operator') && (!url.searchParams.has('customerOrgId') || url.searchParams.getAll('customerOrgId').includes(x.organizationId)));
       const totalCount = rows.length, size = Number(url.searchParams.get('pageSize') ?? 25), page = Number(url.searchParams.get('page') ?? 1);
       return reply({ items: rows.slice((page - 1) * size, page * size), totalCount });
     }

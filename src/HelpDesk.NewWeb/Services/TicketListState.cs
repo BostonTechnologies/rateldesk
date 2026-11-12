@@ -19,6 +19,7 @@ public sealed class TicketListState
     public DateTimeOffset? From { get; set; }
     public DateTimeOffset? To { get; set; }
     public string TimeZone { get; set; } = "UTC";
+    public bool HasExplicitTimeZone { get; set; }
     public string Sort { get; set; } = "updated";
     public bool Descending { get; set; } = true;
     public int Page { get; set; } = 1;
@@ -31,6 +32,7 @@ public sealed class TicketListState
         string One(string key, string fallback = "") => q.TryGetValue(key, out var value) ? value.FirstOrDefault() ?? fallback : fallback;
         List<string> Many(string key) => q.TryGetValue(key, out var value) ? value.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item!).Distinct().Take(20).ToList() : [];
         var state = new TicketListState {
+            HasExplicitTimeZone = q.ContainsKey("tz"),
             Search = One("search", One("q")), CustomerOrgIds = Many("customerOrgId"), ForIds = Many("forId"), States = Many("stateValues"),
             AssigneeIds = Many("assigneeId"), Priorities = Many("priority"), Unassigned = One("unassigned") == "true",
             View = One("view", One("historicOnly") == "true" ? "historic" : "active"),
@@ -68,7 +70,7 @@ public sealed class TicketListState
         Add("timeField", TimeField);
         if (From.HasValue) Add("from", From.Value.UtcDateTime.ToString("O"));
         if (To.HasValue) Add("to", To.Value.UtcDateTime.ToString("O"));
-        if (!api) Add("tz", TimeZone);
+        if (!api && (HasExplicitTimeZone || TimeZone != "UTC" || From.HasValue || To.HasValue)) Add("tz", TimeZone);
         Add("sort", Sort); Add("descending", Descending ? "true" : "false");
         Add("page", Page); Add("pageSize", PageSize);
         return string.Join('&', parts);
@@ -83,7 +85,7 @@ public sealed class TicketListState
         var zone = TimeZoneInfo.FindSystemTimeZoneById(zoneId);
         local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
         if (zone.IsInvalidTime(local)) throw new FormatException("That local time does not exist because the clocks change. Choose another time.");
-        if (zone.IsAmbiguousTime(local)) throw new FormatException("That local time occurs twice because the clocks change. Use UTC or choose another time.");
+        if (zone.IsAmbiguousTime(local)) throw new FormatException("That local time occurs twice because the clocks change. Choose an unambiguous local time.");
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, zone));
     }
 }

@@ -31,7 +31,7 @@
         <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@error</MudAlert>
     }
 
-    <MudTabs MinimumTabWidth="128px" ActivePanelIndex="activeTab" ActivePanelIndexChanged="ChangeTab" Rounded="false" Elevation="0" Class="role-tabs">
+    <MudTabs MinimumTabWidth="128px" ActivePanelIndex="activeTab" ActivePanelIndexChanged="ChangeTab" Rounded="false" Elevation="0" Class="role-tabs compact-tabs">
         <MudTabPanel Text="@($"Custom roles ({roles.Count(x => !x.IsBuiltIn)})")" />
         <MudTabPanel Text="@($"Built-in roles ({roles.Count(x => x.IsBuiltIn)})")" />
     </MudTabs>
@@ -43,13 +43,13 @@
     else
     {
         <MudTextField T="string" @bind-Value="searchText" Label="Search roles" MaxLength="200" Immediate="true" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="helpdesk-list-search mb-3" />
-        <MudTable Items="FilteredRoles" RowsPerPage="25" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="role-management-table">
+        <MudTable Items="FilteredRoles" RowsPerPage="25" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="role-management-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-role-rolemanagement-1">
             <HeaderContent>
                 <MudTh>Role</MudTh>
                 <MudTh>Scope / owner</MudTh>
                 <MudTh>Permissions</MudTh>
                 <MudTh>Assignments</MudTh>
-                <MudTh></MudTh>
+                <MudTh>Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Role">
@@ -76,13 +76,15 @@
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => OpenPermissions(context)">@context.Permissions.Count permission@(context.Permissions.Count == 1 ? string.Empty : "s")</MudButton>
                 </MudTd>
                 <MudTd DataLabel="Explicit assignments"><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => OpenAssignments(context)">@context.AssignmentCount assignment@(context.AssignmentCount == 1 ? string.Empty : "s")</MudButton></MudTd>
-                <MudTd>
+                <MudTd DataLabel="Actions">
+                    <div class="workspace-actions">
                     @if (!context.IsProtected && !context.IsBuiltIn)
                     {
-                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Title="Edit role" Disabled="@(showEditor)" Color="Color.Primary" OnClick="() => StartEdit(context)" />
-                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Title="Clone role" Disabled="@(showEditor)" Color="Color.Primary" OnClick="() => StartClone(context)" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Title="Delete role" Color="Color.Error" Disabled="@(showEditor || context.AssignmentCount > 0)" OnClick="() => DeleteAsync(context)" />
+                        <WorkspaceAction Icon="@Icons.Material.Filled.Edit" Label="Edit role" Disabled="showEditor" DisabledReason="Finish the current editor first" OnClick="() => StartEdit(context)" />
+                        <WorkspaceAction Icon="@Icons.Material.Filled.ContentCopy" Label="Clone role" Disabled="showEditor" DisabledReason="Finish the current editor first" OnClick="() => StartClone(context)" />
+                        <WorkspaceAction Icon="@Icons.Material.Filled.DeleteOutline" Label="Delete role" Disabled="@(showEditor || context.AssignmentCount > 0)" DisabledReason="@(showEditor ? "Finish the current editor first" : "Remove explicit assignments before deleting this role")" OnClick="() => DeleteAsync(context)" />
                     }
+                    </div>
                 </MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText Class="pa-3">@(string.IsNullOrWhiteSpace(searchText) ? (activeTab == 0 ? "No custom roles yet. Create a role to define permissions for an organization." : "No built-in roles are available.") : "No roles match this search.")</MudText></NoRecordsContent>

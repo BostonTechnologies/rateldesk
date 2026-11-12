@@ -11,24 +11,30 @@
         <MudSpacer />
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateDialog">Create</MudButton>
     </MudStack>
-    <MudTable Items="rules" Hover="true" Dense="true" T="AutomationRule">
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="LoadRules">Retry</MudButton></MudAlert> }
+    <MudTable Loading="loading" Items="rules" Hover="true" Dense="true" T="AutomationRule" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-automation-automationrulemanagement-1">
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Trigger</MudTh>
-            <MudTh></MudTh>
+            <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Name">@context.Name</MudTd>
             <MudTd DataLabel="Trigger">@context.Trigger</MudTd>
             <MudTd>
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="() => OpenEditDialog(context)" />
+                <div class="workspace-actions"><WorkspaceAction Icon="@Icons.Material.Filled.Edit" Label="Edit automation rule" OnClick="() => OpenEditDialog(context)" /></div>
             </MudTd>
         </RowTemplate>
-    </MudTable>
+<NoRecordsContent><MudText>@(loadError is null ? "No automation rules." : "Automation rules unavailable. Retry the query.")</MudText></NoRecordsContent>
+
+<PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
 </MudPaper>
 
 @code {
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
+    private bool loading;
+    private string? loadError;
     private List<AutomationRule> rules = new();
 
     protected override async Task OnInitializedAsync()
@@ -38,7 +44,11 @@
 
     private async Task LoadRules()
     {
-        rules = await HelpdeskApi.GetFromJsonAsync<List<AutomationRule>>("api/v1/automation/rules") ?? new();
+        loading = true; loadError = null;
+        try { rules = await HelpdeskApi.GetFromJsonAsync<List<AutomationRule>>("api/v1/automation/rules") ?? new(); }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { loadError = "The automation rules could not be loaded. Retry when the service is available."; }
+        finally { loading = false; }
     }
 
     private async Task OpenCreateDialog()

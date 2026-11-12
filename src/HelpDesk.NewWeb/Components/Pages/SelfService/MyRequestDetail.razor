@@ -70,7 +70,7 @@
                 }
                 else
                 {
-                    <MudTable T="PayloadRow" Dense="true" Hover="true" Items="payloadRows" Breakpoint="Breakpoint.Sm" Class="helpdesk-table">
+                    <MudTable T="PayloadRow" Dense="true" Hover="true" Items="payloadRows" Breakpoint="Breakpoint.Sm" Class="helpdesk-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-selfservice-myrequestdetail-1">
                         <HeaderContent>
                             <MudTh>Field</MudTh>
                             <MudTh>Value</MudTh>
@@ -87,7 +87,7 @@
             {
                 <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
                     <MudText Typo="Typo.h6" Class="mb-2">Pending Approvals</MudText>
-                    <MudTable T="MyRequestPendingApprovalDto" Dense="true" Hover="true" Items="PendingApprovals" Breakpoint="Breakpoint.Sm" Class="helpdesk-table">
+                    <MudTable T="MyRequestPendingApprovalDto" Dense="true" Hover="true" Items="PendingApprovals" Breakpoint="Breakpoint.Sm" Class="helpdesk-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-selfservice-myrequestdetail-2">
                         <HeaderContent>
                             <MudTh>Step</MudTh>
                             <MudTh>Approver</MudTh>
@@ -112,7 +112,7 @@
                 }
                 else
                 {
-                    <MudTable T="MyRequestTaskDto" Dense="true" Hover="true" Items="tasks" Breakpoint="Breakpoint.Sm" Class="helpdesk-table">
+                    <MudTable T="MyRequestTaskDto" Dense="true" Hover="true" Items="tasks" Breakpoint="Breakpoint.Sm" Class="helpdesk-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-selfservice-myrequestdetail-3">
                         <HeaderContent>
                             <MudTh>Order</MudTh>
                             <MudTh>Name</MudTh>

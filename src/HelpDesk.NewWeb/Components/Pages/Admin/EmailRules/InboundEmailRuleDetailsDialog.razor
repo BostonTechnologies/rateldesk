@@ -88,7 +88,7 @@
 
             <MudExpansionPanels Elevation="0" Class="mt-2">
                 <MudExpansionPanel Text="Advanced">
-                    <MudTable Items="Rule.Conditions" Dense="true" Hover="true" Breakpoint="Breakpoint.None">
+                    <MudTable Items="Rule.Conditions" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-emailrules-inboundemailruledetailsdialog-1">
                         <HeaderContent>
                             <MudTh>Condition</MudTh>
                             <MudTh>Mailbox</MudTh>
@@ -100,7 +100,7 @@
                             <MudTd DataLabel="Permissions">@FormatList(context.Permissions)</MudTd>
                         </RowTemplate>
                     </MudTable>
-                    <MudTable Items="Rule.Actions" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="mt-3">
+                    <MudTable Items="Rule.Actions" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="mt-3 compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-emailrules-inboundemailruledetailsdialog-2">
                         <HeaderContent>
                             <MudTh>Action</MudTh>
                             <MudTh>Action key</MudTh>

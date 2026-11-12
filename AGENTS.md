@@ -1,5 +1,15 @@
 # RatelDesk repository instructions
 
+## Compact workspace presentation
+
+- Use compact, restrained typography, spacing, subtle borders and theme tokens. Remove headings and instructions that repeat the active navigation. Use existing MudBlazor and workspace helpers; scope presentation changes to their components.
+- Data tables have fixed headers in bounded scrolling regions and reachable footers/pagers. Preserve full authorized-data filtering, sorting, counts before paging, stable identities, selection and bulk actions; use native 25/50/100 paging for growing collections. Keep useful loading, empty, denied and recoverable failure states.
+- Incidents, Requests, Changes and Tasks show a searchable Tenant control in the default toolbar. Tenant is the existing authorized organization scope; All includes all currently authorized organizations. Keep dependent lookups scoped and preserve URL/back/clear/history behavior.
+- Keep filters and autocomplete results compact. Use real date/time pickers, resolve the user/browser timezone and preserve UTC instants, existing URL boundaries and DST validation. Avoid visible editable timezone fields and repetitive timezone prose in list filters.
+- Routine row actions are small neutral named icon controls in a horizontal no-wrap group, with tooltips, disabled reasons, visible keyboard focus and adequate interaction targets. Keep genuine error/severity colors and destructive confirmations.
+- Tabs are compact, neutral grey, visibly enabled and keyboard accessible, with clear active and focus states. Expand rich details from a left chevron into a full-width child pane under a compact summary row.
+- Preserve semantic/editor/key-value previews and contained Markdown tables. Keep authored email HTML untouched. Verify desktop, narrow/mobile, 200% zoom, light/dark/custom themes, long content, keyboard/focus and failure states with synthetic fixtures and screenshots; source attributes alone are not rendered acceptance.
+
 ## Agent guidance: dotnet-skills
 
 Prefer retrieval-led reasoning over pretraining for .NET work.

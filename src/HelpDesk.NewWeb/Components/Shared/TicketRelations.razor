@@ -18,7 +18,7 @@
     }
     else
     {
-        <MudTable Items="@relations" Dense="true" Hover="true" Elevation="0">
+        <MudTable Items="@relations" Dense="true" Hover="true" Elevation="0" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="shared-ticketrelations-1">
             <HeaderContent>
                 <MudTh>Direction</MudTh>
                 <MudTh>Type</MudTh>
@@ -26,7 +26,7 @@
                 <MudTh>State</MudTh>
                 <MudTh>Created</MudTh>
                 <MudTh>Note</MudTh>
-                <MudTh></MudTh>
+                <MudTh>Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Direction">
@@ -53,20 +53,16 @@
                 </MudTd>
                 <MudTd DataLabel="Note">@context.Note</MudTd>
                 <MudTd>
-                    <MudStack Row="true" Spacing="1" Justify="Justify.FlexEnd">
-                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                       Size="Size.Small"
-                                       Color="Color.Primary"
-                                       AriaLabel="Open related incident in new tab"
+                    <div class="workspace-actions">
+                        <WorkspaceAction Icon="@Icons.Material.Filled.OpenInNew"
+                                       Label="Open related incident in new tab"
                                        Href="@($"/incidents/{GetOtherTicketId(context)}")"
                                        Target="_blank" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Close"
-                                       Size="Size.Small"
-                                       Color="Color.Error"
-                                       AriaLabel="Remove relation"
+                        <WorkspaceAction Icon="@Icons.Material.Filled.Close"
+                                       Label="Remove relation"
                                        Disabled="@(ReadOnly || deletingRelationIds.Contains(context.Id))"
                                        OnClick="@(() => DeleteRelationAsync(context))" />
-                    </MudStack>
+                    </div>
                 </MudTd>
             </RowTemplate>
         </MudTable>

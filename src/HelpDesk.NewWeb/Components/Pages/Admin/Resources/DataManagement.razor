@@ -143,7 +143,7 @@
                     else
                     {
                         <MudText Typo="Typo.subtitle2" Class="mb-2">@editor.Name</MudText>
-                        <MudTabs MinimumTabWidth="128px" @bind-ActivePanelIndex="primaryTabIndex" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2" Class="data-management-tabs">
+                        <MudTabs MinimumTabWidth="128px" @bind-ActivePanelIndex="primaryTabIndex" KeepPanelsAlive="true" Rounded="false" Elevation="0" PanelClass="pt-2" Class="data-management-tabs compact-tabs">
                             <MudTabPanel Text="Rows">
                                 @if (string.IsNullOrWhiteSpace(editor.Id))
                                 {
@@ -158,7 +158,7 @@
                                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                                                 This managed schema is maintained by Microsoft Graph. Connection and import actions are in Built-in integrations.
                                             </MudAlert>
-                                            <MudSimpleTable Dense="true" Class="mt-3"><thead><tr><th>Field</th><th>Type</th><th>Key</th><th>Display</th><th>Searchable</th></tr></thead><tbody>
+                                            <MudSimpleTable Dense="true" Class="mt-3 compact-content-table" data-table-surface="pages-admin-resources-datamanagement-1"><thead><tr><th>Field</th><th>Type</th><th>Key</th><th>Display</th><th>Searchable</th></tr></thead><tbody>
                                                 @foreach (var field in editor.Columns.OrderBy(x => x.SortOrder)) { <tr><td>@field.Name</td><td>@field.DataType</td><td>@(field.IsKey ? "Yes" : "No")</td><td>@(field.IsDisplay ? "Yes" : "No")</td><td>@(field.IsSearchable ? "Yes" : "No")</td></tr> }
                                             </tbody></MudSimpleTable>
                                         }
@@ -924,9 +924,9 @@
         else
         {
             <div class="data-management-rows-table">
-                <MudTable Items="rows.Items" RowsPerPage="50" Dense="true" Hover="true" Breakpoint="Breakpoint.None">
+                <MudTable Items="rows.Items" RowsPerPage="50" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-resources-datamanagement-2">
                     <HeaderContent>
-                        <MudTh></MudTh>
+                        <MudTh>Details</MudTh>
                         <MudTh>Key</MudTh>
                         @foreach (var column in DisplayColumns)
                         {
@@ -935,11 +935,9 @@
                         <MudTh>Updated</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Details">
-                            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => ToggleRowPreview(context.Id))">
-                                @(selectedRowPreviewId == context.Id ? "Hide Raw" : "View Raw")
-                            </MudButton>
-                        </MudTd>
+                        <MudTd DataLabel="Details"><div class="workspace-actions">
+                            <WorkspaceAction OnClick="@(() => ToggleRowPreview(context.Id))" Label="@(selectedRowPreviewId == context.Id ? "Hide Raw" : "View Raw")" Icon="@Icons.Material.Outlined.UnfoldMore" />
+                        </div></MudTd>
                         <MudTd DataLabel="Key">
                             <MudText Typo="Typo.body2">@context.ExternalKey</MudText>
                         </MudTd>

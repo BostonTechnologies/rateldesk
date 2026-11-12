@@ -2,27 +2,95 @@
 @inject IHttpClientFactory HttpClientFactory
 <MudDialog>
     <DialogContent>
-        <MudText Typo="Typo.body1">Are you sure you want to delete @Organization.Name?</MudText>
+        <MudText Typo="Typo.body1">Delete @Organization.Name?</MudText>
+        @if (busy)
+        {
+            <MudProgressLinear Indeterminate="true" aria-label="Checking organization dependencies" />
+            <p role="status">@progress</p>
+        }
+        @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true" role="alert">@error</MudAlert> }
+        @if (assessment is { } review)
+        {
+            @foreach (var dependency in review.Dependencies)
+            {
+                <section class="organization-dependency">
+                    <MudText Typo="Typo.subtitle2">@dependency.Message (@dependency.Count)</MudText>
+                    <MudText Typo="Typo.body2">@dependency.NextAction</MudText>
+                    @if (dependency.Href is not null) { <MudLink Href="@dependency.Href">Review dependency</MudLink> }
+                </section>
+            }
+            @if (review.CanRetire && !review.CanDelete && !review.IsDisabled)
+            { <MudCheckBox T="bool" @bind-Value="retirementConfirmed" Disabled="busy" Label="Keep this organization disabled with its retained history" /> }
+            @if (review.IsDisabled) { <p role="status">This organization is disabled. Its retained history and credential denial records remain available.</p> }
+        }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">Cancel</MudButton>
-        <MudButton OnClick="Delete" Color="Color.Error" Variant="Variant.Filled">Delete</MudButton>
+        <MudButton OnClick="Cancel" Disabled="busy">Cancel</MudButton>
+        <MudButton OnClick="AssessAsync" Disabled="busy">Refresh assessment</MudButton>
+        @if (assessment is { CanRetire: true, CanDelete: false, IsDisabled: false })
+        { <MudButton OnClick="RetireAsync" Disabled="@(busy || !retirementConfirmed)">Retain disabled</MudButton> }
+        <MudButton OnClick="DeleteAsync" Color="Color.Error" Variant="Variant.Filled" Disabled="@(busy || assessment?.CanDelete != true)">Delete</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
-    [Parameter] public Helpdesk.Shared.DTOs.Organization.OrganizationDto Organization { get; set; } = default!;
+    [Parameter] public OrganizationDto Organization { get; set; } = default!;
+    private OrganizationDeletionAssessmentDto? assessment;
+    private bool busy, retirementConfirmed;
+    private string? error;
+    private string progress = "Checking dependencies…";
 
-    private async Task Delete()
+    protected override Task OnInitializedAsync() => AssessAsync();
+    private async Task AssessAsync()
     {
-        var response = await HelpdeskApi.DeleteAsync($"api/v1/organizations/{Organization.Id}");
-        if (response.IsSuccessStatusCode)
+        if (busy) return;
+        busy = true; error = null; assessment = null; retirementConfirmed = false;
+        progress = "Checking dependencies…";
+        try
         {
-            Dialog.Close(DialogResult.Ok(true));
+            using var response = await HelpdeskApi.GetAsync($"api/v1/organizations/{Uri.EscapeDataString(Organization.Id)}/deletion-assessment");
+            if (response.IsSuccessStatusCode) assessment = await response.Content.ReadFromJsonAsync<OrganizationDeletionAssessmentDto>();
+            else error = Failure(response.StatusCode);
         }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { error = "Dependencies could not be checked. Refresh the assessment when the service is available."; }
+        finally { busy = false; }
     }
 
-    private void Cancel() => Dialog.Cancel();
+    private Task DeleteAsync() => MutateAsync(false);
+    private Task RetireAsync() => MutateAsync(true);
+    private async Task MutateAsync(bool retire)
+    {
+        if (busy || (retire ? assessment?.CanRetire != true || !retirementConfirmed : assessment?.CanDelete != true)) return;
+        busy = true; error = null; progress = retire ? "Retaining organization disabled…" : "Deleting organization…";
+        try
+        {
+            var path = $"api/v1/organizations/{Uri.EscapeDataString(Organization.Id)}";
+            using var response = retire ? await HelpdeskApi.PostAsync(path + "/retire", null) : await HelpdeskApi.DeleteAsync(path);
+            if (response.IsSuccessStatusCode) { Dialog.Close(DialogResult.Ok(true)); return; }
+            error = Failure(response.StatusCode);
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var conflict = await response.Content.ReadFromJsonAsync<DependencyConflict>();
+                assessment = conflict?.Assessment;
+                error = conflict?.Message ?? error;
+                retirementConfirmed = false;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { error = "The result could not be confirmed. Refresh the assessment before trying again."; assessment = null; }
+        finally { busy = false; }
+    }
+
+    private static string Failure(System.Net.HttpStatusCode status) => status switch
+    {
+        System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized => "Your access does not permit this action. Ask an instance administrator to review it.",
+        System.Net.HttpStatusCode.NotFound => "This organization no longer exists. Cancel and refresh the directory.",
+        System.Net.HttpStatusCode.Conflict => "Dependencies changed. Refresh the assessment to review them.",
+        _ => "The organization service could not complete the action. Refresh the assessment before trying again."
+    };
+    private void Cancel() { if (!busy) Dialog.Cancel(); }
+    private sealed record DependencyConflict(string? Code, string? Message, OrganizationDeletionAssessmentDto? Assessment);
 }

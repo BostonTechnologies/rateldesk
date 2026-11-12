@@ -592,6 +592,12 @@ public static class LocalAuthenticationEndpoints
             [FromBody] ActivateLocalAccountRequest request,
             [FromServices] UserManager<ApplicationUser> users) =>
         {
+            // Validate public policy identically for known and unknown accounts.
+            // A corrected passphrase must be able to use the same unconsumed token.
+            if (request.NewPassword is null || request.NewPassword.Length < users.Options.Password.RequiredLength)
+                return Results.BadRequest(new { error = "password_policy", minimumLength = users.Options.Password.RequiredLength });
+            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.ActivationToken))
+                return Results.BadRequest(new { error = "activation_failed" });
             var user = await users.FindByEmailAsync(request.Email);
             if (user is null || !user.IsEnabled || user.IsDeleted)
             {
@@ -601,6 +607,8 @@ public static class LocalAuthenticationEndpoints
             var reset = await users.ResetPasswordAsync(user, request.ActivationToken, request.NewPassword);
             if (!reset.Succeeded)
             {
+                if (reset.Errors.All(error => error.Code.StartsWith("Password", StringComparison.Ordinal)))
+                    return Results.BadRequest(new { error = "password_policy", minimumLength = users.Options.Password.RequiredLength });
                 return Results.BadRequest(new { error = "activation_failed" });
             }
 

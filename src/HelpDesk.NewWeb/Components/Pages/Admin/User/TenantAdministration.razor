@@ -66,12 +66,12 @@
             else
             {
                 <MudTextField T="string" @bind-Value="memberSearch" Label="Search members" Immediate="true" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="helpdesk-list-search mb-3" />
-                <MudTable Items="FilteredMembers" Hover="true" Dense="true" T="TenantMember" Breakpoint="Breakpoint.Sm" Class="helpdesk-table">
+                <MudTable Items="FilteredMembers" Hover="true" Dense="true" T="TenantMember" Breakpoint="Breakpoint.Sm" RowsPerPage="25" Class="helpdesk-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-user-tenantadministration-1">
                     <HeaderContent>
                         <MudTh>Name</MudTh>
                         <MudTh>Email</MudTh>
                         <MudTh>Delegable roles</MudTh>
-                        <MudTh class="text-end"></MudTh>
+                        <MudTh class="text-end">Actions</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Name">@context.Name</MudTd>
@@ -95,17 +95,19 @@
                                 </MudStack>
                             }
                         </MudTd>
-                        <MudTd Class="text-end">
+                        <MudTd Class="text-end"><div class="workspace-actions">
                             @if (canAssignRoles)
                             {
-                                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => OpenRoleDialogAsync(context)">Edit roles</MudButton>
+                                <WorkspaceAction OnClick="() => OpenRoleDialogAsync(context)" Label="Edit roles" Icon="@Icons.Material.Outlined.ManageAccounts" />
                             }
-                        </MudTd>
+                        </div></MudTd>
                     </RowTemplate>
                     <NoRecordsContent>
                         <MudText>No members match this tenant and search.</MudText>
                     </NoRecordsContent>
-                </MudTable>
+
+<PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+</MudTable>
             }
         }
     </MudPaper>
