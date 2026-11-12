@@ -25,6 +25,10 @@ const name = process.env.RATELDESK_REVIEW_OWNER as keyof typeof owners;
 if (!owners[name]) throw new Error('Set RATELDESK_REVIEW_OWNER to the owning synthetic suite.');
 const owner = owners[name];
 const servers = (owner.webServer as any[]).slice(0, name === 'admin' ? 3 : 2).map(server => ({ ...server, reuseExistingServer: false }));
+if (name === 'admin') for (const [index, server] of servers.slice(1).entries()) {
+  server.url = `https://127.0.0.1:${5260 + index}/health`;
+  server.env = { ...server.env, ASPNETCORE_URLS: `https://127.0.0.1:${5260 + index}` };
+}
 if (process.env.HELPDESK_REVIEW_WEB_CWD) for (const server of servers.slice(1)) server.cwd = process.env.HELPDESK_REVIEW_WEB_CWD;
 if (process.env.HELPDESK_REVIEW_CONFIGURATION) for (const server of servers.slice(1))
   server.command = `dotnet bin/${process.env.HELPDESK_REVIEW_CONFIGURATION}/net10.0/HelpDesk.NewWeb.dll`;
@@ -33,5 +37,5 @@ export default defineConfig({
   timeout: 240_000, expect: { timeout: 15_000 }, webServer: servers,
   outputDir: process.env.RATELDESK_REVIEW_OUTPUT ?? `test-results/owner-review-${name}`,
   reporter: [['list'], ['json', { outputFile: process.env.RATELDESK_REVIEW_REPORT ?? `test-results/owner-review-${name}.json` }]],
-  use: { baseURL: owner.use?.baseURL, ignoreHTTPSErrors: true, screenshot: 'off', trace: 'off', actionTimeout: 15_000, navigationTimeout: 30_000 }
+  use: { baseURL: name === 'admin' ? 'https://127.0.0.1:5260' : owner.use?.baseURL, ignoreHTTPSErrors: true, screenshot: 'off', trace: 'off', actionTimeout: 15_000, navigationTimeout: 30_000 }
 });

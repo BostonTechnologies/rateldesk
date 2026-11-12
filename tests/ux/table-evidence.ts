@@ -98,9 +98,13 @@ export async function captureTables(page: Page, contextLabel?: string) {
     });
     const screenshot = `${id}-${instance}.png`;
     const target = await surface.evaluate(element => element.matches('table')) ? surface.locator('xpath=..') : surface;
-    await target.screenshot({ path: path.join(destination, screenshot), animations: 'disabled',
-      mask: [page.locator('[data-sensitive], [data-testid*=secret], [class*=credential-secret], input[type=password]')] });
+    const screenshotOptions = { path: path.join(destination, screenshot), animations: 'disabled' as const,
+      mask: [page.locator('[data-sensitive], [data-testid*=secret], [class*=credential-secret], input[type=password]')] };
+    const nativeZoom = info.title.endsWith('native 200%');
+    if (nativeZoom) await page.screenshot({ ...screenshotOptions, fullPage: false });
+    else await target.screenshot(screenshotOptions);
     receipts.push({ id, instance, hostContext, context: contextLabel ?? info.title, route: url.pathname, test: info.title, screenshot, before, after,
+      screenshotScope: nativeZoom ? 'native viewport' : 'table region',
       checked: { contained: true, scroll: scrolled, stickyHeader: scrolled && before.headerVisible, reachablePager: after.pagerTop !== null, keyboardFocus },
       headerMode: before.headerVisible ? 'column headers' : before.headers ? 'responsive labels' : 'semantic content without a column header' });
     await scrollHandle.dispose();

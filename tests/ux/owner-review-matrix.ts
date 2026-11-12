@@ -17,11 +17,12 @@ export async function reviewPage(browser: Browser, origin: string, mode: ReviewM
   const profile = mode.zoom === 2 ? await mkdtemp(path.join(tmpdir(), 'rateldesk-table-review-')) : null;
   const extension = path.resolve('tests/ux/native-zoom-extension');
   const options = { viewport: { width: mode.width, height: mode.height }, ignoreHTTPSErrors: true, timezoneId: 'Africa/Johannesburg' };
-  const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', headless: true, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
+  const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', headless: false, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
   let page: Page | undefined;
   try {
     await context.addInitScript(theme => localStorage.setItem('helpdesk.theme.preference', theme), mode.theme);
     page = await context.newPage();
+    await page.bringToFront();
     await page.goto(`${origin}/auth/development`);
     if (profile) {
       await expect.poll(() => context.serviceWorkers().length).toBeGreaterThan(0);
@@ -37,7 +38,11 @@ export async function reviewPage(browser: Browser, origin: string, mode: ReviewM
   } catch (failure) {
     if (page && !page.isClosed()) {
       await writeFile(test.info().outputPath('failure-accessibility.txt'), await page.locator('body').ariaSnapshot());
-      await page.screenshot({ path: test.info().outputPath('failure.png'), fullPage: true, mask: [page.locator('input[type=password], [data-sensitive]')] });
+      await writeFile(test.info().outputPath('failure-frames.json'), JSON.stringify({
+        owners: await page.locator('iframe').evaluateAll(elements => elements.map(element => ({ title: element.title, srcdoc: element.srcdoc, rect: element.getBoundingClientRect().toJSON() }))),
+        frames: await Promise.all(page.frames().map(async frame => ({ url: frame.url(), document: await frame.evaluate(() => ({ ready: document.readyState, html: document.body?.innerHTML.slice(0, 4096), rect: document.body?.getBoundingClientRect().toJSON() })).catch(() => null) })))
+      }, null, 2));
+      await page.screenshot({ path: test.info().outputPath('failure.png'), fullPage: mode.zoom !== 2, mask: [page.locator('input[type=password], [data-sensitive]')] });
     }
     throw failure;
   } finally {
@@ -80,6 +85,6 @@ export async function reviewCapture(page: Page, info: TestInfo, mode: ReviewMode
   await page.evaluate(async () => { await document.fonts.ready; });
   await captureTables(page, label);
   const screenshot = info.outputPath(`${label}.png`);
-  await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled', mask: [page.locator('input[type=password], [data-sensitive]')] });
-  await writeFile(info.outputPath(`${label}.json`), JSON.stringify({ baseline: baselineReview, route: new URL(page.url()).pathname, mode, expectedIds, screenshot: path.basename(screenshot), visibleTables: await page.locator('table:visible').count() }, null, 2));
+  await page.screenshot({ path: screenshot, fullPage: mode.zoom !== 2, animations: 'disabled', mask: [page.locator('input[type=password], [data-sensitive]')] });
+  await writeFile(info.outputPath(`${label}.json`), JSON.stringify({ baseline: baselineReview, route: new URL(page.url()).pathname, mode, expectedIds, screenshot: path.basename(screenshot), screenshotScope: mode.zoom === 2 ? 'native viewport' : 'full page', visibleTables: await page.locator('table:visible').count() }, null, 2));
 }

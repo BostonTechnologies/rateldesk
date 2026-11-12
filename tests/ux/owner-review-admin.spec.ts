@@ -68,6 +68,7 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     if (baselineReview) await page.locator('table tbody tr').first().getByRole('button').first().click();
     else await page.getByRole('button', { name: 'Edit layout', exact: true }).first().click();
     await page.locator('iframe[title="Layout Preview"]').scrollIntoViewIfNeeded();
+    await expect(page.locator('iframe[title="Layout Preview"]')).toHaveAttribute('srcdoc', /View Ticket/);
     const authored = page.frameLocator('iframe[title="Layout Preview"]');
     await expect(authored.locator('table[role="presentation"]')).toBeVisible();
     await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');
@@ -118,7 +119,9 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
       ['/admin/customers', 'pages-admin-customer-customermanagement-1'], ['/admin/categories', 'pages-admin-categories-1']
     ]) { await open(route); await capture(route.replaceAll('/', '-'), id); }
   });
-  const delegatedOrigin = baseURL!.replace(':5180', ':5181');
+  const delegatedUrl = new URL(baseURL!);
+  delegatedUrl.port = String(Number(delegatedUrl.port) + 1);
+  const delegatedOrigin = delegatedUrl.origin;
   await reviewPage(browser, delegatedOrigin, mode, async page => {
     for (const [name, route] of [
       ['organizations', '/admin/organizations?section=members&organizationId=org-1'],
