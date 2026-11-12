@@ -353,10 +353,21 @@ test('unfiltered all matching is explicit, filter changes clear it, and 100-row 
   await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
   await expect(page.getByText('1 deliveries · 0 selected records', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
-  await page.locator('.mud-table-pagination').getByRole('combobox').click();
+  // Clearing filters navigates and replaces the keyed table. Wait for that
+  // unfiltered page before changing the size on its pager.
+  await expect(page).not.toHaveURL(/[?&]search=/);
+  await expect(page.getByText('1205 deliveries · 0 selected records', { exact: true })).toBeVisible();
+  await expect(page.getByText('1-25 of 1,205', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  const pager = page.locator('.pending-mail .mud-table-pagination');
+  await pager.getByRole('combobox').click();
   await page.getByRole('option', { name: '100', exact: true }).click();
   await expect(page.locator('.pending-mail tbody tr')).toHaveCount(100);
-  const bounds = await page.locator('.mud-table-pagination').boundingBox();
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByText('1-100 of 1,205', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  await expect(pager).toBeInViewport();
   await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeInViewport();
+  const bounds = await pager.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 });
