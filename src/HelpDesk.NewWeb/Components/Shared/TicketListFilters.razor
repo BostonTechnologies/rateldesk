@@ -1,18 +1,20 @@
 @using HelpDesk.NewWeb.Services
 @using Helpdesk.Shared.DTOs
+@using System.Globalization
 @implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JS
 <div class="ticket-filters">
     <div class="filter-toolbar">
         <MudTextField T="string" Value="@State.Search" ValueChanged="SearchChanged" Placeholder="Search tickets" aria-label="Search tickets"
                       MaxLength="200" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Margin="Margin.Dense" Variant="Variant.Outlined" />
+        <TicketFilterLookup Module="@Module" Dimension="customer" Label="Tenant" Selected="@(option => Add("Customer", State.CustomerOrgIds, option))" />
         <MudButton OnClick="@(() => expanded = !expanded)" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.FilterList" aria-expanded="@(expanded ? "true" : "false")">Filters (@State.ActiveCount)</MudButton>
         <MudButton OnClick="Clear" Disabled="@(State.ActiveCount == 0 && State.Search.Length == 0 && State.View == "active" && State.ValidationError is null)">Clear all</MudButton>
     </div>
     @if (expanded)
     {
         <div class="filter-grid" aria-label="Ticket filters">
-            <TicketFilterLookup Module="@Module" Dimension="customer" Label="Customer" Selected="@(option => Add("Customer", State.CustomerOrgIds, option))" />
             <TicketFilterLookup @key="string.Join('|', State.CustomerOrgIds)" Module="@Module" Dimension="for" Label="For" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add("For", State.ForIds, option))" />
             <TicketFilterLookup @key="AssigneeScopeKey" Module="@Module" Dimension="assignee" Label="Assignee" OrganizationIds="State.CustomerOrgIds" Selected="@(option => Add("Assignee", State.AssigneeIds, option))" />
             <MudSelect T="string" Label="State" MultiSelection="true" SelectedValues="State.States" SelectedValuesChanged="StatesChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -28,16 +30,16 @@
             <MudSelect T="string" Label="Time field" Value="@State.TimeField" ValueChanged="TimeFieldChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                 <MudSelectItem Value="@("updated")">Updated at</MudSelectItem><MudSelectItem Value="@("created")">Created at</MudSelectItem>
             </MudSelect>
-            <MudTextField T="string" Label="From (inclusive)" @bind-Value="fromText" Placeholder="YYYY-MM-DD HH:mm" Variant="Variant.Outlined" Margin="Margin.Dense" />
-            <MudTextField T="string" Label="To (exclusive)" @bind-Value="toText" Placeholder="YYYY-MM-DD HH:mm" Variant="Variant.Outlined" Margin="Margin.Dense" />
-            <MudTextField T="string" Label="Timezone" @bind-Value="zoneText" Variant="Variant.Outlined" Margin="Margin.Dense" />
-            <MudButton OnClick="ApplyTime" Variant="Variant.Outlined">Apply time range</MudButton>
+            <MudDatePicker Label="From date" @bind-Date="fromDate" Editable="true" Clearable="true" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTimePicker Label="From time" @bind-Time="fromTime" Editable="true" Clearable="true" AmPm="false" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudDatePicker Label="To date" @bind-Date="toDate" Editable="true" Clearable="true" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTimePicker Label="To time" @bind-Time="toTime" Editable="true" Clearable="true" AmPm="false" HelperText="Without a time, includes the whole day." Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudButton OnClick="ApplyTime" Variant="Variant.Outlined" Disabled="@(browserZone is null && !State.HasExplicitTimeZone)">Apply time range</MudButton>
             <MudSelect T="string" Label="Sort by" Value="@State.Sort" ValueChanged="SortChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
                 <MudSelectItem Value="@("updated")">Updated at</MudSelectItem><MudSelectItem Value="@("created")">Created at</MudSelectItem><MudSelectItem Value="@("trackingId")">Tracking ID</MudSelectItem><MudSelectItem Value="@("subject")">Subject</MudSelectItem><MudSelectItem Value="@("priority")">Priority</MudSelectItem><MudSelectItem Value="@("state")">State</MudSelectItem>
             </MudSelect>
             <MudCheckBox T="bool" Value="State.Descending" ValueChanged="DirectionChanged" Label="Descending" />
         </div>
-        <p class="filter-help">Customer is the ticket organization. For is @(Module == "change" ? "the requested-for user" : "the customer contact"). Times use @State.TimeZone; date-only To includes that whole local day.</p>
     }
     <p class="filter-help" role="status">@(State.States.Count > 0 ? "Selected states replace the active/historic view restriction." : State.View == "all" ? "Showing all lifecycle states." : State.View == "historic" ? "Historic view: completed tickets only." : "Active view: completed tickets are excluded.")</p>
     @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
@@ -62,7 +64,9 @@
     [Parameter] public EventCallback Changed { get; set; }
     private bool expanded;
     private string? error;
-    private string fromText = "", toText = "", zoneText = "UTC";
+    private DateTime? fromDate, toDate, originalFromDate, originalToDate;
+    private TimeSpan? fromTime, toTime, originalFromTime, originalToTime;
+    private string? browserZone;
     private TicketListState? previous;
     private CancellationTokenSource? debounce;
     private CancellationTokenSource? hydration;
@@ -78,7 +82,9 @@
         hydration?.Cancel(); hydration?.Dispose(); hydration = new();
         var token = hydration.Token;
         var state = State;
-        previous = state; fromText = Local(state.From); toText = Local(state.To); zoneText = state.TimeZone; error = null;
+        previous = state;
+        if (!state.HasExplicitTimeZone && browserZone is not null) state.TimeZone = browserZone;
+        error = null; SyncPickers();
         await Task.WhenAll(Hydrate("Customer", "customer", state.CustomerOrgIds), Hydrate("For", "for", state.ForIds), Hydrate("Assignee", "assignee", state.AssigneeIds));
 
         async Task Hydrate(string label, string dimension, List<string> values)
@@ -96,6 +102,31 @@
             catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { /* Keep the selected stable ID visible when its label is unavailable. */ }
         }
     }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/site.js");
+            if (module is null) return;
+            browserZone = await module.InvokeAsync<string>("browserTimeZone");
+            _ = TimeZoneInfo.FindSystemTimeZoneById(browserZone);
+            if (!State.HasExplicitTimeZone) { State.TimeZone = browserZone; SyncPickers(); await InvokeAsync(StateHasChanged); }
+        }
+        catch (JSDisconnectedException) { return; }
+        catch (JSException) { error = "Local time could not be resolved. Reload the page before setting a time range."; await InvokeAsync(StateHasChanged); }
+    }
+    private void SyncPickers()
+    {
+        TimeZoneInfo zone;
+        try { zone = TimeZoneInfo.FindSystemTimeZoneById(State.TimeZone); }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        { error = "The saved time zone is unavailable. Clear the time range and choose it again."; return; }
+        var from = State.From is { } start ? TimeZoneInfo.ConvertTime(start, zone).DateTime : (DateTime?)null;
+        var to = State.To is { } end ? TimeZoneInfo.ConvertTime(end, zone).DateTime : (DateTime?)null;
+        fromDate = originalFromDate = from?.Date; fromTime = originalFromTime = from?.TimeOfDay;
+        toDate = originalToDate = to?.Date; toTime = originalToTime = to?.TimeOfDay;
+    }
     private async Task SearchChanged(string value)
     {
         var state = State; state.Search = value; debounce?.Cancel(); debounce?.Dispose(); debounce = new(); var token = debounce.Token;
@@ -110,22 +141,26 @@
     private Task TimeFieldChanged(string value) { State.TimeField = value; return Changed.InvokeAsync(); }
     private Task SortChanged(string value) { State.Sort = value; return Changed.InvokeAsync(); }
     private Task DirectionChanged(bool value) { State.Descending = value; return Changed.InvokeAsync(); }
-    private Task ClearFrom() { State.From = null; fromText = ""; return Changed.InvokeAsync(); }
-    private Task ClearTo() { State.To = null; toText = ""; return Changed.InvokeAsync(); }
+    private Task ClearFrom() { State.From = null; fromDate = null; fromTime = null; return Changed.InvokeAsync(); }
+    private Task ClearTo() { State.To = null; toDate = null; toTime = null; return Changed.InvokeAsync(); }
     private Task Clear()
     {
-        debounce?.Cancel(); State.Search = ""; State.CustomerOrgIds.Clear(); State.ForIds.Clear(); State.States.Clear(); State.AssigneeIds.Clear(); State.Priorities.Clear(); State.Unassigned = false; State.From = State.To = null; State.View = "active"; State.ValidationError = null; fromText = toText = ""; error = null;
+        State.TimeZone = browserZone ?? "UTC"; State.HasExplicitTimeZone = false;
+        debounce?.Cancel(); State.Search = ""; State.CustomerOrgIds.Clear(); State.ForIds.Clear(); State.States.Clear(); State.AssigneeIds.Clear(); State.Priorities.Clear(); State.Unassigned = false; State.From = State.To = null; State.View = "active"; State.ValidationError = null; fromDate = toDate = null; fromTime = toTime = null; error = null;
         return Changed.InvokeAsync();
     }
     private async Task ApplyTime()
     {
         try
         {
-            var from = TicketListState.LocalBoundary(fromText, zoneText, false); var to = TicketListState.LocalBoundary(toText, zoneText, true);
+            var from = fromDate == originalFromDate && fromTime == originalFromTime ? State.From : Boundary(fromDate, fromTime, false);
+            var to = toDate == originalToDate && toTime == originalToTime ? State.To : Boundary(toDate, toTime, true);
             if (from >= to) throw new FormatException("From must be earlier than To.");
-            State.From = from; State.To = to; State.TimeZone = zoneText; State.ValidationError = null; error = null; await Changed.InvokeAsync();
+            State.From = from; State.To = to; State.ValidationError = null; error = null; SyncPickers(); await Changed.InvokeAsync();
         }
         catch (Exception ex) when (ex is FormatException or TimeZoneNotFoundException or InvalidTimeZoneException or ArgumentOutOfRangeException) { error = ex.Message; }
     }
+    private DateTimeOffset? Boundary(DateTime? date, TimeSpan? time, bool end) => date is null ? null :
+        TicketListState.LocalBoundary(time is null ? date.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : date.Value.Add(time.Value).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), State.TimeZone, end);
     public void Dispose() { debounce?.Cancel(); debounce?.Dispose(); hydration?.Cancel(); hydration?.Dispose(); }
 }

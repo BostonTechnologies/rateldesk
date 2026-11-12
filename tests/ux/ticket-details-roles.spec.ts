@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 
 const fixture = 'http://127.0.0.1:18620/fixture';
@@ -51,7 +52,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
     await managementUnavailable(page, module);
     await page.getByRole('tab', { name: /Timeline/ }).click();
     await expect(page.getByRole('button', { name: 'Add Note', exact: true })).toBeEnabled();
-    await page.screenshot({ path: testInfo.outputPath(`${module}-contributor-owned.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`${module}-contributor-owned.png`), fullPage: true });
     await page.getByRole('button', { name: 'Add Note', exact: true }).click();
     const note = `Synthetic ${module} owner contribution`;
     await page.getByPlaceholder('Enter your note details here...').fill(note);
@@ -96,7 +97,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
 
     const remove = selected(page).getByRole('button', { name: 'Remove category Network Operations', exact: true });
     await remove.click(); await expect(save(page)).toBeEnabled();
-    await page.screenshot({ path: testInfo.outputPath(`${module}-manager-draft.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`${module}-manager-draft.png`), fullPage: true });
     await revert(page).click(); await expect(remove).toBeVisible();
     await expect(save(page)).toBeDisabled();
     expect((await (await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
@@ -112,7 +113,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
     await managementUnavailable(page, module);
     await page.getByRole('tab', { name: /Timeline/ }).click();
     await expect(page.getByRole('button', { name: 'Add Note', exact: true })).toBeDisabled();
-    await page.screenshot({ path: testInfo.outputPath(`${module}-manager-outside-scope.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`${module}-manager-outside-scope.png`), fullPage: true });
     expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(1);
   });
 }
@@ -130,3 +131,6 @@ test('change manager retains lifecycle assignment lock after submission', async 
   await expect(page.getByRole('button', { name: 'Add Note', exact: true })).toBeEnabled();
   expect((await (await request.get(`${fixture}/state`)).json()).saves).toEqual([]);
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

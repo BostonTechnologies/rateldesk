@@ -87,6 +87,8 @@
 .data-management-page ::deep .data-management-json { white-space: pre-wrap; overflow-wrap: anywhere; }
 .data-management-context { max-width: 32rem; }
 .data-management-builtins { border-block: 1px solid var(--mud-palette-divider); padding-block: 1rem; }
+.data-management-page ::deep .data-management-source-actions { min-width: 0; max-width: 100%; flex-wrap: wrap; }
+.data-management-page ::deep .dataset-managed-schema table { min-width: 30rem; }
 .data-management-source-catalog { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .8rem; margin-top: 1rem; }
 .data-management-page ::deep .graph-source-card { min-width: 0; }
 .data-management-page ::deep .dataset-schema-grid .mud-input-control { min-width: 7rem; }

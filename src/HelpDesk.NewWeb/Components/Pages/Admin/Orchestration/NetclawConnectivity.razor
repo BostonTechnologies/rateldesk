@@ -221,7 +221,7 @@
                                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
                                     Existing chat transcripts and remote session identifiers are preserved. Provider ownership changes only for the sessions you select.
                                 </MudAlert>
-                                <MudTable Items="unboundLegacySessions" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" data-testid="unbound-netclaw-sessions" Class="netclaw-legacy-table">
+                                <MudTable Items="unboundLegacySessions" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" data-testid="unbound-netclaw-sessions" Class="netclaw-legacy-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-orchestration-netclawconnectivity-1">
                                     <HeaderContent>
                                         <MudTh>Select</MudTh><MudTh>Conversation</MudTh><MudTh>Organization</MudTh><MudTh>Ticket</MudTh><MudTh>Type</MudTh><MudTh>Last activity</MudTh>
                                     </HeaderContent>
@@ -278,7 +278,7 @@
                             </dl>
                             @if (testResult is not null && testResult.Probes.Count > 0)
                             {
-                                <MudTable Items="testResult.Probes" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="netclaw-probe-table">
+                                <MudTable Items="testResult.Probes" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="netclaw-probe-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-orchestration-netclawconnectivity-2">
                                     <HeaderContent><MudTh>Probe</MudTh><MudTh>Success</MudTh><MudTh>HTTP</MudTh><MudTh>Message</MudTh></HeaderContent>
                                     <RowTemplate>
                                         <MudTd DataLabel="Probe">@context.ProbeName</MudTd>

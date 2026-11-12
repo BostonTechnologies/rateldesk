@@ -103,14 +103,14 @@
                             <MudText Typo="Typo.body2" Class="mb-2">No form fields yet. Add a field to start.</MudText>
                         }
 
-                        <MudTable Items="FormFields" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm">
+                        <MudTable Items="FormFields" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-requests-requestformbuilder-1">
                             <HeaderContent>
                                 <MudTh>Label</MudTh>
                                 <MudTh>Type</MudTh>
                                 <MudTh>Required</MudTh>
                                 <MudTh>Data Binding</MudTh>
                                 <MudTh>Predefined</MudTh>
-                                <MudTh Style="width: 1%;"></MudTh>
+                                <MudTh Style="width: 1%;">Actions</MudTh>
                             </HeaderContent>
                             <RowTemplate>
                                 <MudTd DataLabel="Label">
@@ -163,7 +163,7 @@
                                 <MudTd>
                                     <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="Move field up" Disabled="@(FormFields.IndexOf(context) == 0)" OnClick="@(() => MoveField(context, -1))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="Move field down" Disabled="@(FormFields.IndexOf(context) == FormFields.Count - 1)" OnClick="@(() => MoveField(context, 1))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Delete field" OnClick="@(() => RemoveField(context))" />
+                                    <WorkspaceAction Icon="@Icons.Material.Filled.Delete" Label="Delete field" OnClick="@(() => RemoveField(context))" />
                                 </MudTd>
                             </RowTemplate>
                         </MudTable>
@@ -562,7 +562,7 @@
                                                             <MudTable Items="VisibleDriftDifferences"
                                                                       Dense="true"
                                                                       Hover="true"
-                                                                      Breakpoint="Breakpoint.Sm">
+                                                                      Breakpoint="Breakpoint.Sm" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-requests-requestformbuilder-2">
                                                                 <HeaderContent>
                                                                     <MudTh>Input Key</MudTh>
                                                                     <MudTh>Change</MudTh>
@@ -624,11 +624,11 @@
 
                                                         @if (VisiblePayloadMappingRows.Count > 0)
                                                         {
-                                                            <MudTable Items="VisiblePayloadMappingRows" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                                                            <MudTable Items="VisiblePayloadMappingRows" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-requests-requestformbuilder-3">
                                                                 <HeaderContent>
                                                                     <MudTh>Job Param</MudTh>
                                                                     <MudTh>Helpdesk Field</MudTh>
-                                                                    <MudTh Style="width: 1%;"></MudTh>
+                                                                    <MudTh Style="width: 1%;">Actions</MudTh>
                                                                 </HeaderContent>
                                                                 <RowTemplate>
                                                                     <MudTd DataLabel="Job Param">
@@ -649,7 +649,7 @@
                                                                         </MudSelect>
                                                                     </MudTd>
                                                                     <MudTd>
-                                                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="@(() => RemovePayloadMapping(context.JobParamKey))" />
+                                                                        <WorkspaceAction Icon="@Icons.Material.Filled.DeleteOutline" Label="Remove payload mapping" OnClick="@(() => RemovePayloadMapping(context.JobParamKey))" />
                                                                     </MudTd>
                                                                 </RowTemplate>
                                                             </MudTable>
@@ -820,7 +820,7 @@
 .request-form-selected-title { min-width:0; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .request-form-task-actions { display:flex; flex:none; }
 .request-form-back-to-tasks { display:none; }
-.request-form-step-automation-panel { display:grid; gap:12px; padding:20px; border:1px solid var(--mud-palette-lines-default); border-radius:12px; background:var(--mud-palette-surface); min-width:0; }
+.request-form-step-automation-panel { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; padding:20px; border:1px solid var(--mud-palette-lines-default); border-radius:12px; background:var(--mud-palette-surface); min-width:0; }
 .request-form-script-picker, .request-form-section-header, .request-form-chip-row { flex-wrap:wrap; gap:8px; }
 .request-form-script-picker .mud-input-control { flex:1 1 240px; min-width:0; }
 .request-form-info-icon { padding:2px; }

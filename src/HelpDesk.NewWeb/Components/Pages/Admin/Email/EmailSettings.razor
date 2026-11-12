@@ -122,7 +122,7 @@
             <button type="button" aria-pressed="@(activeTab == 2 ? "true" : "false")" @onclick="() => activeTab = 2">Processing</button>
             <button type="button" aria-pressed="@(activeTab == 3 ? "true" : "false")" @onclick="() => activeTab = 3">Activity</button>
         </div>
-        <MudTabs @bind-ActivePanelIndex="activeTab" KeepPanelsAlive="true" PanelClass="pa-0" Class="mailbox-workspace-tabs">
+        <MudTabs @bind-ActivePanelIndex="activeTab" KeepPanelsAlive="true" PanelClass="pa-0" Class="mailbox-workspace-tabs compact-tabs">
         <MudTabPanel Text="Incoming" Icon="@Icons.Material.Filled.Inbox">
         <MudForm @ref="form" Model="model">
             <MudTextField Label="Mailbox display name" @bind-Value="model.DisplayName" @bind-Value:after="MarkDirty" Immediate="true" Disabled="@mutationsDisabled" />

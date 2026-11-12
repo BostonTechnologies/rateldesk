@@ -59,7 +59,7 @@
       <div class="my-requests-table-region">
         <MudTable T="MyRequestListItemDto" @ref="_table" ServerData="LoadDataAsync" Hover="true" Dense="true" AllowUnsorted="false"
                   RowsPerPage="_pageSize" RowsPerPageChanged="PageSizeChanged" CurrentPage="_currentPage" CurrentPageChanged="PageChanged"
-                  FixedHeader="true" FixedFooter="true" Height="clamp(12rem, calc(100dvh - 31rem), 44rem)" Breakpoint="Breakpoint.None" Class="helpdesk-table my-requests-table">
+                  FixedHeader="true" FixedFooter="true" Height="clamp(12rem, calc(100dvh - 31rem), 44rem)" Breakpoint="Breakpoint.None" Class="helpdesk-table my-requests-table compact-table" data-table-surface="pages-selfservice-myrequests-1">
           <HeaderContent>
               <MudTh Class="my-requests-tracking" aria-sort="@AriaSortFor("trackingId")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("trackingId")" aria-label="Sort by tracking ID" OnClick="@(() => ToggleSortAsync("trackingId"))">Tracking ID</MudButton></MudTh>
               <MudTh aria-sort="@AriaSortFor("title")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("title")" aria-label="Sort by title" OnClick="@(() => ToggleSortAsync("title"))">Title</MudButton></MudTh>

@@ -34,7 +34,7 @@
                 <MudItem xs="12" md="9">
                     <MudText Typo="Typo.subtitle2" Class="mb-2">Weekly Rules</MudText>
                     <div class="sla-weekly-wrap">
-                        <MudTable T="WorkingDayRuleDto" Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="sla-weekly-table">
+                        <MudTable T="WorkingDayRuleDto" Items="OrderedRules" Dense="true" Hover="true" Breakpoint="Breakpoint.None" Class="sla-weekly-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-sla-workingcalendardialog-1">
                             <HeaderContent>
                                 <MudTh>Day / Working</MudTh>
                                 <MudTh>Start</MudTh>
@@ -189,7 +189,11 @@
 
 <style>
     .sla-calendar-editor {
-        min-width: 960px;
+        min-width: 0;
+    }
+
+    .sla-calendar-editor > .mud-grid-item {
+        min-width: 0;
     }
 
     .sla-settings-card {
@@ -198,7 +202,12 @@
     }
 
     .sla-weekly-wrap {
-        overflow-x: auto;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .sla-weekly-table .mud-table-root {
+        min-width: 34rem;
     }
 
     .sla-weekly-table th,

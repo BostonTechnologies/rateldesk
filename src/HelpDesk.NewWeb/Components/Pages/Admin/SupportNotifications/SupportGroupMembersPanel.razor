@@ -47,7 +47,7 @@
         </MudItem>
     </MudGrid>
 
-    <MudTable Items="FilteredGroups" Dense="true" Hover="true" T="SupportGroupDto" RowsPerPage="25">
+    <MudTable Items="FilteredGroups" Dense="true" Hover="true" T="SupportGroupDto" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-supportnotifications-supportgroupmemberspanel-1">
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Owner</MudTh>
@@ -68,15 +68,11 @@
             </MudTd>
             <MudTd Class="text-end">
                 <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="@(() => RunActionAsync(() => OpenEditGroupDialogAsync(context)))">Edit</MudButton>
-                    <MudButton Size="Size.Small"
-                               Variant="Variant.Outlined"
-                               Color="@(context.IsEnabled ? Color.Warning : Color.Success)"
-                               OnClick="@(() => RunActionAsync(() => ToggleGroupAsync(context)))">
-                        @(context.IsEnabled ? "Disable" : "Enable")
-                    </MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Groups" OnClick="@(() => RunActionAsync(() => OpenMembersDialogAsync(context)))">Manage Members</MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete" OnClick="@(() => RunActionAsync(() => DeleteGroupAsync(context)))">Delete</MudButton>
+                    <WorkspaceAction OnClick="@(() => RunActionAsync(() => OpenEditGroupDialogAsync(context)))" Label="Edit" Icon="@Icons.Material.Outlined.Edit" />
+                    <WorkspaceAction
+                               OnClick="@(() => RunActionAsync(() => ToggleGroupAsync(context)))" Label="@(context.IsEnabled ? "Disable" : "Enable")" Icon="@Icons.Material.Outlined.ToggleOn" />
+                    <WorkspaceAction OnClick="@(() => RunActionAsync(() => OpenMembersDialogAsync(context)))" Label="Manage Members" Icon="@Icons.Material.Outlined.Groups" />
+                    <WorkspaceAction OnClick="@(() => RunActionAsync(() => DeleteGroupAsync(context)))" Label="Delete" Icon="@Icons.Material.Outlined.DeleteOutline" />
                 </MudStack>
             </MudTd>
         </RowTemplate>

@@ -1,0 +1,855 @@
+{
+  "configuration": "Release",
+  "sdk": "10.0.400",
+  "tests": [
+    {
+      "test": "Helpdesk.Tests.NewWeb.OrganizationDeletionDialogTests.Failed_deletion_stays_open_with_safe_feedback_and_no_false_success(status: 0, message: \"result could not be confirmed\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0422692"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Aborted_read_propagates_without_direct_or_logger_notifications(path: \"/api/v1/admin/directories/categories\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0025422"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Request_worklogs_require_a_request_manager_grant",
+      "outcome": "Passed",
+      "duration": "00:00:01.6247392"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.RoleAssignmentPagingTests.Assignment_details_page_the_whole_authorized_collection_and_retain_legacy_array_contract(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.0850451"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.OrganizationDeletionDialogTests.Retained_revoked_identity_offers_explicit_disabled_retention_without_delete",
+      "outcome": "Passed",
+      "duration": "00:00:00.0344641"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Native_state_trigger_intercepts_activation_only_when_editable_and_cleans_up",
+      "outcome": "Passed",
+      "duration": "00:00:00.0169093"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Last_enabled_instance_administrator_cannot_be_disabled",
+      "outcome": "Passed",
+      "duration": "00:00:01.2909162"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Change_worklogs_require_a_change_manager_grant",
+      "outcome": "Passed",
+      "duration": "00:00:01.8034289"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Local_login_cookie_contains_the_resolved_scoped_role_permissions",
+      "outcome": "Passed",
+      "duration": "00:00:01.5895006"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Retained_principals_and_deliveries_have_atomic_assessment_and_retirement_on_both_providers(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.4311474"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Each_category_renders_one_focused_table(category: \"bindings\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0237554"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Failed_ticket_state_retains_chip_until_explicit_authoritative_reload",
+      "outcome": "Passed",
+      "duration": "00:00:00.0090995"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Invalid_local_fields_render_actionable_errors_without_a_request(email: \"person@example.test\", token: \"synthetic-token\", password: \"12345678901234\", confirmation: \"12345678901234\", message: \"Use at least 15 characters.\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0323855"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.OrganizationDeletionDialogTests.Failed_deletion_stays_open_with_safe_feedback_and_no_false_success(status: 409, message: \"Retained history needs review\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0121023"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Delegated_tenant_user_management_never_grants_global_deletion_or_sign_in_controls",
+      "outcome": "Passed",
+      "duration": "00:00:01.7620480"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.More_than_five_successful_logins_can_share_the_web_server_address",
+      "outcome": "Passed",
+      "duration": "00:00:01.6300469"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_can_assign_the_technician_bundle_to_a_local_account",
+      "outcome": "Passed",
+      "duration": "00:00:01.5910629"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Orphan_metadata_retirement_refuses_unsafe_storage_names(storedName: \"..\\\\outside.txt\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.4566665"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Change_option_read_timeout_is_recoverable_without_lifecycle_write",
+      "outcome": "Passed",
+      "duration": "00:00:00.0883240"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.OrganizationDeletionDialogTests.Failed_deletion_stays_open_with_safe_feedback_and_no_false_success(status: 403, message: \"Your access does not permit this action\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0052257"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Incident_activity_is_not_visible_outside_the_principal_tenant_scope",
+      "outcome": "Passed",
+      "duration": "00:00:01.8123702"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Non_admin_does_not_load_or_offer_retry_diagnostics",
+      "outcome": "Passed",
+      "duration": "00:00:00.0130666"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Each_category_renders_one_focused_table(category: \"callbacks\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0217387"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Authenticated_non_administrator_cannot_use_legacy_email_ingestion",
+      "outcome": "Passed",
+      "duration": "00:00:01.5077278"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Each_category_renders_one_focused_table(category: \"critical\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0157086"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.TaskOrganizationFilterTests.Tenant_search_and_task_filter_use_the_complete_authorized_query_before_paging(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:11.2276328"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Expected_SQLite_mutation_conflicts_require_reassessment(code: 19, extendedCode: 787)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0002546"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Notification_hub_rejects_anonymous_negotiation",
+      "outcome": "Passed",
+      "duration": "00:00:01.5703280"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Local_cookie_mutations_reject_cross_site_requests_even_with_a_custom_header",
+      "outcome": "Passed",
+      "duration": "00:00:01.5891149"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"disabled-link\", expected: Disabled, canActivate: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.5095247"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Disabled_support_configuration_retains_identity_and_active_routes_require_resolution(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:05.3932468"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Ticket_attachments_require_parent_ticket_scope_for_reads_and_writes",
+      "outcome": "Passed",
+      "duration": "00:00:02.1173970"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"pending\", expected: Pending, canActivate: True)",
+      "outcome": "Passed",
+      "duration": "00:00:01.2719142"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.RoleAssignmentPagingTests.Assignment_details_page_the_whole_authorized_collection_and_retain_legacy_array_contract(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:09.1668197"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Expected_SQLite_mutation_conflicts_require_reassessment(code: 6, extendedCode: 6)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0000038"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Role_definition_api_requires_an_administrator_and_protects_built_ins",
+      "outcome": "Passed",
+      "duration": "00:00:01.6040911"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Each_category_renders_one_focused_table(category: \"retries\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0147339"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.Archived_unused_mailbox_and_organization_are_deleted_but_audit_is_retained",
+      "outcome": "Passed",
+      "duration": "00:00:00.1114187"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Expected_PostgreSql_mutation_conflicts_require_reassessment(sqlState: \"23503\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0078031"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Second_factor_rejects_missing_expired_or_revoked_password_verification(state: \"expired\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.2451834"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Ticket_state_uses_confirmed_state_and_suppresses_pending_duplicate(module: \"requests\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0413658"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Expected_PostgreSql_mutation_conflicts_require_reassessment(sqlState: \"40P01\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0002286"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Task_dashboard_first_request_is_all_assignments_and_native_pager_and_filter_send_server_queries",
+      "outcome": "Passed",
+      "duration": "00:00:00.2440473"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Change_plan_has_one_associated_label_per_input_and_read_only_summary_retains_values(type: \"Normal\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0567091"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.McpPolicyManagementPageTests.Explicit_bulk_delete_reviews_each_revision_and_retains_failed_selection_without_touching_unselected_policy",
+      "outcome": "Passed",
+      "duration": "00:00:00.0286625"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.Retained_outbox_delivery_returns_conflict_without_disposing_configuration",
+      "outcome": "Passed",
+      "duration": "00:00:00.0653214"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Delete_user_revokes_existing_cookie_and_password_and_cannot_be_reversed_with_Enable",
+      "outcome": "Passed",
+      "duration": "00:00:01.6436367"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Late_ticket_state_result_cannot_apply_to_reused_component_scope",
+      "outcome": "Passed",
+      "duration": "00:00:00.0139379"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"deleted-account\", expected: Disabled, canActivate: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.6738412"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Actual_list_state_trigger_opens_without_navigation_or_write(module: \"requests\", component: typeof(HelpDesk.NewWeb.Components.Pages.Requests.RequestList))",
+      "outcome": "Passed",
+      "duration": "00:00:00.0173746"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.State_reload_reconciles_selection_from_server_results_after_cached_rows",
+      "outcome": "Passed",
+      "duration": "00:00:00.0226083"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Expected_PostgreSql_mutation_conflicts_require_reassessment(sqlState: \"40001\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0000224"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_can_reenable_a_disabled_local_account",
+      "outcome": "Passed",
+      "duration": "00:00:01.6311228"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Local_user_cannot_queue_a_knowledge_suggestion_for_a_foreign_tenant_ticket",
+      "outcome": "Passed",
+      "duration": "00:00:00.3132687"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Rejections_are_distinct_safe_and_never_automatically_replayed(status: 400, code: \"password_policy\", message: \"at least 15 characters\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0172145"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Sla_tenant_lookup_failure_stays_visible_and_refresh_retries(malformedJson: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0455993"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Request_workflow_timeline_uses_scoped_manager_grants_instead_of_primary_tenant",
+      "outcome": "Passed",
+      "duration": "00:00:01.6903023"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Change_plan_has_one_associated_label_per_input_and_read_only_summary_retains_values(type: \"Emergency\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0135860"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"external\", expected: Active, canActivate: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.5098943"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Sla_refresh_ignores_cancelled_old_response_after_tenant_changes",
+      "outcome": "Passed",
+      "duration": "00:00:00.0804396"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Local_login_issues_a_cookie_that_authenticates_subsequent_api_requests",
+      "outcome": "Passed",
+      "duration": "00:00:01.3878800"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Ticket_state_uses_confirmed_state_and_suppresses_pending_duplicate(module: \"incidents\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0075141"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Read_only_or_terminal_changes_have_no_edit_trigger(canWrite: True, state: ImplementedSuccess)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0009166"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Ai_assistant_routes_use_scoped_manager_grants_instead_of_primary_tenant",
+      "outcome": "Passed",
+      "duration": "00:00:01.8862087"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Started_response_is_preserved_when_its_request_is_aborted",
+      "outcome": "Passed",
+      "duration": "00:00:00.0042445"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Console_loads_only_permitted_active_view(role: \"Request.Read\", route: \"/ops/slas\", endpoint: null, jobs: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0041363"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.OrganizationDeletionDialogTests.Failed_deletion_stays_open_with_safe_feedback_and_no_false_success(status: 404, message: \"no longer exists\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0056391"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Console_loads_only_permitted_active_view(role: \"Incident.Manager\", route: \"/ops/hangfire\", endpoint: null, jobs: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0063305"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_cannot_create_a_local_account_for_an_unknown_or_disabled_organization",
+      "outcome": "Passed",
+      "duration": "00:00:01.3988879"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Ticket_counts_do_not_disclose_a_ticket_outside_the_principal_scope",
+      "outcome": "Passed",
+      "duration": "00:00:01.8895675"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"deleted-domain\", expected: Disabled, canActivate: False)",
+      "outcome": "Passed",
+      "duration": "00:00:02.0528687"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.PostgreSql_archived_mailbox_disposal_and_retained_receipt_conflict",
+      "outcome": "Passed",
+      "duration": "00:00:10.2470548"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Tenant_administrator_can_manage_only_its_custom_roles_below_the_delegation_ceiling",
+      "outcome": "Passed",
+      "duration": "00:00:01.9574085"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Known_write_denial_survives_readback_and_filtered_table_replacement(module: \"incidents\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.1668745"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Known_write_denial_survives_readback_and_filtered_table_replacement(module: \"requests\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0787838"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.OrganizationDeletionDialogTests.Failed_deletion_stays_open_with_safe_feedback_and_no_false_success(status: 500, message: \"could not complete the action\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0080541"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Invalid_local_fields_render_actionable_errors_without_a_request(email: \"invalid\", token: \"synthetic-token\", password: \"123456789012345\", confirmation: \"123456789012345\", message: \"Enter a valid email address.\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0139098"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.Other_organization_dependency_rolls_back_mailbox_disposal",
+      "outcome": "Passed",
+      "duration": "00:00:00.0636829"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Expected_SQLite_mutation_conflicts_require_reassessment(code: 5, extendedCode: 5)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0003763"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Legacy_customer_local_activation_respects_retirement_link_state_and_external_ownership(shape: \"missing-domain\", expected: Disabled, canActivate: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.5478740"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.Retained_receipt_returns_conflict_without_partial_delete",
+      "outcome": "Passed",
+      "duration": "00:00:00.1155141"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Genuine_faults_remain_observable_through_both_notification_paths(cause: \"server_fault\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0017166"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Unexpected_database_faults_and_timeouts_are_not_dependency_denials",
+      "outcome": "Passed",
+      "duration": "00:00:00.0004833"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Orphan_metadata_retirement_refuses_unsafe_storage_names(storedName: \"\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.3575475"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Each_category_renders_one_focused_table(category: \"escalated\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0244965"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.McpPolicyManagementPageTests.A_mismatched_confirmation_receipt_keeps_the_review_instead_of_reporting_success",
+      "outcome": "Passed",
+      "duration": "00:00:00.0247954"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Genuine_faults_remain_observable_through_both_notification_paths(cause: \"unexpected_cancellation\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0043774"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.Archived_tested_mailboxes_and_outgoing_configuration_are_disposed_together",
+      "outcome": "Passed",
+      "duration": "00:00:00.1058163"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Invalid_password_does_not_issue_a_second_factor_challenge",
+      "outcome": "Passed",
+      "duration": "00:00:01.5322441"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Failed_category_is_unavailable_not_a_healthy_zero",
+      "outcome": "Passed",
+      "duration": "00:00:00.0068506"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_can_create_activate_a_second_administrator_and_last_admin_guard_still_applies",
+      "outcome": "Passed",
+      "duration": "00:00:01.8934313"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Console_loads_only_permitted_active_view(role: \"HelpdeskAdmin\", route: \"/ops/hangfire\", endpoint: \"ops/hangfire/settings\", jobs: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0255815"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Console_loads_only_permitted_active_view(role: \"Request.Read\", route: \"/ops\", endpoint: \"ops/tasks\", jobs: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0141062"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.McpPolicyManagementPageTests.Retained_policy_draft_blocks_lifecycle_actions_and_retired_policies_require_the_history_filter",
+      "outcome": "Passed",
+      "duration": "00:00:00.0838161"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Valid_boundary_submission_redirects_to_normal_login",
+      "outcome": "Passed",
+      "duration": "00:00:00.0178815"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Anonymous_second_factor_rejects_cross_site_and_unmarked_requests(route: \"/api/v1/local-auth/login/two-factor/\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.2028037"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Ticket_reload_resilience_failure_keeps_retry_guidance_and_never_writes(openCircuit: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0100500"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Tenant_role_assignment_permission_alone_cannot_invite_a_local_account",
+      "outcome": "Passed",
+      "duration": "00:00:01.8282287"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Tenant_membership_route_allows_operational_roles_but_not_tenant_administrator",
+      "outcome": "Passed",
+      "duration": "00:00:01.8776616"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Inactive_and_dedicated_consent_credentials_keep_details_without_an_edit_action(purpose: \"mcp-owner\", revoked: False, reason: \"This grant uses its dedicated consent flow.\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0055260"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Scoped_technician_management_access_is_limited_to_the_assigned_tenant",
+      "outcome": "Passed",
+      "duration": "00:00:00.4240575"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Change_submit_uses_server_options_and_displays_returned_lifecycle",
+      "outcome": "Passed",
+      "duration": "00:00:00.0319750"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Invalid_local_fields_render_actionable_errors_without_a_request(email: \"\", token: \"\", password: \"\", confirmation: \"\", message: \"Enter your email.\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0773533"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Invalid_second_factor_locks_the_account_without_password_step_resetting_the_counter",
+      "outcome": "Passed",
+      "duration": "00:00:01.6553897"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Second_factor_rejects_missing_expired_or_revoked_password_verification(state: \"missing\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.4226179"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Anonymous_local_login_rejects_cross_site_and_unmarked_requests(route: \"/api/v1/local-auth/login\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.1480487"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Switching_to_oidc_rejects_a_previously_issued_local_cookie",
+      "outcome": "Passed",
+      "duration": "00:00:03.9375909"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Existing_complete_selection_requires_review_and_human_consent_then_refreshes_grants_and_admission",
+      "outcome": "Passed",
+      "duration": "00:00:00.0215544"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Read_only_or_terminal_changes_have_no_edit_trigger(canWrite: True, state: ImplementedBackedOut)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0029538"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Disabled_local_account_loses_an_existing_cookie_session",
+      "outcome": "Passed",
+      "duration": "00:00:01.6415325"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Orphan_metadata_retirement_requires_instance_admin_and_preserves_other_records",
+      "outcome": "Passed",
+      "duration": "00:00:01.7806437"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Client_abort_during_access_projection_does_not_publish_faults(path: \"/api/v1/notifications\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0114650"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_can_create_and_activate_a_local_account_with_a_single_use_token",
+      "outcome": "Passed",
+      "duration": "00:00:01.8764399"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Orphan_metadata_retirement_refuses_unsafe_storage_names(storedName: \"../outside.txt\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.3631731"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Console_loads_only_permitted_active_view(role: \"Incident.Manager\", route: \"/ops/workflows\", endpoint: null, jobs: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0162999"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.TaskOrganizationFilterTests.Tenant_search_and_task_filter_use_the_complete_authorized_query_before_paging(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.2099525"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Actual_list_state_trigger_opens_without_navigation_or_write(module: \"incidents\", component: typeof(HelpDesk.NewWeb.Components.Pages.Incidents.IncidentList))",
+      "outcome": "Passed",
+      "duration": "00:00:00.0280818"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationMailboxDeletionTests.Legacy_delivery_payload_keeps_archived_mailbox_and_organization",
+      "outcome": "Passed",
+      "duration": "00:00:00.1727547"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Genuine_faults_remain_observable_through_both_notification_paths(cause: \"dependency_timeout\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0023900"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Disabled_support_configuration_retains_identity_and_active_routes_require_resolution(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.1288777"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Each_category_renders_one_focused_table(category: \"overdue\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0439181"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Read_only_or_terminal_changes_have_no_edit_trigger(canWrite: False, state: Draft)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0014338"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_cannot_create_a_scoped_local_account_without_an_organization",
+      "outcome": "Passed",
+      "duration": "00:00:01.3516829"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Client_abort_during_access_projection_does_not_publish_faults(path: \"/api/v1/admin/directories/categories\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0355730"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Every_persisted_ingestion_boundary_requires_retention",
+      "outcome": "Passed",
+      "duration": "00:00:00.0014575"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Anonymous_local_login_rejects_cross_site_and_unmarked_requests(route: \"/api/v1/local-auth/login/\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.7499228"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Console_loads_only_permitted_active_view(role: \"Incident.Manager\", route: \"/ops\", endpoint: \"reports/sla\", jobs: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.1076703"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_issued_activation_and_reset_preserve_token_after_policy_failure_then_allow_login(resetExisting: False)",
+      "outcome": "Passed",
+      "duration": "00:00:01.5756298"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Second_factor_rejects_missing_expired_or_revoked_password_verification(state: \"tampered\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.2303541"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Aborted_read_propagates_without_direct_or_logger_notifications(path: \"/api/v1/tickets/stream\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0076977"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Escape_and_close_keep_a_dirty_draft_until_the_operator_discards_it",
+      "outcome": "Passed",
+      "duration": "00:00:00.0390389"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Orphan_metadata_retirement_refuses_existing_parent_and_private_bytes",
+      "outcome": "Passed",
+      "duration": "00:00:01.7889704"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Ticket_reload_resilience_failure_keeps_retry_guidance_and_never_writes(openCircuit: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0066571"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.First_administrator_signs_in_with_email_and_password_only_and_email_whitespace_is_ignored",
+      "outcome": "Passed",
+      "duration": "00:00:01.5899722"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Stale_or_unconfirmed_apply_preserves_draft_and_requires_saved_access_refresh(lostResponseAfterCommit: False)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0587218"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Saved_permission_outside_current_authority_survives_selector_changes_until_explicit_removal",
+      "outcome": "Passed",
+      "duration": "00:00:00.8631705"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Rejections_are_distinct_safe_and_never_automatically_replayed(status: 400, code: \"activation_failed\", message: \"ask your administrator for a new token\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0269780"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Second_factor_rejects_missing_expired_or_revoked_password_verification(state: \"permissions-changed\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.3862816"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Second_factor_rejects_missing_expired_or_revoked_password_verification(state: \"password-changed\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.3467693"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_issued_activation_and_reset_preserve_token_after_policy_failure_then_allow_login(resetExisting: True)",
+      "outcome": "Passed",
+      "duration": "00:00:01.3573983"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Inactive_and_dedicated_consent_credentials_keep_details_without_an_edit_action(purpose: \"mcp\", revoked: True, reason: \"Revoked credentials cannot be edited.\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0049417"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Incident_worklogs_require_an_incident_manager_grant",
+      "outcome": "Passed",
+      "duration": "00:00:01.4655702"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Recovery_code_can_only_be_used_once_across_password_challenges",
+      "outcome": "Passed",
+      "duration": "00:00:01.5762305"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Aborted_read_propagates_without_direct_or_logger_notifications(path: \"/api/v1/notifications\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0025196"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Rejections_are_distinct_safe_and_never_automatically_replayed(status: 0, code: \"\", message: \"Try signing in before requesting a new token\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0564080"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.WorkflowOpsDashboardTests.Sla_tenant_lookup_failure_stays_visible_and_refresh_retries(malformedJson: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0286828"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Ticket_sla_mutation_requires_a_manager_grant_in_the_ticket_tenant",
+      "outcome": "Passed",
+      "duration": "00:00:02.0509633"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Saved_details_readback_updates_parent_list_counts_and_fences_a_stale_list_response",
+      "outcome": "Passed",
+      "duration": "00:00:00.4587441"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Invalid_local_fields_render_actionable_errors_without_a_request(email: \"person@example.test\", token: \"synthetic-token\", password: \"123456789012345\", confirmation: \"different passphrase\", message: \"The passphrases do not match.\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0210639"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.IntegrationCredentialDetailsTests.Stale_or_unconfirmed_apply_preserves_draft_and_requires_saved_access_refresh(lostResponseAfterCommit: True)",
+      "outcome": "Passed",
+      "duration": "00:00:00.0229946"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Retained_principals_and_deliveries_have_atomic_assessment_and_retirement_on_both_providers(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:12.5900756"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Lists_render_shared_controls_without_obsolete_AI_filters_and_restore_query(module: \"incidents\", component: typeof(HelpDesk.NewWeb.Components.Pages.Incidents.IncidentList))",
+      "outcome": "Passed",
+      "duration": "00:00:00.0174174"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Lists_render_shared_controls_without_obsolete_AI_filters_and_restore_query(module: \"changes\", component: typeof(HelpDesk.NewWeb.Components.Pages.Changes.ChangeList))",
+      "outcome": "Passed",
+      "duration": "00:00:00.0268836"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Concurrent_dependency_change_cannot_orphan_or_discard_a_committed_identity(postgres: False)",
+      "outcome": "Passed",
+      "duration": "00:00:02.0021380"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Rejections_are_distinct_safe_and_never_automatically_replayed(status: 500, code: \"\", message: \"Try signing in before requesting a new token\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0374662"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Ordinary_read_succeeds_without_notification",
+      "outcome": "Passed",
+      "duration": "00:00:00.0026183"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.ActivationPageTests.Rejections_are_distinct_safe_and_never_automatically_replayed(status: 429, code: \"\", message: \"Too many attempts\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0185189"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Lists_render_shared_controls_without_obsolete_AI_filters_and_restore_query(module: \"requests\", component: typeof(HelpDesk.NewWeb.Components.Pages.Requests.RequestList))",
+      "outcome": "Passed",
+      "duration": "00:00:00.0356569"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Tenant_administrator_can_manage_membership_only_in_its_assigned_organization",
+      "outcome": "Passed",
+      "duration": "00:00:01.9841253"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Self_service_user_has_no_management_grant_for_foreign_tenant_tickets",
+      "outcome": "Passed",
+      "duration": "00:00:00.2484152"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Administrator_can_replace_a_local_accounts_tenant_scoped_role_assignments",
+      "outcome": "Passed",
+      "duration": "00:00:01.9272565"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Actual_list_state_trigger_opens_without_navigation_or_write(module: \"changes\", component: typeof(HelpDesk.NewWeb.Components.Pages.Changes.ChangeList))",
+      "outcome": "Passed",
+      "duration": "00:00:00.0570823"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Second_factor_rejects_missing_expired_or_revoked_password_verification(state: \"disabled\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.2933161"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.McpPolicyManagementPageTests.Editing_a_disabled_policy_retains_its_state_and_enable_is_a_separate_review",
+      "outcome": "Passed",
+      "duration": "00:00:00.0231978"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.ExceptionNotificationMiddlewareTests.Genuine_faults_remain_observable_through_both_notification_paths(cause: \"request_timeout\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0248341"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Local_login_requires_an_authenticator_code_after_two_factor_is_enabled",
+      "outcome": "Passed",
+      "duration": "00:00:01.6419308"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListRenderedTests.Change_plan_has_one_associated_label_per_input_and_read_only_summary_retains_values(type: \"Standard\")",
+      "outcome": "Passed",
+      "duration": "00:00:00.0118660"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.LocalAuthenticationEndpointsTests.Anonymous_second_factor_rejects_cross_site_and_unmarked_requests(route: \"/api/v1/local-auth/login/two-factor\")",
+      "outcome": "Passed",
+      "duration": "00:00:01.1770447"
+    },
+    {
+      "test": "Helpdesk.Tests.Api.OrganizationRetentionTests.Concurrent_dependency_change_cannot_orphan_or_discard_a_committed_identity(postgres: True)",
+      "outcome": "Passed",
+      "duration": "00:00:06.4039191"
+    }
+  ],
+  "passed": 169,
+  "failed": 0,
+  "skipped": 0,
+  "scope": "Focused owner-review behavior and actual SQLite/PostgreSQL checks; not full-solution coverage."
+}

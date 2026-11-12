@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 const fixture = process.env.HELPDESK_TEAM_FIXTURE_BASE ?? 'http://127.0.0.1:18500/fixture/team';
 const baseline = process.env.HELPDESK_ADMIN_BASELINE === 'true';
@@ -39,7 +40,7 @@ test('Team synthetic before and after evidence and sticky action geometry', asyn
         await scroll.evaluate(element => element.scrollTop = 0);
       }
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-team-${theme}-${width}.png`), fullPage: true });
+      await captureTables(page); await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-team-${theme}-${width}.png`), fullPage: true });
     }
   }
 });
@@ -142,3 +143,6 @@ test.describe('Team bounded queries and explicit lifecycle actions', () => {
     await expect(page.getByRole('region', { name: /^Team directory\./ })).toBeFocused();
   });
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

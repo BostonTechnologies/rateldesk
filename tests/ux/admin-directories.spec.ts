@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 const fixture = `${process.env.HELPDESK_ADMIN_FIXTURE_ORIGIN ?? 'http://127.0.0.1:18500'}/fixture`;
 const baseline = process.env.HELPDESK_DIRECTORY_BASELINE === 'true';
@@ -75,7 +76,7 @@ for (const theme of ['light', 'dark']) test(`directory synthetic desktop tablet 
           await container.evaluate(element => { element.scrollTop = 0; });
         }
         await settle(page);
-        await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-${route.split('/').at(-1)}-${theme}-${width}x${height}.png`), fullPage: true });
+        await captureTables(page); await page.screenshot({ path: info.outputPath(`${baseline ? 'before' : 'after'}-${route.split('/').at(-1)}-${theme}-${width}x${height}.png`), fullPage: true });
       }
     }
   }
@@ -155,3 +156,6 @@ test('exact category type controls and explicit create type retain accessible pr
   const builtIn = page.locator('tbody tr').filter({ hasText: 'Built-in · read-only' }).first();
   await expect(builtIn.getByRole('button', { name: 'Delete category', exact: true })).toBeDisabled();
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

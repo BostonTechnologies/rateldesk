@@ -1,4 +1,6 @@
+import { captureTables } from './table-evidence';
 import {test,expect} from '@playwright/test';
+test.use({ timezoneId: 'Africa/Johannesburg' });
 const fixture='http://127.0.0.1:18330/fixture';
 test.beforeEach(async({page,request})=>{
  page.on('pageerror',error=>console.error('Browser error:',error.message));
@@ -41,7 +43,7 @@ for(const module of ['incidents','requests','changes']) {
   await page.locator('tbody input[type=checkbox]').first().check();
   await expect(page.getByText('1 selected',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Filters (0)'}).click();
-  await page.getByLabel('Customer', {exact:true}).fill('Beta');
+  await page.getByLabel('Tenant', {exact:true}).fill('Beta');
   await page.getByRole('option',{name:'Beta customer',exact:true}).click();
   await expect(page.getByText('1-25 of 30')).toBeVisible();
   await expect(page.getByText('1 selected',{exact:true})).toHaveCount(0);
@@ -95,10 +97,10 @@ for(const module of ['incidents','requests','changes']) for(const width of [320,
   await page.goto('/'+module);await expect(page.getByText('1-25 of 60')).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme',theme);
   await page.getByRole('button',{name:'Filters (0)'}).click();
-  await expect(page.getByLabel('From (inclusive)')).toBeVisible();
+  await expect(page.getByLabel('From date', {exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBeTruthy();
   await page.locator('.ticket-filters').screenshot({path:info.outputPath(`filters-panel-${width}-${theme}.png`)});
-  await page.screenshot({path:info.outputPath(`filters-${width}-${theme}.png`),fullPage:true});
+  await captureTables(page); await page.screenshot({path:info.outputPath(`filters-${width}-${theme}.png`),fullPage:true});
  });
 }
 
@@ -114,10 +116,10 @@ test('multi-dimension controls, time validation, sorting and page size use serve
  // Wait for the URL-driven filter state to hydrate before editing its time draft.
  await expect(page).toHaveURL(url=>url.searchParams.get('assigneeId')==='staff');
  await expect(page.getByRole('button',{name:'Remove Assignee: Synthetic technician',exact:true})).toBeVisible();
- await page.getByLabel('From (inclusive)').fill('2026-10-16');await page.getByLabel('To (exclusive)').fill('2026-10-14');
+ await page.getByLabel('From date', {exact:true}).fill('2026-10-16');await page.getByLabel('To date', {exact:true}).fill('2026-10-14');
  await page.getByRole('button',{name:'Apply time range'}).click();await expect(page.getByText('From must be earlier than To.')).toBeVisible();
- await page.getByLabel('From (inclusive)').fill('2026-10-15');await page.getByLabel('To (exclusive)').fill('2026-10-15');
- await page.getByLabel('Timezone',{exact:true}).fill('Africa/Johannesburg');await page.getByRole('button',{name:'Apply time range'}).click();
+ await page.getByLabel('From date', {exact:true}).fill('2026-10-15');await page.getByLabel('To date', {exact:true}).fill('2026-10-15');
+ await expect(page.getByLabel('Timezone',{exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Apply time range'}).click();
  await expect(page.getByText('1-25 of 30')).toBeVisible();
  await page.getByRole('combobox',{name:'Sort by',exact:true}).click();await page.getByRole('option',{name:'Tracking ID',exact:true}).click();
  await page.getByLabel('Descending',{exact:true}).uncheck();
@@ -333,3 +335,6 @@ test('read-only actors have state indicators without an update affordance',async
  }
  expect((await(await request.get(fixture+'/state')).json()).mutations).toHaveLength(0);
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

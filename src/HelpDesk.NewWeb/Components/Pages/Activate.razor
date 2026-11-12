@@ -14,16 +14,18 @@
 
             @if (!string.IsNullOrWhiteSpace(_error))
             {
-                <MudAlert Severity="Severity.Error">@_error</MudAlert>
+                <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert>
             }
 
-            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_email" Label="Email" InputType="InputType.Email" Required="true" />
-            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_activationToken" Label="Activation token" InputType="InputType.Password" Required="true" />
-            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_password" Label="Passphrase" InputType="InputType.Password" Required="true" HelperText="Use a memorable passphrase of at least 15 characters." />
-            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_confirmPassword" Label="Confirm passphrase" InputType="InputType.Password" Required="true" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !RendererInfo.IsInteractive)" OnClick="ActivateAsync">
+            <MudForm @ref="_form" Class="activation-form">
+            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_email" Label="Email" InputType="InputType.Email" Required="true" RequiredError="Enter your email." Validation="@(new Func<string, string?>(ValidateEmail))" AutoComplete="email" />
+            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_activationToken" Label="Activation token" InputType="InputType.Password" Required="true" RequiredError="Paste the activation token from your administrator." />
+            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_password" Label="Passphrase" InputType="InputType.Password" Required="true" RequiredError="Enter a passphrase." Validation="@(new Func<string, string?>(ValidatePassphrase))" HelperText="Use a memorable passphrase of at least 15 characters." AutoComplete="new-password" />
+            <MudTextField T="string" Disabled="@(!RendererInfo.IsInteractive || _busy)" @bind-Value="_confirmPassword" Label="Confirm passphrase" InputType="InputType.Password" Required="true" RequiredError="Confirm your passphrase." Validation="@(new Func<string, string?>(ConfirmPassphrase))" AutoComplete="new-password" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _validating || !RendererInfo.IsInteractive)" OnClick="ActivateAsync">
                 @(_busy ? "Activating…" : "Activate account")
             </MudButton>
+            </MudForm>
         </MudStack>
     </MudPaper>
 </section>
@@ -35,25 +37,34 @@
     private string _confirmPassword = string.Empty;
     private string? _error;
     private bool _busy;
+    private bool _validating;
+    private MudForm? _form;
+    private static string? ValidateEmail(string value) => string.IsNullOrWhiteSpace(value) ? "Enter your email." : new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(value) ? null : "Enter a valid email address.";
+    private static string? ValidatePassphrase(string value) => value?.Length >= Helpdesk.Shared.Auth.LocalPasswordPolicy.MinimumLength
+        ? null : $"Use at least {Helpdesk.Shared.Auth.LocalPasswordPolicy.MinimumLength} characters.";
+    private string? ConfirmPassphrase(string value) => string.Equals(value, _password, StringComparison.Ordinal) ? null : "The passphrases do not match.";
 
     private async Task ActivateAsync()
     {
-        if (!string.Equals(_password, _confirmPassword, StringComparison.Ordinal))
-        {
-            _error = "The passphrases do not match.";
-            return;
-        }
-
-        _busy = true;
+        if (_busy || _validating || _form is null) return;
+        _validating = true;
         _error = null;
         try
         {
+            await _form.ValidateAsync();
+            if (!_form.IsValid) return;
+            _busy = true;
             using var response = await HttpClientFactory.CreateClient("SystemApiNoAuth").PostAsJsonAsync(
                 "/api/v1/local-auth/activate",
                 new { email = _email, activationToken = _activationToken, newPassword = _password });
             if (!response.IsSuccessStatusCode)
             {
-                _error = "The activation token or passphrase was not accepted.";
+                _error = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.TooManyRequests => "Too many attempts. Wait a few minutes before trying again.",
+                    System.Net.HttpStatusCode.BadRequest => await RejectionMessageAsync(response),
+                    _ => "The activation service could not confirm the result. Try signing in before requesting a new token."
+                };
                 return;
             }
 
@@ -62,13 +73,29 @@
             _activationToken = string.Empty;
             Navigation.NavigateTo("/login", forceLoad: true);
         }
-        catch (HttpRequestException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            _error = "The activation service is unavailable. Please retry.";
+            _error = "The activation result could not be confirmed. Try signing in before requesting a new token from your administrator.";
         }
         finally
         {
             _busy = false;
+            _validating = false;
         }
     }
+
+    private static async Task<string> RejectionMessageAsync(HttpResponseMessage response)
+    {
+        const string recovery = "The activation details were not accepted. Check your email and token, or ask your administrator for a new token.";
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<ActivationError>();
+            return result?.Error == "password_policy"
+                ? $"Use a passphrase of at least {Math.Max(result.MinimumLength, Helpdesk.Shared.Auth.LocalPasswordPolicy.MinimumLength)} characters that meets the password policy."
+                : recovery;
+        }
+        catch (System.Text.Json.JsonException) { return recovery; }
+    }
+
+    private sealed record ActivationError(string? Error, int MinimumLength);
 }

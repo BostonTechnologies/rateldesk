@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test } from '@playwright/test';
 
 const fixture = 'http://127.0.0.1:18330/fixture';
@@ -51,7 +52,7 @@ for (const module of ['incidents', 'requests', 'changes']) {
       expect(await cells.nth(3).innerText()).toContain('person@example.test');
       expect(await cells.nth(4).innerText()).toContain('Žluťoučký');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
-      await page.screenshot({ path: info.outputPath(`customer-${module}-${width}.png`) });
+      await captureTables(page); await page.screenshot({ path: info.outputPath(`customer-${module}-${width}.png`) });
 
       // Historic lists share the same custom/default containment and stacked labels.
       await page.goto(`/${module}?view=historic&sort=trackingId&descending=false`);
@@ -88,3 +89,6 @@ for (const module of ['incidents', 'requests']) {
   });
   }
 }
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

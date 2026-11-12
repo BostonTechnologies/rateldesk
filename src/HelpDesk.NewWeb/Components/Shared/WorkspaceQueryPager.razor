@@ -1,0 +1,18 @@
+<div class="workspace-query-pager" aria-label="Result pages">
+    <MudSelect T="int" Label="Rows per page" Value="PageSize" ValueChanged="ChangeSize" Disabled="Busy" Margin="Margin.Dense" Variant="Variant.Outlined">
+        @foreach (var size in new[] { 25, 50, 100 }) { <MudSelectItem Value="size">@size</MudSelectItem> }
+    </MudSelect>
+    <span role="status">@(Total == 0 ? "0" : ((Page - 1) * PageSize + 1).ToString())-@Math.Min(Page * PageSize, Total) of @Total</span>
+    <MudPagination Count="LastPage" Selected="Page" SelectedChanged="ChangePage" Disabled="Busy" ShowFirstButton="true" ShowLastButton="true" Size="Size.Small" />
+</div>
+
+@code {
+    [Parameter] public int Page { get; set; } = 1;
+    [Parameter] public int PageSize { get; set; } = 25;
+    [Parameter] public int Total { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<WorkspacePageRequest> Changed { get; set; }
+    private int LastPage => Math.Max(1, (int)Math.Ceiling((double)Total / PageSize));
+    private Task ChangePage(int page) => Changed.InvokeAsync(new WorkspacePageRequest(page, PageSize));
+    private Task ChangeSize(int size) => Changed.InvokeAsync(new WorkspacePageRequest(1, size));
+}

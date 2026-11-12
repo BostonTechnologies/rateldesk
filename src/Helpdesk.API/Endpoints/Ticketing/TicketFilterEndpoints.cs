@@ -20,14 +20,27 @@ internal static class TicketFilterEndpoints
         group.MapGet("/filter-options", async (string module, string dimension, string? q, int? take,
             HttpRequest request, ClaimsPrincipal user, HelpdeskDbContext db, ICurrentUserAccessService accessService, CancellationToken token) =>
         {
-            if (module is not ("incident" or "request" or "change") || dimension is not ("customer" or "for" or "assignee") || q?.Length > 200 || take is <= 0)
+            if (module is not ("incident" or "request" or "change" or "task") || dimension is not ("customer" or "for" or "assignee") ||
+                module == "task" && dimension != "customer" || q?.Length > 200 || take is <= 0)
                 return Results.BadRequest();
             var access = await accessService.ResolveAsync(user, token);
+            if (module == "task" && !RequestTasks.RequestTaskEndpoints.CanReadTasks(access)) return Results.Forbid();
             IQueryable<Ticket> tickets = module switch {
                 "incident" => TicketListQuery.Authorized(db.Incidents.AsNoTracking(), access, module),
                 "request" => TicketListQuery.Authorized(db.Requests.AsNoTracking(), access, module),
-                _ => TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module)
+                "change" => TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module),
+                _ => db.Requests.AsNoTracking()
             };
+            if (module == "task")
+            {
+                var tasks = db.RequestTasks.AsNoTracking();
+                if (!access.IsHelpdeskAdmin)
+                {
+                    var allowed = RequestTasks.RequestTaskEndpoints.RequestReaderOrganizationIds(access).ToArray();
+                    tasks = tasks.Where(task => task.OrganizationId != null && allowed.Contains(task.OrganizationId));
+                }
+                tickets = tickets.Where(ticket => tasks.Any(task => task.RequestId == ticket.Id && task.OrganizationId == ticket.OrganizationId));
+            }
             var selectedOrganizations = request.Query["customerOrgId"].ToArray();
             if (selectedOrganizations.Length > 20 || selectedOrganizations.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             var selectedIds = request.Query["selectedId"].ToArray();

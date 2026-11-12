@@ -9,7 +9,7 @@
         </MudText>
     </TitleContent>
     <DialogContent>
-        <MudTabs @bind-ActivePanelIndex="activeIndex" Rounded="true" Class="mb-2">
+        <MudTabs @bind-ActivePanelIndex="activeIndex" Rounded="true" Class="mb-2 compact-tabs">
             <MudTabPanel Text="Trigger">
                 <MudForm @ref="form" Model="model">
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />

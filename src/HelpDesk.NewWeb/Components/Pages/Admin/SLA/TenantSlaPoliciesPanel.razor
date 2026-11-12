@@ -10,7 +10,7 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
         <MudText Typo="Typo.h6">SLA Policies</MudText>
         <MudSpacer />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(TenantId)" OnClick="@(() => RunActionAsync(OpenCreateDialog))">Create</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Default" Size="Size.Small" Disabled="@string.IsNullOrWhiteSpace(TenantId)" OnClick="@(() => RunActionAsync(OpenCreateDialog))">Create</MudButton>
     </MudStack>
 
     @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
@@ -22,7 +22,7 @@
     else
     {
         <div class="sla-table-wrap">
-            <MudTable Items="FilteredPolicies" Hover="true" Dense="true" T="SlaPolicyDto" Breakpoint="Breakpoint.Sm" RowsPerPage="25" Class="sla-compact-table">
+            <MudTable Items="FilteredPolicies" Hover="true" Dense="true" T="SlaPolicyDto" Breakpoint="Breakpoint.Sm" RowsPerPage="25" Class="sla-compact-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-sla-tenantslapoliciespanel-1">
                 <HeaderContent>
                     <MudTh>Name</MudTh>
                     <MudTh>Ticket Type</MudTh>
@@ -31,7 +31,7 @@
                     <MudTh>Response</MudTh>
                     <MudTh>Resolution</MudTh>
                     <MudTh>Escalations</MudTh>
-                    <MudTh Class="sla-actions"></MudTh>
+                    <MudTh Class="sla-actions">Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Name">@context.Name</MudTd>
@@ -42,8 +42,8 @@
                     <MudTd DataLabel="Resolution">@context.ResolutionTimeHours h</MudTd>
                     <MudTd DataLabel="Escalations">@context.Escalations.Count</MudTd>
                     <MudTd Class="sla-actions">
-                        <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RunActionAsync(() => OpenEditDialog(context)))" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Delete" Color="Color.Error" Size="Size.Small" OnClick="@(() => RunActionAsync(() => ConfirmDelete(context)))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" aria-label="Edit" Color="Color.Default" Size="Size.Small" OnClick="@(() => RunActionAsync(() => OpenEditDialog(context)))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Delete" Color="Color.Default" Size="Size.Small" OnClick="@(() => RunActionAsync(() => ConfirmDelete(context)))" />
                     </MudTd>
                 </RowTemplate>
                 <NoRecordsContent><MudText Class="pa-2">No policies for this tenant.</MudText></NoRecordsContent>

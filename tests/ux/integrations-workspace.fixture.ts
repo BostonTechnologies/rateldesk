@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
 import { expectConsentAcknowledged } from '../../tools/ci/mcp-host-browser-acknowledgement.mjs';
@@ -47,7 +48,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
    expect(Math.abs(host!.y - client!.y)).toBeLessThanOrEqual(2);
   }
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: info.outputPath(`entries-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`entries-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   const dialog = await reviewClient(page);
   await dialog.getByLabel('Organization', { exact: true }).selectOption('org-a');
   const catalog = (await (await request.get(`${fixture}/state`)).json()).permissions as string[];
@@ -68,7 +69,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await approve.focus(); await page.keyboard.press('Tab');
   expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: info.outputPath(`ordinary-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`ordinary-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   // The wrapped focus target is the native organization select, whose own
   // Escape handling may close its picker. Exercise dialog Escape from its footer.
   await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
@@ -203,7 +204,7 @@ test('selected inactive cleanup retains only partial failures and survives a fre
  await dialog.getByRole('button', { name: 'Confirm delete', exact: true }).click();
  await expect(dialog.getByRole('alert')).toContainText('Synthetic credential 02: action failed');
  await expect(dialog.locator('li')).toHaveCount(1);
- await page.screenshot({ path: info.outputPath('selected-inactive-partial-failure.png'), fullPage: false, animations: 'disabled' });
+ await captureTables(page); await page.screenshot({ path: info.outputPath('selected-inactive-partial-failure.png'), fullPage: false, animations: 'disabled' });
  await request.get(`${fixture}/fault?mode=`);
  await dialog.getByRole('button', { name: 'Confirm delete', exact: true }).click();
  await expect(dialog).toBeHidden();
@@ -262,14 +263,14 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await expect(first.getByText('Never tested', { exact: true })).toBeVisible();
   await expect(first).toContainText('Configuration alone does not verify current access.');
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: info.outputPath(`systems-list-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-list-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   await first.getByRole('button', { name: 'View', exact: true }).click();
   let dialog = await assertSystemReviewFits(page, 'Connection configuration', width);
   // A link to Beta never rewrites a saved Alpha mapping.
   await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Alpha');
   await expect(dialog.getByRole('combobox', { name: 'RatelDesk customer', exact: true })).toHaveText('Synthetic Alpha customer');
   await expect(dialog.getByTestId('save-system-connection')).toBeVisible();
-  await page.screenshot({ path: info.outputPath(`systems-configuration-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-configuration-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Back to connections', exact: true }).click();
   await expect(first.getByRole('button', { name: 'View', exact: true })).toBeFocused();
   await panel.getByTestId('create-system-connection').click();
@@ -277,7 +278,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await expect(dialog.locator('input')).toHaveCount(2);
   await expect(dialog.getByLabel('Pairing code', { exact: true })).toHaveAttribute('type', 'password');
   await expect(dialog.getByTestId('pair-and-connect')).toBeDisabled();
-  await page.screenshot({ path: info.outputPath(`systems-create-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-create-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).focus();
   await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
   await expect(panel.getByTestId('create-system-connection')).toBeFocused();
@@ -286,13 +287,13 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await expect(dialog.getByLabel('Pairing code', { exact: true })).toHaveValue('FAKE-CODE');
   await expect(dialog).toContainText('Single use');
   await expect(dialog.getByRole('button', { name: 'Copy code', exact: true })).toBeVisible();
-  await page.screenshot({ path: info.outputPath(`systems-code-synthetic-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-code-synthetic-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await first.getByTestId('delete-system-connection').click();
   dialog = await assertSystemReviewFits(page, 'Delete system connection?', width);
   await expect(dialog).toContainText('Synthetic system connection 1');
   await expect(dialog.getByTestId('confirm-system-connection-delete')).toBeVisible();
-  await page.screenshot({ path: info.outputPath(`systems-delete-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-delete-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await panel.getByRole('textbox', { name: 'Search system connections', exact: true }).fill('unfinished');
   await expect(panel.getByTestId('system-connection-row')).toHaveCount(1);
@@ -300,7 +301,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   dialog = await assertSystemReviewFits(page, 'Systems paired', width);
   await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
   await expect(dialog.getByTestId('save-system-connection')).toBeDisabled();
-  await page.screenshot({ path: info.outputPath(`systems-resume-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-resume-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
  });
 }
 
@@ -428,7 +429,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
   await assertSystemReviewFits(page, 'Integration credential: Synthetic credential 03', width, 900);
   await expect(dialog.getByRole('heading', { name: 'Configured access', exact: true })).toBeVisible();
   await expect(dialog).toContainText('2030-01-01T00:00:00.0000000Z');
-  await page.screenshot({ path: info.outputPath(`aligned-credential-details-${theme}-${width}.png`), animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`aligned-credential-details-${theme}-${width}.png`), animations: 'disabled' });
   await dialog.getByTestId('credential-edit-access').click();
   const selector = dialog.getByTestId('credential-permission-selector');
   await selector.getByRole('searchbox').fill('Incident.Read');
@@ -442,7 +443,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
   await dialog.getByRole('button', { name: 'Cancel edit', exact: true }).focus();
   await page.keyboard.press('Shift+Tab');
   expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
-  await page.screenshot({ path: info.outputPath(`aligned-credential-review-${theme}-${width}.png`), animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`aligned-credential-review-${theme}-${width}.png`), animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Cancel edit', exact: true }).click();
   await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
   await page.keyboard.press('Escape');
@@ -462,7 +463,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
    expect(Math.abs(sidebar!.y - detail!.y)).toBeLessThanOrEqual(2);
   } else expect(detail!.y).toBeGreaterThan(sidebar!.y + sidebar!.height);
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: info.outputPath(`aligned-investigations-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`aligned-investigations-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
   await history.getByRole('combobox', { name: 'Status', exact: true }).selectOption('approval');
   await expect(history.locator('.ai-investigation')).toHaveCount(1);
   await expect(history).toContainText('Review proposed remediation');
@@ -470,14 +471,14 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
   await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: /INC-1.*Synthetic incident/ })).toBeVisible();
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: info.outputPath(`aligned-new-investigation-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`aligned-new-investigation-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
 
   await openWorkspace(page, '/ai/prompts', 'prompt-library');
   await expect(page.getByTestId('prompt-item')).toHaveCount(2);
   const editor = await monacoEditor(page);
   await expect(editor.locator('.view-lines')).toContainText('Investigation guidance');
   await assertNoHorizontalOverflow(page);
-  await page.screenshot({ path: info.outputPath(`aligned-prompts-monaco-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+  await captureTables(page); await page.screenshot({ path: info.outputPath(`aligned-prompts-monaco-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
   await editor.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   await expect(editor).toHaveClass(/fullscreen/);
   const bounds = await editor.boundingBox();
@@ -631,3 +632,6 @@ test('MCP policy preview keeps the reviewed fields locked until explicit confirm
  expect(nextPreview.payload.expectedRevision).toBe(1);
  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

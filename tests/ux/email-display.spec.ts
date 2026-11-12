@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 const fixture = 'http://127.0.0.1:18304/fixture';
 const preview = (page: Page) => page.getByRole('button', { name: 'Preview: Synthetic service notice' });
@@ -12,7 +13,7 @@ test('synthetic pre-fix computed styles reproduce pale foreground on original li
   const before = await page.locator('.ticket-message-body > div').evaluate(style);
   expect(before).toEqual({ foreground: 'rgb(237, 241, 245)', background: 'rgb(255, 255, 255)' });
   await info.attach('before-computed-style', { body: JSON.stringify(before), contentType: 'application/json' });
-  await page.screenshot({ path: info.outputPath('before-dark-washed-out.png') });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('before-dark-washed-out.png') });
 });
 
 test.describe('actual Blazor email boundary', () => {
@@ -40,7 +41,7 @@ test.describe('actual Blazor email boundary', () => {
         const bounds = await page.getByRole('dialog', { name: 'Email preview' }).boundingBox();
         expect(bounds!.width).toBeLessThanOrEqual(width); expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
         await info.attach('after-computed-style', { body: JSON.stringify({ theme, width, computed }), contentType: 'application/json' });
-        await page.screenshot({ path: info.outputPath(`after-${theme}-${width}.png`), fullPage: true });
+        await captureTables(page); await page.screenshot({ path: info.outputPath(`after-${theme}-${width}.png`), fullPage: true });
         await page.getByRole('button', { name: 'Plain text', exact: true }).click();
         await expect(page.locator('.email-plain-text')).toContainText('Synthetic complete plain text');
         expect((await page.locator('.email-plain-text').innerText()).length).toBeGreaterThan(400);
@@ -122,3 +123,6 @@ test.describe('actual Blazor email boundary', () => {
     expect(calls).not.toContain('/api/v1/incidents/requests-1/peek');
   });
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

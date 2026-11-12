@@ -34,7 +34,7 @@
     }
     else
     {
-        <MudTable Items="Rows.OrderByDescending(x => x.IsEnabled).ThenBy(x => x.EventType).ThenBy(RecipientName)" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm">
+        <MudTable Items="Rows.OrderByDescending(x => x.IsEnabled).ThenBy(x => x.EventType).ThenBy(RecipientName)" Dense="true" Hover="true" RowsPerPage="25" Breakpoint="Breakpoint.Sm" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-supportnotifications-supportnotificationsubscriptionspanel-1">
             <HeaderContent><MudTh>Notification rule</MudTh><MudTh>Recipient type</MudTh><MudTh>Status</MudTh><MudTh>Actions</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Notification rule">@RuleSentence(context)</MudTd>
@@ -42,9 +42,9 @@
                 <MudTd DataLabel="Status">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
                 <MudTd DataLabel="Actions">
                     <MudStack Row="true" Spacing="1">
-                        <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => OpenEditDialogAsync(context)))">Edit</MudButton>
-                        <MudButton Size="Size.Small" OnClick="@(() => RunActionAsync(() => ToggleEnabledAsync(context)))">@(context.IsEnabled ? "Disable" : "Enable")</MudButton>
-                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))">Delete</MudButton>
+                        <WorkspaceAction OnClick="@(() => RunActionAsync(() => OpenEditDialogAsync(context)))" Label="Edit" Icon="@Icons.Material.Outlined.Edit" />
+                        <WorkspaceAction OnClick="@(() => RunActionAsync(() => ToggleEnabledAsync(context)))" Label="@(context.IsEnabled ? "Disable" : "Enable")" Icon="@Icons.Material.Outlined.ToggleOn" />
+                        <WorkspaceAction OnClick="@(() => RunActionAsync(() => DeleteAsync(context)))" Label="Delete" Icon="@Icons.Material.Outlined.DeleteOutline" />
                     </MudStack>
                 </MudTd>
             </RowTemplate>

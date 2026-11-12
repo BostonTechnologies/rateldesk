@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 const fixture='http://127.0.0.1:18530/fixture';
 const baseline=process.env.HELPDESK_EDITOR_BASELINE==='true';
@@ -17,7 +18,7 @@ test.beforeEach(async({page,request})=>{page.on('requestfailed',request=>console
 test('synthetic before and after geometry evidence',async({page},info)=>{
  test.setTimeout(120_000);
  for(const [width,height] of [[1440,900],[1366,768],[1280,720],[390,844]]){
-  await page.setViewportSize({width,height});await openEditor(page);await page.getByRole('tab',{name:'Form setup',exact:true}).click();await settled(page);await page.screenshot({path:info.outputPath(`setup-${width}x${height}.png`)});await page.getByRole('tab',{name:/^Workflow \(/}).click();if(width<=760&&await page.locator('.request-form-task-list-panel').isVisible())await page.locator('[data-task-id]').first().click();await settled(page);
+  await page.setViewportSize({width,height});await openEditor(page);await page.getByRole('tab',{name:'Form setup',exact:true}).click();await settled(page);await captureTables(page); await page.screenshot({path:info.outputPath(`setup-${width}x${height}.png`)});await page.getByRole('tab',{name:/^Workflow \(/}).click();if(width<=760&&await page.locator('.request-form-task-list-panel').isVisible())await page.locator('[data-task-id]').first().click();await settled(page);
   if(!baseline){
    await expect(page.getByRole('tab',{name:'Workflow (3)'})).toHaveAttribute('aria-selected','true');
    await expect(page.getByTestId('task-automation')).toBeVisible();
@@ -30,7 +31,7 @@ test('synthetic before and after geometry evidence',async({page},info)=>{
    if(width>760){expect(geometry.nav.width).toBeGreaterThanOrEqual(280);expect(geometry.nav.width).toBeLessThanOrEqual(340);expect(geometry.editor.left).toBeGreaterThan(geometry.nav.right);expect(geometry.editor.width).toBeGreaterThan(600);}
    else {await expect(page.getByRole('button',{name:'Back to tasks'})).toBeVisible();await page.getByRole('button',{name:'Back to tasks'}).click();await expect(page.locator('.request-form-task-list-panel')).toBeVisible();await expect(page.getByTestId('selected-task-editor')).toBeHidden();await page.locator('[data-task-id]').nth(1).click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('Review result');}
   }
-  await page.screenshot({path:info.outputPath(`${baseline?'before':'after'}-${width}x${height}.png`)});
+  await captureTables(page); await page.screenshot({path:info.outputPath(`${baseline?'before':'after'}-${width}x${height}.png`)});
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
  }
 });
@@ -91,7 +92,7 @@ if(!baseline){
   await request.get(`${fixture}/reset?mode=many`);await page.setViewportSize({width:1280,height:720});await page.evaluate(()=>localStorage.setItem('helpdesk.theme.preference','dark'));await openEditor(page);
   await page.evaluate(()=>{document.documentElement.style.fontSize='20px';});await page.locator('[data-task-id]').last().click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue(/Synthetic long workflow task 30/);
   await expect(page.getByRole('button',{name:'Save',exact:true})).toBeInViewport();await expect(page.getByRole('button',{name:'Cancel',exact:true})).toBeInViewport();
-  await page.screenshot({path:info.outputPath('after-many-dark-enlarged-1280x720.png')});await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await captureTables(page); await page.screenshot({path:info.outputPath('after-many-dark-enlarged-1280x720.png')});await page.getByRole('button',{name:'Cancel',exact:true}).click();
   await request.get(`${fixture}/reset?mode=empty`);await page.evaluate(()=>{document.documentElement.style.fontSize='';});await openEditor(page,false);await expect(page.getByText('No workflow tasks yet. Add a task to start.')).toBeVisible();
   await page.getByRole('button',{name:'Add task',exact:true}).click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('New Task');await page.getByRole('button',{name:'Duplicate task',exact:true}).click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('New Task (Copy)');await page.getByRole('button',{name:'Delete task',exact:true}).click();await expect(page.getByRole('textbox',{name:/^Task Name\*?$/})).toHaveValue('New Task');
  });
@@ -158,3 +159,6 @@ if(!baseline){
   const state=await(await request.get(`${fixture}/state`)).json();expect(state.creations).toHaveLength(2);expect(state.creations[1]).toMatchObject({organizationId:'org-1',connectionId:'11111111-1111-1111-1111-111111111111',payload:{clientIdentity:'',runner:'bash',command:'printf synthetic',tenantId:17,target:{source:2,agentIds:['eeeeeeee-eeee-eeee-eeee-000000000001']}}});expect(state.bindings[0].orchestrationRequestDefinitionId).toBe('9007199254740997');
  });
 }
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

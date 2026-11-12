@@ -91,6 +91,7 @@ public sealed class TicketListRenderedTests
     public async Task Lists_render_shared_controls_without_obsolete_AI_filters_and_restore_query(string module, Type component)
     {
         await using var context = new BunitContext(); context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./js/site.js").Setup<string>("browserTimeZone").SetResult("UTC");
         var auth = context.AddAuthorization(); auth.SetAuthorized("Synthetic reader"); auth.SetRoles("Incident.Read", "Request.Read", "Change.Read");
         var handler = new FixtureClient(); context.Services.AddSingleton<IHttpClientFactory>(handler);
         var navigation = context.Services.GetRequiredService<NavigationManager>();
@@ -321,6 +322,7 @@ public sealed class TicketListRenderedTests
         using var api = new FixtureClient();
         await using var context = new BunitContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./js/site.js").Setup<string>("browserTimeZone").SetResult("UTC");
         context.Services.AddSingleton<IHttpClientFactory>(api);
         var authorization = context.AddAuthorization(); authorization.SetAuthorized("Synthetic operator"); authorization.SetRoles("HelpdeskAdmin");
         var popovers = context.Render<MudPopoverProvider>();
@@ -357,6 +359,7 @@ public sealed class TicketListRenderedTests
     {
         await using var context = new BunitContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./js/site.js").Setup<string>("browserTimeZone").SetResult("UTC");
         var model = new ChangeTemplateDto { ScopeOfChange = "Retained synthetic scope", ExistingRunbookReference = "Retained runbook",
             BusinessJustification = "Retained normal field", EmergencyReason = "Retained emergency field" };
         var editor = context.Render<NewWeb::HelpDesk.NewWeb.Components.Pages.Changes.ChangeTemplateEditor>(p =>
@@ -377,6 +380,7 @@ public sealed class TicketListRenderedTests
     {
         var context = new BunitContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./js/site.js").Setup<string>("browserTimeZone").SetResult("UTC");
         context.Services.AddSingleton<IHttpClientFactory>(api);
         return context;
     }

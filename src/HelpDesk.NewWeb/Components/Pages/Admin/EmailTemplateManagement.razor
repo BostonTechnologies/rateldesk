@@ -8,12 +8,13 @@
 <MudPaper Class="pa-4">
     <MudText Typo="Typo.h5" GutterBottom="true">Email Template Management</MudText>
 
-    <MudTabs Rounded="true" Border="true" PanelClass="pt-3">
+    @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="LoadTemplates">Retry</MudButton></MudAlert> }
+    <MudTabs Rounded="true" Border="true" PanelClass="pt-3" Class="compact-tabs">
         @foreach (var category in TemplateCategories)
         {
             var templates = GetTemplatesForCategory(category.Key).ToList();
             <MudTabPanel Text="@category.Label" BadgeData="@templates.Count" BadgeColor="@category.Color">
-                <MudTable Items="templates" Hover="true" Dense="true" Elevation="0" RowsPerPage="12">
+                <MudTable Loading="loading" Items="templates" Hover="true" Dense="true" Elevation="0" RowsPerPage="25" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-emailtemplatemanagement-1">
                     <HeaderContent>
                         <MudTh>Name</MudTh>
                         <MudTh>Subject</MudTh>
@@ -26,17 +27,18 @@
                         <MudTd DataLabel="Subject">
                             <MudText Typo="Typo.body2">@context.Subject</MudText>
                         </MudTd>
-                        <MudTd Style="text-align:right">
+                        <MudTd DataLabel="Actions"><div class="workspace-actions">
                             <MudTooltip Text="Edit template">
-                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenEditDialog(context))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-label="Edit template" OnClick="@(() => OpenEditDialog(context))" />
                             </MudTooltip>
                             <MudTooltip Text="Preview template">
-                                <MudIconButton Icon="@Icons.Material.Filled.Preview" Size="Size.Small" OnClick="@(() => OpenPreviewDialog(context))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Preview" Size="Size.Small" aria-label="Preview template" OnClick="@(() => OpenPreviewDialog(context))" />
                             </MudTooltip>
-                        </MudTd>
+                        </div></MudTd>
                     </RowTemplate>
+<NoRecordsContent><MudText>@(loadError is null ? "No templates." : "Templates unavailable. Retry the query.")</MudText></NoRecordsContent>
                     <PagerContent>
-                        <MudTablePager PageSizeOptions="new[] { 12, 24, 48 }" />
+                        <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
                     </PagerContent>
                 </MudTable>
             </MudTabPanel>
@@ -45,6 +47,8 @@
 </MudPaper>
 
 @code {
+    private bool loading;
+    private string? loadError;
     private List<EmailTemplate> _templates = new();
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private static readonly IReadOnlyList<TemplateCategory> TemplateCategories =
@@ -62,7 +66,11 @@
 
     private async Task LoadTemplates()
     {
-        _templates = await HelpdeskApi.GetFromJsonAsync<List<EmailTemplate>>("api/v1/email-templates") ?? new();
+        loading = true; loadError = null;
+        try { _templates = await HelpdeskApi.GetFromJsonAsync<List<EmailTemplate>>("api/v1/email-templates") ?? new(); }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { loadError = "The templates could not be loaded. Retry when the service is available."; }
+        finally { loading = false; }
     }
 
     private async Task OpenEditDialog(EmailTemplate template)

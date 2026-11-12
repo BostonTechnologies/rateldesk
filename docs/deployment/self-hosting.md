@@ -6,6 +6,37 @@ RatelDesk has an ASP.NET Core API and a Blazor web application. The default inst
 
 For built-in roles, scoped custom roles, and the bounded tenant-member delegation workflow, see [Roles and tenant-scoped access](../security/rbac.md).
 
+## Local activation and password reset
+
+An instance administrator creates a local account or issues its replacement
+activation token through Team. Share that one-time token through an approved
+secure channel; the application does not send an unsolicited reset email.
+At `/activate`, enter the account email, current token and a matching passphrase
+of at least **15 characters**. Required, email, length and confirmation validation
+appears before submission. Successful activation consumes the token and returns
+to normal local sign-in. Reset uses the same flow and must be followed by a
+successful sign-in with the new passphrase.
+
+A policy error can be corrected without consuming the token. An expired,
+malformed, used or ineligible token produces a safe generic instruction to obtain
+a new token from the administrator. Rate limiting and unavailable service have
+separate guidance. If a response is uncertain, try normal sign-in or ask the
+administrator to review the account; the browser does not automatically replay
+activation. Never put a token or passphrase in screenshots, logs or issue reports.
+The masked passphrase in the beta.10 report does not establish its length or the
+original failure's cause.
+
+## Request cancellation diagnostics
+
+The exception notification middleware distinguishes an operation canceled after
+the actual request aborts from an unexpected cancellation. Expected aborts are
+classified before the Error logger and direct Critical notification paths and
+are rethrown without replacing the response. Request-timeout state, dependency
+timeouts, database errors and unexpected cancellation retain fault diagnostics,
+correlation and request/response state. The original beta.10 cancellation source
+was not captured, so historical records are retained rather than reclassified
+or deleted.
+
 ## 0.1.3-beta.6 operator testing
 
 Use the [beta.6 upgrade and testing checklist](../release-notes/0.1.3-beta.6.md)

@@ -1,5 +1,6 @@
 // Synthetic loopback fixture. Real authorization and provider persistence are tested separately.
 import http from 'node:http';
+import { handleTableReview, resetTableReview } from './owner-review-fixture.mjs';
 import { handleDirectoryRequest, resetDirectories } from './admin-directories-fixture.mjs';
 import { handleTeamDirectory, resetTeamDirectory } from './team-directory-fixture.mjs';
 const organizations = [{ id: 'org-1', name: 'Atlas Tenant', itSupportOrganizationId: 'provider' }, { id: 'org-2', name: 'Birch Tenant', itSupportOrganizationId: 'provider' }, { id: 'provider', name: 'Support Provider' }];
@@ -7,6 +8,7 @@ const users = [{ id: 'user-1', name: 'Synthetic Operator', email: 'operator@exam
 let roles, datasets, calendars, subscriptions, settings, graph, coverage, saves, reads, fault, createResults, credentials, graphTests, importStatuses, graphRows, attempts, creationOrganizations;
 const clone = value => JSON.parse(JSON.stringify(value));
 function reset() {
+ resetTableReview();
  resetDirectories(); resetTeamDirectory();
  saves = []; reads = []; attempts = []; graphTests = []; fault = ''; createResults = new Map(); credentials = new Map(); importStatuses = {}; graphRows = {}; creationOrganizations = clone(organizations);
  roles = [{ id: 'built', key: 'builtin-reader', name: 'Identical display name', scope: 1, ownerOrganizationId: null, isBuiltIn: true, isProtected: true, permissions: ['Incident.Read'], assignmentCount: 1250 },
@@ -27,6 +29,13 @@ http.createServer(async (req, res) => {
  if (path === '/fixture/reset') { reset(); return reply({ ok: true }); }
  if (path === '/fixture/state') return reply({ saves, reads, roles, datasets, settings, subscriptions, graph, graphTests, importStatuses, attempts, credentials: Object.fromEntries(credentials) });
  if (path === '/fixture/fault') { fault = url.searchParams.get('mode') ?? ''; if(fault==='no-datasets')datasets=[]; if(fault==='many-organizations')creationOrganizations.push(...Array.from({length:40},(_,i)=>({id:`many-org-${i}`,name:`Synthetic organization ${String(i).padStart(2,'0')}`}))); if(fault==='built-in-zero'||fault==='unknown-graph-count'){datasets.push(...[1,2,3,4].map(type=>({...clone(datasets[0]),id:`graph-${type}`,name:`Graph source ${type}`,sourceType:type})));Object.assign(graph['org-1'],{enableUsers:true,enableDevices:true,enableGroups:true,enableSharePointSites:true});} if(fault==='graph-existing'){graph['org-1']={...graph['org-1'],tenantId:'existing-tenant',clientId:'existing-client',hasStoredSecret:true,credentialRevision:'stored-revision',enableUsers:true,backgroundSyncEnabled:true,backgroundSyncCronExpression:'0 2 * * *'};} if (fault === 'no-custom') roles = roles.filter(x => x.isBuiltIn); if (fault === 'many-roles') roles.push(...Array.from({ length: 60 }, (_, i) => ({ ...roles.find(x => !x.isBuiltIn), id: `many-${i}`, key: `many-${i}`, name: `Custom role ${String(i).padStart(2, '0')}`, assignmentCount: 0 }))); return reply({ ok: true }); }
+ if (path === '/fixture/table-review') {
+  roles.forEach(role => role.assignmentCount = 237);
+  roles.push(...Array.from({ length: 65 }, (_, i) => ({ ...roles.find(role => !role.isBuiltIn), id: `review-role-${i}`, key: `review-role-${i}`, name: `Synthetic custom role ${String(i).padStart(3, '0')} with a deliberately long permission scope name`, assignmentCount: 0 })));
+  roles.push(...Array.from({ length: 35 }, (_, i) => ({ ...roles.find(role => role.isBuiltIn), id: `review-built-${i}`, key: `review-built-${i}`, name: `Synthetic protected role ${String(i).padStart(3, '0')} with a deliberately long name`, assignmentCount: 0 })));
+  calendars.forEach(calendar => calendar.weeklyRules = Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, isWorkingDay: dayOfWeek > 0 && dayOfWeek < 6, workingHours: dayOfWeek > 0 && dayOfWeek < 6 ? [{ start: '08:00:00', end: '17:00:00' }] : [] })));
+ }
+ if (await handleTableReview(req, res, url)) return;
  if (await handleTeamDirectory(req, res, url)) return;
  if (await handleDirectoryRequest(req, res, url)) return;
  if (path.endsWith('/system/token')) {
@@ -129,7 +138,10 @@ http.createServer(async (req, res) => {
  if (path === '/api/v1/users') return reply(users);
  if (path === '/api/v1/customers') return reply([]);
  if (path === '/api/v1/admin/role-definitions') return reply(roles);
- if (path.endsWith('/assignments')) return reply([{ id: 'assignment-1', userId: 'user-1', name: 'Synthetic Operator', email: 'operator@example.test', organizationId: 'org-1', assignedAtUtc: '2026-10-01T00:00:00Z' }]);
+ if (path.endsWith('/assignments')) {
+  const rows = [{ id: 'assignment-1', userId: 'user-1', name: 'Synthetic Operator', email: 'operator@example.test', organizationId: 'org-1', assignedAtUtc: '2026-10-01T00:00:00Z' }];
+  return reply(url.searchParams.get('paged') === 'true' ? { items: rows, totalCount: rows.length, page: 1, pageSize: Number(url.searchParams.get('pageSize') ?? 25) } : rows);
+ }
  if (path === '/api/v1/sla-calendars') return reply(calendars);
  if (path === '/api/v1/slas') return reply([{ id: 'policy-1', name: 'Atlas priority response', tenantId: 'org-1', appliesTo: 0, responseTimeHours: 2, resolutionTimeHours: 8, escalations: [] }]);
  if (path === '/api/v1/sla-report-subscriptions') return reply(subscriptions);

@@ -69,12 +69,12 @@
           Striped="false"
           Bordered="false"
           Breakpoint="Breakpoint.Md"
-          Class="helpdesk-table"
+          Class="helpdesk-table compact-table"
           MultiSelection="@EnableSelection"
           RowClass="ticket-row"
           SelectedItems="SelectedItems"
           SelectedItemsChanged="HandleSelectedItemsChanged"
-          OnRowClick="HandleRowClick">
+          OnRowClick="HandleRowClick" FixedHeader="true" FixedFooter="true" data-table-surface="shared-tickettable-1">
     <HeaderContent>
         <MudTh>Tracking ID</MudTh>
         <MudTh>Updated</MudTh>

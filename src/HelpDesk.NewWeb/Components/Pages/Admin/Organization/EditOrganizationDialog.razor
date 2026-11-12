@@ -10,7 +10,7 @@
     <TitleContent><MudText Typo="Typo.h6">Edit Organization</MudText></TitleContent>
     <DialogContent>
         <MudForm @ref="form" Model="model" Class="mt-2">
-            <MudTabs>
+            <MudTabs Class="compact-tabs">
                 <MudTabPanel Text="General">
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
                     <MudTextField @bind-Value="model.DnsName" Label="DNS Name" />

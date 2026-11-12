@@ -1,4 +1,8 @@
-﻿export function downloadDataUrl(dataUrl, filename) {
+﻿export function browserTimeZone() {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+export function downloadDataUrl(dataUrl, filename) {
     const a = document.createElement('a');
     a.href = dataUrl;
     a.download = filename || 'image';

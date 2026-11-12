@@ -44,6 +44,22 @@ export async function handleDirectoryRequest(req, res, url) {
  }
  const authCustomer = path.match(/^\/api\/v1\/customers\/([^/]+)\/auth\/status$/)?.[1];
  if (authCustomer) { reads.push({ path, query: url.search }); return reply(customers.find(row => row.id === authCustomer)?.authStatus ?? {}); }
+ const retention = path.match(/^\/api\/v1\/organizations\/([^/]+)\/(deletion-assessment|retire)$/);
+ const deletion = req.method === 'DELETE' && path.match(/^\/api\/v1\/organizations\/([^/]+)$/);
+ if (retention || deletion) {
+  const organizationId = (retention || deletion)[1];
+  const organization = organizations.find(row => row.id === organizationId);
+  if (!organization) return reply({}, 404);
+  const retained = fault === 'retained' || fault === 'needs-review';
+  const dependencies = retained ? [{ code: 'principal_retention', count: 1, message: 'Revoked principal and mailbox delivery history is retained.', nextAction: fault === 'needs-review' ? 'Reconcile the NeedsReview delivery before retirement.' : 'Keep the organization disabled with its history.', href: '/admin/pending-emails', requiresResolution: fault === 'needs-review' }] : [];
+  const assessment = { canDelete: !retained, canRetire: fault !== 'needs-review', isDisabled: !organization.isEnabled, dependencies };
+  if (retention?.[2] === 'deletion-assessment') return reply(assessment);
+  actions.push({ method: req.method, path });
+  if (fault.startsWith('delete-')) return reply({ code: 'dependency', message: 'Retained mailbox data needs review.', assessment }, Number(fault.substring(7)));
+  if (retention) { organization.isEnabled = false; return reply(null, 204); }
+  if (retained) return reply({ code: 'dependency', message: 'Retained mailbox data needs review.', assessment }, 409);
+  organizations = organizations.filter(row => row.id !== organizationId); return reply(null, 204);
+ }
  if (path === '/api/v1/organizations') return reply(organizations);
  if (path === '/api/v1/customers' && req.method === 'GET') return reply(customers);
  if (path === '/api/v1/categories' && req.method === 'GET') return reply(categories);

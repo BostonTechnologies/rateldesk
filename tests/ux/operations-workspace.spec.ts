@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
 const fixture = `http://127.0.0.1:${process.env.HELPDESK_OPERATIONS_FIXTURE_PORT ?? 18400}/fixture`;
@@ -21,21 +22,21 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     await expect(page.getByText('No services or requests match your search.')).toBeVisible();
     await page.getByRole('button', { name: 'Clear', exact: true }).click();
     await expect(page.locator('.self-service-catalog-card')).toHaveCount(2);
-    const bounds = await page.locator('.self-service-toolbar').boundingBox();
+    const bounds = await page.locator('.self-service-search').boundingBox();
     expect(bounds!.width).toBeLessThanOrEqual(512);
     if (width >= 1440) expect(bounds!.width).toBeGreaterThanOrEqual(440);
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('catalogue.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath('catalogue.png'), fullPage: true });
     await ready(page, '/ops/workflows');
     await expect(page.getByRole('tab')).toHaveCount(2);
     await expect(page.locator('.workflow-operations table')).toHaveCount(1);
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('workflows.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath('workflows.png'), fullPage: true });
     await ready(page, '/ops/slas');
     await expect(page.getByText('75%', { exact: true })).toBeVisible();
     await expect(page.locator('.sla-operations table')).toHaveCount(1);
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('sla.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath('sla.png'), fullPage: true });
   });
 }
 
@@ -140,13 +141,13 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     expect(icon!.width).toBeGreaterThanOrEqual(20);
     expect(icon!.x).toBeGreaterThanOrEqual(row!.x);
     await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Support Routing');
-    await page.screenshot({ path: testInfo.outputPath('navigation.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath('navigation.png'), fullPage: true });
     const longName = drawer.locator('a[href="auth"]');
     await longName.focus();
     await expect(longName).toHaveAccessibleName('Synthetic Operations User With An Exceptionally Long Display Name');
     await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Synthetic Operations User With An Exceptionally Long Display Name');
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath('navigation-tooltip.png'), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath('navigation-tooltip.png'), fullPage: true });
     if (width < 1280) {
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('navigation-toggle')).toBeFocused();
@@ -197,9 +198,17 @@ test('task dashboard starts with all authorized assignments and pages before opt
   await expect(page.getByRole('button', { name: /^(Running|In progress|External: running)$/ })).toHaveCount(0);
   const runningRow = page.locator('.task-workspace tbody tr').filter({ has: page.getByRole('link', { name: 'REQ-0001', exact: true }) });
   await expect(runningRow.getByText('In progress', { exact: true })).toBeVisible();
-  await runningRow.getByText('Execution timing', { exact: true }).press('Enter');
-  const timing = runningRow.locator('details.task-execution-timing');
-  await expect(timing).toHaveAttribute('open', '');
+  const compactHeight = (await runningRow.boundingBox())!.height;
+  const expander = runningRow.locator('button[aria-controls^="task-details-"]');
+  await expect(expander).toHaveAccessibleName(/^Expand details for/);
+  await expander.focus(); await page.keyboard.press('Enter');
+  await expect(expander).toHaveAttribute('aria-expanded', 'true');
+  await expect(expander).toHaveAccessibleName(/^Collapse details for/);
+  const pane = page.locator('#' + await expander.getAttribute('aria-controls'));
+  await expect(pane).toBeVisible();
+  await expect(pane.locator('xpath=..')).toHaveAttribute('colspan', '8');
+  expect(Math.abs((await runningRow.boundingBox())!.height - compactHeight)).toBeLessThan(2);
+  const timing = pane.getByRole('region', { name: 'Execution timing' });
   await expect(timing.getByText(/^Started:/)).toBeVisible();
   await expect(timing.getByText(/^Time since start at refresh:/)).toBeVisible();
   await expect(timing.getByText(/^Last provider update:/)).toBeVisible();
@@ -320,13 +329,13 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900
       await expect(page.locator('.premium-workspace tbody tr').first()).toBeVisible();
       if (route === '/admin/email-rules') {
         await expect(page.locator('.premium-workspace .mud-table-pagination').last()).toBeInViewport();
-        await page.screenshot({ path: info.outputPath(`rules-${theme}-${width}.png`) });
+        await captureTables(page); await page.screenshot({ path: info.outputPath(`rules-${theme}-${width}.png`) });
         await page.getByRole('tab', { name: 'Audit', exact: true }).click();
       }
       await expect(page.locator('.premium-workspace .mud-table-pagination').last()).toBeInViewport();
       await assertNoHorizontalOverflow(page);
       await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
-      await page.screenshot({ path: info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}.png`) });
+      await captureTables(page); await page.screenshot({ path: info.outputPath(`${route.replaceAll('/', '-')}-${theme}-${width}.png`) });
     }
   });
 }
@@ -338,4 +347,54 @@ test('notification table CSS does not restyle the separate workflow table', asyn
   await ready(page, '/notifications'); await ready(page, '/ops/workflows');
   const geometry = await page.locator('.workflow-operations .mud-table-root').evaluate(element => ({ layout: getComputedStyle(element).tableLayout, premium: Boolean(element.closest('.premium-workspace')) }));
   expect(geometry.premium).toBe(false); expect(geometry.layout).toBe(before);
+});
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });
+
+for (const theme of ['light', 'dark']) for (const [width, height] of [[1366, 768], [1440, 900], [390, 844]]) {
+  test(`complete Operations table contexts ${theme} ${width}x${height}`, async ({ page, request }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width, height });
+    await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+    await request.get(`${fixture}/many-ops`);
+    for (const category of ['overdue', 'escalated', 'retries', 'critical', 'callbacks', 'bindings']) {
+      await ready(page, `/ops/workflows?category=${category}`);
+      await expect(page.locator('.workspace-query-pager')).toContainText('1-25 of 137');
+      await captureTables(page);
+    }
+    await ready(page, '/ops/workflows?category=overdue');
+    await page.locator('.workspace-query-pager button').filter({ hasText: /^2$/ }).click();
+    await expect(page.locator('.workspace-query-pager')).toContainText('26-50 of 137');
+    await expect(page.getByText('Synthetic task 025', { exact: true })).toBeVisible();
+    const state = await (await request.get(`${fixture}/state`)).json();
+    expect(state.requests.filter((entry: any) => entry.path.endsWith('/overdue')).at(-1).query).toMatchObject({ page: '2', pageSize: '25' });
+    await captureTables(page);
+    await ready(page, '/ops/slas');
+    await expect(page.locator('.workspace-query-pager')).toContainText('1-25 of 137');
+    await captureTables(page);
+    await page.locator('.workspace-query-pager button').filter({ hasText: /^2$/ }).click();
+    await expect(page.locator('.workspace-query-pager')).toContainText('26-50 of 137');
+    await page.getByRole('button', { name: 'Breached (137)', exact: true }).click();
+    await expect(page.locator('.workspace-query-pager')).toContainText('1-25 of 137');
+    await captureTables(page);
+    expect((await (await request.get(`${fixture}/state`)).json()).mutations).toEqual([]);
+  });
+}
+
+test('Task Tenant is visible by default, filters at the server and restores with Back', async ({ page, request }) => {
+  await request.get(`${fixture}/premium`); await ready(page, '/tasks');
+  const tenant = page.getByRole('combobox', { name: 'Tenant', exact: true });
+  await expect(tenant).toBeVisible(); await tenant.fill('Other');
+  await page.getByRole('option', { name: 'Other synthetic tenant', exact: true }).click();
+  await expect(page).toHaveURL(/customerOrgId=org-other/);
+  await expect(page.getByText('No tasks match these filters.')).toBeVisible();
+  await expect.poll(async () => (await (await request.get(`${fixture}/state`)).json()).requests.filter((entry: any) => entry.path === '/api/v1/request-tasks').at(-1).query.customerOrgId).toBe('org-other');
+  await page.getByRole('button', { name: 'Remove tenant Other synthetic tenant', exact: true }).click();
+  await expect(page.locator('.task-workspace tbody tr')).toHaveCount(25);
+  await page.goBack();
+  await expect(page.getByText('No tasks match these filters.')).toBeVisible();
+  await page.reload(); await expect(tenant).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove tenant Other synthetic tenant', exact: true })).toBeVisible();
+  expect((await (await request.get(`${fixture}/state`)).json()).mutations).toEqual([]);
 });

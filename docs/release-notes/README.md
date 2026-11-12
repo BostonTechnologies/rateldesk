@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.3-beta.11
+
+[Owner-review workspaces and safe account cleanup](0.1.3-beta.11.md) covers
+#398–#409, the complete table audit and the owner retest checklist.
+
 ## 0.1.3-beta.10
 
 [Premium workspaces and durable request execution](0.1.3-beta.10.md) covers

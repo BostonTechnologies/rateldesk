@@ -1385,7 +1385,7 @@ body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
 .premium-workspace { min-width: 0; }
 .premium-workspace .workspace-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-block: .75rem; }
 .premium-workspace .workspace-toolbar > .mud-input-control { flex: 1 1 11rem; max-width: 26rem; }
-.premium-workspace .workspace-actions { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
+.premium-workspace .workspace-actions { display: flex; flex-wrap: nowrap; gap: .25rem; align-items: center; }
 .premium-workspace .mud-table { border: 1px solid var(--mud-palette-divider); border-radius: var(--mud-default-borderradius); overflow: hidden; }
 .premium-workspace .mud-table-container { overscroll-behavior: contain; scrollbar-gutter: stable; }
 .premium-workspace .mud-table-root { table-layout: fixed; }
@@ -1440,3 +1440,23 @@ body.chat-conversation-maximised .mud-popover-open { z-index: 1450 !important; }
     .pending-mail > p.mud-typography-body2 { display:none; }
     .email-rules-workspace .email-rules-heading .mud-typography-body2 { display:none; }
 }
+
+/* Opt-in table chrome. Authored email and Markdown retain their own semantics. */
+.compact-table { display: flex; flex-direction: column; min-width: 0; min-height: 0; max-height: clamp(12rem, calc(100dvh - 15rem), 42rem); border: 1px solid var(--mud-palette-divider); border-radius: var(--mud-default-borderradius); }
+.compact-table .mud-table-container { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.compact-table .mud-table-head .mud-table-cell { color: var(--mud-palette-text-secondary); background: var(--mud-palette-surface); font-size: .8125rem; font-weight: 600; white-space: nowrap; }
+.compact-table .mud-table-body .mud-table-cell { padding: .375rem .625rem; font-size: .875rem; line-height: 1.4; vertical-align: top; }
+.compact-table .mud-table-pagination { flex: 0 0 auto; background: var(--mud-palette-surface); border-top: 1px solid var(--mud-palette-divider); }
+.compact-table .workspace-actions { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: .125rem; white-space: nowrap; }
+.compact-table :focus-visible, .compact-tabs :focus-visible { outline: 2px solid var(--mud-palette-text-primary); outline-offset: 2px; }
+.compact-content-table { max-height: 20rem; max-width: 100%; overflow: auto; overscroll-behavior: contain; }
+.compact-content-table thead th { position: sticky; top: 0; z-index: 1; background: var(--mud-palette-surface); }
+.compact-content-table :is(td, th) { padding: .375rem .625rem; font-size: .875rem; overflow-wrap: anywhere; }
+.compact-tabs .mud-tab { min-height: 36px; text-transform: none; font-size: .875rem; color: var(--mud-palette-text-secondary); }
+.compact-tabs .mud-tab.mud-tab-active { color: var(--mud-palette-text-primary); background: var(--mud-palette-action-default-hover); }
+.compact-tabs .mud-tab-slider { background: var(--mud-palette-text-secondary); }
+.organization-dependency { padding-block: .625rem; border-bottom: 1px solid var(--mud-palette-divider); }
+.compact-filter-options .mud-list-item { min-height: 32px; padding-block: .25rem; }
+.compact-filter-options .filter-option-label { font-size: .875rem; line-height: 1.35; overflow-wrap: anywhere; }
+.workspace-query-pager { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; justify-content: flex-end; padding: .375rem .625rem; font-size: .8125rem; }
+.workspace-query-pager > .mud-input-control { flex: 0 1 8rem; margin: 0; }

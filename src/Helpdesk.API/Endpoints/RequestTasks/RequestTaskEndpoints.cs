@@ -54,6 +54,7 @@ public static class RequestTaskEndpoints
             [FromQuery] string? requestId,
             [FromQuery] string? serviceId,
             [FromQuery] string? q,
+            [FromQuery] string[]? customerOrgId,
             [FromQuery] bool? historicOnly,
             CancellationToken token,
             [FromQuery] bool includeTotal = true) =>
@@ -66,6 +67,8 @@ public static class RequestTaskEndpoints
 
             if (q?.Length > 200)
                 return Results.BadRequest(new { error = "Search is limited to 200 characters." });
+            if (customerOrgId is { Length: > 20 } || customerOrgId?.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200) == true)
+                return Results.BadRequest(new { error = "Choose at most 20 valid organizations." });
 
             var effectivePage = Math.Max(page ?? 1, 1);
             var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
@@ -83,6 +86,8 @@ public static class RequestTaskEndpoints
                     Request = request,
                     AssignedUserName = assignedUser != null ? assignedUser.Name : null
                 };
+
+            query = query.Where(x => x.Task.OrganizationId == x.Request.OrganizationId);
 
             if (!access.IsHelpdeskAdmin)
             {
@@ -116,6 +121,9 @@ public static class RequestTaskEndpoints
 
                 query = query.Where(x => x.Task.AssignedToId == currentUserId);
             }
+
+            if (customerOrgId is { Length: > 0 })
+                query = query.Where(x => x.Task.OrganizationId != null && customerOrgId.Contains(x.Task.OrganizationId));
 
             if (!string.IsNullOrWhiteSpace(assignedToId))
             {
@@ -950,13 +958,13 @@ public static class RequestTaskEndpoints
         return correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
     }
 
-    private static bool CanReadTasks(CurrentUserAccessProfile access) =>
+    internal static bool CanReadTasks(CurrentUserAccessProfile access) =>
         CanManageTasks(access) || access.HasPermission(HelpdeskPermissions.RequestRead);
 
     private static bool CanReadOrganization(CurrentUserAccessProfile access, string? organizationId) =>
         access.IsHelpdeskAdmin || organizationId is not null && RequestReaderOrganizationIds(access).Contains(organizationId);
 
-    private static IReadOnlySet<string> RequestReaderOrganizationIds(CurrentUserAccessProfile access) =>
+    internal static IReadOnlySet<string> RequestReaderOrganizationIds(CurrentUserAccessProfile access) =>
         access.OrganizationIdsForAny(HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager);
 
     private static bool CanManageTasks(CurrentUserAccessProfile access) =>

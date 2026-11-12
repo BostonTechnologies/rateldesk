@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
 test.setTimeout(60_000);
@@ -16,11 +17,11 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[320, 900]
     await expect(page.getByText('1205 deliveries · 0 selected records')).toBeVisible();
     await expect(page.locator('.pending-mail tbody tr')).toHaveCount(25);
     await expect(page.locator('.pending-mail .mud-table-pagination')).toBeInViewport();
-    await page.screenshot({ path: testInfo.outputPath(`pending-grid-${theme}-${width}.png`) });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`pending-grid-${theme}-${width}.png`) });
     await page.getByRole('button', { name: 'Delivery details', exact: true }).first().click();
     await expect(page.getByRole('region', { name: 'Delivery details' })).toBeVisible();
     await assertNoHorizontalOverflow(page);
-    await page.screenshot({ path: testInfo.outputPath(`pending-${theme}-${width}.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`pending-${theme}-${width}.png`), fullPage: true });
   });
 }
 test('server paging, filter URL, Back and explicit selection scope', async ({ page, request }) => {
@@ -382,3 +383,6 @@ test('unfiltered all matching is explicit, filter changes clear it, and 100-row 
   expect(bounds).not.toBeNull();
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

@@ -64,7 +64,7 @@
 
         <MudExpansionPanels Class="mt-3">
             <MudExpansionPanel Text="Details">
-                <MudTable Items="Preview.Recipients.OrderBy(x => x.SupportGroupName).ThenBy(x => x.UserName)" Dense="true" Hover="true" T="SupportNotificationRecipientDto">
+                <MudTable Items="Preview.Recipients.OrderBy(x => x.SupportGroupName).ThenBy(x => x.UserName)" Dense="true" Hover="true" T="SupportNotificationRecipientDto" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-supportnotifications-supportrecipientpreviewpanel-1">
                     <HeaderContent>
                         <MudTh>Display name</MudTh>
                         <MudTh>Email</MudTh>

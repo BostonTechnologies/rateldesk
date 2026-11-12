@@ -110,7 +110,7 @@
         {
         <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Near Breach (@($">= {selectedThreshold}%"))</MudText>
-            <MudTable T="SlaTicketRowDto" Items="nearBreach.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="SlaTicketRowDto" Items="nearBreach.Items" Dense="true" Hover="true" RowsPerPage="nearPageSize" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-slaopsdashboard-1">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching tickets.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Ticket</MudTh>
@@ -122,7 +122,7 @@
                     <MudTh>% Used</MudTh>
                     <MudTh>Remaining</MudTh>
                     <MudTh>Due At</MudTh>
-                    <MudTh></MudTh>
+                    <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Ticket">@(context.TicketNumber ?? context.TicketId)</MudTd>
@@ -134,11 +134,13 @@
                     <MudTd DataLabel="% Used">@(selectedMetric == SlaMetricType.Response ? context.ResponsePercentUsed : context.ResolutionPercentUsed)%</MudTd>
                     <MudTd DataLabel="Remaining">@FormatRemaining(selectedMetric == SlaMetricType.Response ? context.ResponseRemainingSeconds : context.ResolutionRemainingSeconds)</MudTd>
                     <MudTd DataLabel="Due At">@(selectedMetric == SlaMetricType.Response ? context.ResponseDueAt.ToLocalTime().ToString("g") : context.ResolutionDueAt.ToLocalTime().ToString("g"))</MudTd>
-                    <MudTd DataLabel="Actions">
-                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@BuildTicketLink(context)">Open</MudButton>
-                    </MudTd>
+                    <MudTd DataLabel="Actions"><div class="workspace-actions">
+                        <WorkspaceAction Href="@BuildTicketLink(context)" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" />
+                    </div></MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="nearPage" PageSize="nearPageSize" Total="nearBreach.Total" Busy="loading" Changed="ChangeNearPageAsync" /></PagerContent>
+</MudTable>
         </MudPaper>
         }
 
@@ -146,7 +148,7 @@
         {
         <MudPaper Class="pa-3">
             <MudText Typo="Typo.h6" Class="mb-2">Breached Tickets</MudText>
-            <MudTable T="SlaTicketRowDto" Items="breached.Items" Dense="true" Hover="true" Loading="@loading">
+            <MudTable T="SlaTicketRowDto" Items="breached.Items" Dense="true" Hover="true" RowsPerPage="breachedPageSize" Loading="@loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-ops-slaopsdashboard-2">
                 <NoRecordsContent><MudText Typo="Typo.body2">No matching tickets.</MudText></NoRecordsContent>
                 <HeaderContent>
                     <MudTh>Ticket</MudTh>
@@ -157,7 +159,7 @@
                     }
                     <MudTh>Status</MudTh>
                     <MudTh>Due At</MudTh>
-                    <MudTh></MudTh>
+                    <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Ticket">@(context.TicketNumber ?? context.TicketId)</MudTd>
@@ -170,11 +172,13 @@
                         <MudChip T="string" Color="Color.Error" Size="Size.Small">Breached</MudChip>
                     </MudTd>
                     <MudTd DataLabel="Due At">@context.ResolutionDueAt.ToLocalTime().ToString("g")</MudTd>
-                    <MudTd DataLabel="Actions">
-                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" Href="@BuildTicketLink(context)">Open</MudButton>
-                    </MudTd>
+                    <MudTd DataLabel="Actions"><div class="workspace-actions">
+                        <WorkspaceAction Href="@BuildTicketLink(context)" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" />
+                    </div></MudTd>
                 </RowTemplate>
-            </MudTable>
+
+<PagerContent><WorkspaceQueryPager Page="breachedPage" PageSize="breachedPageSize" Total="breached.Total" Busy="loading" Changed="ChangeBreachedPageAsync" /></PagerContent>
+</MudTable>
         </MudPaper>
         }
         }
@@ -209,6 +213,9 @@
 
     private List<TenantLookupDto> tenants = new();
     private SlaComplianceSummaryDto summary = new();
+    private int nearPage = 1, breachedPage = 1, nearPageSize = 25, breachedPageSize = 25;
+    private async Task ChangeNearPageAsync(WorkspacePageRequest request) { nearPage = request.Page; nearPageSize = request.PageSize; await RefreshAsync(); }
+    private async Task ChangeBreachedPageAsync(WorkspacePageRequest request) { breachedPage = request.Page; breachedPageSize = request.PageSize; await RefreshAsync(); }
     private PagedResult<SlaTicketRowDto> nearBreach = new();
     private PagedResult<SlaTicketRowDto> breached = new();
     private int nearNinetyCount;
@@ -232,6 +239,7 @@
         var query = $"{TenantId}|{TicketTypeFilter}|{Threshold}|{Metric}";
         if (query == appliedQuery) return;
         appliedQuery = query;
+        nearPage = breachedPage = 1;
         if (isHelpdeskAdmin) selectedTenantId = TenantId;
         selectedTicketType = TicketTypeFilter.HasValue && Enum.IsDefined(typeof(TicketType), TicketTypeFilter.Value) ? (TicketType)TicketTypeFilter.Value : null;
         selectedThreshold = Threshold is 80 or 90 ? Threshold.Value : 90;
@@ -318,6 +326,18 @@
 
             var nextNearBreach = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
                 nearBreachUrl, token) ?? new PagedResult<SlaTicketRowDto>();
+            var lastBreachedPage = Math.Max(1, (int)Math.Ceiling((double)nextBreached.Total / breachedPageSize));
+            if (breachedPage > lastBreachedPage)
+            {
+                breachedPage = lastBreachedPage;
+                nextBreached = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(BuildBreachedUrl(), token) ?? new();
+            }
+            var lastNearPage = Math.Max(1, (int)Math.Ceiling((double)nextNearBreach.Total / nearPageSize));
+            if (nearPage > lastNearPage)
+            {
+                nearPage = lastNearPage;
+                nextNearBreach = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(BuildNearBreachUrl(selectedThreshold, selectedMetric), token) ?? new();
+            }
 
             var nearNinety = await HelpdeskApi.GetFromJsonAsync<PagedResult<SlaTicketRowDto>>(
                 nearNinetyUrl, token) ?? new PagedResult<SlaTicketRowDto>();
@@ -361,8 +381,8 @@
     {
         var query = new List<string>
         {
-            "page=1",
-            "pageSize=25"
+            $"page={breachedPage}",
+            $"pageSize={breachedPageSize}"
         };
 
         if (!string.IsNullOrWhiteSpace(selectedTenantId))
@@ -378,12 +398,12 @@
         return $"api/v1/reports/sla/breached?{string.Join("&", query)}";
     }
 
-    private string BuildNearBreachUrl(int threshold, SlaMetricType metric, int pageSize = 25)
+    private string BuildNearBreachUrl(int threshold, SlaMetricType metric, int? pageSize = null)
     {
         var query = new List<string>
         {
-            "page=1",
-            $"pageSize={pageSize}",
+            $"page={(pageSize.HasValue ? 1 : nearPage)}",
+            $"pageSize={pageSize ?? nearPageSize}",
             $"thresholdPercent={threshold}",
             $"metric={(int)metric}"
         };

@@ -1,0 +1,10 @@
+{
+  "safeOrganizationDisabled": true,
+  "uncertainOrganizationStillEnabled": true,
+  "revokedPrincipals": 2,
+  "revokedVerifiers": 2,
+  "archivedDisabledMailboxes": 2,
+  "uncertainOutcomeUnchanged": true,
+  "removedOutcomeUnchanged": true,
+  "cursorsRetained": 2
+}

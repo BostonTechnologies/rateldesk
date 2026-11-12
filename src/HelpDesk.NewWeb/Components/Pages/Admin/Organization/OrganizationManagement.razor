@@ -31,7 +31,7 @@
     </ToolbarContent>
     <ChildContent>
         <MudTable T="OrganizationDto" @ref="table" ServerData="LoadAsync" Dense="true" Hover="true" AllowUnsorted="false" FixedHeader="true" FixedFooter="true"
-                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None">
+                  RowsPerPage="query.PageSize" @bind-CurrentPage="query.Page" Height="clamp(16rem, calc(100dvh - 24rem), 44rem)" Breakpoint="Breakpoint.None" Class="compact-table" data-table-surface="pages-admin-organization-organizationmanagement-1">
             <HeaderContent>
                 <DirectorySortHeader Column="name" Label="Organization" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
                 <DirectorySortHeader Column="contact" Label="Contact" Sort="@query.Sort" Descending="query.Descending" OnSort="SortChangedAsync" />
@@ -50,11 +50,11 @@
                     { <span title="@($"Saved tenant {tenantId}; linked {context.OrchestrationTenantLinkedAtUtc:O}")">@(context.OrchestrationTenantName ?? "Saved tenant (name unavailable)")</span><span class="directory-secondary">Saved mapping · tenant @tenantId</span> }
                     else { <span>Not linked</span> }
                 </MudTd>
-                <MudTd DataLabel="Actions"><div class="directory-actions">
+                <MudTd DataLabel="Actions"><div class="workspace-actions"><div class="directory-actions">
                     <WorkspaceAction Label="Edit organization" Icon="@Icons.Material.Outlined.Edit" OnClick="() => OpenEditDialog(context)" />
                     <WorkspaceAction Label="Support routing" Icon="@Icons.Material.Outlined.SupportAgent" OnClick="() => OpenSupportRouting(context)" />
-                    <WorkspaceAction Label="Delete organization" Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="() => OpenDeleteDialog(context)" />
-                </div></MudTd>
+                    <WorkspaceAction Label="Delete organization" Icon="@Icons.Material.Outlined.Delete" OnClick="() => OpenDeleteDialog(context)" />
+                </div></div></MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No organizations match these filters." : "No organizations yet. Create an organization to begin.")</MudText></NoRecordsContent>
             <LoadingContent><MudText>Loading organizations…</MudText></LoadingContent>
@@ -64,7 +64,7 @@
 </AdminDirectoryWorkspace>
 </Authorized>
 <NotAuthorized Context="delegatedAdministrator">
-    <MudTabs ActivePanelIndex="@DelegatedTabIndex">
+    <MudTabs ActivePanelIndex="@DelegatedTabIndex" Class="compact-tabs">
         <MudTabPanel Text="General &amp; settings"><TenantSettings IsCanonical="true" OrganizationId="@OrganizationId" /></MudTabPanel>
         <MudTabPanel Text="Members &amp; access"><TenantAdministration IsCanonical="true" OrganizationId="@OrganizationId" /></MudTabPanel>
     </MudTabs>
@@ -121,7 +121,7 @@
     }
     private async Task OpenDeleteDialog(OrganizationDto organization)
     {
-        var dialog = await DialogService.ShowAsync<DeleteOrganizationDialog>("Delete Organization", new DialogParameters { ["Organization"] = organization }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall });
+        var dialog = await DialogService.ShowAsync<DeleteOrganizationDialog>("Delete Organization", new DialogParameters { ["Organization"] = organization }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false });
         if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
     private void OpenSupportRouting(OrganizationDto organization) => NavigationManager.NavigateTo($"/admin/support-routing?organizationId={Uri.EscapeDataString(organization.Id)}");

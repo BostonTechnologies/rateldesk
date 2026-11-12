@@ -1480,9 +1480,15 @@ static void MapCrudEndpoints<T>(WebApplication app, string route) where T : clas
             : Results.Problem("Resource not found", statusCode: 404);
     });
     if (typeof(T) == typeof(Organization))
+    {
+        group.MapGet("/{id}/deletion-assessment", OrganizationRetentionEndpoint.GetAsync)
+            .WithName("GetOrganizationDeletionAssessment");
+        group.MapPost("/{id}/retire", OrganizationRetentionEndpoint.RetireAsync)
+            .WithName("RetireOrganization");
         group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<Organization> repo,
             [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
             await OrganizationDeletionEndpoint.DeleteAsync(id, repo, db, ct));
+    }
     else if (typeof(T) == typeof(Customer))
         group.MapDelete("/{id}", async ([FromRoute] string id, [FromServices] SharedServices.IRepository<Customer> repo,
             [FromServices] HelpdeskDbContext db, CancellationToken ct) =>

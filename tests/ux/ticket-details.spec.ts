@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test, Page } from '@playwright/test';
 
 const fixture = 'http://127.0.0.1:18600/fixture';
@@ -50,11 +51,11 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900
     await open(page, 'changes');
     await expect(page.getByRole('button', { name: 'Edit plan', exact: true })).toBeVisible();
     await noOverflow(page);
-    await page.screenshot({ path: info.outputPath(`change-record-${theme}-${width}.png`) });
+    await captureTables(page); await page.screenshot({ path: info.outputPath(`change-record-${theme}-${width}.png`) });
     await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Scope of Change', exact: true })).toBeVisible();
     await noOverflow(page);
-    await page.screenshot({ path: info.outputPath(`change-editor-${theme}-${width}.png`) });
+    await captureTables(page); await page.screenshot({ path: info.outputPath(`change-editor-${theme}-${width}.png`) });
   });
 }
 
@@ -185,7 +186,7 @@ for (const width of [320, 768, 1920]) {
       const bounds = await pill.evaluate(el => { const p = el.getBoundingClientRect(); const t = el.closest('[role=tab]')!.getBoundingClientRect(); return { left: p.left >= t.left, right: p.right <= t.right, top: p.top >= t.top, bottom: p.bottom <= t.bottom }; });
       expect(Object.values(bounds).every(Boolean)).toBe(true);
     }
-    await page.screenshot({ path: testInfo.outputPath(`details-${width}-dark.png`), fullPage: true });
+    await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`details-${width}-dark.png`), fullPage: true });
     // Keep the effective CSS viewport at least 320px while exercising 200% reflow.
     await page.setViewportSize({ width: Math.max(width, 640), height: 1000 });
     await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
@@ -396,7 +397,7 @@ for (const theme of ['light', 'dark']) for (const [width, height] of [[1920, 108
         .map(node => ({ class: node.className, text: node.textContent?.slice(0, 80), bounds: node.getBoundingClientRect().toJSON() }));
     });
     expect(clipped).toEqual([]);
-    await page.screenshot({ path: info.outputPath(`request-execution-${theme}-${width}.png`), fullPage: false });
+    await captureTables(page); await page.screenshot({ path: info.outputPath(`request-execution-${theme}-${width}.png`), fullPage: false });
     await page.getByRole('tab', { name: 'Workflow', exact: true }).click();
     await noOverflow(page);
     await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
@@ -418,5 +419,8 @@ test('request execution empty and uncertain presentation retain truthful actions
   await expect(page.getByRole('button', { name: 'Retry task', exact: true })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Open recovery', exact: true })).toHaveCount(3);
   await expect(page.getByText(/The execution deadline elapsed/)).toBeVisible();
-  await page.screenshot({ path: info.outputPath('request-outcome-unknown.png') });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('request-outcome-unknown.png') });
 });
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });

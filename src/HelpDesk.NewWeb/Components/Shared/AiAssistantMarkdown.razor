@@ -17,7 +17,7 @@
                 <button type="button" @onclick="() => CopyTableAsync(block)" title="Copy table as Markdown">Copy table</button>
             </div>
             <div class="chat-table-scroll" role="region" aria-label="Markdown table" tabindex="0">
-                <table>
+                <table data-table-surface="shared-aiassistantmarkdown-1">
                     <thead><tr>
                         @for (var column = 0; column < table.Headers.Length; column++)
                         {

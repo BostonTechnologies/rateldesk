@@ -1,3 +1,4 @@
+import { captureTables } from './table-evidence';
 import { expect, test } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
 
@@ -23,7 +24,7 @@ for (const route of routes) {
       await expect(tool).toContainText('Details were not recorded');
       await input.fill('Preserve this unsent draft');
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({ path: info.outputPath('workspace.png'), fullPage: true });
+      await captureTables(page); await page.screenshot({ path: info.outputPath('workspace.png'), fullPage: true });
       const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
       await page.getByRole('button', { name: 'Maximise conversation' }).click();
       const surface = page.getByRole('dialog', { name: 'Conversation', exact: true });
@@ -51,7 +52,7 @@ for (const route of routes) {
       await expect(input).toBeEnabled();
       await page.getByRole('button', { name: 'Chat display settings' }).click();
       await expect(page.getByRole('checkbox', { name: 'Call IDs on rows' })).toBeChecked();
-      await page.screenshot({ path: info.outputPath('settings.png') });
+      await captureTables(page); await page.screenshot({ path: info.outputPath('settings.png') });
     });
   }
 
@@ -105,7 +106,7 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
   expect(before.starts).toBe(0); expect(before.sends).toBe(0); expect(before.streamOpens).toBe(0);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: info.outputPath('welcome.png'), fullPage: true });
+  await captureTables(page); await page.screenshot({ path: info.outputPath('welcome.png'), fullPage: true });
   await input.fill('Help review the request queue');
   await input.press('Alt+Enter');
   await expect(input).toHaveValue('Help review the request queue\n');
@@ -176,7 +177,7 @@ for (const route of [...routes, '/incidents/ux-chat']) {
         await expect(first.getByRole('status')).toHaveText('Table copied as Markdown.');
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(payloads.diskTable);
         await first.screenshot({ path: info.outputPath(fullscreen ? 'table-fullscreen.png' : 'table-normal.png') });
-        await page.screenshot({ path: info.outputPath(fullscreen ? 'table-fullscreen-workspace.png' : 'table-normal-workspace.png') });
+        await captureTables(page); await page.screenshot({ path: info.outputPath(fullscreen ? 'table-fullscreen-workspace.png' : 'table-normal-workspace.png') });
         await response.getByRole('button', { name: 'Copy table', exact: true }).nth(1).click();
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(payloads.emptyTable);
         await assertNoHorizontalOverflow(page);
@@ -290,3 +291,6 @@ test(`connection popover ${width}px distinguishes saved verification, live nativ
   await expect(details).toContainText('This observation is stale');
 });
 }
+
+// Opt-in geometry and synthetic screenshots for the owner table inventory.
+test.afterEach(async ({ page }) => { await captureTables(page); });
