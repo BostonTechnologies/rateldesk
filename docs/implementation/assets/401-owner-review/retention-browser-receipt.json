@@ -1,0 +1,26 @@
+{
+  "scope": "Disposable SQLite API and actual Web, Local administrator",
+  "productionMutation": false,
+  "journeys": [
+    {
+      "name": "NeedsReview blocker",
+      "delete": 409,
+      "retirement": 409,
+      "actionableBrowserExplanation": true
+    },
+    {
+      "name": "Revoked principal and archived history",
+      "browserConfirmedRetention": true,
+      "isDisabled": true,
+      "credentialDeniedBeforeAndAfter": 401,
+      "filterPreserved": true
+    },
+    {
+      "name": "Empty organization",
+      "normalBrowserDelete": true,
+      "repeatedClickGuardExercised": true,
+      "finalPageRefreshed": true,
+      "subsequentRead": 404
+    }
+  ]
+}

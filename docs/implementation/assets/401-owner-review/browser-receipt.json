@@ -1,0 +1,29 @@
+{
+  "scope": "Disposable loopback SQLite instance, Local authentication",
+  "negativeValidation": [
+    "Empty required fields rejected in browser",
+    "first-activation: fourteen-character passphrase rejected before correction",
+    "password-reset: fourteen-character passphrase rejected before correction"
+  ],
+  "journeys": [
+    {
+      "name": "first-activation",
+      "passphraseLength": 15,
+      "administratorIssuedToken": true,
+      "activation": "browser success",
+      "subsequentLocalLogin": "browser success",
+      "authenticatedGatewayRead": 200,
+      "replayedToken": 400
+    },
+    {
+      "name": "password-reset",
+      "passphraseLength": 15,
+      "administratorIssuedToken": true,
+      "activation": "browser success",
+      "subsequentLocalLogin": "browser success",
+      "authenticatedGatewayRead": 200,
+      "replayedToken": 400
+    }
+  ],
+  "productionMutation": false
+}

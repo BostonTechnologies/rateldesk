@@ -1,0 +1,77 @@
+{
+  "collection": "The same 169-case Release run, OpenCover + ReportGenerator 5.6.0",
+  "scope": "Targeted method analysis; the whole-solution percentage from a filtered run is not a full-solution coverage claim.",
+  "methods": [
+    {
+      "name": "System.Nullable`1<System.DateTimeOffset> HelpDesk.NewWeb.Services.TicketListState::LocalBoundary(System.String,System.String,System.Boolean)",
+      "complexity": 12,
+      "sequenceCoverage": 0.0,
+      "riskSkill": 12.0,
+      "file": "/workspace/work/rateldesk/src/HelpDesk.NewWeb/Services/TicketListState.cs"
+    },
+    {
+      "name": "System.String Helpdesk.API.Middleware.ExceptionNotificationMiddleware::FirstClaim(System.Security.Claims.ClaimsPrincipal,System.String[])",
+      "complexity": 6,
+      "sequenceCoverage": 80.0,
+      "riskSkill": 0.24,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Middleware/ExceptionNotificationMiddleware.cs"
+    },
+    {
+      "name": "System.Void Helpdesk.API.Endpoints.Organization.OrganizationRetentionEndpoint/<RetireAsync>d__1::MoveNext()",
+      "complexity": 6,
+      "sequenceCoverage": 80.0,
+      "riskSkill": 0.24,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Endpoints/Organizations/OrganizationRetentionEndpoint.cs"
+    },
+    {
+      "name": "HelpDesk.NewWeb.Services.TicketListState HelpDesk.NewWeb.Services.TicketListState::Parse(System.String,System.Boolean)",
+      "complexity": 42,
+      "sequenceCoverage": 95.2,
+      "riskSkill": 0.1,
+      "file": "/workspace/work/rateldesk/src/HelpDesk.NewWeb/Services/TicketListState.cs"
+    },
+    {
+      "name": "System.Void Helpdesk.API.Middleware.ExceptionNotificationMiddleware/<InvokeAsync>d__3::MoveNext()",
+      "complexity": 24,
+      "sequenceCoverage": 96.3,
+      "riskSkill": 0.03,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Middleware/ExceptionNotificationMiddleware.cs"
+    },
+    {
+      "name": "System.Void Helpdesk.API.Endpoints.Organization.OrganizationRetentionEndpoint/<AssessAsync>d__5::MoveNext()",
+      "complexity": 12,
+      "sequenceCoverage": 97.4,
+      "riskSkill": 0.01,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Endpoints/Organizations/OrganizationRetentionEndpoint.cs"
+    },
+    {
+      "name": "System.String HelpDesk.NewWeb.Services.TicketListState::Query(System.Boolean)",
+      "complexity": 34,
+      "sequenceCoverage": 100.0,
+      "riskSkill": 0.0,
+      "file": "/workspace/work/rateldesk/src/HelpDesk.NewWeb/Services/TicketListState.cs"
+    },
+    {
+      "name": "System.Boolean Helpdesk.API.Endpoints.Organization.OrganizationRetentionEndpoint::IsDependencyRace(System.Exception)",
+      "complexity": 30,
+      "sequenceCoverage": 100.0,
+      "riskSkill": 0.0,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Endpoints/Organizations/OrganizationRetentionEndpoint.cs"
+    },
+    {
+      "name": "System.Boolean Helpdesk.API.Endpoints.Organization.OrganizationRetentionEndpoint::HasRetainedIngestion(Helpdesk.Shared.Models.MailboxIngestionState)",
+      "complexity": 22,
+      "sequenceCoverage": 100.0,
+      "riskSkill": 0.0,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Endpoints/Organizations/OrganizationRetentionEndpoint.cs"
+    },
+    {
+      "name": "System.Void Helpdesk.API.Endpoints.Authentication.LocalAuthenticationEndpoints/<CompleteLoginAsync>d__16::MoveNext()",
+      "complexity": 22,
+      "sequenceCoverage": 100.0,
+      "riskSkill": 0.0,
+      "file": "/workspace/work/rateldesk/src/Helpdesk.API/Endpoints/Authentication/LocalAuthenticationEndpoints.cs"
+    }
+  ],
+  "finding": "No newly introduced flow has a score above 30 under the repository skill formula. The inherited top-level API startup remains a separate broad hotspot; changing its minimum-length constant does not add a startup branch."
+}

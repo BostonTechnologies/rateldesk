@@ -1,0 +1,3061 @@
+{
+  "suites": [
+    {
+      "suite": "admin",
+      "stats": {
+        "startTime": "2026-11-12T13:57:31.641Z",
+        "duration": 275909.73099999997,
+        "expected": 44,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "directory synthetic desktop tablet and mobile evidence light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "directory synthetic desktop tablet and mobile evidence dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete pagers and URL query restore keep bounded customer loading",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "query changes cancel superseded searches and recover from error without discarding rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "exact category type controls and explicit create type retain accessible protections",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "synthetic before and after workspace evidence",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "guided wizard responsive evidence 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "guided wizard responsive evidence 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "guided wizard responsive evidence 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "guided wizard responsive evidence 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "every workspace tab is keyboard reachable without creating work",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "role metadata separates identical names, retains tab navigation and assignment details",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "empty and many custom roles retain bounded rows and searchable results",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "custom role save retains owner and permissions",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dataset paging, retained drafts, explicit discard and stale searches",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dataset failed save retains draft and delete cancellation does not mutate",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dataset save reloads the existing schema and retains both saved columns",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "built-in setup and cancelled Graph draft remain separate from custom schema editing",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "late SLA response remains bound to the previous tenant",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "SLA tabs preserve reporting drafts and keep calendar edits explicit",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "routing concerns are focused; opening and cancelling edits or diagnostics performs no writes",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "coverage enable toggle retains explicit provider, group and role",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "delegated role editor retains permission ceiling and read-only users cannot enter admin routes",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "organization context searches beyond the first page and source catalog exists before import",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "zero-row built-ins stay visible and an unavailable count is never shown as zero",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dataset wizard validates fields, preserves Back, and Cancel creates no definition or key",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "custom dataset schema saves exactly once and skipping a key is complete",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dataset server validation retains draft and a lost create response reconciles without duplicate save",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Graph failed authentication keeps the draft and source-denied access blocks import until a fresh passing test",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Graph explicit import shows partial outcomes, preserves saved configuration and can reopen safely",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Graph uncertain import reads persisted result before retry and retains existing UTC schedule",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "failed post-key metadata refresh leaves the page usable and reload confirms one key",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "failed optional key creation retains the saved dataset and requires metadata readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "optional named key copies once, clears on close, lists metadata and requires confirmed revoke",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "edit family selection, search, server rejection and clone retain exact grants",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "create dependency validation and explicit cancel preserve saved roles",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dialog remains bounded with reachable actions at desktop and mobile widths",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Team synthetic before and after evidence and sticky action geometry",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "search reaches beyond one hundred records and no per-row account HTTP requests occur",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Delete and Disable are separately named operations and errors retain the dialog",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state, cohort, role and organization compose over the full directory and clear together",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "late search results cannot replace a newer query, and errors are retryable",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "deleting the final remaining row clamps the current final page and returns focus to the directory",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "OIDC-only Team keeps application Delete and hides unavailable local account routes",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "self-service",
+      "stats": {
+        "startTime": "2026-11-12T14:06:50.621Z",
+        "duration": 136640.03399999999,
+        "expected": 30,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "rendered form retains values and a safe retry receipt after empty-401",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered form retains values and a safe retry receipt after empty-403",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered form retains values and a safe retry receipt after empty-400",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered form retains values and a safe retry receipt after empty-500",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered form retains values and a safe retry receipt after malformed-error",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered form retains values and a safe retry receipt after invalid-success",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered requester context explains missing-requester and supports correction without losing input",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered requester context explains disabled-requester and supports correction without losing input",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rendered requester context explains wrong-organization and supports correction without losing input",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "self submit rejects duplicate button events and on-behalf retains explicit recipient confirmation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "form cancel and successful return retain the catalog folder and search context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table light 1920x1080",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table light 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table light 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table light 768x1024",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table light 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table dark 1920x1080",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table dark 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table dark 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table dark 768x1024",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Self Service catalog and request table dark 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "sparse catalog preserves three slots and drawer geometry light at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "sparse catalog preserves three slots and drawer geometry light at 1920px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "sparse catalog preserves three slots and drawer geometry dark at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "sparse catalog preserves three slots and drawer geometry dark at 1920px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "query, native page sizes, sorts and section return state survive navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "status, release and UTC date controls represent the complete server query",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "superseded query, errors, no matches and page clamping remain truthful",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalog error, empty and no-match states are distinct in light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalog error, empty and no-match states are distinct in dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "ticket-filters",
+      "stats": {
+        "startTime": "2026-11-12T14:09:08.226Z",
+        "duration": 206499.131,
+        "expected": 84,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "incidents full customer values wrap within For at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents full customer values wrap within For at 1366px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents full customer values wrap within For at 1280px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents full customer values wrap within For at 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests full customer values wrap within For at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests full customer values wrap within For at 1366px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests full customer values wrap within For at 1280px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests full customer values wrap within For at 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes full customer values wrap within For at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes full customer values wrap within For at 1366px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes full customer values wrap within For at 1280px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes full customer values wrap within For at 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents constrained picker assigns once and row navigation still works at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents constrained picker assigns once and row navigation still works at 1366px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents constrained picker assigns once and row navigation still works at 1280px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents constrained picker assigns once and row navigation still works at 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests constrained picker assigns once and row navigation still works at 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests constrained picker assigns once and row navigation still works at 1366px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests constrained picker assigns once and row navigation still works at 1280px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests constrained picker assigns once and row navigation still works at 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents opening a ticket and browser Back restores the exact filtered page",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents filters the full dataset, clears selection and restores URL with Back",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests opening a ticket and browser Back restores the exact filtered page",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests filters the full dataset, clears selection and restores URL with Back",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes opening a ticket and browser Back restores the exact filtered page",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes filters the full dataset, clears selection and restores URL with Back",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Back during pending search preserves the restored page and URL",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "cancelled search cannot replace newer data; error differs from no matches",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 768px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 768px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 1920px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive incidents filter panel 1920px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 768px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 768px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 1920px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive requests filter panel 1920px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 768px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 768px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 1920px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "responsive changes filter panel 1920px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "multi-dimension controls, time validation, sorting and page size use server query state",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents denied state write stays unavailable after readable refresh and filters",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents state destination is reachable and applied with only the keyboard",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents state popup supports keyboard dismissal, one confirmed write and persisted readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents rejected state update retains state and requires reload before retry",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents lost mutation response sends once and requires authoritative readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents completion refreshes filtered counts without losing valid search sort or page",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests denied state write stays unavailable after readable refresh and filters",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests state destination is reachable and applied with only the keyboard",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests state popup supports keyboard dismissal, one confirmed write and persisted readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests rejected state update retains state and requires reload before retry",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests lost mutation response sends once and requires authoritative readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests completion refreshes filtered counts without losing valid search sort or page",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes state destination is reachable and applied with only the keyboard",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes state popup supports keyboard dismissal, one confirmed write and persisted readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes rejected state update retains state and requires reload before retry",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes lost mutation response sends once and requires authoritative readback",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes completion refreshes filtered counts without losing valid search sort or page",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup incidents 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup incidents 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup incidents 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup incidents 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup requests 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup requests 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup requests 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup requests 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup changes 320px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup changes 320px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup changes 1440px light",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "state popup changes 1440px dark",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change popup explains outstanding approvals and template prerequisites",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "read-only actors have state indicators without an update affordance",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "request-editor",
+      "stats": {
+        "startTime": "2026-11-12T14:06:47.954Z",
+        "duration": 52584.703,
+        "expected": 9,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "synthetic before and after geometry evidence",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "task selection, tab drafts, keyboard order and save/reload retain stable identities",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "whole-draft validation activates hidden setup and task errors, and cancel discards",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "a binding failure keeps the draft and retry updates the same saved form",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "many and empty forms keep reachable controls with enlarged text and dark theme",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dragging the navigator while editing keeps selection, unsaved values and dependency identity",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "validation focuses approval, dependency and numeric actions on previously hidden tasks",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "modern HA and five-node jobs retain exact saved connection and canonical IDs after save and reopen",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "empty catalogue stays browsable and real-target creation retains its draft on a structured failure",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "integrations",
+      "stats": {
+        "startTime": "2026-11-12T14:09:40.504Z",
+        "duration": 118862.527,
+        "expected": 29,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "compact ordinary review light 390px full catalog and accessible footer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact ordinary review light 1366px full catalog and accessible footer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact ordinary review light 1920px full catalog and accessible footer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact ordinary review dark 390px full catalog and accessible footer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact ordinary review dark 1366px full catalog and accessible footer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact ordinary review dark 1920px full catalog and accessible footer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "exact filtered ordinary grants, organization changes and transient consent preserve review state",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "temporary verifier has only explicit organization and short status consent",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "host and client codes never switch approval kind and host consent binds exact references",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "unrelated page status cannot acknowledge missing consent",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "unrelated page status cannot acknowledge denied consent",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "manual credential organization selection ignores the native status filter and reviews only exact grants",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "ordinary account cannot see host approval entry",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "selected inactive cleanup retains only partial failures and survives a fresh list",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact system connections light 390px bounded reviews and authorized context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact system connections light 1366px bounded reviews and authorized context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact system connections light 1920px bounded reviews and authorized context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact system connections dark 390px bounded reviews and authorized context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact system connections dark 1366px bounded reviews and authorized context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "compact system connections dark 1920px bounded reviews and authorized context",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "system connection context, interrupted save, durable resume and row-local retries preserve exact identities",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "aligned credential, investigation and Monaco workspaces light 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "aligned credential, investigation and Monaco workspaces light 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "aligned credential, investigation and Monaco workspaces dark 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "aligned credential, investigation and Monaco workspaces dark 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "credential access review, failed apply and refreshed retry retain exact identity and draft",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Monaco prompt editing preserves a rejected draft and saves the next revision",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "AI prompts and multi-ticket investigation save preserve selected context without sending",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "MCP policy preview keeps the reviewed fields locked until explicit confirmation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "ai-assistant",
+      "stats": {
+        "startTime": "2026-11-12T14:06:49.442Z",
+        "duration": 225965.516,
+        "expected": 83,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "composer keeps the circuit connected and sends exact ASCII control",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "composer keeps the circuit connected and sends exact 7000 emoji",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "composer keeps the circuit connected and sends exact 8000 emoji at the UTF16 limit",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Light desktop completed, expand and composer boundary",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Light mobile completed, expand and composer boundary",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Dark desktop completed, expand and composer boundary",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Dark mobile completed, expand and composer boundary",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "empty presentation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "processing presentation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "approval presentation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "failed presentation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "archived presentation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "dark desktop approval callout remains visually distinct",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "stop waiting shows authoritative uncertain-delivery recovery controls",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "children-failed native completion keeps its visible outcome and pending children through reload",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "children-quiet native completion keeps its visible outcome and pending children through reload",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat delegated follow-ups remain in one transcript through navigation and duplicate SSE",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat delegated follow-ups remain in one transcript through navigation and duplicate SSE",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops delegated follow-ups remain in one transcript through navigation and duplicate SSE",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat quiet status survives fullscreen, navigation and refresh before one final reply",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat quiet status survives fullscreen, navigation and refresh before one final reply",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops quiet status survives fullscreen, navigation and refresh before one final reply",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "desktop Enter admission lock, Shift+Enter and IME",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "live draft replacement, automatic completion collapse and duplicate replay",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "mobile dark approval controls and bounded growing composer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat normal Enter and Alt+Enter preserve exact text",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat fullscreen Enter and Alt+Enter preserve exact text",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat normal Enter and Alt+Enter preserve exact text",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat fullscreen Enter and Alt+Enter preserve exact text",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops normal Enter and Alt+Enter preserve exact text",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops fullscreen Enter and Alt+Enter preserve exact text",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "coarse pointer with physical keys, IME, repetition, and whitespace never cause duplicate sends",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "fullscreen deferred focus preserves a composer that the operator already focused",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat light 1440px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat dark 1440px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat light 390px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat dark 390px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat fullscreen streaming approval recovery and archived access",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops light 1440px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops dark 1440px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops light 390px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops dark 390px retains one mounted interactive conversation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops fullscreen streaming approval recovery and archived access",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "general chat light 1440px starts immediately and names itself on first send",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "general chat dark 1440px starts immediately and names itself on first send",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "general chat light 390px starts immediately and names itself on first send",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "general chat dark 390px starts immediately and names itself on first send",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat light 1440px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat dark 1440px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat light 390px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat dark 390px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops light 1440px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops dark 1440px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops light 390px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops dark 390px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat light 1440px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat dark 1440px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat light 390px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat dark 390px saved tables stay readable and copy independently",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat partial streamed tables become one saved answer without losing content",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat clipboard denial offers exact manual table Markdown",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops partial streamed tables become one saved answer without losing content",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops clipboard denial offers exact manual table Markdown",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "uncertain first-send response retries the same conversation and message",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changing organization fences an in-flight first-send response and clears its draft",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "connection popover 1440px distinguishes saved verification, live native state and stale observations",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "connection popover 390px distinguishes saved verification, live native state and stale observations",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat 1440px right header badge, contained popups and left tool rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat 390px right header badge, contained popups and left tool rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops 1440px right header badge, contained popups and left tool rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops 390px right header badge, contained popups and left tool rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat 1440px right header badge, contained popups and left tool rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/incidents/ux-chat 390px right header badge, contained popups and left tool rows",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "investigation workspace 1912x914 fills remaining height with reachable composer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "investigation workspace 1366x640 fills remaining height with reachable composer",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/chat received skill and discovery payloads display and copy exactly after reload",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "/ai/ops received skill and discovery payloads display and copy exactly after reload",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "investigation popups remain contained at native browser zoom 200 percent",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Netclaw first run stays compact at desktop in light and dark themes",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Netclaw first run fits a 390px viewport in light and dark themes",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Netclaw same-server review is compact and continues with the pending code",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Netclaw connected state reports the authenticated check without exposing a token",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Netclaw uncertain saved-token state offers inspection and test before another pairing",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "pending-mail",
+      "stats": {
+        "startTime": "2026-11-12T14:10:36.567Z",
+        "duration": 154419.776,
+        "expected": 34,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "pending mail light 320x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail light 768x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail light 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail light 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail light 1920x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail dark 320x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail dark 768x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail dark 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail dark 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "pending mail dark 1920x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "server paging, filter URL, Back and explicit selection scope",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "applied filter removal is reachable by Tab and resets URL, page and selection",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "bounded selection, cancelled confirmation, mixed results, removal and refreshed totals",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "failure and zero states remain distinct and recover, keyboard at 200 percent zoom",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "1106 matching deliveries freeze exclusions and arrivals, pause/reload/resume once, then remove without mail",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "unfiltered all matching is explicit, filter changes clear it, and 100-row pager stays outside the scroll region",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "18 exact cancellations retain history and leave 601 unrelated deliveries untouched after every dismissal",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "browser Back keeps action busy and invalidates a review opened before navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "action errors refresh actual state and allow another reviewed action",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Retry legacy delivery (1): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Review current outgoing settings (2): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Confirm non-delivery before retry (3): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Review changed sender route (4): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Review changed sender route (5): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "retry preview and mutation failures leave review and refresh operable",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "18 exact cancellations retain history and leave 601 unrelated deliveries untouched after every dismissal",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "browser Back keeps action busy and invalidates a review opened before navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "action errors refresh actual state and allow another reviewed action",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Retry legacy delivery (1): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Review current outgoing settings (2): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Confirm non-delivery before retry (3): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Review changed sender route (4): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Review changed sender route (5): dismissal and reviewed positive preserve sender fences",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "retry preview and mutation failures leave review and refresh operable",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "details-original",
+      "stats": {
+        "startTime": "2026-11-12T14:07:41.841Z",
+        "duration": 116883.878,
+        "expected": 53,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "category refresh between pointer down and click retains the visible selection without saving",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change record and shared editor light 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change record and shared editor light 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change record and shared editor light 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change record and shared editor dark 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change record and shared editor dark 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change record and shared editor dark 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents selected categories can be removed with Tab Enter and Space then reverted",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents saved multiple IDs survive add remove save reload and revert",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests selected categories can be removed with Tab Enter and Space then reverted",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests saved multiple IDs survive add remove save reload and revert",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes selected categories can be removed with Tab Enter and Space then reverted",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes saved multiple IDs survive add remove save reload and revert",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "explicit catalogue creation is confirmed and remains a draft assignment",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "save failure retains edits and dirty navigation can be cancelled",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "semantic selection ignores legacy indices and retains a visited panel while switching",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "unavailable count does not become zero and tab keyboard operation reaches relations",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents reader sees hydrated categories and no mutation or AI controls",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests reader sees hydrated categories and no mutation or AI controls",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes reader sees hydrated categories and no mutation or AI controls",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "detail controls and inline count bounds at 320px in dark theme and zoom",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "detail controls and inline count bounds at 768px in dark theme and zoom",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "detail controls and inline count bounds at 1920px in dark theme and zoom",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents authorized SLA pause and resume remain available",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests authorized SLA pause and resume remain available",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes authorized SLA pause and resume remain available",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents changing ticket during an outstanding search hydrates the new selection",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests changing ticket during an outstanding search hydrates the new selection",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes changing ticket during an outstanding search hydrates the new selection",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "submitted changes retain lifecycle assignment restrictions",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "change template draft survives activity tab switches",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents pending SLA dialog cannot apply to a newly opened ticket",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents late background refresh cannot replace another ticket",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "incidents old save response cannot clear a new draft after A B A navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests pending SLA dialog cannot apply to a newly opened ticket",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests late background refresh cannot replace another ticket",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "requests old save response cannot clear a new draft after A B A navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes pending SLA dialog cannot apply to a newly opened ticket",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes late background refresh cannot replace another ticket",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "changes old save response cannot clear a new draft after A B A navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request workflow ignores a late response from the previous event group",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "long assignee and 26 selected category labels remain usable at 320px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "late attachment callback cannot replace counts after A B A navigation",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "authorized listener removal refreshes the exact inline count from one to zero",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout light 1920x1080",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout light 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout light 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout light 768x1024",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout light 390x844",
+          "status": "unexpected",
+          "results": [
+            "failed"
+          ]
+        },
+        {
+          "test": "request execution layout dark 1920x1080",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout dark 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout dark 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout dark 768x1024",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout dark 390x844",
+          "status": "unexpected",
+          "results": [
+            "failed"
+          ]
+        },
+        {
+          "test": "request execution empty and uncertain presentation retain truthful actions",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "details-corrected-mobile",
+      "stats": {
+        "startTime": "2026-11-12T16:27:33.195Z",
+        "duration": 13279.572,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "request execution layout light 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "request execution layout dark 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "operations-final",
+      "stats": {
+        "startTime": "2026-11-12T16:33:36.588Z",
+        "duration": 147295.83099999998,
+        "expected": 48,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "tests": [
+        {
+          "test": "catalogue and console light 320px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console light 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console light 768px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console light 1024px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console light 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console light 1920px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console dark 320px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console dark 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console dark 768px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console dark 1024px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console dark 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "catalogue and console dark 1920px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "legacy bookmarks, categories, metrics, Back/Forward and job proxy remain usable",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "sla keeps independent console and notification permissions",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "workflow keeps independent console and notification permissions",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "notifications keeps independent console and notification permissions",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "unavailable diagnostics are explicit and refresh recovers",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard light 320px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard light 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard light 768px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard light 1024px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard light 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard light 1920px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard dark 320px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard dark 390px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard dark 768px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard dark 1024px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard dark 1440px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "navigation single-line labels and keyboard dark 1920px",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "200 percent layout retains search, operations and keyboard navigation in both themes",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "task dashboard starts with all authorized assignments and pages before opting in and out",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "rule paging and filtered reordering retain full scope; browsing, clone and toggles make only reviewed mutations",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "audit pages the complete history and older failure, aligns all cells, and retains exact diagnostics",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "notification arrivals and reconnect retain identities, selection and position; failed receipt does not claim success",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "premium operations light 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "premium operations light 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "premium operations light 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "premium operations dark 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "premium operations dark 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "premium operations dark 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "notification table CSS does not restyle the separate workflow table",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete Operations table contexts light 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete Operations table contexts light 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete Operations table contexts light 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete Operations table contexts dark 1366x768",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete Operations table contexts dark 1440x900",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "complete Operations table contexts dark 390x844",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        },
+        {
+          "test": "Task Tenant is visible by default, filters at the server and restores with Back",
+          "status": "expected",
+          "results": [
+            "passed"
+          ]
+        }
+      ]
+    }
+  ],
+  "accounting": "Details initially passed 53 and failed two mobile alignment cases; both corrected cases passed in the two-case rerun. Operations final reran all 48 cases. Separate complete table matrices are recorded in ledger.json."
+}

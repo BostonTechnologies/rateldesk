@@ -21,7 +21,8 @@ export async function handleTableReview(req, res, url) {
   if (path === '/api/v1/email-templates/preview') {
     let text = ''; for await (const chunk of req) text += chunk;
     const draft = JSON.parse(text);
-    return reply({ subject: draft.draftSubject ?? 'Synthetic preview', html: draft.draftHtmlContent });
+    const tenant = ['org-1', 'org-2'].includes(draft.tenantId) ? draft.tenantId : 'system';
+    return reply({ subject: draft.draftSubject ?? 'Synthetic preview', html: `<div data-preview-tenant="${tenant}">${draft.draftHtmlContent}</div>` });
   }
   if (path === '/api/v1/automation/rules') return reply(rows(i => ({ id: `rule-${i}`, name: `Synthetic rule ${String(i).padStart(3, '0')}`, trigger: 'TicketCreated', actions: '[]', conditions: '[]' })));
   if (path === '/api/v1/admin/ai-assistant-webhooks') return reply(rows(i => ({ id: guid(i), organizationId: 'org-1', name: `Synthetic webhook ${String(i).padStart(3, '0')}`, endpoint: 'https://automation.example.test/inbound', routeName: 'synthetic', promptTemplate: 'Synthetic preview only', ticketAreas: [0], enabled: false, archived: false })));

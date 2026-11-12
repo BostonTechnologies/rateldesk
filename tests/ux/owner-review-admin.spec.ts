@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { errors, expect, test } from '@playwright/test';
 import { baselineReview, modeName, reviewCapture, reviewModes, reviewOpen, reviewPage } from './owner-review-matrix';
 
 const fixture = 'http://127.0.0.1:18500/fixture';
@@ -71,9 +71,20 @@ for (const mode of reviewModes) test(`all admin table contexts ${modeName(mode)}
     await expect(page.locator('iframe[title="Layout Preview"]')).toHaveAttribute('srcdoc', /View Ticket/);
     await page.locator('iframe[title="Layout Preview"]').scrollIntoViewIfNeeded();
     const authored = page.frameLocator('iframe[title="Layout Preview"]');
-    await expect(authored.locator('table[role="presentation"]')).toBeVisible();
-    await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');
-    await capture('authored-email-semantic-exception');
+    if (baselineReview) {
+      // Capture the historical stale-frame defect; baseline images do not assert
+      // that old rendering met the new acceptance criteria.
+      await authored.locator('table[role="presentation"]').waitFor({ state: 'visible', timeout: 2_000 }).catch(failure => {
+        if (!(failure instanceof errors.TimeoutError)) throw failure;
+      });
+    } else {
+      await expect(authored.locator('table[role="presentation"]')).toBeVisible();
+      await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');
+    }
+    await reviewCapture(page, info, mode, 'authored-email-semantic-exception', [], {
+      previewTableVisible: await authored.locator('table[role="presentation"]').isVisible(),
+      baselineDefectsAreObservations: baselineReview
+    });
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
     await open('/admin/email-settings/79000000-0000-4000-8000-000000000001/ingestion');
     await expect(page.getByText('Synthetic retained receipt; no effects execute').first()).toBeVisible();

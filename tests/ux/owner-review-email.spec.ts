@@ -12,7 +12,12 @@ for (const mode of reviewModes) test(`authored preview after asynchronous HTML a
     await iframe.scrollIntoViewIfNeeded();
     const authored = page.frameLocator('iframe[title="Layout Preview"]');
     await expect(authored.locator('table[role="presentation"]')).toBeVisible();
+    await page.getByRole('combobox', { name: 'Preview as tenant', exact: true }).click();
+    await page.getByRole('option', { name: 'Atlas Tenant', exact: true }).click();
+    await expect(authored.locator('[data-preview-tenant="org-1"]')).toBeVisible();
     await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toHaveCSS('color', 'rgb(255, 255, 255)');
+    await authored.getByRole('link', { name: 'View Ticket', exact: true }).focus();
+    await expect(authored.getByRole('link', { name: 'View Ticket', exact: true })).toBeFocused();
     await reviewCapture(page, info, mode, 'authored-email-semantic-exception', []);
   });
 });

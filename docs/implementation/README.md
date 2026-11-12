@@ -4,6 +4,7 @@ These documents retain dated plans, source pins and evidence. Current operator
 guidance is linked from the [documentation index](../README.md).
 
 - [#401 owner-review campaign and complete table evidence register](401-owner-review-campaign.md)
+- [#401 complete 68-declaration before/after ledger](401-table-ledger.md)
 
 - [#381 premium UX and request-execution campaign register](381-premium-campaign.md)
 

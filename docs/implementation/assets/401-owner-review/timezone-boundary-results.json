@@ -1,0 +1,39 @@
+{
+  "passed": 8,
+  "failed": 0,
+  "skipped": 0,
+  "tests": [
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Invalid_or_ambiguous_wall_time_is_not_silently_reinterpreted(value: \"2026-03-29 01:30\")",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.URL_roundtrip_preserves_every_filter_and_never_emits_obsolete_AI_predicates",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Legacy_explicit_state_has_no_hidden_active_restriction(query: \"state=Resolved\", changes: False, expected: \"Resolved\")",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Invalid_or_ambiguous_wall_time_is_not_silently_reinterpreted(value: \"2026-10-25 01:30\")",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Date_only_end_expands_to_next_local_day_across_DST(date: \"2026-03-29\", zone: \"Europe/London\", hours: 23)",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Date_only_end_expands_to_next_local_day_across_DST(date: \"2026-10-25\", zone: \"Europe/London\", hours: 25)",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Legacy_explicit_state_has_no_hidden_active_restriction(query: \"lifecycleState=ImplementedSuccess\", changes: True, expected: \"ImplementedSuccess\")",
+      "outcome": "Passed"
+    },
+    {
+      "test": "Helpdesk.Tests.NewWeb.TicketListStateTests.Date_only_end_expands_to_next_local_day_across_DST(date: \"2026-10-15\", zone: \"Africa/Johannesburg\", hours: 24)",
+      "outcome": "Passed"
+    }
+  ]
+}

@@ -65,7 +65,7 @@ export async function reviewOpen(page: Page, origin: string, route: string) {
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 }
 
-export async function reviewCapture(page: Page, info: TestInfo, mode: ReviewMode, label: string, expectedIds: string[]) {
+export async function reviewCapture(page: Page, info: TestInfo, mode: ReviewMode, label: string, expectedIds: string[], observation?: object) {
   await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', mode.theme);
   if (mode.custom) {
     // Browser-only compatibility check of theme tokens; never modifies product branding.
@@ -89,5 +89,5 @@ export async function reviewCapture(page: Page, info: TestInfo, mode: ReviewMode
   await captureTables(page, label);
   const screenshot = info.outputPath(`${label}.png`);
   await page.screenshot({ path: screenshot, fullPage: mode.zoom !== 2, animations: 'disabled', mask: [page.locator('input[type=password], [data-sensitive]')] });
-  await writeFile(info.outputPath(`${label}.json`), JSON.stringify({ baseline: baselineReview, route: new URL(page.url()).pathname, mode, expectedIds, screenshot: path.basename(screenshot), screenshotScope: mode.zoom === 2 ? 'native viewport' : 'full page', visibleTables: await page.locator('table:visible').count() }, null, 2));
+  await writeFile(info.outputPath(`${label}.json`), JSON.stringify({ baseline: baselineReview, route: new URL(page.url()).pathname, mode, expectedIds, observation, screenshot: path.basename(screenshot), screenshotScope: mode.zoom === 2 ? 'native viewport' : 'full page', visibleTables: await page.locator('table:visible').count() }, null, 2));
 }
