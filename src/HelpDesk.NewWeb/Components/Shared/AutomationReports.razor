@@ -1,3 +1,4 @@
+@using System.Net
 @using Helpdesk.Shared.DTOs.Orchestration
 @inject IHttpClientFactory HttpClientFactory
 
@@ -38,6 +39,10 @@
                 "api/v1/tickets/" + Uri.EscapeDataString(current) + "/automation-reports");
             if (current == TicketId) reports = result ?? [];
         }
-        catch (HttpRequestException) { if (current == TicketId) unavailable = true; }
+        catch (HttpRequestException error)
+        {
+            if (current == TicketId)
+                unavailable = error.StatusCode is not (HttpStatusCode.Forbidden or HttpStatusCode.NotFound);
+        }
     }
 }
