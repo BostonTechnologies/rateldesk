@@ -1,3 +1,4 @@
+import { handleAutomationTrace } from './automation-traceability-fixture.mjs';
 // Loopback synthetic persistence and fault control for real Blazor picker interaction.
 // Authorization/database evidence belongs to AssigneeSearchEndpointsTests.
 import http from 'node:http';
@@ -31,6 +32,7 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const reply = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
   const body = async () => { let value = ''; for await (const part of req) value += part; return value ? JSON.parse(value) : {}; };
+ if (await handleAutomationTrace(req, url, reply, body)) return;
   if (url.pathname === '/fixture/health') return reply({ ok: true });
   if (url.pathname === '/fixture/reset') { reset(); return reply({ ok: true }); }
   if (url.pathname === '/fixture/state') return reply({ searches, completedQueries, saves, tickets, categories, categorySearches, slaActions, worklogs, held: held.map(item => item.kind) });

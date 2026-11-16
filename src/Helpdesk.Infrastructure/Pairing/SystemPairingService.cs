@@ -327,6 +327,7 @@ public sealed class SystemPairingService(HelpdeskDbContext db, PairingTransport 
         row.ProtectedInboundCredential = null; row.ProtectedOutboundCredential = null; row.InboundPrincipalId = null;
         row.UpdatedAtUtc = time.GetUtcNow(); await db.SaveChangesAsync(ct);
         var scopes = new List<string>(); if (mapping.CreateIncidents) scopes.AddRange([ServiceIdentityScopes.IncidentCreate, ServiceIdentityScopes.IncidentReceipts, ServiceIdentityScopes.IncidentTargets]); if (mapping.RunAutomation) scopes.Add(ServiceIdentityScopes.Callback);
+        if (mapping.UseIncidentTemplates) scopes.Add(ServiceIdentityScopes.IncidentTemplates);
         var peer = Read<PairingMetadata>(pair.PeerJson); var current = (await settings.ResolveAsync(ct)).Identity;
         var created = await principals.CreateAsync(new(mapping.Name, mapping.RatelDeskOrganizationId, peer.InstallationId, mapping.NetRatelTenantId,
             scopes.ToArray(), mapping.CreateIncidents ? [mapping.RatelDeskCustomerId!] : [], mapping.CreateIncidents ? Guid.Parse(peer.ProducerInstanceId!) : null,

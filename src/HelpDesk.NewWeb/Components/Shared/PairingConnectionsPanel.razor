@@ -147,6 +147,7 @@
                             <MudItem xs="12"><MudTextField T="string" @bind-Value="draft.Name" Label="Connection name" Required="true" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="busy" MaxLength="128" data-testid="connection-name" /></MudItem>
                         </MudGrid>
                         <MudCheckBox T="bool" @bind-Value="draft.CreateIncidents" Label="Create incidents — NetRatel → RatelDesk" Dense="true" Disabled="busy" data-testid="connection-create-incidents" />
+                        <MudCheckBox T="bool" @bind-Value="draft.UseIncidentTemplates" Label="Browse and preview internal incident templates" Dense="true" Disabled="@(busy || !draft.CreateIncidents)" />
                         <MudCheckBox T="bool" @bind-Value="draft.RunAutomation" Label="Run automation — RatelDesk → NetRatel" Dense="true" Disabled="busy" data-testid="connection-run-automation" />
                         @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true" Class="pairing-error" data-testid="system-connection-error" role="alert">@ErrorText</MudAlert> }
                     </div>
@@ -431,7 +432,8 @@
         public string? RatelDeskCustomerId { get; set; }
         public bool CreateIncidents { get; set; }
         public bool RunAutomation { get; set; }
-        public PairingMapping Mapping() => new(Id, PairId, Name.Trim(), NetRatelTenantId, RatelDeskOrganizationId, CreateIncidents ? RatelDeskCustomerId : null, CreateIncidents, RunAutomation);
-        public static ConnectionDraft From(PairingMapping mapping) => new() { Id = mapping.Id, PairId = mapping.PairId, Name = mapping.Name, NetRatelTenantId = mapping.NetRatelTenantId, RatelDeskOrganizationId = mapping.RatelDeskOrganizationId, RatelDeskCustomerId = mapping.RatelDeskCustomerId, CreateIncidents = mapping.CreateIncidents, RunAutomation = mapping.RunAutomation };
+        public bool UseIncidentTemplates { get; set; }
+        public PairingMapping Mapping() => new(Id, PairId, Name.Trim(), NetRatelTenantId, RatelDeskOrganizationId, CreateIncidents ? RatelDeskCustomerId : null, CreateIncidents, RunAutomation) { UseIncidentTemplates = CreateIncidents && UseIncidentTemplates };
+        public static ConnectionDraft From(PairingMapping mapping) => new() { Id = mapping.Id, PairId = mapping.PairId, Name = mapping.Name, NetRatelTenantId = mapping.NetRatelTenantId, RatelDeskOrganizationId = mapping.RatelDeskOrganizationId, RatelDeskCustomerId = mapping.RatelDeskCustomerId, CreateIncidents = mapping.CreateIncidents, RunAutomation = mapping.RunAutomation, UseIncidentTemplates = mapping.UseIncidentTemplates };
     }
 }

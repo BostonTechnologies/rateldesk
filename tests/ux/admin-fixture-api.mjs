@@ -1,3 +1,4 @@
+import { handleAutomationTrace } from './automation-traceability-fixture.mjs';
 // Synthetic loopback fixture. Real authorization and provider persistence are tested separately.
 import http from 'node:http';
 import { handleTableReview, resetTableReview } from './owner-review-fixture.mjs';
@@ -25,6 +26,7 @@ http.createServer(async (req, res) => {
  const url = new URL(req.url, 'http://127.0.0.1'); const path = url.pathname.replace(/\/$/, '');
  const reply = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
  const body = async () => { let text = ''; for await (const chunk of req) text += chunk; return text ? JSON.parse(text) : {}; };
+ if (await handleAutomationTrace(req, url, reply, body)) return;
  if (path === '/fixture/health') return reply({ ok: true });
  if (path === '/fixture/reset') { reset(); return reply({ ok: true }); }
  if (path === '/fixture/state') return reply({ saves, reads, roles, datasets, settings, subscriptions, graph, graphTests, importStatuses, attempts, credentials: Object.fromEntries(credentials) });

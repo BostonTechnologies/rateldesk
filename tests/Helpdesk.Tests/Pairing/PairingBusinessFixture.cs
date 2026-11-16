@@ -12,16 +12,18 @@ internal static class PairingBusinessFixture
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public sealed record Client(CreatedServiceClient Created, Guid MappingId, string PairId, string PeerId);
-    public static async Task<Client> CreateAsync(IncidentReceiverTests.Harness h, bool incidents = true, bool automation = false, bool draft = false)
+    public static async Task<Client> CreateAsync(IncidentReceiverTests.Harness h, bool incidents = true, bool automation = false, bool draft = false, bool templates = false)
     {
         await using var scope = h.App.Services.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         var peerId = Guid.NewGuid().ToString("D"); var pairId = SystemPairingService.PairId(h.ReceiverId.ToString("D"), peerId); var id = Guid.NewGuid();
         var metadata = new PairingMetadata(PairingContract.Version, "netratel", peerId, "Synthetic NetRatel", "https://peer.example.test", "https://peer-api.example.test", h.SourceId.ToString("D"), "synthetic-key");
-        var mapping = new PairingMapping(id.ToString("D"), pairId, "Synthetic scoped mapping", "17", h.OrganizationId, incidents ? h.CustomerId : null, incidents, automation);
+        var mapping = new PairingMapping(id.ToString("D"), pairId, "Synthetic scoped mapping", "17", h.OrganizationId, incidents ? h.CustomerId : null, incidents, automation)
+        { UseIncidentTemplates = templates };
         var pair = new SystemPair { Id = pairId, PeerInstallationId = peerId, PeerJson = JsonSerializer.Serialize(metadata, Json), OwnerId = "owner", State = "paired" };
         var connection = new SystemConnection { Id = id, PairId = pairId, OwnerId = "owner", MappingJson = JsonSerializer.Serialize(mapping, Json), State = "draft", PairGeneration = 1 };
         db.Add(pair); db.Add(connection); await db.SaveChangesAsync();
         var scopes = new List<string>(); if (incidents) scopes.AddRange([ServiceIdentityScopes.IncidentCreate, ServiceIdentityScopes.IncidentReceipts, ServiceIdentityScopes.IncidentTargets]); if (automation) scopes.Add(ServiceIdentityScopes.Callback);
+        if (templates) scopes.Add(ServiceIdentityScopes.IncidentTemplates);
         var client = await scope.ServiceProvider.GetRequiredService<IServicePrincipalRegistry>().CreateAsync(new(mapping.Name, h.OrganizationId, peerId, "17", scopes.ToArray(), incidents ? [h.CustomerId] : [], incidents ? h.SourceId : null, incidents ? id : null, id), "owner");
         connection.InboundPrincipalId = client.Principal.Id; connection.State = draft ? "draft" : "connected"; await db.SaveChangesAsync();
         return new(client, id, pairId, peerId);

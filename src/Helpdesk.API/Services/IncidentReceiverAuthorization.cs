@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Services;
 
-public enum IncidentReceiverOperation { Create, ReadReceipt, ValidateTarget }
+public enum IncidentReceiverOperation { Create, ReadReceipt, ValidateTarget, ReadPresentation }
 public sealed record AuthorizedIncidentSource(IncidentReceiverSource Source, Customer Customer, Organization Organization);
 
 /// <summary>Resolves current, explicitly approved receiver membership without granting a machine human authority.</summary>
@@ -37,6 +37,7 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
                 IncidentReceiverOperation.Create => ServiceIdentityScopes.IncidentCreate,
                 IncidentReceiverOperation.ReadReceipt => ServiceIdentityScopes.IncidentReceipts,
                 IncidentReceiverOperation.ValidateTarget => ServiceIdentityScopes.IncidentTargets,
+                IncidentReceiverOperation.ReadPresentation => ServiceIdentityScopes.IncidentTemplates,
                 _ => throw new ArgumentOutOfRangeException(nameof(operation))
             };
             var registration = await services.ResolvePrincipalAsync(principal, scope, ct);

@@ -18,6 +18,12 @@ on:
         type: boolean
         required: false
         default: false
+      workspace_suite:
+        description: Limit optional workspace acceptance to coordinated traceability, or run all deep acceptance
+        type: choice
+        options: [all, automation-traceability]
+        default: all
+        required: false
 
 permissions:
   contents: read
@@ -74,12 +80,14 @@ jobs:
           zricethezav/gitleaks:v8.30.1
           detect --no-git --source /repo --redact 100 --no-banner --verbose
 
-  dotnet:
-    name: .NET validation
+  dotnet-shards:
+    name: .NET regressions (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # Expanded provider/lifecycle/upgrade tests took 42m18s in run43077803948;
-    # retain every case and leave time for setup, build and evidence upload.
-    timeout-minutes: 60
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
     steps:
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,22 +111,42 @@ jobs:
       - name: Build solution
         run: dotnet build Helpdesk.sln --configuration Release --no-restore
 
-      - name: Run .NET tests
+      - name: Run complete disjoint .NET shard
         env:
           RATELDESK_BETA9_EVIDENCE_DIR: ${{ github.workspace }}/TestResults/beta9-source-evidence
         run: >-
-          dotnet test Helpdesk.sln --configuration Release --no-build
-          --logger "trx;LogFileName=helpdesk-tests.trx"
-          --results-directory TestResults
+          python3 tools/ci/dotnet-test-shards.py run --index ${{ matrix.shard }} --count 6
+          --output TestResults/shard-${{ matrix.shard }}
 
       - name: Upload .NET test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dotnet-test-results
+          name: dotnet-test-results-${{ matrix.shard }}
           path: TestResults
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
+
+  dotnet:
+    name: .NET validation
+    if: always()
+    needs: dotnet-shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every .NET shard
+        env:
+          RESULT: ${{ needs.dotnet-shards.result }}
+        run: test "$RESULT" = success
+      - name: Check out triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download complete test receipts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: dotnet-test-results-*
+          path: TestResults
+      - name: Require every discovered method exactly once
+        run: python3 tools/ci/dotnet-test-shards.py verify --count 6 --output TestResults
 
   incident-receiver:
     name: Incident receiver HTTP and provider acceptance
@@ -169,7 +197,7 @@ jobs:
           retention-days: 14
 
   ux:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Playwright UX validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -242,7 +270,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [assignee, email, ticket-filters, details, operations, admin, request-editor, pending-mail, integrations, self-service, premium-cards]
+        suite: ${{ fromJSON(inputs.workspace_suite == 'automation-traceability' && '["automation-traceability"]' || '["assignee","email","ticket-filters","details","operations","admin","request-editor","pending-mail","integrations","self-service","premium-cards","automation-traceability"]') }}
     env:
       HELPDESK_ASSIGNEE_CONFIGURATION: Release
       HELPDESK_EMAIL_CONFIGURATION: Release
@@ -286,13 +314,21 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Exercise synthetic workspace interactions and rendered layout
+        if: matrix.suite != 'automation-traceability'
         env:
           PLAYWRIGHT_HTML_OUTPUT_DIR: artifacts/e2e/workspace-${{ matrix.suite }}/report
         run: >-
           npx playwright test --config playwright.${{ matrix.suite }}.config.ts
           --output=artifacts/e2e/workspace-${{ matrix.suite }}/test-results
 
+      - name: Verify coordinated automation presentation in all display modes
+        if: matrix.suite == 'automation-traceability'
+        run: >-
+          xvfb-run -a npx playwright test --config playwright.automation-traceability.config.ts
+          --output=artifacts/e2e/workspace-automation-traceability/test-results
+
       - name: Verify native Chromium zoom at 200 percent
+        if: matrix.suite != 'automation-traceability'
         env:
           HELPDESK_NATIVE_ZOOM_SUITE: ${{ matrix.suite }}
         run: >-
@@ -347,7 +383,7 @@ jobs:
           retention-days: 14
 
   mailbox-lifecycle:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Mailbox lifecycle acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -443,7 +479,7 @@ jobs:
           retention-days: 14
 
   docker:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Docker build (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -487,7 +523,7 @@ jobs:
         run: python3 tools/ci/run-mcp-private-compose-acceptance.py --download
 
   release-assets:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Release asset rehearsal
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -533,7 +569,7 @@ jobs:
           retention-days: 14
 
   archive-runtime:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Release archive runtime (${{ matrix.rid }})
     needs: release-assets
     runs-on: ${{ matrix.runner }}
@@ -563,7 +599,7 @@ jobs:
         run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}" --validate-docs
 
   compose:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Compose startup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -629,7 +665,7 @@ jobs:
         run: docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
 
   compose-postgres:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Compose PostgreSQL setup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35

@@ -1210,7 +1210,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
     }
 
     [Fact]
-    public async Task IncidentRelations_CopiesSourceRequesterAndListenersToParent()
+    public async Task IncidentRelations_ExplicitCloseLinkCopiesSourceRequesterAndListenersToParent()
     {
         await using var harness = await LiveHistoryFilteringHarness.CreateAsync();
         await SeedRelationIncidentsAsync(harness);
@@ -1221,7 +1221,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             {
                 TargetTicketId = "INC-TARGET",
                 RelationType = TicketRelationType.RelatedTo,
-                CloseSourceTicket = false
+                CloseSourceTicket = true
             });
 
         response.EnsureSuccessStatusCode();

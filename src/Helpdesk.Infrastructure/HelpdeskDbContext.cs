@@ -135,8 +135,24 @@ public class HelpdeskDbContext(
     private void AdvanceAutomationVersions()
     {
         ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateRevision>())
+        {
+            if (entry.State == Microsoft.EntityFrameworkCore.EntityState.Deleted ||
+                entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified && entry.Properties.Any(x =>
+                    x.Metadata.Name != nameof(Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateRevision.Revoked) &&
+                    !Equals(x.OriginalValue, x.CurrentValue)))
+                throw new InvalidOperationException("Published internal template revisions are immutable.");
+        }
+        if (ChangeTracker.Entries<Helpdesk.Infrastructure.EmailTemplates.AutomationIncidentReportRecord>().Any(entry =>
+            entry.State is Microsoft.EntityFrameworkCore.EntityState.Modified or Microsoft.EntityFrameworkCore.EntityState.Deleted))
+            throw new InvalidOperationException("Accepted automation reports are immutable.");
         foreach (var entry in ChangeTracker.Entries<RequestTask>().Where(entry => entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified))
         {
+            if (entry.Property(x => x.AutomationOriginJson).OriginalValue is not null &&
+                entry.Property(x => x.AutomationAttemptCorrelationId).OriginalValue == entry.Entity.AutomationAttemptCorrelationId &&
+                (entry.Property(x => x.AutomationOriginJson).OriginalValue != entry.Entity.AutomationOriginJson ||
+                 entry.Property(x => x.AutomationDispatchPayloadJson).OriginalValue != entry.Entity.AutomationDispatchPayloadJson))
+                throw new InvalidOperationException("A prepared source attempt is immutable.");
             var version = entry.Property(task => task.AutomationStateVersion);
             version.CurrentValue = checked(version.OriginalValue + 1);
         }
@@ -160,6 +176,7 @@ public class HelpdeskDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateModel.ConfigureAutomationPresentation(modelBuilder);
         modelBuilder.Entity<Request>().Property(request => request.WorkflowStateVersion)
             .IsConcurrencyToken().HasDefaultValue(0L);
         modelBuilder.Entity<Helpdesk.Infrastructure.Email.PendingEmailOperationRecord>(entity =>
@@ -349,6 +366,8 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => x.SourceTicketId);
             entity.HasIndex(x => x.TargetTicketId);
             entity.HasIndex(x => new { x.SourceTicketId, x.TargetTicketId, x.RelationType }).IsUnique();
+            if (isSqlite)
+                entity.Property<long>("CreatedUtcSortTicks").HasComputedColumnSql("CAST(strftime('%s', substr(\"CreatedUtc\", 1, 19) || substr(\"CreatedUtc\", -6)) AS INTEGER) * 10000000 + CAST(substr((CASE WHEN substr(\"CreatedUtc\", 20, 1) = '.' THEN substr(\"CreatedUtc\", 21, length(\"CreatedUtc\") - 26) ELSE '' END) || '0000000', 1, 7) AS INTEGER) + 621355968000000000");
         });
 
         modelBuilder.Entity<RequestTask>(entity =>
@@ -1079,6 +1098,8 @@ public class HelpdeskDbContext(
             // comparisons. Existing timestamp mappings retain their upgrade representation.
             var serviceUtc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTimeOffset, long>(
                 value => value.UtcTicks, value => new DateTimeOffset(value, TimeSpan.Zero));
+            modelBuilder.Entity<Helpdesk.Infrastructure.EmailTemplates.AutomationIncidentReportRecord>().Property(x => x.CreatedAtUtc).HasConversion(serviceUtc);
+            modelBuilder.Entity<Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateRevision>().Property(x => x.PublishedAtUtc).HasConversion(serviceUtc);
             foreach (var entity in modelBuilder.Model.GetEntityTypes().Where(entity =>
                 entity.ClrType.Namespace is "Helpdesk.Infrastructure.ServiceIdentity" or "Helpdesk.Infrastructure.Pairing"))
                 foreach (var property in entity.GetProperties().Where(property =>

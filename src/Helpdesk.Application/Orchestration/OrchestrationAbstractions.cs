@@ -107,6 +107,7 @@ public sealed class OrchestrationSubmissionRejectedException(string message)
 
 public sealed class RequestTaskPayloadBuildResult
 {
+    public AutomationTrace.Contracts.AutomationOriginContext? OriginContext { get; init; }
     public bool Success { get; init; }
     public string PayloadJson { get; init; } = "{}";
     public string JobName { get; init; } = string.Empty;
@@ -126,7 +127,8 @@ public sealed class RequestTaskPayloadBuildResult
         string payloadJson,
         string? automationBindingId = null,
         string? orchestrationRequestDefinitionId = null,
-        string? orchestrationJobDefinitionId = null) => new()
+        string? orchestrationJobDefinitionId = null,
+        AutomationTrace.Contracts.AutomationOriginContext? originContext = null) => new()
         {
             Success = true,
             JobName = jobName,
@@ -134,6 +136,7 @@ public sealed class RequestTaskPayloadBuildResult
             AutomationBindingId = automationBindingId,
             OrchestrationRequestDefinitionId = orchestrationRequestDefinitionId,
             OrchestrationJobDefinitionId = orchestrationJobDefinitionId
+            , OriginContext = originContext
         };
 }
 

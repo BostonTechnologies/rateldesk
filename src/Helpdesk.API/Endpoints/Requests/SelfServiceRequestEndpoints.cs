@@ -190,7 +190,7 @@ public static class SelfServiceRequestEndpoints
             PayloadJson = normalizedPayload.PayloadJson,
             OrganizationId = customer.OrganizationId,
             CustomerId = customer.Id,
-            SelfServiceSubmitterId = submissionId is null ? null : submitterKey,
+            SelfServiceSubmitterId = submitterKey,
             SelfServiceSubmissionId = submissionId,
             SelfServiceSubmissionHash = submissionId is null ? null : submissionHash,
             RequesterEmail = customer.Email,

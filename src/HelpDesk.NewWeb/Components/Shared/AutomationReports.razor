@@ -1,0 +1,43 @@
+@using Helpdesk.Shared.DTOs.Orchestration
+@inject IHttpClientFactory HttpClientFactory
+
+@if (unavailable)
+{
+    <MudAlert Severity="Severity.Warning" Dense="true">Automation reports could not be loaded.
+        <MudButton Size="Size.Small" OnClick="RetryAsync">Retry</MudButton>
+    </MudAlert>
+}
+@if (reports.Count > 0)
+{
+    <section class="automation-reports" aria-label="Automation reports">
+        <MudText Typo="Typo.subtitle2">Automation</MudText>
+        @foreach (var report in reports)
+        {
+            <MudExpansionPanels Dense="true" Elevation="0">
+                <MudExpansionPanel Text="@($"{report.IncidentReference} · execution report")" Expanded="true">
+                    <div class="automation-report-body">@((MarkupString)report.Html)</div>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        }
+    </section>
+}
+@code {
+    [Parameter] public string TicketId { get; set; } = string.Empty;
+    private string? loaded;
+    private bool unavailable;
+    private Task RetryAsync() { loaded = null; return OnParametersSetAsync(); }
+    private IReadOnlyList<InternalIncidentReportDto> reports = [];
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loaded == TicketId) return;
+        loaded = TicketId; reports = []; unavailable = false;
+        var current = TicketId;
+        try
+        {
+            var result = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<InternalIncidentReportDto>>(
+                "api/v1/tickets/" + Uri.EscapeDataString(current) + "/automation-reports");
+            if (current == TicketId) reports = result ?? [];
+        }
+        catch (HttpRequestException) { if (current == TicketId) unavailable = true; }
+    }
+}

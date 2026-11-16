@@ -1,5 +1,9 @@
 # Releases
 
+## 0.1.3-beta.12 candidate — coordinated automation traceability
+
+Implements #421–#424 under #420: authoritative source attempts/people, neutral reciprocal ticket relations, immutable internal NetRatel templates and atomic v2 incident reports/receipts. The provider keeps frozen v1 behavior. Both SQLite and PostgreSQL receive additive migrations. Activate only with the compatible NetRatel consumer after the normal reviewed merge, exact-main checks and complete immutable publication described below. [Upgrade, backfill and activation](../integrations/netratel-pairing.md#automation-traceability-and-internal-reports) distinguish distribution verification from pending owner acceptance.
+
 ## 0.1.3-beta.11 candidate — owner-review campaign
 
 [Release notes and retest checklist](../release-notes/0.1.3-beta.11.md) cover
@@ -637,6 +641,8 @@ checking its actual jobs, inputs and recorded digests.
 receiver HTTP and provider acceptance, External PostgreSQL Compose configuration,
 Layout and reference validation, and Offline HTTP MCP campaign harness. Require
 all six applicable normal jobs even though the tag helper currently names five.
+The .NET suite uses six disjoint native-discovery shards. The unchanged `.NET validation` gate verifies their complete receipt union; failed, cancelled or empty shards fail the gate. The baseline full-suite job took 46 minutes; the split retains cases while placing ordinary validation within the repository budget. Browser/native display matrices remain opt-in.
+
 Layout includes offline documentation
 placement/link checks, bounded launcher regressions and source/release MCP
 setup/environment recipe rendering.

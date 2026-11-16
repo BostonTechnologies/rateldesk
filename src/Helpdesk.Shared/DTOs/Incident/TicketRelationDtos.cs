@@ -9,13 +9,19 @@ public class CreateTicketRelationDto
 
     public TicketRelationType RelationType { get; set; }
 
-    public bool CloseSourceTicket { get; set; } = true;
+    public bool CloseSourceTicket { get; set; }
 
     public string? Note { get; set; }
 }
 
 public class TicketRelationDto
 {
+    public string SourceType { get; set; } = "incidents";
+    public string TargetType { get; set; } = "incidents";
+    public string? SourceLifecycleState { get; set; }
+    public string? TargetLifecycleState { get; set; }
+    public string SourceUrl { get; set; } = string.Empty;
+    public string TargetUrl { get; set; } = string.Empty;
     public Guid Id { get; set; }
 
     public string SourceTicketId { get; set; } = string.Empty;
@@ -44,6 +50,11 @@ public class TicketRelationDto
 
     public bool IsOutgoing { get; set; }
 }
+
+public sealed record LinkTicketRequest(string TargetTicketId, string? Note = null);
+public sealed record TicketRelationPage(IReadOnlyList<TicketRelationDto> Items, int TotalCount, int Page, int PageSize);
+public sealed record TicketLinkChoice(string Id, string Type, string Reference, string Title, string State, string Url);
+public sealed record TicketLinkChoicePage(IReadOnlyList<TicketLinkChoice> Items, int TotalCount, int Page, int PageSize);
 
 public class TicketRelationCreateResultDto
 {

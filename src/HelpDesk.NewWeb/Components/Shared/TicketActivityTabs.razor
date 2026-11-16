@@ -6,6 +6,10 @@
 @inject IHttpClientFactory HttpClientFactory
 
 <div class="ticket-activity-tabs @Class">
+    @if (!PublicMode && TicketType is "incidents" or "requests")
+    {
+        <AutomationReports TicketId="@TicketId" />
+    }
     <div class="activity-tab-strip" role="tablist" aria-label="Ticket activity">
         @foreach (var tab in AvailableTabs)
         {
@@ -83,7 +87,8 @@
         new("ai", "AI Assistant", Icons.Material.Filled.AutoAwesome),
         new("relations", "Relations", Icons.Material.Filled.AccountTree, true)
     };
-    private IEnumerable<Tab> AvailableTabs => tabs.Where(x => (x.Id != "ai" || CanManage && !PublicMode) && (x.Id != "relations" || IsIncidentType));
+    private IEnumerable<Tab> AvailableTabs => tabs.Where(x => (x.Id != "ai" || CanManage && !PublicMode) &&
+        (x.Id != "relations" || TicketType is "incidents" or "requests" or "changes"));
     private readonly Dictionary<string, int?> counts = new();
     private readonly HashSet<string> unavailableCounts = new();
     private readonly HashSet<string> visited = new() { "messages" };
@@ -175,7 +180,7 @@
             try
             {
                 var count = tab.Id == "relations"
-                    ? (await api.GetFromJsonAsync<List<TicketRelationDto>>($"api/v1/incidents/{id}/relations", timeout.Token))?.Count ?? 0
+                    ? (await api.GetFromJsonAsync<Helpdesk.Shared.DTOs.Incident.TicketRelationPage>($"api/v1/tickets/{id}/relations/?pageSize=25", timeout.Token))?.TotalCount ?? 0
                     : await api.GetFromJsonAsync<int>($"api/v1/{type}/{id}/{tab.Id}/count", timeout.Token);
                 if (!token.IsCancellationRequested) counts[tab.Id] = count;
             }

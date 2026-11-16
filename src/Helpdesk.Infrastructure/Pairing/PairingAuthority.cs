@@ -26,6 +26,8 @@ public sealed class PairingAuthority(HelpdeskDbContext db, RatelDeskIdentityDbCo
             mapping.Name.Any(char.IsControl) || !int.TryParse(mapping.NetRatelTenantId, out var tenant) || tenant <= 0 ||
             string.IsNullOrWhiteSpace(mapping.RatelDeskOrganizationId) || !mapping.CreateIncidents && !mapping.RunAutomation)
             throw new PairingFailure("invalid_mapping", "Choose both tenants, enter a connection name and select at least one capability.");
+        if (mapping.UseIncidentTemplates && !mapping.CreateIncidents)
+            throw new PairingFailure("invalid_mapping", "Internal incident template access requires Create incidents.");
         var org = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == mapping.RatelDeskOrganizationId && x.IsEnabled, ct);
         if (org is null || !current.IsHelpdeskAdmin && !current.AllowedOrganizationIds.Contains(org.Id))
             throw new PairingFailure("organization_not_authorized", "The selected RatelDesk organization is unavailable or no longer authorized.", 403);
@@ -49,7 +51,8 @@ public sealed class PairingAuthority(HelpdeskDbContext db, RatelDeskIdentityDbCo
             await OwnerAsync(pair.OwnerId, ct);
             var mapping = SystemPairingService.Read<PairingMapping>(connection.MappingJson);
             await ValidateAsync(connection.OwnerId, mapping, ct);
-            return requiredScope == "rateldesk.orchestration.callback" ? mapping.RunAutomation : mapping.CreateIncidents;
+            return requiredScope == "rateldesk.orchestration.callback" ? mapping.RunAutomation :
+                requiredScope == "rateldesk.incident-templates.read" ? mapping.CreateIncidents && mapping.UseIncidentTemplates : mapping.CreateIncidents;
         }
         catch (Exception ex) when (ex is PairingFailure or System.Text.Json.JsonException) { return false; }
     }

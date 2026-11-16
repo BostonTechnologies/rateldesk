@@ -17,7 +17,7 @@ export async function reviewPage(browser: Browser, origin: string, mode: ReviewM
   const profile = mode.zoom === 2 ? await mkdtemp(path.join(tmpdir(), 'rateldesk-table-review-')) : null;
   const extension = path.resolve('tests/ux/native-zoom-extension');
   const options = { viewport: { width: mode.width, height: mode.height }, ignoreHTTPSErrors: true, timezoneId: 'Africa/Johannesburg' };
-  const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', headless: false, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
+  const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, headless: process.env.HELPDESK_REVIEW_HEADLESS === '1', args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
   let page: Page | undefined;
   try {
     await context.addInitScript(theme => {

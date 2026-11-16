@@ -14,7 +14,8 @@ public sealed class RequestTaskPayloadBuilder(
     IRepository<Organization> organizations,
     IRequestFormSchemaParser schemaParser,
     IAutomationBindingService automationBindings,
-    IAutomationBindingPayloadContractService automationPayloadContractService) : IRequestTaskPayloadBuilder
+    IAutomationBindingPayloadContractService automationPayloadContractService,
+    AutomationOriginSnapshotBuilder? originSnapshots = null) : IRequestTaskPayloadBuilder
 {
     private readonly IRepository<Request> _requests = requests;
     private readonly IRepository<RequestForm> _requestForms = requestForms;
@@ -127,12 +128,23 @@ public sealed class RequestTaskPayloadBuilder(
             }
         }
 
+        var payloadJson = envelope.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        AutomationTrace.Contracts.AutomationOriginContext? origin;
+        try
+        {
+            origin = originSnapshots is null ? null : await originSnapshots.PrepareAsync(
+                task, request, requestForm, correlationId, payloadJson, cancellationToken);
+        }
+        catch (OrchestrationProviderException)
+        {
+            return RequestTaskPayloadBuildResult.Failed("NetRatel capabilities could not be verified before dispatch. Check the saved connection and retry this task.");
+        }
         return RequestTaskPayloadBuildResult.Succeeded(
             orchestratorTarget,
-            envelope.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            task.AutomationDispatchPayloadJson ?? payloadJson,
             binding?.Id,
             binding?.OrchestrationRequestDefinitionId,
-            binding?.OrchestrationJobDefinitionId);
+            binding?.OrchestrationJobDefinitionId, origin);
     }
 
     private static string? ResolveAutomationTarget(AutomationBindingDto? binding)

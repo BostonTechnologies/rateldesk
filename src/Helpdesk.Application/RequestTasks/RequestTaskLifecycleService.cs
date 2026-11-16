@@ -156,6 +156,7 @@ public sealed class RequestTaskLifecycleService(
                 OrchestrationJobDefinitionId = payloadResult.OrchestrationJobDefinitionId,
                 JobName = payloadResult.JobName,
                 PayloadJson = payloadResult.PayloadJson,
+                OriginContext = payloadResult.OriginContext,
                 CallbackUrl = null,
                 ExpectedRuntimeSeconds = task.ExpectedRuntimeSeconds,
                 GraceSeconds = task.GraceSeconds,
@@ -442,12 +443,15 @@ public sealed class RequestTaskLifecycleService(
             task.AutomationDeadlineUtcTicks, task.AutomationTimedOutAt, task.AutomationTimedOutAttemptId,
             task.ExpectedRuntimeSeconds, task.GraceSeconds, task.HardTimeoutSeconds, task.LastAutomationUpdatedAt,
             task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson,
+            task.AutomationOriginJson, task.AutomationDispatchPayloadJson,
             RetriedAtUtc = DateTimeOffset.UtcNow
         }));
         task.AutomationAttemptHistoryJson = history.ToJsonString();
         // A new explicit attempt gets a durable identity before another provider call.
         // Transport reconciliation must reuse the previous identity, never manufacture a retry.
         task.AutomationAttemptCorrelationId = $"automation-attempt-{Guid.NewGuid():N}";
+        task.AutomationOriginJson = null;
+        task.AutomationDispatchPayloadJson = null;
 
         task.Status = RequestTaskStatus.Pending;
         task.State = TicketState.New;
