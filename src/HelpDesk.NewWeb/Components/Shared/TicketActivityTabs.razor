@@ -6,10 +6,6 @@
 @inject IHttpClientFactory HttpClientFactory
 
 <div class="ticket-activity-tabs @Class">
-    @if (!PublicMode && TicketType is "incidents" or "requests")
-    {
-        <AutomationReports TicketId="@TicketId" />
-    }
     <div class="activity-tab-strip" role="tablist" aria-label="Ticket activity">
         @foreach (var tab in AvailableTabs)
         {
@@ -53,6 +49,9 @@
                 case "relations":
                     <TicketRelations ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnRelationsLoaded="@(items => OnRelationsLoaded(panelVersion, items))" />
                     break;
+                case "automation":
+                    <AutomationReports TicketId="@TicketId" />
+                    break;
             }
         </div>
     }
@@ -65,6 +64,7 @@
     [Parameter] public bool PublicMode { get; set; }
     [Parameter] public bool CanContribute { get; set; }
     [Parameter] public bool CanManage { get; set; }
+    [Parameter] public bool CanViewAutomationReports { get; set; }
     [Parameter] public EventCallback OnWorklogAdded { get; set; }
     [Parameter] public string Class { get; set; } = string.Empty;
     [Parameter] public string MessagesTabText { get; set; } = "Messages";
@@ -85,10 +85,12 @@
         new("attachments", "Attachments", Icons.Material.Filled.AttachFile, true),
         new("listeners", "Listeners", Icons.Material.Filled.People, true),
         new("ai", "AI Assistant", Icons.Material.Filled.AutoAwesome),
-        new("relations", "Relations", Icons.Material.Filled.AccountTree, true)
+        new("relations", "Relations", Icons.Material.Filled.AccountTree, true),
+        new("automation", "Automation", Icons.Material.Outlined.Description)
     };
     private IEnumerable<Tab> AvailableTabs => tabs.Where(x => (x.Id != "ai" || CanManage && !PublicMode) &&
-        (x.Id != "relations" || TicketType is "incidents" or "requests" or "changes"));
+        (x.Id != "relations" || TicketType is "incidents" or "requests" or "changes") &&
+        (x.Id != "automation" || CanViewAutomationReports && !PublicMode && (TicketType is "incidents" or "requests")));
     private readonly Dictionary<string, int?> counts = new();
     private readonly HashSet<string> unavailableCounts = new();
     private readonly HashSet<string> visited = new() { "messages" };

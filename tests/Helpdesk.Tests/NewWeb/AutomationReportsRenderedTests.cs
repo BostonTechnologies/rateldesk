@@ -4,6 +4,7 @@ using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor.Services;
 using AutomationReports = NewWeb::HelpDesk.NewWeb.Components.Shared.AutomationReports;
+using TicketActivityTabs = NewWeb::HelpDesk.NewWeb.Components.Shared.TicketActivityTabs;
 
 namespace Helpdesk.Tests.NewWeb;
 
@@ -40,13 +41,59 @@ public sealed class AutomationReportsRenderedTests
         });
     }
 
-    private static BunitContext Context(Api api)
+    [Theory]
+    [InlineData("incidents")]
+    [InlineData("requests")]
+    public void Staff_reports_load_only_after_selecting_the_automation_tab(string type)
+    {
+        using var api = new TabApi();
+        using var context = Context(api);
+        var component = context.Render<TicketActivityTabs>(p => p.Add(x => x.TicketId, "demo")
+            .Add(x => x.TicketType, type).Add(x => x.CanViewAutomationReports, true));
+        var tab = component.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Automation");
+        Assert.Equal(0, api.ReportReads);
+        tab.Click();
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, api.ReportReads);
+            Assert.Equal("true", tab.GetAttribute("aria-selected"));
+            Assert.Contains("No automation reports for this ticket", component.Markup);
+        });
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void Public_or_nonstaff_activity_has_no_internal_automation_tab(bool publicMode, bool canView)
+    {
+        using var api = new TabApi();
+        using var context = Context(api);
+        var component = context.Render<TicketActivityTabs>(p => p.Add(x => x.TicketId, "demo")
+            .Add(x => x.PublicMode, publicMode).Add(x => x.CanViewAutomationReports, canView));
+        Assert.DoesNotContain(component.FindAll("[role=tab]"), x => x.TextContent.Trim() == "Automation");
+        Assert.Equal(0, api.ReportReads);
+    }
+
+    private static BunitContext Context(IHttpClientFactory api)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddMudServices();
         context.Services.AddSingleton<IHttpClientFactory>(api);
         return context;
+    }
+
+    private sealed class TabApi : HttpMessageHandler, IHttpClientFactory
+    {
+        public int ReportReads { get; private set; }
+        public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new("https://desk.example.test/") };
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            var json = path.EndsWith("/count", StringComparison.Ordinal) ? "0" : "{\"description\":\"\",\"items\":[],\"totalCount\":0}";
+            if (path.EndsWith("/automation-reports", StringComparison.Ordinal)) { ReportReads++; json = "[]"; }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") });
+        }
     }
 
     private sealed class Api(params HttpStatusCode[] statuses) : HttpMessageHandler, IHttpClientFactory
