@@ -12,7 +12,7 @@ public static class AutomationIncidentEndpoints
 {
     public static void MapAutomationIncidentEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/integrations/netratel").WithTags("Automation incident presentation").RequireAuthorization();
+        var group = app.MapGroup("/api/v1/integrations/netratel").WithTags("Automation Incident Presentation").RequireAuthorization();
         group.AddEndpointFilter(async (context, next) =>
         {
             context.HttpContext.Response.Headers.CacheControl = "no-store";

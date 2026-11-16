@@ -1,7 +1,7 @@
 {
-  "schemaHash": "1bcb486221da69a0efed8daa4385069c3b6e4576e5d09c95fde126f4eda35bd7",
-  "catalogRevision": "2026-11-11.premium-workspaces-v31",
-  "catalogHash": "76bc8987f45c886f52e47f04ee8e7dff6f936f188e30c3fbaa9618bd2afc6e39",
+  "schemaHash": "a5a276848d09cc29731e5102008834eaad8c217ac0596af2fd8f9f3dc8ba4e2f",
+  "catalogRevision": "2026-11-16.automation-traceability-v32",
+  "catalogHash": "35470307224206cabd9acb186a54d2b024869342302311f64ea4f8db8e97a1ad",
   "operationCount": 390,
   "operations": [
     {
@@ -33805,7 +33805,7 @@
       "readOnly": false,
       "confirmationRequired": true,
       "previewSupported": true,
-      "description": "Link two incidents in the same organization and copy source listeners to the target. relationType 0 means DuplicateOf and always resolves the source; 1 means RelatedTo and follows the explicit closeSourceTicket choice. Closing completes the source SLA and publishes the canonical event. Read both incidents and relations after an uncertain result before another attempt; an existing identical relation returns 409.",
+      "description": "Link two incidents in the same organization. relationType 0 means DuplicateOf and always resolves the source; 1 means RelatedTo and follows the explicit closeSourceTicket choice. RelatedTo with closeSourceTicket=false is neutral: it changes no state, SLA, listeners, notification or automation. Explicit closing retains requester/listener copying. Closing completes the source SLA and publishes the canonical event. Read both incidents and relations after an uncertain result before another attempt; an existing identical relation returns 409.",
       "sensitiveResultFields": [],
       "transports": [
         "stdio",
@@ -60257,7 +60257,7 @@
             "properties": {
               "operation": {
                 "const": "create_relation",
-                "description": "Link two incidents in the same organization and copy source listeners to the target. relationType 0 means DuplicateOf and always resolves the source; 1 means RelatedTo and follows the explicit closeSourceTicket choice. Closing completes the source SLA and publishes the canonical event. Read both incidents and relations after an uncertain result before another attempt; an existing identical relation returns 409. Select this operation in the outer operation field."
+                "description": "Link two incidents in the same organization. relationType 0 means DuplicateOf and always resolves the source; 1 means RelatedTo and follows the explicit closeSourceTicket choice. RelatedTo with closeSourceTicket=false is neutral: it changes no state, SLA, listeners, notification or automation. Explicit closing retains requester/listener copying. Closing completes the source SLA and publishes the canonical event. Read both incidents and relations after an uncertain result before another attempt; an existing identical relation returns 409. Select this operation in the outer operation field."
               },
               "confirm": {
                 "type": "boolean",

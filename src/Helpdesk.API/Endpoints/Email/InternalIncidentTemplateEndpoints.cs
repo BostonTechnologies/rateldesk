@@ -11,7 +11,7 @@ public static class InternalIncidentTemplateEndpoints
 {
     public static void MapInternalIncidentTemplateEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/internal-incident-templates").WithTags("Internal incident templates").RequireAuthorization("HelpdeskAdmin");
+        var group = app.MapGroup("/api/v1/internal-incident-templates").WithTags("Internal Incident Templates").RequireAuthorization("HelpdeskAdmin");
         group.MapGet("/", async (string? organizationId, int? page, int? pageSize, HelpdeskDbContext db, CancellationToken ct) =>
         {
             var query = db.Set<InternalIncidentTemplateRecord>().AsNoTracking();

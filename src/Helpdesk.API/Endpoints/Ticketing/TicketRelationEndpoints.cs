@@ -14,7 +14,7 @@ public static class TicketRelationEndpoints
 {
     public static void MapTicketRelationEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/tickets/{id}/relations").WithTags("Ticket relations").RequireAuthorization();
+        var group = app.MapGroup("/api/v1/tickets/{id}/relations").WithTags("Ticket Relations").RequireAuthorization();
         group.MapGet("/", async (string id, int? page, int? pageSize, HttpContext http,
             ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
         {

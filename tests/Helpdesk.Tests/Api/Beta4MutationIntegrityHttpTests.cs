@@ -293,13 +293,15 @@ public sealed class Beta4MutationIntegrityHttpTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task Eligible_automation_retry_uses_saved_peer_tenant_and_binding_once(bool postgres, bool bulk)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public async Task Eligible_automation_retry_uses_saved_peer_tenant_and_binding_once(bool postgres, bool bulk, bool origin)
     {
-        using var peer = new PairingTestPeer(Guid.NewGuid()) { AutomationBusinessEnabled = true };
+        using var peer = new PairingTestPeer(Guid.NewGuid()) { AutomationBusinessEnabled = true, AutomationOriginEnabled = origin };
         await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true, pairingPeer: peer);
         PairingMapping mapping;
         await using (var scope = h.App.Services.CreateAsyncScope())
@@ -332,7 +334,7 @@ public sealed class Beta4MutationIntegrityHttpTests
             });
             db.Requests.Add(new Request
             {
-                Id = "retry-parent", Title = "Synthetic retry request", RequestFormId = "retry-form", PayloadJson = "{}",
+                Id = "retry-parent", TrackingId = "REQ-DEMO-RETRY", Title = "Synthetic retry request", RequestFormId = "retry-form", PayloadJson = "{}",
                 OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, State = TicketState.OnHold,
                 WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Synthetic automation' failed."
             });
@@ -361,6 +363,18 @@ public sealed class Beta4MutationIntegrityHttpTests
             Assert.Equal("synthetic-execution", task.OrchestratorExecutionId);
             Assert.Equal("synthetic-remote-request", task.OrchestrationExternalRequestId);
             Assert.Equal("retry-binding", task.AutomationBindingId);
+            Assert.NotNull(task.AutomationDispatchPayloadJson);
+            if (origin)
+            {
+                var captured = peer.LastAutomationIngest!.Value.EnumerateObject().Single(x => x.Name.Equals("originContext", StringComparison.OrdinalIgnoreCase))
+                    .Value.Deserialize<AutomationTrace.Contracts.AutomationOriginContext>(AutomationTrace.AutomationTraceValidation.Json)!;
+                Assert.Equal("retry-parent", captured.Request.Id); Assert.Equal("REQ-DEMO-RETRY", captured.Request.Reference);
+                Assert.Equal("retry-task", captured.Task.Id); Assert.Equal(task.AutomationAttemptCorrelationId, captured.AttemptId);
+                Assert.Equal(h.CustomerId, captured.RequestedFor!.Id); Assert.Null(captured.SubmittedBy);
+                Assert.True(AutomationTrace.AutomationTraceValidation.Origin(captured));
+                Assert.Equal(task.AutomationOriginJson, JsonSerializer.Serialize(captured, AutomationTrace.AutomationTraceValidation.Json));
+            }
+            else Assert.Null(task.AutomationOriginJson);
             Assert.False(task.AutoStart);
             Assert.NotEqual("previous-attempt", task.AutomationAttemptCorrelationId);
             using var history = JsonDocument.Parse(task.AutomationAttemptHistoryJson!);

@@ -34,6 +34,6 @@ public static class AutomationReportEndpoints
             return Results.Ok(reports.Select(x => new InternalIncidentReportDto(x.Report.IncidentId, x.TrackingId, x.Report.SourceRequestId,
                 x.Report.Html, x.Report.PlainText, JsonSerializer.Deserialize<IncidentPresentationReference>(x.Report.PresentationJson,
                     AutomationTrace.AutomationTraceValidation.Json)!, x.Report.CreatedAtUtc)));
-        }).RequireAuthorization().WithTags("Automation reports");
+        }).RequireAuthorization().WithTags("Automation Reports");
     }
 }

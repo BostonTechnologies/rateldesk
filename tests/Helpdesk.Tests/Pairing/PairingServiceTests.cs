@@ -280,6 +280,8 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
     public string InboundSecret { get; } = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
     public string? OfferedInboundSecret { get; private set; }
     public bool AutomationBusinessEnabled { get; set; }
+    public bool AutomationOriginEnabled { get; set; }
+    public JsonElement? LastAutomationIngest { get; private set; }
     public int AutomationHealthCalls { get; private set; }
     public int AutomationIdentityCalls { get; private set; }
     public int AutomationIngestCalls { get; private set; }
@@ -308,6 +310,12 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
             Xunit.Assert.Contains("client_id=nrpair_synthetic", form, StringComparison.Ordinal);
             return Ok(new { access_token = AutomationBearer, expires_in = 300, token_type = "Bearer" });
         }
+        if (AutomationBusinessEnabled && path.EndsWith("/capabilities", StringComparison.Ordinal))
+        {
+            Xunit.Assert.Equal(HttpMethod.Get, request.Method);
+            return AutomationOriginEnabled ? Ok(new { contractVersion = 2, catalogue = true, targetKinds = new[] { "fixed-agent" },
+                originContextSchema = AutomationTrace.Contracts.AutomationTraceContract.OriginVersion }) : new(HttpStatusCode.NotFound);
+        }
         if (AutomationBusinessEnabled && path is "/internal/health" or "/api/v1/system/m2m/ping" or "/internal/ingest")
         {
             Xunit.Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
@@ -326,6 +334,7 @@ internal sealed class PairingTestPeer : HttpMessageHandler, IHttpClientFactory
             }
             Xunit.Assert.Equal(HttpMethod.Post, request.Method);
             AutomationIngestCalls++;
+            LastAutomationIngest = (await request.Content!.ReadFromJsonAsync<JsonElement>(Json, ct)).Clone();
             return Ok(new { requestId = "synthetic-remote-request", runId = "synthetic-execution", executionId = "synthetic-execution", status = "Accepted" });
         }
         if (path.EndsWith("/metadata", StringComparison.Ordinal))

@@ -152,7 +152,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(489, operationCount);
+        Assert.Equal(504, operationCount);
 #else
         Assert.Equal(488, operationCount);
 #endif
