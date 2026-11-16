@@ -12,7 +12,7 @@
     <PackageReference Include="HtmlAgilityPack" Version="1.13.1" />
     <PackageReference Include="HtmlSanitizer" Version="11.0.26" />
     <PackageReference Include="MailKit" Version="5.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.15" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="11.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.14" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.15" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.15" />
