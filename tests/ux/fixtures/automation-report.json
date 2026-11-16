@@ -1,0 +1,224 @@
+{
+  "preview": {
+    "subject": "REQ-DEMO-001 Multi-node directory test \u2014 Failed",
+    "summary": "5 of 5 targets failed; 0 succeeded, 0 skipped, 0 timed out, 0 cancelled, 0 unknown.",
+    "html": "\u003Ch3\u003EAutomation execution report\u003C/h3\u003E\u003Cp\u003E5 of 5 targets failed; 0 succeeded, 0 skipped, 0 timed out, 0 cancelled, 0 unknown.\u003C/p\u003E\n\u003Cdl\u003E\u003Cdt\u003ESource outcome\u003C/dt\u003E\u003Cdd\u003EFailed\u003C/dd\u003E\n\u003Cdt\u003ESource request\u003C/dt\u003E\u003Cdd\u003EREQ-DEMO-001 \u2014 Multi-node directory test\u003C/dd\u003E\n\u003Cdt\u003EService\u003C/dt\u003E\u003Cdd\u003EWorkplace automation\u003C/dd\u003E\n\u003Cdt\u003ESubmitted by\u003C/dt\u003E\u003Cdd\u003ESam Demo\u003C/dd\u003E\n\u003Cdt\u003ERequested for\u003C/dt\u003E\u003Cdd\u003EAlex Example\u003C/dd\u003E\n\u003Cdt\u003EJob / definition\u003C/dt\u003E\u003Cdd\u003EMulti-node directory test\u003C/dd\u003E\n\u003Cdt\u003EStarted\u003C/dt\u003E\u003Cdd\u003E2026-11-16 08:00:01Z\u003C/dd\u003E\u003Cdt\u003ECompleted\u003C/dt\u003E\u003Cdd\u003E2026-11-16 08:00:09Z\u003C/dd\u003E\u003Cdt\u003EDuration\u003C/dt\u003E\u003Cdd\u003E8 seconds\u003C/dd\u003E\n\u003Cdt\u003ETargets\u003C/dt\u003E\u003Cdd\u003E5 of 5 targets failed; 0 succeeded, 0 skipped, 0 timed out, 0 cancelled, 0 unknown.\u003C/dd\u003E\u003Cdt\u003EEvidence\u003C/dt\u003E\u003Cdd\u003Eavailable\u003C/dd\u003E\u003C/dl\u003E\n\u003Ctable\u003E\u003Cthead\u003E\u003Ctr\u003E\u003Cth\u003EAffected targets\u003C/th\u003E\u003Cth\u003EActivity / step\u003C/th\u003E\u003Cth\u003EOutcome\u003C/th\u003E\u003Cth\u003EChild exit code\u003C/th\u003E\u003Cth\u003EReason / permitted diagnostic\u003C/th\u003E\u003C/tr\u003E\u003C/thead\u003E\n\u003Ctbody\u003E\u003Ctr\u003E\u003Ctd\u003Edemo-1.example.test, demo-2.example.test, demo-3.example.test, demo-4.example.test, demo-5.example.test (5 affected)\u003C/td\u003E\u003Ctd\u003E6 List requested directory (command)\u003C/td\u003E\u003Ctd\u003EFailed\u003C/td\u003E\u003Ctd\u003E2\u003C/td\u003E\u003Ctd\u003EDirectory not found\u003Cpre\u003Els: cannot access \u0027/demo/missing\u0027: No such file or directory\u003C/pre\u003E\u003C/td\u003E\u003C/tr\u003E\u003C/tbody\u003E\u003C/table\u003E\n\n\n\n\n\u003Cul\u003E\u003Cli\u003E\u003Ca href=\u0022https://desk.example.com/requests/demo-request\u0022 rel=\u0022noopener noreferrer\u0022 target=\u0022_blank\u0022\u003EREQ-DEMO-001\u003C/a\u003E\u003C/li\u003E\u003Cli\u003E\u003Ca href=\u0022https://net.example.com/requests?search=130\u0022 rel=\u0022noopener noreferrer\u0022 target=\u0022_blank\u0022\u003ERequest 130\u003C/a\u003E\u003C/li\u003E\u003Cli\u003E\u003Ca href=\u0022https://net.example.com/jobs/67/runs/639300000000000001\u0022 rel=\u0022noopener noreferrer\u0022 target=\u0022_blank\u0022\u003EJob execution\u003C/a\u003E\u003C/li\u003E\u003Cli\u003E\u003Ca href=\u0022https://net.example.com/flows?tenantId=1\u0026amp;run=33333333-3333-4333-8333-333333333333\u0022 rel=\u0022noopener noreferrer\u0022 target=\u0022_blank\u0022\u003EFlow run\u003C/a\u003E\u003C/li\u003E\u003C/ul\u003E\n\u003Cdetails\u003E\u003Csummary\u003ETechnical details\u003C/summary\u003E\u003Cp\u003ENative request 130 \u00B7 execution 639300000000000001 \u00B7 flow 33333333-3333-4333-8333-333333333333 \u00B7 action 44444444-4444-4444-8444-444444444444\u003C/p\u003E\n\u003Cp\u003ESource attempt automation-attempt-demo-001\u003C/p\u003E\n\u003Ctable\u003E\u003Cthead\u003E\u003Ctr\u003E\u003Cth\u003ETarget\u003C/th\u003E\u003Cth\u003EChild run\u003C/th\u003E\u003Cth\u003EOutcome\u003C/th\u003E\u003C/tr\u003E\u003C/thead\u003E\u003Ctbody\u003E\u003Ctr\u003E\u003Ctd\u003Edemo-1.example.test\u003C/td\u003E\u003Ctd\u003E639300000000000002\u003C/td\u003E\u003Ctd\u003EFailed\u003C/td\u003E\u003C/tr\u003E\u003Ctr\u003E\u003Ctd\u003Edemo-2.example.test\u003C/td\u003E\u003Ctd\u003E639300000000000003\u003C/td\u003E\u003Ctd\u003EFailed\u003C/td\u003E\u003C/tr\u003E\u003Ctr\u003E\u003Ctd\u003Edemo-3.example.test\u003C/td\u003E\u003Ctd\u003E639300000000000004\u003C/td\u003E\u003Ctd\u003EFailed\u003C/td\u003E\u003C/tr\u003E\u003Ctr\u003E\u003Ctd\u003Edemo-4.example.test\u003C/td\u003E\u003Ctd\u003E639300000000000005\u003C/td\u003E\u003Ctd\u003EFailed\u003C/td\u003E\u003C/tr\u003E\u003Ctr\u003E\u003Ctd\u003Edemo-5.example.test\u003C/td\u003E\u003Ctd\u003E639300000000000006\u003C/td\u003E\u003Ctd\u003EFailed\u003C/td\u003E\u003C/tr\u003E\u003C/tbody\u003E\u003C/table\u003E\u003C/details\u003E",
+    "plainText": "Automation execution report\n5 of 5 targets failed; 0 succeeded, 0 skipped, 0 timed out, 0 cancelled, 0 unknown.\nSource outcome\nFailed\nSource request\nREQ-DEMO-001 \u2014 Multi-node directory test\nService\nWorkplace automation\nSubmitted by\nSam Demo\nRequested for\nAlex Example\nJob / definition\nMulti-node directory test\nStarted\n2026-11-16 08:00:01Z\nCompleted\n2026-11-16 08:00:09Z\nDuration\n8 seconds\nTargets\n5 of 5 targets failed; 0 succeeded, 0 skipped, 0 timed out, 0 cancelled, 0 unknown.\nEvidence\navailable\nAffected targets | Activity / step | Outcome | Child exit code | Reason / permitted diagnostic |\ndemo-1.example.test, demo-2.example.test, demo-3.example.test, demo-4.example.test, demo-5.example.test (5 affected) | 6 List requested directory (command) | Failed | 2 | Directory not foundls: cannot access \u0027/demo/missing\u0027: No such file or directory\n|\nREQ-DEMO-001\nRequest 130\nJob execution\nFlow run\nTechnical details\nNative request 130 \u00B7 execution 639300000000000001 \u00B7 flow 33333333-3333-4333-8333-333333333333 \u00B7 action 44444444-4444-4444-8444-444444444444\nSource attempt automation-attempt-demo-001\nTarget | Child run | Outcome |\ndemo-1.example.test | 639300000000000002 | Failed |\ndemo-2.example.test | 639300000000000003 | Failed |\ndemo-3.example.test | 639300000000000004 | Failed |\ndemo-4.example.test | 639300000000000005 | Failed |\ndemo-5.example.test | 639300000000000006 | Failed |",
+    "presentation": {
+      "mode": "standard",
+      "templateId": "system-standard",
+      "revision": "1",
+      "schemaVersion": "netratel.incident-context.v1",
+      "contentDigest": "c22cf4b0eec13d8b85ad23177168ea1dad73df13f2d75a72fffc3c06a1384a42",
+      "layoutDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "draft": {
+    "id": "",
+    "version": 0,
+    "name": "Job execution failure",
+    "organizationId": null,
+    "subjectTemplate": "{{RequestReference}} {{DefinitionName}} \u2014 {{SourceOutcome}}",
+    "htmlTemplate": "\u003Ch3\u003EAutomation execution report\u003C/h3\u003E\u003Cp\u003E{{Summary}}\u003C/p\u003E\n\u003Cdl\u003E\u003Cdt\u003ESource outcome\u003C/dt\u003E\u003Cdd\u003E{{SourceOutcome}}\u003C/dd\u003E\n{{#if RequestReference}}\u003Cdt\u003ESource request\u003C/dt\u003E\u003Cdd\u003E{{RequestReference}} \u2014 {{RequestTitle}}\u003C/dd\u003E{{/if}}\n{{#if ServiceName}}\u003Cdt\u003EService\u003C/dt\u003E\u003Cdd\u003E{{ServiceName}}\u003C/dd\u003E{{/if}}\n{{#if SubmittedBy}}\u003Cdt\u003ESubmitted by\u003C/dt\u003E\u003Cdd\u003E{{SubmittedBy}}\u003C/dd\u003E{{/if}}\n{{#if RequestedFor}}\u003Cdt\u003ERequested for\u003C/dt\u003E\u003Cdd\u003E{{RequestedFor}}\u003C/dd\u003E{{/if}}\n{{#if DefinitionName}}\u003Cdt\u003EJob / definition\u003C/dt\u003E\u003Cdd\u003E{{DefinitionName}}\u003C/dd\u003E{{/if}}\n\u003Cdt\u003EStarted\u003C/dt\u003E\u003Cdd\u003E{{StartedAtUtc}}\u003C/dd\u003E\u003Cdt\u003ECompleted\u003C/dt\u003E\u003Cdd\u003E{{CompletedAtUtc}}\u003C/dd\u003E\u003Cdt\u003EDuration\u003C/dt\u003E\u003Cdd\u003E{{Duration}}\u003C/dd\u003E\n\u003Cdt\u003ETargets\u003C/dt\u003E\u003Cdd\u003E{{TargetSummary}}\u003C/dd\u003E\u003Cdt\u003EEvidence\u003C/dt\u003E\u003Cdd\u003E{{EvidenceState}}\u003C/dd\u003E\u003C/dl\u003E\n{{#if Failures}}\u003Ctable\u003E\u003Cthead\u003E\u003Ctr\u003E\u003Cth\u003EAffected targets\u003C/th\u003E\u003Cth\u003EActivity / step\u003C/th\u003E\u003Cth\u003EOutcome\u003C/th\u003E\u003Cth\u003EChild exit code\u003C/th\u003E\u003Cth\u003EReason / permitted diagnostic\u003C/th\u003E\u003C/tr\u003E\u003C/thead\u003E\n\u003Ctbody\u003E{{#each Failures}}\u003Ctr\u003E\u003Ctd\u003E{{Targets}}\u003C/td\u003E\u003Ctd\u003E{{Ordinal}} {{Name}} ({{Type}})\u003C/td\u003E\u003Ctd\u003E{{Outcome}}\u003C/td\u003E\u003Ctd\u003E{{ExitCode}}\u003C/td\u003E\u003Ctd\u003E{{Reason}}\u003Cpre\u003E{{ErrorExcerpt}}\u003C/pre\u003E\u003C/td\u003E\u003C/tr\u003E{{/each}}\u003C/tbody\u003E\u003C/table\u003E{{/if}}\n{{#if Omitted}}\u003Cp\u003E{{Omitted}}\u003C/p\u003E{{/if}}\n{{#if SourceDetails}}\u003Cdetails\u003E\u003Csummary\u003ESource details and technical evidence\u003C/summary\u003E\u003Cpre\u003E{{SourceDetails}}\u003C/pre\u003E\u003C/details\u003E{{/if}}\n{{#if AiInvestigation}}\u003Ch4\u003EAI investigation\u003C/h4\u003E\u003Cpre\u003E{{AiInvestigation}}\u003C/pre\u003E{{/if}}\n{{#if Recovery}}\u003Ch4\u003ERecovery\u003C/h4\u003E\u003Cpre\u003E{{Recovery}}\u003C/pre\u003E{{/if}}\n\u003Cul\u003E{{#each Links}}\u003Cli\u003E\u003Ca href=\u0022{{Url}}\u0022\u003E{{Label}}\u003C/a\u003E\u003C/li\u003E{{/each}}\u003C/ul\u003E\n\u003Cdetails\u003E\u003Csummary\u003ETechnical details\u003C/summary\u003E\u003Cp\u003ENative request {{NativeRequestId}} \u00B7 execution {{ExecutionId}} \u00B7 flow {{FlowRunId}} \u00B7 action {{ActionId}}\u003C/p\u003E\n{{#if OriginAttempt}}\u003Cp\u003ESource attempt {{OriginAttempt}}\u003C/p\u003E{{/if}}\n\u003Ctable\u003E\u003Cthead\u003E\u003Ctr\u003E\u003Cth\u003ETarget\u003C/th\u003E\u003Cth\u003EChild run\u003C/th\u003E\u003Cth\u003EOutcome\u003C/th\u003E\u003C/tr\u003E\u003C/thead\u003E\u003Ctbody\u003E{{#each Nodes}}\u003Ctr\u003E\u003Ctd\u003E{{Name}}\u003C/td\u003E\u003Ctd\u003E{{ChildRunId}}\u003C/td\u003E\u003Ctd\u003E{{Outcome}}\u003C/td\u003E\u003C/tr\u003E{{/each}}\u003C/tbody\u003E\u003C/table\u003E\u003C/details\u003E",
+    "layoutId": null,
+    "sourceKinds": [
+      "job"
+    ],
+    "retired": false,
+    "publishedRevision": 0,
+    "purpose": "netratel-internal-incident"
+  },
+  "context": {
+    "schemaVersion": "netratel.incident-context.v1",
+    "sourceKind": "job",
+    "origin": {
+      "schemaVersion": "rateldesk.automation-origin.v1",
+      "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
+      "organization": {
+        "id": "demo-org",
+        "name": "Demo organization"
+      },
+      "request": {
+        "id": "demo-request",
+        "reference": "REQ-DEMO-001",
+        "title": "Multi-node directory test",
+        "submittedAtUtc": "2026-11-16T08:00:00+00:00"
+      },
+      "service": {
+        "id": "demo-service",
+        "name": "Workplace automation"
+      },
+      "requestForm": {
+        "id": "demo-form",
+        "name": "Directory test"
+      },
+      "task": {
+        "id": "demo-task",
+        "name": "Check directory on five nodes"
+      },
+      "attemptId": "automation-attempt-demo-001",
+      "correlationId": "automation-attempt-demo-001",
+      "submittedBy": {
+        "id": "demo-submitter",
+        "displayName": "Sam Demo"
+      },
+      "requestedFor": {
+        "id": "demo-person",
+        "displayName": "Alex Example"
+      },
+      "links": [
+        {
+          "kind": "source-request",
+          "label": "REQ-DEMO-001",
+          "url": "https://desk.example.com/requests/demo-request"
+        }
+      ]
+    },
+    "nativeRequestId": "130",
+    "definition": {
+      "id": "67",
+      "name": "Multi-node directory test"
+    },
+    "executionId": "639300000000000001",
+    "flowRunId": "33333333-3333-4333-8333-333333333333",
+    "actionId": "44444444-4444-4444-8444-444444444444",
+    "sourceOutcome": "Failed",
+    "startedAtUtc": "2026-11-16T08:00:01+00:00",
+    "completedAtUtc": "2026-11-16T08:00:09+00:00",
+    "totals": {
+      "total": 5,
+      "succeeded": 0,
+      "failed": 5,
+      "skipped": 0,
+      "cancelled": 0,
+      "timedOut": 0,
+      "unknown": 0
+    },
+    "targets": [
+      {
+        "id": "node-1",
+        "name": "Demo node 1",
+        "hostname": "demo-1.example.test",
+        "childRunId": "639300000000000002",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-1",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-2",
+        "name": "Demo node 2",
+        "hostname": "demo-2.example.test",
+        "childRunId": "639300000000000003",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-2",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-3",
+        "name": "Demo node 3",
+        "hostname": "demo-3.example.test",
+        "childRunId": "639300000000000004",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-3",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-4",
+        "name": "Demo node 4",
+        "hostname": "demo-4.example.test",
+        "childRunId": "639300000000000005",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-4",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-5",
+        "name": "Demo node 5",
+        "hostname": "demo-5.example.test",
+        "childRunId": "639300000000000006",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-5",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      }
+    ],
+    "omittedTargets": 0,
+    "evidenceState": "available",
+    "links": [
+      {
+        "kind": "native-request",
+        "label": "Request 130",
+        "url": "https://net.example.com/requests?search=130"
+      },
+      {
+        "kind": "job-run",
+        "label": "Job execution",
+        "url": "https://net.example.com/jobs/67/runs/639300000000000001"
+      },
+      {
+        "kind": "flow-run",
+        "label": "Flow run",
+        "url": "https://net.example.com/flows?tenantId=1\u0026run=33333333-3333-4333-8333-333333333333"
+      }
+    ]
+  }
+}

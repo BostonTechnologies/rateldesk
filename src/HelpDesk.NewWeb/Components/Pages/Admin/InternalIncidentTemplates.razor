@@ -1,0 +1,147 @@
+@using Helpdesk.Shared.DTOs.Orchestration
+@using AutomationTrace.Contracts
+@inject IHttpClientFactory HttpClientFactory
+
+<MudStack Spacing="2">
+    @if (error is not null) { <MudAlert Dense="true" Severity="Severity.Error" role="alert">@error</MudAlert> }
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+        <MudSelect T="string" Label="Organization" Value="organization" ValueChanged="OrganizationChanged" Dense="true" Style="min-width:12rem">
+            @foreach (var tenant in organizations) { <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem> }
+        </MudSelect>
+        <MudSelect T="string" Label="System default to clone" @bind-Value="defaultId" Dense="true" Style="min-width:12rem">
+            @foreach (var item in defaults) { <MudSelectItem Value="@item.Id">@item.Name</MudSelectItem> }
+        </MudSelect>
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NewAsync" Disabled="busy">New from default</MudButton>
+    </MudStack>
+    <div role="list" aria-label="Internal incident templates">
+        @foreach (var template in items)
+        {
+            <MudPaper Outlined="true" Class="pa-2 mb-1" role="listitem">
+                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.body2">@template.Name · revision @template.PublishedRevision @(template.Retired ? "· retired" : "")</MudText>
+                    <MudButton Size="Size.Small" OnClick="@(() => Edit(template))">Edit draft</MudButton>
+                    <MudButton Size="Size.Small" OnClick="@(() => Clone(template))">Clone</MudButton>
+                    <MudButton Size="Size.Small" OnClick="@(() => RetireAsync(template))" Disabled="busy">@(template.Retired ? "Restore" : "Retire")</MudButton>
+                </MudStack>
+            </MudPaper>
+        }
+    </div>
+    <MudStack Row="true" AlignItems="AlignItems.Center">
+        <MudButton Size="Size.Small" Disabled="@(page <= 1 || busy)" OnClick="PreviousAsync">Previous</MudButton>
+        <MudText Typo="Typo.caption">Page @(page) · @total templates</MudText>
+        <MudButton Size="Size.Small" Disabled="@(page * pageSize >= total || busy)" OnClick="NextAsync">Next</MudButton>
+        <MudSelect T="int" Label="Page size" Value="pageSize" ValueChanged="SizeChanged" Dense="true" Style="max-width:7rem">
+            <MudSelectItem Value="25">25</MudSelectItem><MudSelectItem Value="50">50</MudSelectItem><MudSelectItem Value="100">100</MudSelectItem>
+        </MudSelect>
+    </MudStack>
+    @if (editing)
+    {
+        <MudDivider />
+        <MudTextField Label="Name" @bind-Value="name" MaxLength="256" Dense="true" />
+        <MudTextField Label="Customer-safe subject" @bind-Value="subject" Immediate="true" Dense="true"
+                      HelperText="Use request reference, request title, service, definition, outcome and target totals. Diagnostics are internal report fields." />
+        <MudSelect T="string" Label="Supported source kinds" MultiSelection="true" SelectedValues="sources" SelectedValuesChanged="SourcesChanged" Dense="true">
+            @foreach (var kind in allSources) { <MudSelectItem Value="@kind">@kind</MudSelectItem> }
+        </MudSelect>
+        <MudSelect T="int?" Label="Layout (frozen at publication)" @bind-Value="layoutId" Dense="true">
+            <MudSelectItem T="int?" Value="@((int?)null)">No layout</MudSelectItem>
+            @foreach (var layout in layouts) { <MudSelectItem T="int?" Value="@((int?)layout.Id)">@(layout.Name)</MudSelectItem> }
+        </MudSelect>
+        <EmailHtmlEditor Value="html" ValueChanged="HtmlChanged" DraftSubject="subject" ShowTenantSelector="false"
+                         InternalIncidentDraft="Draft" Placeholders="tokens" PreviewTitle="Internal report — synthetic preview" />
+        <MudStack Row="true" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="SaveAsync" Disabled="@(busy || string.IsNullOrWhiteSpace(organization))">Save draft</MudButton>
+            <MudButton Variant="Variant.Filled" Size="Size.Small" OnClick="PublishAsync" Disabled="@(busy || string.IsNullOrWhiteSpace(organization))">Publish immutable revision</MudButton>
+            <MudButton Size="Size.Small" OnClick="@(() => editing = false)">Close editor</MudButton>
+        </MudStack>
+    }
+</MudStack>
+
+@code {
+    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private List<Choice> organizations = [];
+    private List<LayoutChoice> layouts = [];
+    private IReadOnlyList<IncidentTemplateCatalogueItem> defaults = [];
+    private IReadOnlyList<InternalIncidentTemplateDraft> items = [];
+    private string organization = "", defaultId = "system-job-failure", id = "", name = "", subject = "", html = "";
+    private long version;
+    private int? layoutId;
+    private IReadOnlyCollection<string> sources = ["job"];
+    private static readonly string[] allSources = ["job", "request", "script", "alert", "monitoring", "generic"];
+    private static readonly string[] tokens = ["{{RequestReference}}", "{{RequestTitle}}", "{{SubmittedBy}}", "{{RequestedFor}}", "{{ServiceName}}", "{{DefinitionName}}", "{{TargetSummary}}", "{{SourceDetails}}", "{{AiInvestigation}}", "{{Recovery}}", "{{#each Failures}}…{{/each}}", "{{ErrorExcerpt}}"];
+    private bool busy, editing;
+    private string? error;
+    private int page = 1, pageSize = 25, total;
+    private InternalIncidentTemplateDraft Draft => new(id, version, name, organization, subject, html, layoutId, sources.ToArray());
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            organizations = await Api.GetFromJsonAsync<List<Choice>>("api/v1/admin/tenants/lookup") ?? [];
+            layouts = await Api.GetFromJsonAsync<List<LayoutChoice>>("api/v1/email-layouts/choices") ?? [];
+            defaults = await Api.GetFromJsonAsync<List<IncidentTemplateCatalogueItem>>("api/v1/internal-incident-templates/defaults") ?? [];
+            organization = organizations.FirstOrDefault()?.Id ?? "";
+            await LoadAsync();
+        }
+        catch (HttpRequestException) { error = "Internal templates could not be loaded. Reopen the NetRatel tab to retry."; }
+    }
+    private async Task OrganizationChanged(string value) { organization = value; editing = false; page = 1; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetFromJsonAsync<TemplatePage>($"api/v1/internal-incident-templates/?organizationId={Uri.EscapeDataString(organization)}&page={page}&pageSize={pageSize}");
+        items = result?.Items ?? []; total = result?.TotalCount ?? 0;
+    }
+    private async Task NewAsync()
+    {
+        try { var draft = await Api.GetFromJsonAsync<InternalIncidentTemplateDraft>($"api/v1/internal-incident-templates/defaults/{Uri.EscapeDataString(defaultId)}/draft"); if (draft is not null) Edit(draft); }
+        catch (HttpRequestException) { error = "The selected default is unavailable."; }
+    }
+    private void Edit(InternalIncidentTemplateDraft draft)
+    {
+        id = draft.Id; version = draft.Version; name = draft.Name; subject = draft.SubjectTemplate; html = draft.HtmlTemplate;
+        layoutId = draft.LayoutId; sources = draft.SourceKinds.ToArray(); editing = true; error = null;
+    }
+    private void Clone(InternalIncidentTemplateDraft draft) => Edit(draft with { Id = "", Version = 0, Name = draft.Name + " (copy)", PublishedRevision = 0, Retired = false });
+    private Task HtmlChanged(string value) { html = value; return Task.CompletedTask; }
+    private Task SourcesChanged(IReadOnlyCollection<string> value) { sources = value; return Task.CompletedTask; }
+    private async Task<bool> SaveCoreAsync()
+    {
+        using var response = await Api.PostAsJsonAsync("api/v1/internal-incident-templates/", Draft);
+        if (!response.IsSuccessStatusCode) { error = "Draft was rejected. Check required fields, tokens and the current revision, then reload if another editor saved it."; return false; }
+        var saved = await response.Content.ReadFromJsonAsync<InternalIncidentTemplateDraft>();
+        if (saved is null) return false;
+        Edit(saved); await LoadAsync(); return true;
+    }
+    private async Task SaveAsync() { busy = true; try { await SaveCoreAsync(); } catch (HttpRequestException) { error = "Saving failed. Reload the template before retrying."; } finally { busy = false; } }
+    private async Task PublishAsync()
+    {
+        busy = true;
+        try
+        {
+            if (!await SaveCoreAsync()) return;
+            using var response = await Api.PostAsJsonAsync($"api/v1/internal-incident-templates/{id}/publish", new InternalIncidentTemplateState(version, false));
+            if (!response.IsSuccessStatusCode) { error = "Publication failed. Check the preview, supported sources and frozen layout tokens."; return; }
+            editing = false; await LoadAsync();
+        }
+        catch (HttpRequestException) { error = "Publication could not be confirmed. Reload revisions before retrying."; }
+        finally { busy = false; }
+    }
+    private async Task RetireAsync(InternalIncidentTemplateDraft draft)
+    {
+        busy = true;
+        try
+        {
+            using var response = await Api.PostAsJsonAsync($"api/v1/internal-incident-templates/{draft.Id}/retire", new InternalIncidentTemplateState(draft.Version, !draft.Retired));
+            if (!response.IsSuccessStatusCode) error = "The template changed. Reload before changing its retirement state.";
+            await LoadAsync();
+        }
+        catch (HttpRequestException) { error = "Retirement could not be confirmed. Reload and retry."; }
+        finally { busy = false; }
+    }
+    private async Task PreviousAsync() { page--; await LoadAsync(); }
+    private async Task NextAsync() { page++; await LoadAsync(); }
+    private async Task SizeChanged(int value) { pageSize = value; page = 1; await LoadAsync(); }
+    private sealed record Choice(string Id, string Name);
+    private sealed record LayoutChoice(int Id, string Name);
+    private sealed record TemplatePage(IReadOnlyList<InternalIncidentTemplateDraft> Items, int TotalCount);
+}

@@ -1,0 +1,501 @@
+{
+  "origin": {
+    "schemaVersion": "rateldesk.automation-origin.v1",
+    "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
+    "organization": {
+      "id": "demo-org",
+      "name": "Demo organization"
+    },
+    "request": {
+      "id": "demo-request",
+      "reference": "REQ-DEMO-001",
+      "title": "Multi-node directory test",
+      "submittedAtUtc": "2026-11-16T08:00:00\u002B00:00"
+    },
+    "service": {
+      "id": "demo-service",
+      "name": "Workplace automation"
+    },
+    "requestForm": {
+      "id": "demo-form",
+      "name": "Directory test"
+    },
+    "task": {
+      "id": "demo-task",
+      "name": "Check directory on five nodes"
+    },
+    "attemptId": "automation-attempt-demo-001",
+    "correlationId": "automation-attempt-demo-001",
+    "submittedBy": {
+      "id": "demo-submitter",
+      "displayName": "Sam Demo"
+    },
+    "requestedFor": {
+      "id": "demo-person",
+      "displayName": "Alex Example"
+    },
+    "links": [
+      {
+        "kind": "source-request",
+        "label": "REQ-DEMO-001",
+        "url": "https://desk.example.com/requests/demo-request"
+      }
+    ]
+  },
+  "context": {
+    "schemaVersion": "netratel.incident-context.v1",
+    "sourceKind": "job",
+    "origin": {
+      "schemaVersion": "rateldesk.automation-origin.v1",
+      "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
+      "organization": {
+        "id": "demo-org",
+        "name": "Demo organization"
+      },
+      "request": {
+        "id": "demo-request",
+        "reference": "REQ-DEMO-001",
+        "title": "Multi-node directory test",
+        "submittedAtUtc": "2026-11-16T08:00:00\u002B00:00"
+      },
+      "service": {
+        "id": "demo-service",
+        "name": "Workplace automation"
+      },
+      "requestForm": {
+        "id": "demo-form",
+        "name": "Directory test"
+      },
+      "task": {
+        "id": "demo-task",
+        "name": "Check directory on five nodes"
+      },
+      "attemptId": "automation-attempt-demo-001",
+      "correlationId": "automation-attempt-demo-001",
+      "submittedBy": {
+        "id": "demo-submitter",
+        "displayName": "Sam Demo"
+      },
+      "requestedFor": {
+        "id": "demo-person",
+        "displayName": "Alex Example"
+      },
+      "links": [
+        {
+          "kind": "source-request",
+          "label": "REQ-DEMO-001",
+          "url": "https://desk.example.com/requests/demo-request"
+        }
+      ]
+    },
+    "nativeRequestId": "130",
+    "definition": {
+      "id": "67",
+      "name": "Multi-node directory test"
+    },
+    "executionId": "639300000000000001",
+    "flowRunId": "33333333-3333-4333-8333-333333333333",
+    "actionId": "44444444-4444-4444-8444-444444444444",
+    "sourceOutcome": "Failed",
+    "startedAtUtc": "2026-11-16T08:00:01\u002B00:00",
+    "completedAtUtc": "2026-11-16T08:00:09\u002B00:00",
+    "totals": {
+      "total": 5,
+      "succeeded": 0,
+      "failed": 5,
+      "skipped": 0,
+      "cancelled": 0,
+      "timedOut": 0,
+      "unknown": 0
+    },
+    "targets": [
+      {
+        "id": "node-1",
+        "name": "Demo node 1",
+        "hostname": "demo-1.example.test",
+        "childRunId": "639300000000000002",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-1",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-2",
+        "name": "Demo node 2",
+        "hostname": "demo-2.example.test",
+        "childRunId": "639300000000000003",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-2",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-3",
+        "name": "Demo node 3",
+        "hostname": "demo-3.example.test",
+        "childRunId": "639300000000000004",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-3",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-4",
+        "name": "Demo node 4",
+        "hostname": "demo-4.example.test",
+        "childRunId": "639300000000000005",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-4",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      },
+      {
+        "id": "node-5",
+        "name": "Demo node 5",
+        "hostname": "demo-5.example.test",
+        "childRunId": "639300000000000006",
+        "outcome": "Failed",
+        "failedSteps": [
+          {
+            "id": "activity-5",
+            "ordinal": 6,
+            "name": "List requested directory",
+            "type": "command",
+            "outcome": "Failed",
+            "exitCode": 2,
+            "reason": "Directory not found",
+            "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+            "diagnosticState": "available"
+          }
+        ],
+        "omittedSteps": 0
+      }
+    ],
+    "omittedTargets": 0,
+    "evidenceState": "available",
+    "links": [
+      {
+        "kind": "native-request",
+        "label": "Request 130",
+        "url": "https://net.example.com/requests?search=130"
+      },
+      {
+        "kind": "job-run",
+        "label": "Job execution",
+        "url": "https://net.example.com/jobs/67/runs/639300000000000001"
+      },
+      {
+        "kind": "flow-run",
+        "label": "Flow run",
+        "url": "https://net.example.com/flows?tenantId=1\u0026run=33333333-3333-4333-8333-333333333333"
+      }
+    ]
+  },
+  "expected": {
+    "incidentReference": "INC-DEMO-001",
+    "failedTargetsLabel": "5 of 5 targets failed",
+    "nativeRequestId": "130",
+    "definitionId": "67",
+    "parentRunId": "639300000000000001",
+    "failedActivityOrdinal": 6,
+    "childExitCode": 2,
+    "aggregateExitCode": null
+  },
+  "standard": {
+    "mode": "standard",
+    "templateId": "system-standard",
+    "revision": "1",
+    "schemaVersion": "netratel.incident-context.v1",
+    "contentDigest": "c22cf4b0eec13d8b85ad23177168ea1dad73df13f2d75a72fffc3c06a1384a42",
+    "layoutDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "create": {
+    "contractVersion": "rateldesk.incident-create.v2",
+    "target": {
+      "organizationId": "demo-org",
+      "customerId": "demo-customer",
+      "assignedToId": null,
+      "categoryIds": [],
+      "priority": 2
+    },
+    "presentation": {
+      "mode": "standard",
+      "templateId": "system-standard",
+      "revision": "1",
+      "schemaVersion": "netratel.incident-context.v1",
+      "contentDigest": "c22cf4b0eec13d8b85ad23177168ea1dad73df13f2d75a72fffc3c06a1384a42",
+      "layoutDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "context": {
+      "schemaVersion": "netratel.incident-context.v1",
+      "sourceKind": "job",
+      "origin": {
+        "schemaVersion": "rateldesk.automation-origin.v1",
+        "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
+        "organization": {
+          "id": "demo-org",
+          "name": "Demo organization"
+        },
+        "request": {
+          "id": "demo-request",
+          "reference": "REQ-DEMO-001",
+          "title": "Multi-node directory test",
+          "submittedAtUtc": "2026-11-16T08:00:00\u002B00:00"
+        },
+        "service": {
+          "id": "demo-service",
+          "name": "Workplace automation"
+        },
+        "requestForm": {
+          "id": "demo-form",
+          "name": "Directory test"
+        },
+        "task": {
+          "id": "demo-task",
+          "name": "Check directory on five nodes"
+        },
+        "attemptId": "automation-attempt-demo-001",
+        "correlationId": "automation-attempt-demo-001",
+        "submittedBy": {
+          "id": "demo-submitter",
+          "displayName": "Sam Demo"
+        },
+        "requestedFor": {
+          "id": "demo-person",
+          "displayName": "Alex Example"
+        },
+        "links": [
+          {
+            "kind": "source-request",
+            "label": "REQ-DEMO-001",
+            "url": "https://desk.example.com/requests/demo-request"
+          }
+        ]
+      },
+      "nativeRequestId": "130",
+      "definition": {
+        "id": "67",
+        "name": "Multi-node directory test"
+      },
+      "executionId": "639300000000000001",
+      "flowRunId": "33333333-3333-4333-8333-333333333333",
+      "actionId": "44444444-4444-4444-8444-444444444444",
+      "sourceOutcome": "Failed",
+      "startedAtUtc": "2026-11-16T08:00:01\u002B00:00",
+      "completedAtUtc": "2026-11-16T08:00:09\u002B00:00",
+      "totals": {
+        "total": 5,
+        "succeeded": 0,
+        "failed": 5,
+        "skipped": 0,
+        "cancelled": 0,
+        "timedOut": 0,
+        "unknown": 0
+      },
+      "targets": [
+        {
+          "id": "node-1",
+          "name": "Demo node 1",
+          "hostname": "demo-1.example.test",
+          "childRunId": "639300000000000002",
+          "outcome": "Failed",
+          "failedSteps": [
+            {
+              "id": "activity-1",
+              "ordinal": 6,
+              "name": "List requested directory",
+              "type": "command",
+              "outcome": "Failed",
+              "exitCode": 2,
+              "reason": "Directory not found",
+              "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+              "diagnosticState": "available"
+            }
+          ],
+          "omittedSteps": 0
+        },
+        {
+          "id": "node-2",
+          "name": "Demo node 2",
+          "hostname": "demo-2.example.test",
+          "childRunId": "639300000000000003",
+          "outcome": "Failed",
+          "failedSteps": [
+            {
+              "id": "activity-2",
+              "ordinal": 6,
+              "name": "List requested directory",
+              "type": "command",
+              "outcome": "Failed",
+              "exitCode": 2,
+              "reason": "Directory not found",
+              "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+              "diagnosticState": "available"
+            }
+          ],
+          "omittedSteps": 0
+        },
+        {
+          "id": "node-3",
+          "name": "Demo node 3",
+          "hostname": "demo-3.example.test",
+          "childRunId": "639300000000000004",
+          "outcome": "Failed",
+          "failedSteps": [
+            {
+              "id": "activity-3",
+              "ordinal": 6,
+              "name": "List requested directory",
+              "type": "command",
+              "outcome": "Failed",
+              "exitCode": 2,
+              "reason": "Directory not found",
+              "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+              "diagnosticState": "available"
+            }
+          ],
+          "omittedSteps": 0
+        },
+        {
+          "id": "node-4",
+          "name": "Demo node 4",
+          "hostname": "demo-4.example.test",
+          "childRunId": "639300000000000005",
+          "outcome": "Failed",
+          "failedSteps": [
+            {
+              "id": "activity-4",
+              "ordinal": 6,
+              "name": "List requested directory",
+              "type": "command",
+              "outcome": "Failed",
+              "exitCode": 2,
+              "reason": "Directory not found",
+              "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+              "diagnosticState": "available"
+            }
+          ],
+          "omittedSteps": 0
+        },
+        {
+          "id": "node-5",
+          "name": "Demo node 5",
+          "hostname": "demo-5.example.test",
+          "childRunId": "639300000000000006",
+          "outcome": "Failed",
+          "failedSteps": [
+            {
+              "id": "activity-5",
+              "ordinal": 6,
+              "name": "List requested directory",
+              "type": "command",
+              "outcome": "Failed",
+              "exitCode": 2,
+              "reason": "Directory not found",
+              "errorExcerpt": "ls: cannot access \u0027/demo/missing\u0027: No such file or directory",
+              "diagnosticState": "available"
+            }
+          ],
+          "omittedSteps": 0
+        }
+      ],
+      "omittedTargets": 0,
+      "evidenceState": "available",
+      "links": [
+        {
+          "kind": "native-request",
+          "label": "Request 130",
+          "url": "https://net.example.com/requests?search=130"
+        },
+        {
+          "kind": "job-run",
+          "label": "Job execution",
+          "url": "https://net.example.com/jobs/67/runs/639300000000000001"
+        },
+        {
+          "kind": "flow-run",
+          "label": "Flow run",
+          "url": "https://net.example.com/flows?tenantId=1\u0026run=33333333-3333-4333-8333-333333333333"
+        }
+      ]
+    }
+  },
+  "fingerprint": "7a85a999f79f9193d77e331279bd87e65cbe31316baf3aae32eb6486637b75f9",
+  "canonicalCreateJson": "{\u0022contractVersion\u0022:\u0022rateldesk.incident-create.v2\u0022,\u0022target\u0022:{\u0022organizationId\u0022:\u0022demo-org\u0022,\u0022customerId\u0022:\u0022demo-customer\u0022,\u0022assignedToId\u0022:null,\u0022categoryIds\u0022:[],\u0022priority\u0022:2},\u0022presentation\u0022:{\u0022mode\u0022:\u0022standard\u0022,\u0022templateId\u0022:\u0022system-standard\u0022,\u0022revision\u0022:\u00221\u0022,\u0022schemaVersion\u0022:\u0022netratel.incident-context.v1\u0022,\u0022contentDigest\u0022:\u0022c22cf4b0eec13d8b85ad23177168ea1dad73df13f2d75a72fffc3c06a1384a42\u0022,\u0022layoutDigest\u0022:\u0022e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\u0022},\u0022context\u0022:{\u0022schemaVersion\u0022:\u0022netratel.incident-context.v1\u0022,\u0022sourceKind\u0022:\u0022job\u0022,\u0022origin\u0022:{\u0022schemaVersion\u0022:\u0022rateldesk.automation-origin.v1\u0022,\u0022sourceInstanceId\u0022:\u002211111111-1111-4111-8111-111111111111\u0022,\u0022organization\u0022:{\u0022id\u0022:\u0022demo-org\u0022,\u0022name\u0022:\u0022Demo organization\u0022},\u0022request\u0022:{\u0022id\u0022:\u0022demo-request\u0022,\u0022reference\u0022:\u0022REQ-DEMO-001\u0022,\u0022title\u0022:\u0022Multi-node directory test\u0022,\u0022submittedAtUtc\u0022:\u00222026-11-16T08:00:00\u002B00:00\u0022},\u0022service\u0022:{\u0022id\u0022:\u0022demo-service\u0022,\u0022name\u0022:\u0022Workplace automation\u0022},\u0022requestForm\u0022:{\u0022id\u0022:\u0022demo-form\u0022,\u0022name\u0022:\u0022Directory test\u0022},\u0022task\u0022:{\u0022id\u0022:\u0022demo-task\u0022,\u0022name\u0022:\u0022Check directory on five nodes\u0022},\u0022attemptId\u0022:\u0022automation-attempt-demo-001\u0022,\u0022correlationId\u0022:\u0022automation-attempt-demo-001\u0022,\u0022submittedBy\u0022:{\u0022id\u0022:\u0022demo-submitter\u0022,\u0022displayName\u0022:\u0022Sam Demo\u0022},\u0022requestedFor\u0022:{\u0022id\u0022:\u0022demo-person\u0022,\u0022displayName\u0022:\u0022Alex Example\u0022},\u0022links\u0022:[{\u0022kind\u0022:\u0022source-request\u0022,\u0022label\u0022:\u0022REQ-DEMO-001\u0022,\u0022url\u0022:\u0022https://desk.example.com/requests/demo-request\u0022}]},\u0022nativeRequestId\u0022:\u0022130\u0022,\u0022definition\u0022:{\u0022id\u0022:\u002267\u0022,\u0022name\u0022:\u0022Multi-node directory test\u0022},\u0022executionId\u0022:\u0022639300000000000001\u0022,\u0022flowRunId\u0022:\u002233333333-3333-4333-8333-333333333333\u0022,\u0022actionId\u0022:\u002244444444-4444-4444-8444-444444444444\u0022,\u0022sourceOutcome\u0022:\u0022Failed\u0022,\u0022startedAtUtc\u0022:\u00222026-11-16T08:00:01\u002B00:00\u0022,\u0022completedAtUtc\u0022:\u00222026-11-16T08:00:09\u002B00:00\u0022,\u0022totals\u0022:{\u0022total\u0022:5,\u0022succeeded\u0022:0,\u0022failed\u0022:5,\u0022skipped\u0022:0,\u0022cancelled\u0022:0,\u0022timedOut\u0022:0,\u0022unknown\u0022:0},\u0022targets\u0022:[{\u0022id\u0022:\u0022node-1\u0022,\u0022name\u0022:\u0022Demo node 1\u0022,\u0022hostname\u0022:\u0022demo-1.example.test\u0022,\u0022childRunId\u0022:\u0022639300000000000002\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022failedSteps\u0022:[{\u0022id\u0022:\u0022activity-1\u0022,\u0022ordinal\u0022:6,\u0022name\u0022:\u0022List requested directory\u0022,\u0022type\u0022:\u0022command\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022exitCode\u0022:2,\u0022reason\u0022:\u0022Directory not found\u0022,\u0022errorExcerpt\u0022:\u0022ls: cannot access \\u0027/demo/missing\\u0027: No such file or directory\u0022,\u0022diagnosticState\u0022:\u0022available\u0022}],\u0022omittedSteps\u0022:0},{\u0022id\u0022:\u0022node-2\u0022,\u0022name\u0022:\u0022Demo node 2\u0022,\u0022hostname\u0022:\u0022demo-2.example.test\u0022,\u0022childRunId\u0022:\u0022639300000000000003\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022failedSteps\u0022:[{\u0022id\u0022:\u0022activity-2\u0022,\u0022ordinal\u0022:6,\u0022name\u0022:\u0022List requested directory\u0022,\u0022type\u0022:\u0022command\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022exitCode\u0022:2,\u0022reason\u0022:\u0022Directory not found\u0022,\u0022errorExcerpt\u0022:\u0022ls: cannot access \\u0027/demo/missing\\u0027: No such file or directory\u0022,\u0022diagnosticState\u0022:\u0022available\u0022}],\u0022omittedSteps\u0022:0},{\u0022id\u0022:\u0022node-3\u0022,\u0022name\u0022:\u0022Demo node 3\u0022,\u0022hostname\u0022:\u0022demo-3.example.test\u0022,\u0022childRunId\u0022:\u0022639300000000000004\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022failedSteps\u0022:[{\u0022id\u0022:\u0022activity-3\u0022,\u0022ordinal\u0022:6,\u0022name\u0022:\u0022List requested directory\u0022,\u0022type\u0022:\u0022command\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022exitCode\u0022:2,\u0022reason\u0022:\u0022Directory not found\u0022,\u0022errorExcerpt\u0022:\u0022ls: cannot access \\u0027/demo/missing\\u0027: No such file or directory\u0022,\u0022diagnosticState\u0022:\u0022available\u0022}],\u0022omittedSteps\u0022:0},{\u0022id\u0022:\u0022node-4\u0022,\u0022name\u0022:\u0022Demo node 4\u0022,\u0022hostname\u0022:\u0022demo-4.example.test\u0022,\u0022childRunId\u0022:\u0022639300000000000005\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022failedSteps\u0022:[{\u0022id\u0022:\u0022activity-4\u0022,\u0022ordinal\u0022:6,\u0022name\u0022:\u0022List requested directory\u0022,\u0022type\u0022:\u0022command\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022exitCode\u0022:2,\u0022reason\u0022:\u0022Directory not found\u0022,\u0022errorExcerpt\u0022:\u0022ls: cannot access \\u0027/demo/missing\\u0027: No such file or directory\u0022,\u0022diagnosticState\u0022:\u0022available\u0022}],\u0022omittedSteps\u0022:0},{\u0022id\u0022:\u0022node-5\u0022,\u0022name\u0022:\u0022Demo node 5\u0022,\u0022hostname\u0022:\u0022demo-5.example.test\u0022,\u0022childRunId\u0022:\u0022639300000000000006\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022failedSteps\u0022:[{\u0022id\u0022:\u0022activity-5\u0022,\u0022ordinal\u0022:6,\u0022name\u0022:\u0022List requested directory\u0022,\u0022type\u0022:\u0022command\u0022,\u0022outcome\u0022:\u0022Failed\u0022,\u0022exitCode\u0022:2,\u0022reason\u0022:\u0022Directory not found\u0022,\u0022errorExcerpt\u0022:\u0022ls: cannot access \\u0027/demo/missing\\u0027: No such file or directory\u0022,\u0022diagnosticState\u0022:\u0022available\u0022}],\u0022omittedSteps\u0022:0}],\u0022omittedTargets\u0022:0,\u0022evidenceState\u0022:\u0022available\u0022,\u0022links\u0022:[{\u0022kind\u0022:\u0022native-request\u0022,\u0022label\u0022:\u0022Request 130\u0022,\u0022url\u0022:\u0022https://net.example.com/requests?search=130\u0022},{\u0022kind\u0022:\u0022job-run\u0022,\u0022label\u0022:\u0022Job execution\u0022,\u0022url\u0022:\u0022https://net.example.com/jobs/67/runs/639300000000000001\u0022},{\u0022kind\u0022:\u0022flow-run\u0022,\u0022label\u0022:\u0022Flow run\u0022,\u0022url\u0022:\u0022https://net.example.com/flows?tenantId=1\\u0026run=33333333-3333-4333-8333-333333333333\u0022}]}}",
+  "receipt": {
+    "contractVersion": "rateldesk.incident-create.v2",
+    "receiverInstanceId": "11111111-1111-4111-8111-111111111111",
+    "sourceNamespaceId": "55555555-5555-4555-8555-555555555555",
+    "sourceInstanceId": "22222222-2222-4222-8222-222222222222",
+    "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "fingerprint": "7a85a999f79f9193d77e331279bd87e65cbe31316baf3aae32eb6486637b75f9",
+    "outcome": "committed",
+    "incidentId": "demo-incident",
+    "trackingId": "INC-DEMO-001",
+    "organizationId": "demo-org",
+    "customerId": "demo-customer",
+    "committedAtUtc": "2026-11-16T08:00:10\u002B00:00",
+    "location": "/api/v1/incidents/demo-incident",
+    "publicLink": "https://desk.example.com/incidents/demo-incident",
+    "flowRunId": "33333333-3333-4333-8333-333333333333",
+    "actionId": "44444444-4444-4444-8444-444444444444",
+    "originRelation": {
+      "status": "linked",
+      "relationId": "66666666-6666-4666-8666-666666666666",
+      "sourceRequestId": "demo-request",
+      "sourceAttemptId": "automation-attempt-demo-001"
+    },
+    "presentation": {
+      "mode": "standard",
+      "templateId": "system-standard",
+      "revision": "1",
+      "schemaVersion": "netratel.incident-context.v1",
+      "contentDigest": "c22cf4b0eec13d8b85ad23177168ea1dad73df13f2d75a72fffc3c06a1384a42",
+      "layoutDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

@@ -17,7 +17,7 @@ export async function reviewPage(browser: Browser, origin: string, mode: ReviewM
   const profile = mode.zoom === 2 ? await mkdtemp(path.join(tmpdir(), 'rateldesk-table-review-')) : null;
   const extension = path.resolve('tests/ux/native-zoom-extension');
   const options = { viewport: { width: mode.width, height: mode.height }, ignoreHTTPSErrors: true, timezoneId: 'Africa/Johannesburg' };
-  const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', headless: false, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
+  const context = profile ? await chromium.launchPersistentContext(profile, { ...options, channel: 'chromium', executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, headless: process.env.HELPDESK_REVIEW_HEADLESS === '1', args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }) : await browser.newContext(options);
   let page: Page | undefined;
   try {
     await context.addInitScript(theme => {
@@ -88,6 +88,17 @@ export async function reviewCapture(page: Page, info: TestInfo, mode: ReviewMode
   await page.evaluate(async () => { await document.fonts.ready; });
   await captureTables(page, label);
   const screenshot = info.outputPath(`${label}.png`);
-  await page.screenshot({ path: screenshot, fullPage: mode.zoom !== 2, animations: 'disabled', mask: [page.locator('input[type=password], [data-sensitive]')] });
+  if (mode.zoom === 2) {
+    // Chromium's clipped screenshot path double-applies scrolled native zoom
+    // offsets. Capture the visible surface directly, with the same secret mask.
+    const mask = await page.addStyleTag({ content: 'input[type=password], [data-sensitive] { visibility: hidden !important; }' });
+    const session = await page.context().newCDPSession(page);
+    try {
+      const visible = await session.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(screenshot, Buffer.from(visible.data, 'base64'));
+    } finally { await session.detach(); await mask.evaluate(element => element.remove()); }
+  } else {
+    await page.screenshot({ path: screenshot, fullPage: true, animations: 'disabled', mask: [page.locator('input[type=password], [data-sensitive]')] });
+  }
   await writeFile(info.outputPath(`${label}.json`), JSON.stringify({ baseline: baselineReview, route: new URL(page.url()).pathname, mode, expectedIds, observation, screenshot: path.basename(screenshot), screenshotScope: mode.zoom === 2 ? 'native viewport' : 'full page', visibleTables: await page.locator('table:visible').count() }, null, 2));
 }

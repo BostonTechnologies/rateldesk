@@ -167,6 +167,8 @@ public sealed class OrchestrationConnectivityProbeResultDto
 
 public sealed class OrchestrationIngestRequest
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationTrace.Contracts.AutomationOriginContext? OriginContext { get; set; }
     public string RequestId { get; set; } = string.Empty;
     public string RequestTaskId { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;

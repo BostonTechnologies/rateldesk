@@ -1009,6 +1009,7 @@ builder.Services.AddServiceOrchestrationCallbacks();
 builder.Services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
 builder.Services.AddScoped<IAuthorizationHandler, IncidentCreateBoundaryHandler>();
 builder.Services.AddScoped<IncidentReceiver>();
+builder.Services.AddScoped<IncidentOriginValidator>();
 builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
 builder.Services.AddSingleton<McpExecutionTokenService>();
 
@@ -1175,6 +1176,9 @@ app.MapGet("/api/v1/auth/ai-agent/status", (ClaimsPrincipal user) => Results.Ok(
 app.MapAiAgentOpsEndpoints();
 app.MapActivityEndpoints();
 app.MapIncidentEndpoints();
+app.MapTicketRelationEndpoints();
+app.MapAutomationReportEndpoints();
+Helpdesk.API.Endpoints.Integrations.AutomationIncidentEndpoints.MapAutomationIncidentEndpoints(app);
 Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.MapIncidentReceiverEndpoints(app);
 Helpdesk.API.Endpoints.Integrations.IncidentReceiverSourceEndpoints.MapIncidentReceiverSourceEndpoints(app);
 app.MapEmailEndpoints();
@@ -1182,6 +1186,7 @@ app.MapEmailSettingsEndpoints();
 app.MapInboundEmailRuleEndpoints();
 app.MapEmailLayoutEndpoints();
 app.MapEmailTemplateEndpoints();
+app.MapInternalIncidentTemplateEndpoints();
 app.MapRequestEndpoints();
 app.MapRequestWorkflowTimelineEndpoints();
 app.MapSelfServiceRequestEndpoints();

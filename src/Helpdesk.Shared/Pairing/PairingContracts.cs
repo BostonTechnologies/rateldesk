@@ -17,7 +17,11 @@ public sealed record PairingChoice(string Id, string Name, string? ParentId = nu
 public sealed record PairingDirectory(PairingChoice[] Tenants, PairingChoice[] Customers);
 public sealed record PairingSetupDirectory(PairingChoice[] NetRatelTenants, PairingChoice[] RatelDeskOrganizations, PairingChoice[] RatelDeskCustomers);
 public sealed record PairingMapping(string Id, string PairId, string Name, string NetRatelTenantId,
-    string RatelDeskOrganizationId, string? RatelDeskCustomerId, bool CreateIncidents, bool RunAutomation);
+    string RatelDeskOrganizationId, string? RatelDeskCustomerId, bool CreateIncidents, bool RunAutomation)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UseIncidentTemplates { get; init; }
+}
 public sealed record PairingBusinessCredential(string ClientId, string ClientSecret, string TokenEndpoint,
     string Audience, string Issuer, string[] Scopes, string? SourceInstanceId, string? SourceNamespaceId);
 public sealed record PairingSaveRequest(string OperationId, long Revision, PairingMapping Mapping, PairingBusinessCredential? Credential);

@@ -600,6 +600,7 @@ public sealed class IncidentReceiverTests
             builder.Services.AddScoped<IIncidentReceiverAuthorization, IncidentReceiverAuthorization>();
             builder.Services.AddScoped<IAuthorizationHandler, IncidentCreateBoundaryHandler>();
             builder.Services.AddScoped<IncidentReceiver>();
+            builder.Services.AddScoped<IncidentOriginValidator>();
             builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
             builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
             builder.Services.AddAuthentication("ReceiverTest")
@@ -637,6 +638,10 @@ public sealed class IncidentReceiverTests
                 if (http.Request.Headers.ContainsKey("X-Synthetic-Lost-Response")) throw new IOException("Synthetic response loss after commit.");
             });
             app.MapIncidentEndpoints();
+            Helpdesk.API.Endpoints.Ticketing.TicketRelationEndpoints.MapTicketRelationEndpoints(app);
+            Helpdesk.API.Endpoints.Ticketing.AutomationReportEndpoints.MapAutomationReportEndpoints(app);
+            app.MapAutomationIncidentEndpoints();
+            Helpdesk.API.Endpoints.Email.InternalIncidentTemplateEndpoints.MapInternalIncidentTemplateEndpoints(app);
             app.MapRequestTaskEndpoints();
             app.MapIncidentReceiverEndpoints();
             app.MapIncidentReceiverSourceEndpoints();

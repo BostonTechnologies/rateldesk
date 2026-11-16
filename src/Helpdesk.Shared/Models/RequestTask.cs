@@ -19,6 +19,8 @@ public class RequestTask : Ticket
     public bool? AutoStart { get; set; } = true;
     public string? AutomationAttemptCorrelationId { get; set; }
     public string? AutomationAttemptHistoryJson { get; set; }
+    public string? AutomationOriginJson { get; set; }
+    public string? AutomationDispatchPayloadJson { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public int? TaskSlaMinutes { get; set; }

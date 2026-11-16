@@ -47,8 +47,9 @@ public static class ServiceIdentityScopes
     public const string IncidentCreate = "rateldesk.incidents.create";
     public const string IncidentReceipts = "rateldesk.incident-receipts.read";
     public const string IncidentTargets = "rateldesk.incident-targets.read";
+    public const string IncidentTemplates = "rateldesk.incident-templates.read";
     public const string Callback = "rateldesk.orchestration.callback";
-    public static readonly string[] Business = [IncidentCreate, IncidentReceipts, IncidentTargets, Callback];
+    public static readonly string[] Business = [IncidentCreate, IncidentReceipts, IncidentTargets, IncidentTemplates, Callback];
     public static readonly string[] All = Business;
 }
 

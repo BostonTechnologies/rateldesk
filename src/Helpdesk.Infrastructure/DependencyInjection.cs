@@ -219,6 +219,8 @@ public static class DependencyInjection
         services.AddScoped<IOrchestrationProtectedDiagnosticsClient, OrchestrationInternalClient>();
         services.AddScoped<IOrchestrationCatalogService, OrchestrationCatalogService>();
         services.AddScoped<IRequestTaskPayloadBuilder, RequestTaskPayloadBuilder>();
+        services.AddScoped<AutomationOriginSnapshotBuilder>();
+        services.AddScoped<Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateService>();
         services.AddScoped<DataManagementService>();
         services.AddScoped<IDataManagementService>(provider => provider.GetRequiredService<DataManagementService>());
         services.AddScoped<IOperatorDatasetWriter>(provider => provider.GetRequiredService<DataManagementService>());

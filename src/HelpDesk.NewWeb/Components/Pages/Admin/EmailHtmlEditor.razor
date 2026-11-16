@@ -88,6 +88,7 @@
     [Parameter] public IReadOnlyCollection<string> Placeholders { get; set; } = Array.Empty<string>();
     [Parameter] public string PreviewTitle { get; set; } = "Preview";
     [Parameter] public bool ShowTenantSelector { get; set; } = true;
+    [Parameter] public Helpdesk.Shared.DTOs.Orchestration.InternalIncidentTemplateDraft? InternalIncidentDraft { get; set; }
 
     private readonly string editorId = $"email-html-editor-{Guid.NewGuid():N}";
     private readonly List<TenantLookupDto> tenants = new();
@@ -212,6 +213,22 @@
 
         isPreviewLoading = true;
         StateHasChanged();
+
+        if (InternalIncidentDraft is { } internalDraft)
+        {
+            try
+            {
+                using var internalResponse = await HelpdeskApi.PostAsJsonAsync("api/v1/internal-incident-templates/preview",
+                    new Helpdesk.Shared.DTOs.Orchestration.InternalIncidentTemplatePreview(internalDraft with
+                    { HtmlTemplate = currentValue, SubjectTemplate = DraftSubject ?? internalDraft.SubjectTemplate }));
+                var rendered = internalResponse.IsSuccessStatusCode ? await internalResponse.Content.ReadFromJsonAsync<AutomationTrace.Contracts.IncidentTemplatePreview>() : null;
+                previewSubject = rendered?.Subject ?? "Preview unavailable";
+                previewHtml = rendered?.Html ?? "<p>Check the template tokens and rendering limits.</p>";
+            }
+            catch (HttpRequestException) { previewSubject = "Preview unavailable"; previewHtml = "<p>Retry when the service is available.</p>"; }
+            finally { isPreviewLoading = false; StateHasChanged(); }
+            return;
+        }
 
         var payload = new TemplatePreviewRequest
         {

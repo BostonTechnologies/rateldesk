@@ -740,7 +740,7 @@ public static class IncidentEndpoints
                 return Results.BadRequest("An incident cannot be related to itself.");
             }
 
-            if (!Enum.IsDefined(typeof(TicketRelationType), dto.RelationType))
+            if (dto.RelationType is not (TicketRelationType.RelatedTo or TicketRelationType.DuplicateOf))
             {
                 return Results.BadRequest("Invalid relation type.");
             }
@@ -774,9 +774,25 @@ public static class IncidentEndpoints
                 return Results.Forbid();
             }
 
+            if (dto.RelationType == TicketRelationType.RelatedTo && !dto.CloseSourceTicket)
+            {
+                if (await db.TicketRelations.AnyAsync(x => x.RelationType == TicketRelationType.RelatedTo &&
+                    (x.SourceTicketId == source.Id && x.TargetTicketId == target.Id || x.SourceTicketId == target.Id && x.TargetTicketId == source.Id), token))
+                    return Results.Conflict("This relation already exists.");
+                var neutral = new TicketRelationService(db);
+                var linked = await neutral.LinkAsync(source, target, user.FindFirstValue(ClaimTypes.NameIdentifier) ?? "",
+                    user.Identity?.Name ?? "Staff", dto.Note, token);
+                return Results.Created($"/api/v1/incidents/{source.Id}/relations/{linked.Id}", new TicketRelationCreateResultDto
+                {
+                    Relation = TicketRelationService.Map(linked, linked.SourceTicketId == source.Id ? source : target,
+                        linked.TargetTicketId == target.Id ? target : source, source.Id),
+                    SourceIncident = ToIncidentDto(source), TargetIncident = ToIncidentDto(target)
+                });
+            }
+
             var exists = await db.TicketRelations.AnyAsync(x =>
-                x.SourceTicketId == source.Id &&
-                x.TargetTicketId == target.Id &&
+                (x.SourceTicketId == source.Id && x.TargetTicketId == target.Id ||
+                    dto.RelationType == TicketRelationType.RelatedTo && x.SourceTicketId == target.Id && x.TargetTicketId == source.Id) &&
                 x.RelationType == dto.RelationType,
                 token);
             if (exists)
@@ -797,8 +813,8 @@ public static class IncidentEndpoints
 
             var relation = new TicketRelation
             {
-                SourceTicketId = source.Id,
-                TargetTicketId = target.Id,
+                SourceTicketId = dto.RelationType == TicketRelationType.RelatedTo && string.CompareOrdinal(source.Id, target.Id) > 0 ? target.Id : source.Id,
+                TargetTicketId = dto.RelationType == TicketRelationType.RelatedTo && string.CompareOrdinal(source.Id, target.Id) > 0 ? source.Id : target.Id,
                 RelationType = dto.RelationType,
                 Note = string.IsNullOrWhiteSpace(dto.Note) ? null : dto.Note.Trim(),
                 CreatedByUserId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
@@ -831,7 +847,8 @@ public static class IncidentEndpoints
 
             var result = new TicketRelationCreateResultDto
             {
-                Relation = ToRelationDto(relation, source, target, source.Id),
+                Relation = TicketRelationService.Map(relation, relation.SourceTicketId == source.Id ? source : target,
+                    relation.TargetTicketId == target.Id ? target : source, source.Id),
                 SourceIncident = ToIncidentDto(source),
                 TargetIncident = ToIncidentDto(target),
                 AddedParentListeners = addedParentListeners

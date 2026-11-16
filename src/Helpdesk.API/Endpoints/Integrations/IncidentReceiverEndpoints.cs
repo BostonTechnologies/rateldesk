@@ -39,6 +39,17 @@ public static class IncidentReceiverEndpoints
             return Results.Ok(new
             {
                 contractVersion = IncidentReceiverContract.Version, receiverInstanceId = receiverId.Value.ToString("D"),
+                automationPresentation = new
+                {
+                    contractVersion = AutomationTrace.Contracts.AutomationTraceContract.IncidentVersion,
+                    schemaVersion = AutomationTrace.Contracts.AutomationTraceContract.ContextVersion,
+                    standard = Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateService.Standard,
+                    createEndpoint = apiBase + "/api/v1/integrations/netratel/incidents",
+                    catalogueEndpoint = apiBase + "/api/v1/integrations/netratel/incident-templates",
+                    previewEndpoint = apiBase + "/api/v1/integrations/netratel/incident-templates/preview",
+                    templateScope = ServiceIdentityScopes.IncidentTemplates
+                    , webOrigin = effective?.Identity.WebBaseUrl ?? ""
+                },
                 sourceInstanceId = sourceId.ToString("D"), sourceNamespaceId = approved.Source.SourceNamespaceId.ToString("D"),
                 organizationName = approved.Organization.Name, customerName = approved.Customer.Name,
                 createEndpoint = apiBase + "/api/v1/incidents/",

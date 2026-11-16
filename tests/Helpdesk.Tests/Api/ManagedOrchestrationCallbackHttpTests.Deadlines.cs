@@ -54,6 +54,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         Assert.Equal("retained-request", task.OrchestrationExternalRequestId);
         Assert.Equal("retained-run", task.OrchestrationExternalRunId);
         Assert.Equal("[]", task.AutomationAttemptHistoryJson);
+        Assert.Null(task.AutomationOriginJson);
+        Assert.Null(task.AutomationDispatchPayloadJson);
         Assert.Null(task.AutomationDeadlineUtcTicks);
         Assert.False(task.AutomationContinuationPending);
         Assert.Equal(0, task.AutomationStateVersion);
@@ -668,6 +670,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         {
             base.OnModelCreating(builder);
             builder.Entity<Request>().Ignore(request => request.OperatorHold);
+            builder.Entity<RequestTask>().Ignore(task => task.AutomationOriginJson);
+            builder.Entity<RequestTask>().Ignore(task => task.AutomationDispatchPayloadJson);
             builder.Entity<Customer>().Ignore("IdentityUserId");
             if (Database.IsSqlite())
             {

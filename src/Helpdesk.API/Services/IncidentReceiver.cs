@@ -14,23 +14,30 @@ using Helpdesk.Shared.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using AutomationTrace;
+using AutomationTrace.Contracts;
+using Helpdesk.Infrastructure.EmailTemplates;
 
 namespace Helpdesk.API.Services;
 
 public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuthorization authorization,
     IRequestSender sender, ISupportAccessService support, ITicketNotificationService notifications,
     IHtmlSanitizerService sanitizer, IHtmlToPlainTextConverter converter, IIngressEffectContext ingress,
-    MailboxOutboxStore outbox, TimeProvider time)
+    MailboxOutboxStore outbox, TimeProvider time,
+    InternalIncidentTemplateService? presentations = null, IncidentOriginValidator? origins = null,
+    Helpdesk.Infrastructure.ServiceIdentity.IServicePublicSettingsResolver? publicSettings = null)
 {
     public async Task<IResult> CreateAsync(ClaimsPrincipal principal, Guid sourceId, string key, CreateIncidentDto dto,
-        HttpContext http, CancellationToken ct)
+        HttpContext http, CancellationToken ct, AutomationIncidentCreate? trace = null)
     {
         var approved = await authorization.ResolveAsync(principal, sourceId, IncidentReceiverOperation.Create, ct);
         if (approved is null) return IncidentReceiverContract.Problem(403, "source-not-authorized");
         if (dto.OrganizationId != approved.Organization.Id || dto.CustomerId != approved.Customer.Id)
             return IncidentReceiverContract.Problem(403, "target-not-authorized");
         if (!IncidentReceiverContract.ValidRequest(dto)) return IncidentReceiverContract.Problem(400, "invalid-incident-request");
-        var fingerprint = IncidentReceiverContract.Fingerprint(dto, sanitizer, converter);
+        if (trace is not null && !AutomationTraceValidation.Create(trace))
+            return IncidentReceiverContract.Problem(400, "invalid-incident-context");
+        var fingerprint = trace is null ? IncidentReceiverContract.Fingerprint(dto, sanitizer, converter) : AutomationTraceValidation.Fingerprint(trace);
         var prior = await db.IncidentCreateReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
             x.SourceNamespaceId == approved.Source.SourceNamespaceId && x.Key == key, ct);
         if (prior is not null) return Replay(prior, approved, fingerprint, http);
@@ -40,6 +47,21 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         if (receiverId is null) return IncidentReceiverContract.Problem(503, "receiver-not-initialized");
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        IncidentTemplatePreview? report = null;
+        Helpdesk.Shared.Models.Request? originRequest = null;
+        if (trace is not null)
+        {
+            if (trace.Presentation.Mode == "template" && await authorization.ResolveAsync(principal, sourceId,
+                    IncidentReceiverOperation.ReadPresentation, ct) is null)
+                return IncidentReceiverContract.Problem(403, "incident-template-access-denied");
+            var originCheck = await (origins ?? throw new InvalidOperationException("Origin validation is unavailable.")).ValidateAsync(principal, approved, trace.Context, ct);
+            if (originCheck.Error is not null) return originCheck.Error;
+            originRequest = originCheck.Request;
+            try { report = await (presentations ?? throw new InvalidOperationException("Presentation rendering is unavailable."))
+                .RenderAsync(approved.Organization.Id, new(trace.Presentation, trace.Context), ct); }
+            catch (Exception error) when (error is ArgumentException or Helpdesk.Application.Services.EmailTemplates.TemplateRenderException)
+            { return IncidentReceiverContract.Problem(422, "incident-presentation-rejected"); }
+        }
         var receipt = new IncidentCreateReceipt
         {
             Id = Guid.NewGuid(), SourceNamespaceId = approved.Source.SourceNamespaceId, Key = key,
@@ -53,8 +75,8 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         var categories = IncidentReceiverContract.Categories(dto.CategoryIds);
         var cc = IncidentReceiverContract.Cc(dto.CcRecipients);
         cc.Remove(approved.Customer.Email.Trim().ToLowerInvariant());
-        var created = await sender.Send(new CreateIncidentCommand(dto.Title,
-            converter.Convert(sanitizer.Sanitize(dto.Description)), dto.Priority, approved.Customer.Id, approved.Organization.Id,
+        var created = await sender.Send(new CreateIncidentCommand(report?.Subject ?? dto.Title,
+            report?.Summary ?? converter.Convert(sanitizer.Sanitize(dto.Description)), dto.Priority, approved.Customer.Id, approved.Organization.Id,
             dto.LinkedAssetIds, dto.Attachments, IncidentReceiverContract.DueDateUtc(dto.DueDate), dto.Impact,
             approved.Customer.Email, cc, dto.AssignedToId), ct);
         db.IncidentCategoryLinks.AddRange(categories.Select(id => new IncidentCategoryLink
@@ -66,6 +88,23 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         receipt.IncidentId = created.Id;
         receipt.Location = $"{http.Request.PathBase}/api/v1/incidents/{created.Id}";
         receipt.CommittedAtUtc = time.GetUtcNow();
+        TicketRelation? originRelation = null;
+        if (trace is not null && report is not null)
+        {
+            db.Add(new AutomationIncidentReportRecord
+            {
+                Id = Guid.NewGuid(), IncidentId = created.Id, SourceRequestId = originRequest?.Id,
+                Html = report.Html, PlainText = report.PlainText, ContextJson = JsonSerializer.Serialize(trace.Context, AutomationTraceValidation.Json),
+                PresentationJson = JsonSerializer.Serialize(trace.Presentation, AutomationTraceValidation.Json),
+                FlowRunId = trace.Context.FlowRunId, ActionId = trace.Context.ActionId, CreatedAtUtc = receipt.CommittedAtUtc
+            });
+            if (originRequest is not null)
+            {
+                originRelation = TicketRelationService.Map(created, originRequest, Helpdesk.Shared.Enums.TicketRelationType.AutomationFailureOf,
+                    "automation", "Automation");
+                db.TicketRelations.Add(originRelation);
+            }
+        }
         var accepted = new IntegrationIncidentDto
         {
             OrganizationId = created.OrganizationId, Id = created.Id, TrackingId = created.TrackingId,
@@ -78,7 +117,24 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
                 approved.Source.SourceNamespaceId.ToString("D"), sourceId.ToString("D"), key, fingerprint, "committed",
                 created.Id, created.TrackingId, created.OrganizationId, created.CustomerId, receipt.CommittedAtUtc, receipt.Location)
         };
-        receipt.AcceptedJson = JsonSerializer.Serialize(accepted, IncidentReceiverContract.Json);
+        if (trace is null) receipt.AcceptedJson = JsonSerializer.Serialize(accepted, IncidentReceiverContract.Json);
+        else
+        {
+            var settings = await (publicSettings ?? throw new InvalidOperationException("Public settings are unavailable.")).ResolveAsync(ct);
+            var web = settings.Identity.WebBaseUrl.TrimEnd('/');
+            var publicLink = Uri.TryCreate(web, UriKind.Absolute, out var publicOrigin) && publicOrigin.Scheme == "https" &&
+                publicOrigin.UserInfo.Length == 0 && publicOrigin.Query.Length == 0 && publicOrigin.Fragment.Length == 0
+                ? web + "/incidents/" + Uri.EscapeDataString(created.Id) : null;
+            var integrationReceipt = new AutomationIncidentReceipt(AutomationTraceContract.IncidentVersion,
+                receiverId.Value.ToString("D"), approved.Source.SourceNamespaceId.ToString("D"), sourceId.ToString("D"), key,
+                fingerprint, "committed", created.Id, created.TrackingId, created.OrganizationId!, created.CustomerId!,
+                receipt.CommittedAtUtc, receipt.Location, publicLink, trace.Context.FlowRunId, trace.Context.ActionId,
+                new(originRelation is null ? "not-applicable" : "linked", originRelation?.Id.ToString("D"), originRequest?.Id,
+                    originRequest is null ? null : trace.Context.Origin!.AttemptId), trace.Presentation);
+            receipt.AcceptedJson = JsonSerializer.Serialize(new { id = created.Id, trackingId = created.TrackingId,
+                organizationId = created.OrganizationId, customerId = created.CustomerId, subject = created.Title,
+                summary = created.Description, integrationReceipt }, AutomationTraceValidation.Json);
+        }
         await outbox.FlushAsync(ct);
         await transaction.CommitAsync(ct);
         http.Response.Headers.Location = receipt.Location;
@@ -120,7 +176,7 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
 
     /// <summary>Execution strategy and losing-writer retries always use fresh scoped contexts and captured-effect buffers.</summary>
     public static async Task<IResult> ExecuteCreateAsync(IServiceProvider services, ClaimsPrincipal principal,
-        Guid sourceId, string key, CreateIncidentDto dto, HttpContext http, CancellationToken ct)
+        Guid sourceId, string key, CreateIncidentDto dto, HttpContext http, CancellationToken ct, AutomationIncidentCreate? trace = null)
     {
         var strategy = services.GetRequiredService<HelpdeskDbContext>().Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -131,7 +187,7 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
                 try
                 {
                     return await scope.ServiceProvider.GetRequiredService<IncidentReceiver>()
-                        .CreateAsync(principal, sourceId, key, dto, http, ct);
+                        .CreateAsync(principal, sourceId, key, dto, http, ct, trace);
                 }
                 catch (Exception error) when (attempt < 3 && IsCompetingWriter(error))
                 {

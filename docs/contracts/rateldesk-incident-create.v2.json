@@ -1,0 +1,1104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rateldesk.example/rateldesk.incident-create.v2.json",
+  "title": "RatelDesk automation traceability v2",
+  "$ref": "#/$defs/create",
+  "$defs": {
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "person": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "displayName": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "displayName"
+      ]
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "maxLength": 32,
+          "enum": [
+            "source-request",
+            "source-portal",
+            "native-request",
+            "job-run",
+            "flow-run"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "url"
+      ]
+    },
+    "sourceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "submittedAtUtc": {
+          "type": "string",
+          "maxLength": 40,
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "reference",
+        "title",
+        "submittedAtUtc"
+      ]
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "rateldesk.automation-origin.v1"
+        },
+        "sourceInstanceId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "organization": {
+          "$ref": "#/$defs/entity"
+        },
+        "request": {
+          "$ref": "#/$defs/sourceRequest"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/entity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestForm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/entity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task": {
+          "$ref": "#/$defs/entity"
+        },
+        "attemptId": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "correlationId": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "submittedBy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/person"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestedFor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/person"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/link"
+          },
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceInstanceId",
+        "organization",
+        "request",
+        "service",
+        "requestForm",
+        "task",
+        "attemptId",
+        "correlationId",
+        "submittedBy",
+        "requestedFor",
+        "links"
+      ]
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "cancelled": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "timedOut": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "total",
+        "succeeded",
+        "failed",
+        "skipped",
+        "cancelled",
+        "timedOut",
+        "unknown"
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ordinal": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "maxLength": 24,
+          "enum": [
+            "Succeeded",
+            "Failed",
+            "Skipped",
+            "Cancelled",
+            "TimedOut",
+            "Unknown",
+            "Unsupported",
+            "Denied"
+          ]
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "errorExcerpt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diagnosticState": {
+          "type": "string",
+          "maxLength": 32,
+          "enum": [
+            "available",
+            "truncated",
+            "redacted",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "ordinal",
+        "name",
+        "type",
+        "outcome",
+        "exitCode",
+        "reason",
+        "errorExcerpt",
+        "diagnosticState"
+      ]
+    },
+    "targetEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "childRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 32,
+              "pattern": "^[1-9][0-9]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "maxLength": 24,
+          "enum": [
+            "Succeeded",
+            "Failed",
+            "Skipped",
+            "Cancelled",
+            "TimedOut",
+            "Unknown",
+            "Unsupported",
+            "Denied"
+          ]
+        },
+        "failedSteps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          },
+          "maxItems": 8
+        },
+        "omittedSteps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "hostname",
+        "childRunId",
+        "outcome",
+        "failedSteps",
+        "omittedSteps"
+      ]
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "netratel.incident-context.v1"
+        },
+        "sourceKind": {
+          "type": "string",
+          "maxLength": 32,
+          "enum": [
+            "job",
+            "request",
+            "script",
+            "alert",
+            "monitoring",
+            "generic"
+          ]
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/origin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nativeRequestId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 32,
+              "pattern": "^[1-9][0-9]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/entity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "executionId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flowRunId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "actionId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "sourceOutcome": {
+          "type": "string",
+          "maxLength": 24,
+          "enum": [
+            "Succeeded",
+            "Failed",
+            "Skipped",
+            "Cancelled",
+            "TimedOut",
+            "Unknown",
+            "Unsupported",
+            "Denied"
+          ]
+        },
+        "startedAtUtc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40,
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completedAtUtc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40,
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "totals": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/totals"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetEvidence"
+          },
+          "maxItems": 25
+        },
+        "omittedTargets": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "evidenceState": {
+          "type": "string",
+          "maxLength": 32,
+          "enum": [
+            "available",
+            "truncated",
+            "redacted",
+            "unavailable"
+          ]
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/link"
+          },
+          "maxItems": 3
+        },
+        "supplement": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/presentationSupplement"
+            }
+          ]
+        },
+        "jobExecution": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/jobExecution"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sourceKind",
+        "origin",
+        "nativeRequestId",
+        "definition",
+        "executionId",
+        "flowRunId",
+        "actionId",
+        "sourceOutcome",
+        "startedAtUtc",
+        "completedAtUtc",
+        "totals",
+        "targets",
+        "omittedTargets",
+        "evidenceState",
+        "links"
+      ]
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "maxLength": 16,
+          "enum": [
+            "standard",
+            "template"
+          ]
+        },
+        "templateId": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "maxLength": 32,
+          "minLength": 1
+        },
+        "schemaVersion": {
+          "const": "netratel.incident-context.v1"
+        },
+        "contentDigest": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "layoutDigest": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "mode",
+        "templateId",
+        "revision",
+        "schemaVersion",
+        "contentDigest",
+        "layoutDigest"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organizationId": {
+          "type": "string",
+          "maxLength": 64,
+          "minLength": 1
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 64,
+          "minLength": 1
+        },
+        "assignedToId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "categoryIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "maxItems": 16
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        }
+      },
+      "required": [
+        "organizationId",
+        "customerId",
+        "assignedToId",
+        "categoryIds",
+        "priority"
+      ]
+    },
+    "create": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "const": "rateldesk.incident-create.v2"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "presentation": {
+          "$ref": "#/$defs/presentation"
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        }
+      },
+      "required": [
+        "contractVersion",
+        "target",
+        "presentation",
+        "context"
+      ]
+    },
+    "catalogueItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "organizationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "purpose": {
+          "const": "netratel-internal-incident"
+        },
+        "sourceKinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "maxItems": 6
+        },
+        "presentation": {
+          "$ref": "#/$defs/presentation"
+        },
+        "retired": {
+          "type": "boolean"
+        },
+        "revoked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "organizationId",
+        "purpose",
+        "sourceKinds",
+        "presentation",
+        "retired",
+        "revoked"
+      ]
+    },
+    "previewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "presentation": {
+          "$ref": "#/$defs/presentation"
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        }
+      },
+      "required": [
+        "presentation",
+        "context"
+      ]
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "html": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "plainText": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "presentation": {
+          "$ref": "#/$defs/presentation"
+        }
+      },
+      "required": [
+        "subject",
+        "summary",
+        "html",
+        "plainText",
+        "presentation"
+      ]
+    },
+    "originRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "maxLength": 24,
+          "enum": [
+            "linked",
+            "not-applicable",
+            "unavailable"
+          ]
+        },
+        "relationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 36,
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceRequestId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceAttemptId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256,
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "relationId",
+        "sourceRequestId",
+        "sourceAttemptId"
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "const": "rateldesk.incident-create.v2"
+        },
+        "receiverInstanceId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "sourceNamespaceId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "sourceInstanceId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9._~-]{1,256}$"
+        },
+        "fingerprint": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "outcome": {
+          "const": "committed"
+        },
+        "incidentId": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1
+        },
+        "trackingId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "organizationId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "committedAtUtc": {
+          "type": "string",
+          "maxLength": 40,
+          "format": "date-time"
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "publicLink": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 2048,
+              "format": "uri",
+              "pattern": "^https://"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flowRunId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "actionId": {
+          "type": "string",
+          "maxLength": 36,
+          "format": "uuid"
+        },
+        "originRelation": {
+          "$ref": "#/$defs/originRelation"
+        },
+        "presentation": {
+          "$ref": "#/$defs/presentation"
+        }
+      },
+      "required": [
+        "contractVersion",
+        "receiverInstanceId",
+        "sourceNamespaceId",
+        "sourceInstanceId",
+        "key",
+        "fingerprint",
+        "outcome",
+        "incidentId",
+        "trackingId",
+        "organizationId",
+        "customerId",
+        "committedAtUtc",
+        "location",
+        "publicLink",
+        "flowRunId",
+        "actionId",
+        "originRelation",
+        "presentation"
+      ]
+    },
+    "presentationSupplement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceDetails": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 12000
+        },
+        "aiInvestigation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        },
+        "recovery": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2500
+        }
+      },
+      "required": [
+        "sourceDetails",
+        "aiInvestigation",
+        "recovery"
+      ]
+    },
+    "jobExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "definitionId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,31}$"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,31}$"
+        }
+      },
+      "required": [
+        "definitionId",
+        "runId"
+      ]
+    }
+  }
+}

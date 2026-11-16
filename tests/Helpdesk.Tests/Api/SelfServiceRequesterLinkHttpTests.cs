@@ -67,9 +67,11 @@ public sealed class SelfServiceRequesterLinkHttpTests
     }
 
     [Theory]
-    [InlineData("authentik_user_id")]
-    [InlineData("ak_user_id")]
-    public async Task Enabled_provider_id_only_link_keeps_its_trusted_requester_and_organization(string claim)
+    [InlineData("authentik_user_id", true)]
+    [InlineData("authentik_user_id", false)]
+    [InlineData("ak_user_id", true)]
+    [InlineData("ak_user_id", false)]
+    public async Task Enabled_provider_id_only_link_keeps_its_trusted_requester_and_organization(string claim, bool withSubmissionKey)
     {
         await using var h = await CreateAsync(claim);
         await h.EditAsync(db =>
@@ -89,7 +91,8 @@ public sealed class SelfServiceRequesterLinkHttpTests
         Assert.Equal(h.OrganizationId, preview.OrganizationId);
         await AssertUnchangedAsync(h, 1);
 
-        using var submitted = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", Submission());
+        var submission = Submission(); if (!withSubmissionKey) submission.SubmissionId = null;
+        using var submitted = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", submission);
         Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
         await AssertSubmittedAsync(h);
     }
@@ -184,6 +187,7 @@ public sealed class SelfServiceRequesterLinkHttpTests
             Assert.Equal(h.CustomerId, request.CustomerId);
             Assert.Equal(h.OrganizationId, request.OrganizationId);
             Assert.Equal((await db.Customers.SingleAsync()).Email, request.RequesterEmail);
+            Assert.NotNull(request.SelfServiceSubmitterId);
             Assert.Empty(await db.RequestTasks.IgnoreQueryFilters().ToListAsync());
         });
 

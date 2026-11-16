@@ -133,6 +133,7 @@ public sealed class OrchestrationAutomationTargetDto
 
 public sealed class OrchestrationAutomationCapabilitiesDto
 {
+    public string? OriginContextSchema { get; set; }
     public int ContractVersion { get; set; } = 1;
     public IReadOnlyList<string> TargetKinds { get; set; } = ["legacyAgent"];
     public bool Catalogue { get; set; } = true;
