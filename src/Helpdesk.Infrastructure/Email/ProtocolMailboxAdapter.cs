@@ -52,7 +52,7 @@ public sealed class ProtocolMailboxAdapter(
             var socket = await destinations.ConnectAsync(settings.MailHost, settings.Port, ct);
             await client.ConnectAsync(socket, settings.MailHost, settings.Port, Tls(settings), ct);
             await AuthenticateAsync(client, settings, ct);
-            if (!client.Capabilities.HasFlag(Pop3Capabilities.UIDL))
+            if (!client.Capabilities.Contains(Pop3Capability.UIDL))
                 throw new NotSupportedException("Stable UIDL is required for unattended POP3 ingestion.");
             return client;
         }
@@ -271,7 +271,7 @@ public sealed class ProtocolMailboxAdapter(
             if (settings.MarkReadAfterSuccess) await folder.AddFlagsAsync(uid, MessageFlags.Seen, true, ct);
             if (!string.IsNullOrWhiteSpace(settings.ProcessedFolder))
             {
-                if (!client.Capabilities.HasFlag(ImapCapabilities.Move))
+                if (!client.Capabilities.Contains(ImapCapability.Move))
                     throw new NotSupportedException("Server does not support safe MOVE; configure mark-read disposition instead.");
                 var destination = await client.GetFolderAsync(settings.ProcessedFolder, ct);
                 await folder.MoveToAsync(uid, destination, ct);

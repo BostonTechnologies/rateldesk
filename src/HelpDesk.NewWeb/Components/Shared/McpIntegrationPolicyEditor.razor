@@ -86,6 +86,7 @@
     [Parameter] public DateTime CredentialExpiry { get; set; }
     [Parameter] public bool Disabled { get; set; }
     private McpPolicyScopeDraft? loaded;
+    private bool allAccess;
     private string name = "", effect = "Allow", expiryText = "", operationSearch = "";
     private HashSet<string> selectedOperations = new(StringComparer.Ordinal);
     private HashSet<string> permissions = new(StringComparer.OrdinalIgnoreCase);
@@ -97,29 +98,31 @@
     {
         if (ReferenceEquals(loaded, Value)) return;
         loaded = Value;
+        allAccess = Value.AllAccess;
         name = Value.Name; effect = Value.Effect; expiryText = FormatUtc(Value.ExpiresUtc);
         selectedOperations = Value.Operations.ToHashSet(StringComparer.Ordinal);
         permissions = Value.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
         exceptions = Value.Exceptions.Select(x => new ExceptionEditor { Name = x.Name, ExpiryText = FormatUtc(x.ExpiresUtc), Operations = x.Operations.ToHashSet(StringComparer.Ordinal) }).ToList();
     }
     private Task NameChangedAsync(string value) { name = value; return EmitAsync(); }
-    private Task EffectChangedAsync(string value) { effect = value; return EmitAsync(); }
+    private Task EffectChangedAsync(string value) { allAccess = false; effect = value; return EmitAsync(); }
     private Task ExpiryChangedAsync(string value) { expiryText = value; return EmitAsync(); }
-    private Task AllAccessAsync() { selectedOperations = Operations.Select(x => x.Key).ToHashSet(StringComparer.Ordinal); permissions = EligiblePermissions.ToHashSet(StringComparer.OrdinalIgnoreCase); effect = "Allow"; PresetName("All access"); return EmitAsync(); }
-    private Task ReadOnlyAsync() { selectedOperations = Operations.Where(x => x.Effect == "read").Select(x => x.Key).ToHashSet(StringComparer.Ordinal); permissions = EligiblePermissions.ToHashSet(StringComparer.OrdinalIgnoreCase); effect = "Allow"; PresetName("Read only"); return EmitAsync(); }
+    private Task AllAccessAsync() { allAccess = true; selectedOperations = Operations.Select(x => x.Key).ToHashSet(StringComparer.Ordinal); permissions = EligiblePermissions.ToHashSet(StringComparer.OrdinalIgnoreCase); effect = "Allow"; PresetName("All access"); return EmitAsync(); }
+    private Task ReadOnlyAsync() { allAccess = false; selectedOperations = Operations.Where(x => x.Effect == "read").Select(x => x.Key).ToHashSet(StringComparer.Ordinal); permissions = EligiblePermissions.ToHashSet(StringComparer.OrdinalIgnoreCase); effect = "Allow"; PresetName("Read only"); return EmitAsync(); }
     private void PresetName(string preset)
     {
         if (name.EndsWith(" · All access", StringComparison.Ordinal) || name.EndsWith(" · Read only", StringComparison.Ordinal))
             name = name[..name.LastIndexOf(" · ", StringComparison.Ordinal)] + " · " + preset;
     }
-    private Task FamilyChangedAsync(string[] keys, ChangeEventArgs args) { if (args.Value is true) selectedOperations.UnionWith(keys); else selectedOperations.ExceptWith(keys); return EmitAsync(); }
-    private Task OperationChangedAsync(string key, ChangeEventArgs args) { if (args.Value is true) selectedOperations.Add(key); else selectedOperations.Remove(key); return EmitAsync(); }
+    private Task FamilyChangedAsync(string[] keys, ChangeEventArgs args) { allAccess = false; if (args.Value is true) selectedOperations.UnionWith(keys); else selectedOperations.ExceptWith(keys); return EmitAsync(); }
+    private Task OperationChangedAsync(string key, ChangeEventArgs args) { allAccess = false; if (args.Value is true) selectedOperations.Add(key); else selectedOperations.Remove(key); return EmitAsync(); }
     private Task PermissionsChangedAsync(IEnumerable<string> values)
     {
+        allAccess = false;
         permissions = values.Union(permissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return EmitAsync();
     }
-    private Task RemoveUnavailablePermissionAsync(string permission) { if (!Disabled) permissions.Remove(permission); return EmitAsync(); }
+    private Task RemoveUnavailablePermissionAsync(string permission) { allAccess = false; if (!Disabled) permissions.Remove(permission); return EmitAsync(); }
     private Task AddExceptionAsync() { if (Disabled || exceptions.Count >= 100 || selectedOperations.Count == 0) return Task.CompletedTask; exceptions.Add(new() { Name = $"Operation exception {exceptions.Count + 1}", ExpiryText = expiryText }); return EmitAsync(); }
     private Task RemoveExceptionAsync(int index) { exceptions.RemoveAt(index); return EmitAsync(); }
     private Task ExceptionNameChangedAsync(int index, string value) { exceptions[index].Name = value; return EmitAsync(); }
@@ -130,6 +133,7 @@
         if (Disabled) return Task.CompletedTask;
         loaded = Value with
         {
+            AllAccess = allAccess, PermissionCatalogSnapshot = null,
             Name = name.Trim(), Effect = effect, ExpiresUtc = ParseUtc(expiryText) ?? DateTime.MinValue,
             Permissions = permissions.Order(StringComparer.Ordinal).ToArray(), Operations = selectedOperations.Order(StringComparer.Ordinal).ToArray(),
             Exceptions = exceptions.Select(x => new McpPolicyExceptionDraft(x.Name.Trim(), "Deny", x.Operations.Order(StringComparer.Ordinal).ToArray(), ParseUtc(x.ExpiryText) ?? DateTime.MinValue)).ToArray()

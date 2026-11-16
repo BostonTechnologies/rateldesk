@@ -1,4 +1,4 @@
-.automation-reports { margin: .5rem 0; padding: .65rem; border: 1px solid var(--mud-palette-lines-default); border-radius: var(--mud-default-borderradius); }
+.automation-reports { min-width: 0; margin: 0; padding: 0; }
 .automation-report-body { overflow-wrap: anywhere; font-size: .875rem; max-width: 100%; }
 .automation-report-body ::deep table { display: block; overflow: auto; border-collapse: collapse; max-height: 22rem; }
 .automation-report-body ::deep th, .automation-report-body ::deep td { padding: .35rem .5rem; border: 1px solid var(--mud-palette-lines-default); text-align: start; vertical-align: top; }
@@ -13,3 +13,26 @@
 .automation-report-body ::deep th:nth-child(3), .automation-report-body ::deep td:nth-child(3) { min-width: 5.5rem; }
 .automation-report-body ::deep th:nth-child(4), .automation-report-body ::deep td:nth-child(4) { min-width: 5rem; }
 .automation-report-body ::deep th:nth-child(5), .automation-report-body ::deep td:nth-child(5) { min-width: 15rem; }
+
+.automation-report-body ::deep a {
+    color: var(--mud-palette-primary);
+    text-decoration: underline;
+    text-underline-offset: .18em;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+.automation-report-body ::deep a:hover { text-decoration-thickness: 2px; }
+.automation-report-body ::deep a:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; border-radius: 3px; }
+.automation-report-body ::deep ul:has(> li > a) { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; margin: .75rem 0; list-style: none; }
+.automation-report-body ::deep li:has(> a) { min-width: 0; max-width: 100%; }
+.automation-report-body ::deep li a { display: inline-flex; align-items: center; min-height: 32px; padding: .25rem .5rem; border: 1px solid var(--mud-palette-divider); border-radius: var(--mud-default-borderradius); }
+.automation-report-body ::deep details { margin: .5rem 0; }
+.automation-report-body ::deep summary { padding: .4rem .5rem; border: 1px solid var(--mud-palette-divider); border-radius: var(--mud-default-borderradius); cursor: pointer; font-size: .8125rem; }
+.automation-report-body ::deep summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.automation-report-body ::deep th { position: sticky; top: 0; background: var(--mud-palette-surface); font-size: .8125rem; }
+.automation-report-body ::deep h4 { margin: .65rem 0 .3rem; font-size: .875rem; }
+@media (max-width: 600px) {
+    .automation-reports { padding: .5rem; }
+    .automation-report-body ::deep dl { grid-template-columns: minmax(0, 1fr); gap: .15rem; }
+    .automation-report-body ::deep dd { margin-bottom: .4rem; }
+}

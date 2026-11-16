@@ -19,6 +19,7 @@ for (const mode of reviewModes) test(`internal templates and reciprocal automati
  await reviewPage(browser, 'https://127.0.0.1:5190', mode, async page => {
   for (const type of ['incidents', 'requests']) {
    await reviewOpen(page, 'https://127.0.0.1:5190', `/${type}/${type}-1`);
+   await page.getByRole('tab', { name: 'Automation', exact: true }).click();
    const report = page.getByRole('region', { name: 'Automation reports', exact: true });
    await expect(report).toBeVisible();
    await expect(report.getByText('5 of 5 targets failed', { exact: false }).first()).toBeVisible();

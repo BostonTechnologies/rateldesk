@@ -24,6 +24,9 @@ public sealed class AutomationTraceabilityTests
         var token = await PairingBusinessFixture.TokenAsync(h, client);
         var body = Payload(h);
         await SeedOriginAsync(h, client, body.Context);
+        using var emptyReports = await h.AdminAsync(HttpMethod.Get, "/api/v1/tickets/source-request/automation-reports");
+        Assert.Equal(HttpStatusCode.OK, emptyReports.StatusCode);
+        Assert.Empty((await emptyReports.Content.ReadFromJsonAsync<List<InternalIncidentReportDto>>())!);
         using var first = await SendAsync(h, token, "trace-demo", body);
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         var accepted = await first.Content.ReadAsStringAsync();
@@ -33,6 +36,14 @@ public sealed class AutomationTraceabilityTests
         Assert.Equal(body.Context.Origin!.Request.Id, receipt.OriginRelation.SourceRequestId);
         Assert.Equal(body.Context.Origin.AttemptId, receipt.OriginRelation.SourceAttemptId);
         Assert.Equal(AutomationTraceValidation.Fingerprint(body), receipt.Fingerprint);
+        foreach (var ticketId in new[] { receipt.IncidentId, "source-request" })
+        {
+            using var reportResponse = await h.AdminAsync(HttpMethod.Get, $"/api/v1/tickets/{ticketId}/automation-reports");
+            Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
+            var report = Assert.Single((await reportResponse.Content.ReadFromJsonAsync<List<InternalIncidentReportDto>>())!);
+            Assert.Equal(receipt.IncidentId, report.IncidentId);
+            Assert.Contains("5 of 5 targets failed", report.PlainText);
+        }
         Assert.DoesNotContain("No such file", document.RootElement.GetProperty("subject").GetString());
         Assert.DoesNotContain("No such file", document.RootElement.GetProperty("summary").GetString());
         var counts = await h.CountsAsync();

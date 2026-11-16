@@ -53,7 +53,7 @@ public sealed class McpExecutableSchemaTests
                 AssertValid(schema, arguments, operation);
             }
             var wrongOperation = arguments.DeepClone().AsObject(); wrongOperation["operation"] = "not_a_supported_operation";
-            Assert.False(schema.Evaluate(wrongOperation).IsValid, $"{operation.Tool}.{operation.Operation} accepts unknown operation");
+            Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(wrongOperation)).IsValid, $"{operation.Tool}.{operation.Operation} accepts unknown operation");
             if (operation.RequestContract != "None")
             {
                 arguments["request"] ??= new JsonObject();
@@ -62,19 +62,19 @@ public sealed class McpExecutableSchemaTests
                 foreach (var name in requestSchema["required"]!.AsArray().Select(value => value!.GetValue<string>()))
                 {
                     var missingField = arguments.DeepClone().AsObject(); missingField["request"]!.AsObject().Remove(name);
-                    Assert.False(schema.Evaluate(missingField).IsValid, $"{operation.Tool}.{operation.Operation} accepts missing request.{name}");
+                    Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(missingField)).IsValid, $"{operation.Tool}.{operation.Operation} accepts missing request.{name}");
                 }
                 foreach (var field in requestSchema["properties"]!.AsObject().Where(field => field.Value?["enum"] is JsonArray))
                 {
                     var invalidEnum = arguments.DeepClone().AsObject(); invalidEnum["request"]![field.Key] = "not_an_enum_value";
-                    Assert.False(schema.Evaluate(invalidEnum).IsValid, $"{operation.Tool}.{operation.Operation} accepts invalid request.{field.Key}");
+                    Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(invalidEnum)).IsValid, $"{operation.Tool}.{operation.Operation} accepts invalid request.{field.Key}");
                 }
                 var missingRequest = arguments.DeepClone().AsObject(); missingRequest.Remove("request");
-                Assert.Equal(!operation.RequiresRequest, schema.Evaluate(missingRequest).IsValid);
+                Assert.Equal(!operation.RequiresRequest, schema.Evaluate(JsonSerializer.SerializeToElement(missingRequest)).IsValid);
                 var wrongType = arguments.DeepClone().AsObject(); wrongType["request"] = 123;
-                Assert.False(schema.Evaluate(wrongType).IsValid, $"{operation.Tool}.{operation.Operation} accepts nonobject request");
+                Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(wrongType)).IsValid, $"{operation.Tool}.{operation.Operation} accepts nonobject request");
                 var unknown = arguments.DeepClone().AsObject(); unknown["request"]!["unsupportedField"] = true;
-                Assert.False(schema.Evaluate(unknown).IsValid, $"{operation.Tool}.{operation.Operation} accepts unsupported field");
+                Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(unknown)).IsValid, $"{operation.Tool}.{operation.Operation} accepts unsupported field");
             }
         }
     }
@@ -125,15 +125,15 @@ public sealed class McpExecutableSchemaTests
     {
         var schema = Schema("helpdesk_admin_mutations");
         var request = new JsonObject { ["operation"] = "create_role", ["request"] = new JsonObject { ["name"] = "Owned role", ["ownerOrganizationId"] = "org-a", ["permissions"] = new JsonArray("Incident.Read", "Incident.Write") } };
-        Assert.True(schema.Evaluate(request).IsValid);
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
         var payload = request["request"]!.AsObject();
-        payload.Remove("ownerOrganizationId"); Assert.False(schema.Evaluate(request).IsValid);
-        payload["ownerOrganizationId"] = null; Assert.False(schema.Evaluate(request).IsValid);
-        payload["ownerOrganizationId"] = " "; Assert.False(schema.Evaluate(request).IsValid);
+        payload.Remove("ownerOrganizationId"); Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        payload["ownerOrganizationId"] = null; Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        payload["ownerOrganizationId"] = " "; Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
         payload["ownerOrganizationId"] = "org-a";
-        payload["permissions"] = new JsonArray("Incident.Write"); Assert.False(schema.Evaluate(request).IsValid);
-        payload["permissions"] = new JsonArray("Incident.Manager"); Assert.False(schema.Evaluate(request).IsValid);
-        payload["permissions"] = new JsonArray("Incident.Manager", "Incident.User"); Assert.True(schema.Evaluate(request).IsValid);
+        payload["permissions"] = new JsonArray("Incident.Write"); Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        payload["permissions"] = new JsonArray("Incident.Manager"); Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        payload["permissions"] = new JsonArray("Incident.Manager", "Incident.User"); Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
     }
 
     [Fact]
@@ -141,13 +141,13 @@ public sealed class McpExecutableSchemaTests
     {
         var schema = Schema("helpdesk_logs");
         var request = new JsonObject { ["operation"] = "search", ["request"] = new JsonObject() };
-        Assert.False(schema.Evaluate(request).IsValid);
-        request["request"]!["since"] = 42; Assert.True(schema.Evaluate(request).IsValid);
-        request["request"]!["since"] = "2026-10-17T00:00:00Z"; Assert.False(schema.Evaluate(request).IsValid);
+        Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        request["request"]!["since"] = 42; Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        request["request"]!["since"] = "2026-10-17T00:00:00Z"; Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
         request["request"]!.AsObject().Remove("since"); request["request"]!["correlationId"] = "trace-1";
-        Assert.True(schema.Evaluate(request).IsValid);
-        request["request"]!["correlationId"] = ""; Assert.False(schema.Evaluate(request).IsValid);
-        request["request"]!["correlationId"] = " "; Assert.False(schema.Evaluate(request).IsValid);
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        request["request"]!["correlationId"] = ""; Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
+        request["request"]!["correlationId"] = " "; Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
     }
 
     [Fact]
@@ -188,11 +188,11 @@ public sealed class McpExecutableSchemaTests
     {
         var schema = Schema("helpdesk_request_tasks");
         var request = new JsonObject { ["operation"] = "update", ["request"] = new JsonObject { ["taskId"] = "task-1", ["attachments"] = new JsonArray(), ["linkedAssetIds"] = new JsonArray() } };
-        Assert.True(schema.Evaluate(request).IsValid);
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
         request["request"]!["clearAssignment"] = true; request["request"]!["assignedToId"] = "user-1";
-        Assert.False(schema.Evaluate(request).IsValid);
+        Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
         request["request"]!.AsObject().Remove("assignedToId"); request["request"]!["clearDueDate"] = true; request["request"]!["dueDate"] = "2027-01-01T00:00:00Z";
-        Assert.False(schema.Evaluate(request).IsValid);
+        Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(request)).IsValid);
     }
 
     [Fact]
@@ -204,9 +204,9 @@ public sealed class McpExecutableSchemaTests
             ["operation"] = "update",
             ["request"] = new JsonObject { ["changeId"] = "change-one", ["changeType"] = "Normal", ["changeTemplate"] = new JsonObject { ["preChangeChecks"] = new JsonArray() } }
         };
-        Assert.True(schema.Evaluate(arguments).IsValid);
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
         arguments["request"]!["changeType"] = "2";
-        Assert.False(schema.Evaluate(arguments).IsValid);
+        Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
     }
 
     [Fact]
@@ -214,9 +214,9 @@ public sealed class McpExecutableSchemaTests
     {
         var schema = Schema("helpdesk_incidents");
         var arguments = new JsonObject { ["operation"] = "state", ["request"] = new JsonObject { ["incidentId"] = "incident-one", ["newState"] = "2" } };
-        Assert.True(schema.Evaluate(arguments).IsValid);
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
         arguments["request"]!["newState"] = "999";
-        Assert.False(schema.Evaluate(arguments).IsValid);
+        Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
     }
 
     [Fact]
@@ -225,9 +225,9 @@ public sealed class McpExecutableSchemaTests
         var options = new EvaluationOptions { RequireFormatValidation = true };
         var notifications = Schema("helpdesk_notifications");
         var arguments = new JsonObject { ["operation"] = "mark_read", ["request"] = new JsonObject { ["ids"] = new JsonArray("00000000-0000-0000-0000-000000000001") } };
-        Assert.True(notifications.Evaluate(arguments, options).IsValid);
+        Assert.True(notifications.Evaluate(JsonSerializer.SerializeToElement(arguments), options).IsValid);
         arguments["request"]!["ids"] = new JsonArray("not-a-guid");
-        Assert.False(notifications.Evaluate(arguments, options).IsValid);
+        Assert.False(notifications.Evaluate(JsonSerializer.SerializeToElement(arguments), options).IsValid);
         var category = McpOperationCatalog.All.Single(item => item.Operation == "update_category");
         Assert.Equal("uuid", HelpdeskToolDefinitions.RequestSchema(category)["properties"]!["categoryId"]!["format"]!.ToString());
         var role = McpOperationCatalog.All.Single(item => item.Operation == "update_role");
@@ -248,14 +248,14 @@ public sealed class McpExecutableSchemaTests
         template["isPreApproved"] = true;
         template["preChangeChecks"] = changeType == "Normal" ? new JsonArray("Example") : new JsonArray();
         var schema = JsonSchema.FromText(tool.ProtocolTool.InputSchema.GetRawText());
-        Assert.True(schema.Evaluate(arguments).IsValid);
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
         if (changeType == "Normal")
         {
-            template["preChangeChecks"] = new JsonArray(); Assert.False(schema.Evaluate(arguments).IsValid);
+            template["preChangeChecks"] = new JsonArray(); Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
             template["preChangeChecks"] = new JsonArray("Example");
         }
         template.Remove(removed);
-        Assert.False(schema.Evaluate(arguments).IsValid);
+        Assert.False(schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
     }
 
     [Fact]
@@ -365,7 +365,7 @@ public sealed class McpExecutableSchemaTests
     private static JsonSchema Schema(string tool) => JsonSchema.FromText(HelpdeskToolDefinitions.Create().Single(item => item.ProtocolTool.Name == tool).ProtocolTool.InputSchema.GetRawText());
     private static void AssertValid(JsonSchema schema, JsonObject arguments, McpOperationDefinition operation)
     {
-        var result = schema.Evaluate(arguments, new EvaluationOptions { OutputFormat = OutputFormat.List, RequireFormatValidation = true });
+        var result = schema.Evaluate(JsonSerializer.SerializeToElement(arguments), new EvaluationOptions { OutputFormat = OutputFormat.List, RequireFormatValidation = true });
         Assert.True(result.IsValid, $"{operation.Tool}.{operation.Operation}: {arguments.ToJsonString()}\n{JsonSerializer.Serialize(result)}");
     }
 }

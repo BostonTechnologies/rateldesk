@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.12-alpine3.23 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-alpine3.24 AS base
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8223
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
@@ -7,7 +7,7 @@ RUN addgroup -S -g 10001 helpdesk && adduser -S -D -H -u 10001 -G helpdesk helpd
 EXPOSE 8223
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8223/health/live || exit 1
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0.401-alpine3.23 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24 AS build
 WORKDIR /src
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local

@@ -1238,11 +1238,11 @@ public sealed partial class McpHttpHostTests
             var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(schemaElement, operation);
             arguments["confirm"] = false;
             var validator = Json.Schema.JsonSchema.FromText(schemaElement.GetRawText());
-            Assert.True(validator.Evaluate(arguments).IsValid, arguments.ToJsonString());
+            Assert.True(validator.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid, arguments.ToJsonString());
             var result = await mcp.CallToolAsync(tool, arguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: deadline.Token);
             Assert.Equal("confirmation_required", result.StructuredContent!.Value.GetProperty("status").GetString());
             arguments.Remove("confirm");
-            Assert.True(validator.Evaluate(arguments).IsValid);
+            Assert.True(validator.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
             result = await mcp.CallToolAsync(tool, arguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: deadline.Token);
             Assert.Equal("confirmation_required", result.StructuredContent!.Value.GetProperty("status").GetString());
         }
@@ -1365,7 +1365,7 @@ public sealed partial class McpHttpHostTests
         listArguments["request"]!["query"] = "needle";
         listArguments["request"]!["page"] = 1; listArguments["request"]!["pageSize"] = 1; listArguments["request"]!["includeTotal"] = true;
         var validator = Json.Schema.JsonSchema.FromText(incidentSchema.GetRawText());
-        Assert.True(validator.Evaluate(listArguments).IsValid);
+        Assert.True(validator.Evaluate(JsonSerializer.SerializeToElement(listArguments)).IsValid);
         string? catalogHash = null;
         var calls = 0;
         var duration = Stopwatch.StartNew();
@@ -1382,7 +1382,7 @@ public sealed partial class McpHttpHostTests
             var id = row.GetProperty("id").GetString(); Assert.Equal("incident-beta", id);
             var getArguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(incidentSchema, "get");
             getArguments["request"]!["incidentId"] = id;
-            Assert.True(validator.Evaluate(getArguments).IsValid);
+            Assert.True(validator.Evaluate(JsonSerializer.SerializeToElement(getArguments)).IsValid);
             var get = await mcp.CallToolAsync("helpdesk_incidents", getArguments.Deserialize<Dictionary<string, object?>>()!, cancellationToken: callDeadline.Token);
             Assert.True(get.StructuredContent!.Value.GetProperty("success").GetBoolean());
             Assert.Equal(id, get.StructuredContent.Value.GetProperty("data").GetProperty("id").GetString());

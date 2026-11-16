@@ -54,6 +54,7 @@ else
                 TicketType="incidents"
                 OrganizationId="@incident.OrganizationId"
                 PublicMode="false" CanContribute="@CanContribute" CanManage="@CanManage"
+                CanViewAutomationReports="@(CanManage || accessProfile?.HasPermission(Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentRead, incident.OrganizationId) == true)"
                 OnWorklogAdded="HandleWorklogAdded"
                 Class="flex-grow-1" />
         </MudItem>

@@ -64,8 +64,7 @@ public sealed class IntegrationCredentialSetupService(
 
         // Infrastructure registration binds both models to exactly the same database.
         // Never redirect a separately configured context merely to obtain a transaction.
-        if (identity.Database.ProviderName != db.Database.ProviderName ||
-            identity.Database.GetConnectionString() != db.Database.GetConnectionString())
+        if (!IntegrationDatabaseBinding.IsShared(db, identity))
             throw Failure(503, "setup_database_binding", "Integration setup requires the configured shared RatelDesk database.", "persistence");
 
         await using var transaction = await identity.Database.BeginTransactionAsync(ct);
@@ -116,7 +115,7 @@ public sealed class IntegrationCredentialSetupService(
         if (credential is null || credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= Now)
             throw Failure(410, "setup_revoked", "The integration was revoked, deleted or expired before delivery.", "delivery");
         var issuer = new IntegrationCredentialIssuer(owners, access, db, identity, clock);
-        var current = await issuer.ValidateAsync(principal, request.Credential with { ExpiresAtUtc = credential.ExpiresAtUtc, LifetimeDays = null }, ct);
+        var current = await issuer.ValidateAsync(principal, request.Credential with { ExpiresAtUtc = credential.ExpiresAtUtc.ToUniversalTime(), LifetimeDays = null }, ct);
         if (current.OwnerUserId != credential.OwnerUserId || current.Name != credential.Name || current.Purpose != credential.Purpose ||
             current.OrganizationId != credential.OrganizationId || current.McpResourceUri != credential.McpResourceUri ||
             !current.Permissions.Order(StringComparer.OrdinalIgnoreCase).SequenceEqual(credential.Permissions.Split(' ').Order(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase))

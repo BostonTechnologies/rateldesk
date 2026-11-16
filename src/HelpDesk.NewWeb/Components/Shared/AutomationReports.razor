@@ -1,16 +1,28 @@
+@using System.Net
 @using Helpdesk.Shared.DTOs.Orchestration
 @inject IHttpClientFactory HttpClientFactory
 
-@if (unavailable)
+@if (loading)
+{
+    <MudText Typo="Typo.caption" role="status">Loading automation reports…</MudText>
+}
+else if (unavailable)
 {
     <MudAlert Severity="Severity.Warning" Dense="true">Automation reports could not be loaded.
-        <MudButton Size="Size.Small" OnClick="RetryAsync">Retry</MudButton>
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" Class="ml-2" OnClick="RetryAsync">Retry</MudButton>
     </MudAlert>
 }
-@if (reports.Count > 0)
+else if (denied)
+{
+    <MudText Typo="Typo.caption" role="status">Automation reports are unavailable for this account or ticket.</MudText>
+}
+else if (reports.Count == 0)
+{
+    <MudText Typo="Typo.caption">No automation reports for this ticket.</MudText>
+}
+else
 {
     <section class="automation-reports" aria-label="Automation reports">
-        <MudText Typo="Typo.subtitle2">Automation</MudText>
         @foreach (var report in reports)
         {
             <MudExpansionPanels Dense="true" Elevation="0">
@@ -24,13 +36,13 @@
 @code {
     [Parameter] public string TicketId { get; set; } = string.Empty;
     private string? loaded;
-    private bool unavailable;
+    private bool unavailable, denied, loading;
     private Task RetryAsync() { loaded = null; return OnParametersSetAsync(); }
     private IReadOnlyList<InternalIncidentReportDto> reports = [];
     protected override async Task OnParametersSetAsync()
     {
         if (loaded == TicketId) return;
-        loaded = TicketId; reports = []; unavailable = false;
+        loaded = TicketId; reports = []; unavailable = false; denied = false; loading = true;
         var current = TicketId;
         try
         {
@@ -38,6 +50,14 @@
                 "api/v1/tickets/" + Uri.EscapeDataString(current) + "/automation-reports");
             if (current == TicketId) reports = result ?? [];
         }
-        catch (HttpRequestException) { if (current == TicketId) unavailable = true; }
+        catch (HttpRequestException error)
+        {
+            if (current == TicketId)
+            {
+                denied = error.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound;
+                unavailable = !denied;
+            }
+        }
+        finally { if (current == TicketId) loading = false; }
     }
 }

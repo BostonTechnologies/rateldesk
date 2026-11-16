@@ -15,7 +15,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Helpdesk.Tests.Infrastructure.Persistence;
 
-public sealed class IntegrationCredentialSetupProviderTests
+public sealed partial class IntegrationCredentialSetupProviderTests
 {
     [Theory]
     [InlineData(false, false)]
@@ -35,6 +35,7 @@ public sealed class IntegrationCredentialSetupProviderTests
         await using (var domain = fixture.Open())
         {
             var service = Service(identity, domain, fixture, clock);
+            Assert.Equal(request.Credential.ExpiresAtUtc, (await identity.IntegrationCredentials.AsNoTracking().SingleAsync()).ExpiresAtUtc);
             var repeated = await service.CreateAsync(request, Principal(), default);
             Assert.Equal(first.Credential.Id, repeated.Credential.Id);
             Assert.True(first.Credential.Secret == repeated.Credential.Secret, "A delivery retry must recover the original credential.");

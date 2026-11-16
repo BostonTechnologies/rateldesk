@@ -88,16 +88,16 @@ public sealed partial class McpGatewayRealAccessPipelineTests
                 ["permissions"] = new JsonArray(HelpdeskPermissions.IncidentRead)
             }
         };
-        Assert.True(mutationSchema.Evaluate(create).IsValid);
+        Assert.True(mutationSchema.Evaluate(JsonSerializer.SerializeToElement(create)).IsValid);
         var missingOwner = create.DeepClone().AsObject();
         missingOwner["request"]!.AsObject().Remove("ownerOrganizationId");
-        Assert.False(mutationSchema.Evaluate(missingOwner).IsValid);
+        Assert.False(mutationSchema.Evaluate(JsonSerializer.SerializeToElement(missingOwner)).IsValid);
         var missingDependency = create.DeepClone().AsObject();
         missingDependency["request"]!["permissions"] = new JsonArray(HelpdeskPermissions.IncidentWrite);
-        Assert.False(mutationSchema.Evaluate(missingDependency).IsValid);
+        Assert.False(mutationSchema.Evaluate(JsonSerializer.SerializeToElement(missingDependency)).IsValid);
         async Task<HelpdeskToolResponse> MutateAsync(JsonObject envelope)
         {
-            Assert.True(mutationSchema.Evaluate(envelope).IsValid, envelope.ToJsonString());
+            Assert.True(mutationSchema.Evaluate(JsonSerializer.SerializeToElement(envelope)).IsValid, envelope.ToJsonString());
             return await tools.helpdesk_admin_mutations(envelope["operation"]!.GetValue<string>(),
                 JsonSerializer.SerializeToElement(envelope["request"]), envelope["confirm"]!.GetValue<bool>());
         }
@@ -111,7 +111,7 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         var roleId = created.Data!["id"]!.GetValue<string>();
         await harness.AssertOwnedRoleAsync(roleId, "MCP owned incident reader", [HelpdeskPermissions.IncidentRead]);
         var read = new JsonObject { ["operation"] = "get", ["request"] = new JsonObject { ["roleId"] = roleId } };
-        Assert.True(readSchema.Evaluate(read).IsValid);
+        Assert.True(readSchema.Evaluate(JsonSerializer.SerializeToElement(read)).IsValid);
         var fetched = await tools.helpdesk_roles("get", JsonSerializer.SerializeToElement(read["request"]));
         Assert.True(fetched.Success, fetched.Summary);
         Assert.Equal("org-a", fetched.Data!["ownerOrganizationId"]!.GetValue<string>());

@@ -1001,6 +1001,7 @@ builder.Services.AddAiAgentOrOwnerMcp();
 builder.Services.AddScoped<IIntegrationCredentialOwnerResolver, IntegrationCredentialOwnerResolver>();
 builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
 builder.Services.AddScoped<IntegrationCredentialIssuer>();
+builder.Services.AddScoped<McpAllAccessReconciliation>();
 builder.Services.AddScoped<IntegrationCredentialPairingService>();
 builder.Services.AddScoped<HostDeploymentApprovalService>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -1047,6 +1048,7 @@ if (!skipDatabaseStartup)
         await TicketCategorySeed.SeedAsync(ctx);
         await SlaPolicySeed.SeedAsync(ctx);
         await RoleDefinitionSeeder.EnsureBuiltInsAsync(ctx);
+        await scope.ServiceProvider.GetRequiredService<McpAllAccessReconciliation>().ReconcileAsync();
 
         await scope.ServiceProvider.GetRequiredService<Helpdesk.Infrastructure.Email.MailboxConfigurationMigration>()
             .RunAsync(CancellationToken.None);

@@ -39,7 +39,7 @@ public sealed class OperatorAdapterTests
         using var request = JsonDocument.Parse("{\"bindingId\":\"binding-1\",\"body\":{\"syncState\":" + number + ",\"enabled\":false}}");
         var definition = HelpdeskToolDefinitions.Create().Single(tool => tool.ProtocolTool.Name == "helpdesk_automation");
         var arguments = new JsonObject { ["operation"] = "update_binding", ["request"] = JsonNode.Parse(request.RootElement.GetRawText()), ["confirm"] = true };
-        Assert.True(JsonSchema.FromText(definition.ProtocolTool.InputSchema.GetRawText()).Evaluate(arguments).IsValid);
+        Assert.True(JsonSchema.FromText(definition.ProtocolTool.InputSchema.GetRawText()).Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
 
         var result = await tools.helpdesk_automation("update_binding", request.RootElement, true);
 

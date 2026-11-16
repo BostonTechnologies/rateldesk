@@ -1,5 +1,5 @@
 # 1) Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.12-alpine3.23 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-alpine3.24 AS base
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8111
 # Enable full globalization support (ICU) for culture-sensitive components
@@ -10,7 +10,7 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 EXPOSE 8111 8111
 
 # 2) Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0.401-alpine3.23 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24 AS build
 WORKDIR /src
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local
