@@ -148,13 +148,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Trusted self submission adds one read-only requester/organization context.
         // Premium workspaces add five administration queries and an owned-request stream.
         // Owner review adds administrator-only organization assessment and retirement.
+        // Automation traceability adds fifteen report, relation and internal-template operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
         Assert.Equal(504, operationCount);
 #else
-        Assert.Equal(488, operationCount);
+        Assert.Equal(503, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, method, operationId, tag) in new[]
