@@ -1,5 +1,9 @@
 # Releases
 
+## 0.1.3-beta.13 — automation activity and full-access policy repair
+
+[Release notes](../release-notes/0.1.3-beta.13.md) cover the Automation tab, themed report navigation, #427 catalog intent and verified legacy repair, plus dependency updates coordinated with NetRatel 0.1.5-beta.7. Follow the existing exact-main validation and immutable publication process below.
+
 ## 0.1.3-beta.12 candidate — coordinated automation traceability
 
 Implements #421–#424 under #420: authoritative source attempts/people, neutral reciprocal ticket relations, immutable internal NetRatel templates and atomic v2 incident reports/receipts. The provider keeps frozen v1 behavior. Both SQLite and PostgreSQL receive additive migrations. Activate only with the compatible NetRatel consumer after the normal reviewed merge, exact-main checks and complete immutable publication described below. [Upgrade, backfill and activation](../integrations/netratel-pairing.md#automation-traceability-and-internal-reports) distinguish distribution verification from pending owner acceptance.

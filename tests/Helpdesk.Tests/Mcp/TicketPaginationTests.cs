@@ -57,7 +57,7 @@ public sealed class TicketPaginationTests
     {
         var schema = JsonSchema.FromText(HelpdeskToolDefinitions.Create().Single(item => item.ProtocolTool.Name == tool).ProtocolTool.InputSchema.GetRawText());
         var arguments = JsonNode.Parse("{\"operation\":\"list\",\"request\":" + json + "}");
-        Assert.Equal(valid, schema.Evaluate(arguments).IsValid);
+        Assert.Equal(valid, schema.Evaluate(JsonSerializer.SerializeToElement(arguments)).IsValid);
         var tools = CreateTools(out var client);
         var request = JsonSerializer.Deserialize<JsonElement>(json);
         var original = request.GetRawText();

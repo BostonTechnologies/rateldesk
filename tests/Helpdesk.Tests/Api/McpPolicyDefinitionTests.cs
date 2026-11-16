@@ -9,7 +9,7 @@ using Microsoft.Extensions.Primitives;
 
 namespace Helpdesk.Tests.Api;
 
-public sealed class McpPolicyDefinitionTests
+public sealed partial class McpPolicyDefinitionTests
 {
     private static readonly DateTime Now = new(2026, 10, 29, 18, 0, 0, DateTimeKind.Utc);
     private static IntegrationCredential Credential(bool owner = false) => new()

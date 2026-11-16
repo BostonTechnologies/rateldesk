@@ -197,9 +197,7 @@ next request, including execution tokens already issued by the gateway.
 The browser's HTTP MCP creation workflow also reviews an operation base policy:
 one organization scope for an ordinary credential, or **Server / instance** for
 explicit owner administration. **All access** means the operations supported by
-the selected grant and current owner authority. A policy never creates a role
-assignment, adds an organization to an ordinary credential, or replaces the
-owner-administration consent.
+the selected grant and current owner authority, including future catalog operations. Explicit nested Denies continue to win. Original, unchanged full-access wizard policies are upgraded only with their complete frozen catalog/permission fingerprint and matching original audit/setup evidence; a display name alone never authorizes repair. Complete approved permission catalogs grow within the existing organization/server scope, while deliberate later grant reductions stop that growth. Credential identity, secret, expiry, resource and history are retained. A policy never creates a role assignment, adds an organization to an ordinary credential, or replaces owner-administration consent. Every execution still checks current owner authority and account state.
 
 Nested operation-deny exceptions narrow the parent's scope. Deny takes
 precedence, and parent expiry or retirement prevents child admission. Retired

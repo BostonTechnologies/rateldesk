@@ -28,7 +28,14 @@ public sealed record McpPolicyCredential(Guid Id, string Name, string Owner, str
 public sealed record McpPolicyAuditDto(Guid Id, Guid CredentialId, int Revision, string Actor, DateTime OccurredUtc, string DefinitionJson);
 
 public sealed record McpPolicyScopeDraft(string Name, string Scope, string? OrganizationId, string Effect,
-    string[] Permissions, string[] Operations, DateTime ExpiresUtc, McpPolicyExceptionDraft[] Exceptions);
+    string[] Permissions, string[] Operations, DateTime ExpiresUtc, McpPolicyExceptionDraft[] Exceptions)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllAccess { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PermissionCatalogSnapshot { get; init; }
+}
 public sealed record McpPolicyExceptionDraft(string Name, string Effect, string[] Operations, DateTime ExpiresUtc);
 public sealed record McpPolicyOperation(string Key, string Family, string Name, string Effect);
 public sealed record McpPolicyOrganization(string Id, string Name);

@@ -9,7 +9,7 @@
 else if (unavailable)
 {
     <MudAlert Severity="Severity.Warning" Dense="true">Automation reports could not be loaded.
-        <MudButton Size="Size.Small" OnClick="RetryAsync">Retry</MudButton>
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" Class="ml-2" OnClick="RetryAsync">Retry</MudButton>
     </MudAlert>
 }
 else if (denied)

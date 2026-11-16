@@ -56,7 +56,7 @@ public sealed class AutomationReportsRenderedTests
         component.WaitForAssertion(() =>
         {
             Assert.Equal(1, api.ReportReads);
-            Assert.Equal("true", tab.GetAttribute("aria-selected"));
+            Assert.Equal("true", component.FindAll("[role=tab]").Single(x => x.TextContent.Trim() == "Automation").GetAttribute("aria-selected"));
             Assert.Contains("No automation reports for this ticket", component.Markup);
         });
     }

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.McpPolicies;
 using Helpdesk.Mcp.Tools;
@@ -46,19 +48,22 @@ public static class McpPolicyDefinitionService
             scope.Permissions.Distinct(StringComparer.Ordinal).Count() != scope.Permissions.Length ||
             scope.Permissions.Any(x => !ceiling.Contains(x)))
             return "Policy permissions must be selected from this credential's existing grants.";
-        if (scope.Operations is not { Length: > 0 and <= 1000 } ||
+        if (scope.Operations is not { Length: > 0 } || scope.Operations.Length > OperationKeys.Count ||
             scope.Operations.Distinct(StringComparer.Ordinal).Count() != scope.Operations.Length ||
             scope.Operations.Any(x => !OperationKeys.Contains(x)))
             return "Select supported HTTP MCP operations for this base policy.";
         if (scope.Exceptions is null || scope.Exceptions.Length > 100)
             return "A base policy may contain at most 100 nested exceptions.";
+        if (scope.AllAccess && (scope.Effect != "Allow" ||
+            !scope.Operations.ToHashSet(StringComparer.Ordinal).SetEquals(OperationKeys)))
+            return "All access must include the complete base operation catalog. Nested deny exceptions remain enforced.";
         var selected = scope.Operations.ToHashSet(StringComparer.Ordinal);
         foreach (var exception in scope.Exceptions)
         {
             if (exception is null || string.IsNullOrWhiteSpace(exception.Name) || exception.Name.Length > 128 ||
                 exception.Name.Any(char.IsControl) || exception.Effect != "Deny" ||
                 exception.ExpiresUtc.Kind != DateTimeKind.Utc || exception.ExpiresUtc <= utcNow ||
-                exception.ExpiresUtc > scope.ExpiresUtc || exception.Operations is not { Length: > 0 and <= 1000 } ||
+                exception.ExpiresUtc > scope.ExpiresUtc || exception.Operations is not { Length: > 0 } || exception.Operations.Length > OperationKeys.Count ||
                 exception.Operations.Distinct(StringComparer.Ordinal).Count() != exception.Operations.Length ||
                 exception.Operations.Any(x => !selected.Contains(x)))
                 return "Each exception must name selected parent operations, use Deny, and expire no later than its base policy.";
@@ -90,7 +95,12 @@ public static class McpPolicyDefinitionService
 
     public static void Apply(McpAccessPolicy row, IntegrationCredential credential, McpPolicyScopeDraft[] scopes, string state)
     {
-        var normalized = Normalize(scopes);
+        var normalized = Normalize(scopes).Select(scope => scope with
+        {
+            PermissionCatalogSnapshot = scope.AllAccess && scope.Permissions.ToHashSet(StringComparer.Ordinal).SetEquals(FullAccessPermissions(credential)) &&
+                GrantedPermissions(credential).ToHashSet(StringComparer.Ordinal).SetEquals(scope.Permissions)
+                ? CatalogFingerprint(scope.Permissions) : null
+        }).ToArray();
         var scope = normalized.Single();
         row.OrganizationId = scope.OrganizationId ?? "";
         row.PermissionsJson = JsonSerializer.Serialize(scope.Permissions);
@@ -144,6 +154,7 @@ public static class McpPolicyDefinitionService
         var denied = scope.Exceptions.Where(exception => exception.ExpiresUtc > utcNow)
             .SelectMany(exception => exception.Operations).ToHashSet(StringComparer.Ordinal);
         if (matching.Overlaps(denied)) return false;
+        if (scope.AllAccess && matching.Count > 0) return true;
         if (scope.Operations.Any(matching.Contains)) return true;
         // Self-assignment resolves the executing account before issuing bulk/assign.
         // This prerequisite does not make denying assignment deny every status read.
@@ -200,6 +211,12 @@ public static class McpPolicyDefinitionService
     }
 
     private static DateTime Precision(DateTime value) => new(value.Ticks / 10 * 10, DateTimeKind.Utc);
+    public static string[] FullAccessPermissions(IntegrationCredential credential) =>
+        credential.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? [HelpdeskPermissions.HelpdeskAdmin] : HelpdeskPermissions.AssignablePermissions;
+    public static string[] GrantedPermissions(IntegrationCredential credential) =>
+        credential.Permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    public static string CatalogFingerprint(IEnumerable<string> values) => Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(string.Join('\n', values.Order(StringComparer.Ordinal)))));
     private static string Key(McpOperationDefinition value) => $"{value.Tool}.{value.Operation}";
     private static string Words(string value) => string.Join(' ', value.Split('_').Select(word =>
         word.Length == 0 ? word : char.ToUpperInvariant(word[0]) + word[1..]));
