@@ -614,6 +614,64 @@ jobs:
         shell: bash
         run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}" --validate-docs
 
+  release-candidate-images:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'release-artifacts' }}
+    name: Candidate container images (${{ matrix.platform }})
+    needs: layout
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: amd64
+          - runner: ubuntu-24.04-arm
+            platform: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Build and export container images for local testing
+        run: |
+          set -euo pipefail
+          version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version)"
+          revision="$GITHUB_SHA"
+          built_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          printf 'RATELDESK_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          mkdir candidate-images
+          for service in api web mcp-http; do
+            image="ghcr.io/bostontechnologies/rateldesk-$service:$version"
+            docker build --file "docker/$service/Dockerfile" --tag "$image" \
+              --build-arg "VERSION=$version" --build-arg "SOURCE_REVISION_ID=$revision" \
+              --build-arg "BUILD_TIMESTAMP=$built_at" \
+              --label "org.opencontainers.image.version=$version" --label "org.opencontainers.image.revision=$revision" .
+            docker save "$image" | gzip -n > "candidate-images/rateldesk-$service-$version.tar.gz"
+          done
+          (cd candidate-images && sha256sum -- *.tar.gz > SHA256SUMS && sha256sum --check SHA256SUMS)
+
+      - name: Verify local release Compose and published assets
+        run: |
+          tools/ci/smoke-web-static-assets.sh "ghcr.io/bostontechnologies/rateldesk-web:$RATELDESK_VERSION"
+          tools/ci/test-mcp-compose-config.sh "ghcr.io/bostontechnologies/rateldesk-mcp-http:$RATELDESK_VERSION"
+          docker compose -p rateldesk-candidate -f docker/docker-compose.release.yml up --pull never --detach --wait
+          COMPOSE_PROJECT_NAME=rateldesk-candidate tools/ci/smoke-first-run-local.sh docker/docker-compose.release.yml
+
+      - name: Stop disposable release Compose
+        if: always() && env.RATELDESK_VERSION != ''
+        run: docker compose -p rateldesk-candidate -f docker/docker-compose.release.yml down --volumes
+
+      - name: Upload loadable candidate images and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-candidate-images-${{ matrix.platform }}
+          path: candidate-images
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   compose:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Compose startup validation

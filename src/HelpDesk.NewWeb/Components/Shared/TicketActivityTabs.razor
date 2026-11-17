@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject IJSRuntime JS
 @inject IHttpClientFactory HttpClientFactory
+@inject ILogger<TicketActivityTabs> Logger
 
 <div class="ticket-activity-tabs @Class">
     <div class="activity-tab-strip" role="tablist" aria-label="Ticket activity">
@@ -140,8 +141,10 @@
                 activeTab = stored!; visited.Add(activeTab); StateHasChanged();
             }
         }
-        catch (JSException) { }
-        catch (InvalidOperationException) { }
+        catch (Exception error) when (error is JSException or JSDisconnectedException or InvalidOperationException)
+        {
+            Logger.LogDebug("Saved ticket tab selection is unavailable ({ErrorType}).", error.GetType().Name);
+        }
     }
 
     private async Task SelectTab(string id)
@@ -149,7 +152,10 @@
         if (!AvailableTabs.Any(x => x.Id == id)) return;
         activeTab = id; visited.Add(id);
         try { await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, id); }
-        catch (JSException) { }
+        catch (Exception error) when (error is JSException or JSDisconnectedException)
+        {
+            Logger.LogDebug("Ticket tab selection could not be saved ({ErrorType}).", error.GetType().Name);
+        }
     }
 
     private async Task NavigateTabs(KeyboardEventArgs e, string id)

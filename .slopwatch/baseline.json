@@ -383,33 +383,6 @@
       "baselinedAt": "2026-11-17T18:18:37.2570395+00:00"
     },
     {
-      "hash": "98dcf913bb0fb548",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
-      "lineNumber": 143,
-      "codeSnippet": "catch (JSException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-17T18:18:37.2570661+00:00"
-    },
-    {
-      "hash": "5e270d534493fd4c",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
-      "lineNumber": 144,
-      "codeSnippet": "catch (InvalidOperationException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-17T18:18:37.2570705+00:00"
-    },
-    {
-      "hash": "003df2256246e8eb",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
-      "lineNumber": 152,
-      "codeSnippet": "catch (JSException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-17T18:18:37.2570728+00:00"
-    },
-    {
       "hash": "94cc15810d7f20fd",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketAssigneePicker.razor",

@@ -768,6 +768,17 @@ links pinned to the release commit. Packaging checks the seven compressed
 The workflow retains a measurement of compressed and expanded bytes, file
 categories, SHA-256 and SDK for each archive.
 
+For pre-merge testing, dispatch **Pull request validation** on the reviewed
+candidate branch with deep acceptance and the `release-artifacts` suite. It
+uploads the seven candidate archives, their size and integrity receipts, and
+loadable API, Web and HTTP MCP images for amd64 and arm64. Select the image
+artifact for the test machine, verify `SHA256SUMS`, and load each archive with
+`docker load --input <archive>`. Use the candidate version for
+`RATELDESK_VERSION` and the extracted release Compose file with
+`docker compose -f docker-compose.release.yml up --pull never --detach`.
+The candidate uses the same image names as the stable release. Use a disposable
+machine or Docker context with separate Compose volumes.
+
 The manifest contains source/tag/version, exactly seven archives and three
 container digests. `SHA256SUMS` covers the archives; the detached manifest checksum
 avoids self-reference. Asset uploads reuse identical existing bytes and reject
