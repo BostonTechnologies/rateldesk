@@ -103,9 +103,9 @@ Before creating documentation, inspect [docs/README.md](docs/README.md) and the 
 Verified against the GitHub Releases API on 17 November 2026. Values are **exact
 compressed bytes for complete downloads**, not executable sizes. Linux uses
 `.tar.gz`; Windows uses `.zip`. Release references:
-[beta.9](https://github.com/BostonTechnologies/rateldesk/releases/tag/v0.1.3-beta.9),
-[beta.10](https://github.com/BostonTechnologies/rateldesk/releases/tag/v0.1.3-beta.10),
-[beta.11](https://github.com/BostonTechnologies/rateldesk/releases/tag/v0.1.3-beta.11).
+[beta.9](https://github.com/BostonTechnologies/RatelDesk/releases/tag/v0.1.3-beta.9),
+[beta.10](https://github.com/BostonTechnologies/RatelDesk/releases/tag/v0.1.3-beta.10),
+[beta.11](https://github.com/BostonTechnologies/RatelDesk/releases/tag/v0.1.3-beta.11).
 
 | Artifact | beta.9 baseline bytes | beta.10 bytes | beta.11 bytes |
 | --- | ---: | ---: | ---: |
@@ -122,8 +122,8 @@ Their runtime binaries/resources/symbols/metadata grew only **24,082 expanded
 bytes** (90,195,678 to 90,219,760), while bundled implementation evidence grew
 **116,296,736 expanded bytes** (14,433,609 to 130,730,345). The publish settings did
 not change across these versions. The accepted profile was already self-contained
-JIT; the [previous AOT pilot](https://github.com/BostonTechnologies/rateldesk/issues/321)
+JIT; the [previous AOT pilot](https://github.com/BostonTechnologies/RatelDesk/issues/321)
 had unresolved JSON/R3 diagnostic blockers. Trimming does not remove collateral
-copied into an archive after publishing. See [#428](https://github.com/BostonTechnologies/rateldesk/issues/428) for the verified hashes,
+copied into an archive after publishing. See [#428](https://github.com/BostonTechnologies/RatelDesk/issues/428) for the verified hashes,
 root cause, required packaging/CI correction and completion evidence. beta.10 and
 beta.11 are regression records, not acceptable replacement baselines.
