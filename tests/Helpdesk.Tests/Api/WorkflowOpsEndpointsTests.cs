@@ -6,6 +6,7 @@ using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Ops;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Persistence.Entities;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Request;
@@ -108,6 +109,25 @@ public sealed class WorkflowOpsEndpointsTests
         Assert.Equal(secondId, Assert.Single(second.Items).BindingId);
     }
 
+    [Theory]
+    [InlineData("RequestManager", 3)]
+    [InlineData("Admin", 4)]
+    public async Task Callback_rejection_projection_preserves_correlation_and_safe_payload_fallback(string actor, int expected)
+    {
+        await using var harness = await WorkflowOpsHarness.CreateAsync(actor, useSqlite: true);
+        var page = await harness.Client.GetFromJsonAsync<PagedResponse<OrchestrationCallbackRejectionOpsDto>>(
+            "/api/v1/ops/tasks/orchestration/callback-rejections?pageSize=25");
+
+        Assert.Equal(expected, page!.TotalCount);
+        var records = page.Items.ToDictionary(row => row.CorrelationId!);
+        Assert.Equal("receiver_denied", records["fixture-valid"].ReasonCode);
+        Assert.Equal("service-client", records["fixture-valid"].CallerClientId);
+        Assert.Equal("Unknown", records["fixture-invalid"].ReasonCode);
+        Assert.Null(records["fixture-invalid"].CallerClientId);
+        Assert.Equal("Unknown", records["fixture-missing"].ReasonCode);
+        Assert.Equal(actor == "Admin", records.ContainsKey("fixture-foreign"));
+    }
+
     private sealed class WorkflowOpsHarness : IAsyncDisposable
     {
         private readonly WebApplication _app;
@@ -195,6 +215,20 @@ public sealed class WorkflowOpsEndpointsTests
             db.Organizations.AddRange(
                 new Organization { Id = "org-alpha", Name = "Alpha" },
                 new Organization { Id = "org-other", Name = "Other" });
+            foreach (var (id, message, organization) in new[]
+            {
+                ("fixture-valid", """{"reasonCode":"receiver_denied","callerClientId":"service-client"}""", "org-alpha"),
+                ("fixture-invalid", "{ malformed", "org-alpha"),
+                ("fixture-missing", "{}", "org-alpha"),
+                ("fixture-foreign", """{"reasonCode":"foreign"}""", "org-other")
+            })
+            {
+                db.Notifications.Add(new NotificationEntity
+                {
+                    Id = Guid.NewGuid(), Title = "DomainEvent.Orchestration.External orchestration.CallbackRejected",
+                    Message = message, CreatedUtc = DateTime.UtcNow, TenantId = organization, CorrelationId = id
+                });
+            }
             db.Customers.Add(new Customer
             {
                 Id = "customer-manager",

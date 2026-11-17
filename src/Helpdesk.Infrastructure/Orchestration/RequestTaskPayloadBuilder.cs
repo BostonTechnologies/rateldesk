@@ -135,9 +135,33 @@ public sealed class RequestTaskPayloadBuilder(
             origin = originSnapshots is null ? null : await originSnapshots.PrepareAsync(
                 task, request, requestForm, correlationId, payloadJson, cancellationToken);
         }
-        catch (OrchestrationProviderException)
+        catch (OrchestrationProviderException exception)
         {
-            return RequestTaskPayloadBuildResult.Failed("NetRatel capabilities could not be verified before dispatch. Check the saved connection and retry this task.");
+            var error = exception.Error;
+            var code = SafeDiagnosticIdentifier(error.Code) ?? "capability_check_failed";
+            var layer = code switch
+            {
+                "capability_target_unavailable" => "target",
+                "capability_credentials_unavailable" or "authentication_rejected" or "access_denied" => "authorization",
+                "transport_unavailable" or "transport_timeout" => "transport",
+                "invalid_contract" or "unsupported_contract" => "protocol",
+                _ when error.UpstreamStatus is 401 or 403 => "authorization",
+                _ => "provider"
+            };
+            var retryable = layer switch
+            {
+                "transport" => true,
+                "target" or "authorization" or "protocol" => false,
+                _ => error.UpstreamStatus is { } status ? (bool?)(status is 408 or 429 or >= 500) : null
+            };
+            var failure = new AutomationPreDispatchFailure("capabilities", layer, code, error.UpstreamStatus, retryable,
+                correlationId, SafeDiagnosticIdentifier(error.CorrelationId),
+                System.Diagnostics.Activity.Current?.TraceId.ToHexString(),
+                Guid.TryParse(task.OrchestrationLinkId, out var connectionId) ? connectionId : null);
+            var statusText = failure.UpstreamStatus is { } statusCode ? $", HTTP {statusCode}" : "";
+            return RequestTaskPayloadBuildResult.Failed(
+                $"NetRatel capability check failed before dispatch ({failure.Code}{statusText}). Review the saved connection. Attempt reference: {correlationId}.",
+                failure);
         }
         return RequestTaskPayloadBuildResult.Succeeded(
             orchestratorTarget,
@@ -146,6 +170,10 @@ public sealed class RequestTaskPayloadBuilder(
             binding?.OrchestrationRequestDefinitionId,
             binding?.OrchestrationJobDefinitionId, origin);
     }
+
+    private static string? SafeDiagnosticIdentifier(string? value) =>
+        value is { Length: > 0 and <= 128 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.' or ':')
+            ? value : null;
 
     private static string? ResolveAutomationTarget(AutomationBindingDto? binding)
     {

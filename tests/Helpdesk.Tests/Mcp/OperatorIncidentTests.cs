@@ -66,6 +66,21 @@ public sealed class OperatorIncidentTests
         await client.Received(1).SendAsync(HttpMethod.Delete, $"/api/v1/incidents/INC-1/relations/{relationId}", null, true, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Universal_relations_uses_exact_ticket_reference_and_bounded_pagination()
+    {
+        var (client, tools) = Create();
+        using var request = JsonDocument.Parse("""{"id":"REQ-A","page":2,"pageSize":50}""");
+        var result = await tools.helpdesk_tickets("relations", request.RootElement);
+
+        Assert.True(result.Success, result.Summary);
+        await client.Received(1).GetAsync(Arg.Is<string>(path => path.StartsWith("/api/v1/tickets/REQ-A/relations?") &&
+            path.Contains("page=2") && path.Contains("pageSize=50")), true, Arg.Any<CancellationToken>());
+        await client.DidNotReceive().SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        using var invalid = JsonDocument.Parse("""{"id":"REQ-A","pageSize":101}""");
+        Assert.Equal("validation_failed", (await tools.helpdesk_tickets("relations", invalid.RootElement)).Status);
+    }
+
     [Theory]
     [InlineData("bulk_delete", "delete")]
     [InlineData("bulk_marketing_spam", "marketing-spam")]

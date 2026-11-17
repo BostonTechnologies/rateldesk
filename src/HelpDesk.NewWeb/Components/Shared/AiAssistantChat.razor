@@ -132,7 +132,7 @@ else
     </div>
     </div>
     <div class="@(Workspace ? "ai-chat-composer" : null)">
-    <AiAssistantComposer @bind-Value="message" Send="SendAsync" Identity="@Identity" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
+    <AiAssistantComposer @key="conversation" @bind-Value="message" Send="SendAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" ReadOnly="@(submittedMessage is not null)" SendLabel="@(submittedMessage is null ? "Send" : "Retry message")" Identity="@Identity" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
     </div>
 </div>
 </div>
@@ -152,6 +152,7 @@ else
     [Parameter] public EventCallback<ChatState> StateChanged { get; set; }
     [Parameter] public string TicketId { get; set; } = string.Empty;
     [Parameter] public string TicketType { get; set; } = "incidents";
+    [Parameter] public string? TicketOrganizationId { get; set; }
     private readonly List<AiAssistantChatEvent> events = [];
     private readonly List<ChatConversationSummary> history = [];
     private readonly CancellationTokenSource cancellation = new();
@@ -177,7 +178,8 @@ else
     private string? recoveryResult;
     private DateTimeOffset? recoveryAt;
     private string connectionStatus = "Connecting";
-    private string? currentActor;
+    private string? currentActor, draftScope;
+    private ChatDraftStorage? draftStorage;
     private ChatIdentitySnapshot? identity;
     private string ActorLabel(string? actor) => actor == currentActor && currentActor is not null ? "You" : "Helpdesk operator";
     private static string StateLabel(ChatState value) => value switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.WaitingForChildren => "Waiting for delegated work", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
@@ -199,7 +201,8 @@ else
         if (disposed) return;
         identity = new(user);
         AuthenticationStateProvider.AuthenticationStateChanged += IdentityChanged;
-        currentActor = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+        currentActor = ChatDraftStorage.Actor(user);
+        draftStorage = new(JS, Logger);
         try
         {
             var imported = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Shared/AiAssistantChat.razor.js");
@@ -254,7 +257,7 @@ else
             if (disposed) return;
             connectionStatus = "Connecting"; error = null;
             events.Clear(); draft = ""; cursor = 0; acknowledgeAbandon = false;
-            resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null;
+            resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null; draftScope = null; conversation = Guid.Empty;
             using var api = Api;
             var snapshot = await api.GetFromJsonAsync<ChatSnapshot>(id == Guid.Empty ? Route : $"{Route}?conversationId={id}", cancellation.Token);
             if (snapshot is not null)
@@ -262,6 +265,27 @@ else
                 conversation = snapshot.ConversationId; state = snapshot.State; recoveryAt = snapshot.RecoveryLastAttemptUtc; recoveryResult = snapshot.RecoveryResult;
                 await StateChanged.InvokeAsync(state);
                 events.AddRange(snapshot.Events); cursor = events.LastOrDefault()?.Sequence ?? 0;
+                if (snapshot.State != ChatState.Archived && capabilities?.CanWrite != false && draftStorage is not null)
+                {
+                    var surface = Workspace ? "workspace" : "ticket";
+                    var scope = OrganizationId is null
+                        ? $"{Route}/{Uri.EscapeDataString(TicketOrganizationId ?? "")}/{surface}"
+                        : $"{Route}/{surface}";
+                    draftScope = ChatDraftStorage.Scope(currentActor, scope, conversation);
+                    var saved = await draftStorage.ReadAsync<ChatMessageRequest>(draftScope);
+                    if (disposed || cancellation.IsCancellationRequested) return;
+                    if (saved?.Text is { Length: <= 16000 } text)
+                    {
+                        message = text;
+                        if (saved.Pending is { ClientMessageId: var messageKey, Text.Length: > 0 and <= 16000 } pending
+                            && messageKey != Guid.Empty && pending.ConversationId == conversation)
+                        {
+                            submittedMessage = pending;
+                            if (events.Any(x => x.Type == "operator" && x.ClientMessageId == messageKey))
+                                await AcknowledgeMessageAsync(pending);
+                        }
+                    }
+                }
                 history.Clear();
                 if (OrganizationId is null && InvestigationId is null) await LoadOlderHistoryAsync();
                 if (disposed) return;
@@ -297,7 +321,7 @@ else
                 using var response = await api.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
                 {
-                    await InvokeAsync(() => { events.Clear(); draft = ""; conversation = Guid.Empty; connectionStatus = "Access unavailable"; error = "You no longer have access to this conversation."; StateHasChanged(); });
+                    await InvokeAsync(() => { events.Clear(); message = draft = ""; draftScope = null; submittedMessage = null; conversation = Guid.Empty; connectionStatus = "Access unavailable"; error = "You no longer have access to this conversation."; StateHasChanged(); });
                     return;
                 }
                 response.EnsureSuccessStatusCode();
@@ -316,7 +340,7 @@ else
                             if (frameKind == "chat" && JsonSerializer.Deserialize<AiAssistantChatEvent>(frameData) is { } item)
                             {
                                 if (item.Sequence > cursor) { events.Add(item); cursor = item.Sequence; }
-                                if (item.Type == "operator" && submittedMessage is { } sent && item.ClientMessageId == sent.ClientMessageId) AcknowledgeMessage(sent);
+                                if (item.Type == "operator" && submittedMessage is { } sent && item.ClientMessageId == sent.ClientMessageId) await AcknowledgeMessageAsync(sent);
                                 if (item.Type is "assistant" or "turn_completed") draft = "";
                             }
                             else if (frameKind == "recovery" && JsonSerializer.Deserialize<ChatSnapshot>(frameData) is { } recovery) { recoveryAt = recovery.RecoveryLastAttemptUtc; recoveryResult = recovery.RecoveryResult; }
@@ -351,20 +375,35 @@ else
         var submitted = submittedMessage ??= new ChatMessageRequest(conversation, messageId, message);
         try
         {
+            await SaveDraftAsync();
             using var api = Commands;
             using var response = await api.PostAsJsonAsync($"{Route}/messages", submitted, cancellation.Token);
-            if (response.IsSuccessStatusCode) AcknowledgeMessage(submitted);
-            else { submittedMessage = null; error = "Message was not accepted. Check the conversation state."; }
+            if (response.IsSuccessStatusCode) await AcknowledgeMessageAsync(submitted);
+            else if (response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
+            {
+                submittedMessage = null;
+                await SaveDraftAsync();
+                error = "Message was not accepted. Check the conversation state.";
+            }
+            else error = "Message acceptance could not be confirmed. Retry uses the original message ID.";
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { error = "Delivery response was interrupted. Retry sends the original message with the same ID; any unsent edits remain in the composer."; }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { error = "Delivery response was interrupted. Retry uses the original message ID. You can check the saved conversation first."; }
         finally { busy = false; }
     }
-    private void AcknowledgeMessage(ChatMessageRequest submitted)
+    private async Task AcknowledgeMessageAsync(ChatMessageRequest submitted)
     {
         if (submittedMessage?.ClientMessageId != submitted.ClientMessageId) return;
         if (message == submitted.Text) message = "";
         submittedMessage = null;
         messageId = Guid.NewGuid();
+        await SaveDraftAsync();
+    }
+    private Task SaveDraftAsync() => draftStorage?.WriteAsync(draftScope, message, submittedMessage) ?? Task.CompletedTask;
+    private async Task DiscardDraftAsync()
+    {
+        if (busy || submittedMessage is not null) return;
+        message = "";
+        await SaveDraftAsync();
     }
     private async Task ApproveAsync(string callId, string key)
     {
@@ -451,7 +490,11 @@ else
         var user = (await changed).User;
         if (disposed || identity?.Matches(user) == true) return;
         identity = new(user);
+        var priorActor = currentActor;
+        currentActor = ChatDraftStorage.Actor(user);
+        draftScope = null;
         await cancellation.CancelAsync(); events.Clear(); message = draft = ""; submittedMessage = null; conversation = Guid.Empty;
+        if (currentActor != priorActor && draftStorage is not null) await draftStorage.ClearActorAsync(priorActor);
         capabilities = new(false, "Your account changed. Reload to check current access.", false); StateHasChanged();
     });
     private async Task SavePreferenceAsync(Action update)
@@ -485,6 +528,7 @@ else
             catch (JSDisconnectedException) { Logger.LogDebug("Chat presentation circuit disconnected during disposal."); }
         }
         reference?.Dispose();
+        if (draftStorage is not null) await draftStorage.DisposeAsync();
         await cancellation.CancelAsync();
         await selection;
         await stream;

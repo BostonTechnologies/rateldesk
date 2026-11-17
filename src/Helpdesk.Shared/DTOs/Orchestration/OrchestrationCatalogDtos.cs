@@ -150,4 +150,19 @@ public sealed class OrchestrationAutomationTargetChoiceDto
     public OrchestrationJobTargetDefinitionDto Target { get; set; } = new();
 }
 
-public sealed record OrchestrationProviderErrorDto(string Operation, int Status, string Code, string Message, string? CorrelationId);
+public sealed record OrchestrationProviderErrorDto(string Operation, int Status, string Code, string Message, string? CorrelationId)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int? UpstreamStatus { get; init; }
+}
+
+public sealed record AutomationPreDispatchFailure(
+    string Phase,
+    string Layer,
+    string Code,
+    int? UpstreamStatus,
+    bool? Retryable,
+    string AttemptCorrelationId,
+    string? ProviderCorrelationId,
+    string? TraceId,
+    Guid? ConnectionId);

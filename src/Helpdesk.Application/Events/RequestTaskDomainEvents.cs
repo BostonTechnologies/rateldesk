@@ -319,7 +319,11 @@ public sealed record RequestTaskAutomationSubmitFailedEvent(
         EntityId: RequestId,
         CorrelationId: CorrelationId,
         Reference: TaskId,
-        OccurredUtc: Timestamp.UtcDateTime);
+        OccurredUtc: Timestamp.UtcDateTime)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Helpdesk.Shared.DTOs.Orchestration.AutomationPreDispatchFailure? PreDispatchFailure { get; init; }
+}
 
 public sealed record RequestTaskAutomationSubmitUncertainEvent(
     string TaskId,

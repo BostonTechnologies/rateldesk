@@ -44,7 +44,7 @@
                     <TicketListeners ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnListenersLoaded="@(items => OnListenersLoaded(panelVersion, items))" />
                     break;
                 case "ai":
-                    <AiAssistantChat TicketId="@TicketId" TicketType="@TicketType" />
+                    <AiAssistantChat TicketId="@TicketId" TicketType="@TicketType" TicketOrganizationId="@OrganizationId" />
                     break;
                 case "relations":
                     <TicketRelations ReadOnly="@(!CanManage)" TicketId="@TicketId" TicketType="@TicketType" OnRelationsLoaded="@(items => OnRelationsLoaded(panelVersion, items))" />

@@ -130,7 +130,8 @@ public sealed class RequestTaskLifecycleService(
                 task,
                 payloadResult.Error ?? "Payload build failed.",
                 correlationId,
-                ct);
+                ct,
+                payloadResult.PreDispatchFailure);
         }
 
         try
@@ -342,10 +343,11 @@ public sealed class RequestTaskLifecycleService(
         return task;
     }
 
-    public async Task<RequestTask> FailAsync(string taskId, string reason, CancellationToken ct)
-    {
-        var task = await GetRequiredTaskAsync(taskId);
+    public async Task<RequestTask> FailAsync(string taskId, string reason, CancellationToken ct) =>
+        await FailAsync(await GetRequiredTaskAsync(taskId), reason, ct);
 
+    private async Task<RequestTask> FailAsync(RequestTask task, string reason, CancellationToken ct, string? resultJson = null)
+    {
         if (task.Status is RequestTaskStatus.Completed or RequestTaskStatus.Skipped)
         {
             throw new InvalidOperationException("Completed or skipped tasks cannot be failed.");
@@ -364,7 +366,7 @@ public sealed class RequestTaskLifecycleService(
             task.AutomationContinuationPending = true;
         }
         task.FailureReason = string.IsNullOrWhiteSpace(reason) ? task.FailureReason : reason;
-        task.ResultJson = string.IsNullOrWhiteSpace(reason) ? task.ResultJson : reason;
+        task.ResultJson = resultJson ?? (string.IsNullOrWhiteSpace(reason) ? task.ResultJson : reason);
         task.UpdatedAt = DateTime.UtcNow;
 
         await _requestTasks.UpdateAsync(task);
@@ -521,8 +523,16 @@ public sealed class RequestTaskLifecycleService(
         RequestTask task,
         string reason,
         string correlationId,
-        CancellationToken ct)
+        CancellationToken ct,
+        AutomationPreDispatchFailure? preDispatchFailure = null)
     {
+        if (preDispatchFailure is { } failure)
+        {
+            _logger.LogWarning(
+                "Automation pre-dispatch check failed. RequestId={RequestId} TaskId={TaskId} Phase={Phase} Layer={Layer} Code={Code} UpstreamStatus={UpstreamStatus} ConnectionId={ConnectionId} AttemptCorrelationId={AttemptCorrelationId} ProviderCorrelationId={ProviderCorrelationId} TraceId={TraceId}",
+                task.RequestId, task.Id, failure.Phase, failure.Layer, failure.Code, failure.UpstreamStatus,
+                failure.ConnectionId, failure.AttemptCorrelationId, failure.ProviderCorrelationId, failure.TraceId);
+        }
         await _domainEvents.PublishAsync(
             new RequestTaskAutomationSubmitFailedEvent(
                 task.Id,
@@ -530,7 +540,7 @@ public sealed class RequestTaskLifecycleService(
                 reason,
                 task.OrganizationId,
                 DateTimeOffset.UtcNow,
-                correlationId),
+                correlationId) { PreDispatchFailure = preDispatchFailure },
             ct);
 
         task.LastAutomationStatus = AutomationTaskStatuses.SubmitFailedManualRetry;
@@ -539,7 +549,9 @@ public sealed class RequestTaskLifecycleService(
         task.ResultJson = reason;
         task.FailureReason = reason;
 
-        return await FailAsync(task.Id, reason, ct);
+        var resultJson = preDispatchFailure is null ? null : JsonSerializer.Serialize(
+            new { PreDispatchFailure = preDispatchFailure }, JsonSerializerOptions.Web);
+        return await FailAsync(task, reason, ct, resultJson);
     }
 
     private async Task<RequestTask> HandleUncertainAutomationSubmissionAsync(

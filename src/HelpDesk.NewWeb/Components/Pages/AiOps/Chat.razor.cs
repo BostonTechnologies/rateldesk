@@ -27,6 +27,10 @@ public partial class Chat
     private string organization = "", search = "", message = "";
     private bool loading = true, busy, includeArchived, hasMore, disposed;
     private ChatIdentitySnapshot? identity;
+    private ChatDraftStorage? draftStorage;
+    private string? actor, draftScope;
+    private bool draftRestored;
+    private int draftRestoreGeneration = -1;
     private string? error;
     private int generation, historyGeneration;
     private CancellationTokenSource cancellation = new();
@@ -52,7 +56,10 @@ public partial class Chat
 
     protected override async Task OnInitializedAsync()
     {
-        identity = new((await Authentication.GetAuthenticationStateAsync()).User);
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        identity = new(user);
+        actor = ChatDraftStorage.Actor(user);
+        draftStorage = new(JS, Logger);
         Authentication.AuthenticationStateChanged += IdentityChanged;
     }
     protected override Task OnParametersSetAsync() => loadedRoute == (Organization, Conversation) ? Task.CompletedTask : LoadWorkspaceAsync();
@@ -64,7 +71,7 @@ public partial class Chat
         var ct = cancellation.Token;
         loadedRoute = (Organization, Conversation);
         organization = Organization ?? ""; selected = null; capabilities = null; history = []; prompts = []; promptIds.Clear();
-        message = ""; pendingStart = null; loading = true; busy = false; error = null; hasMore = false; search = "";
+        message = ""; pendingStart = null; draftScope = null; draftRestored = false; loading = true; busy = false; error = null; hasMore = false; search = "";
         await previous.CancelAsync(); previous.Dispose();
         try
         {
@@ -114,16 +121,42 @@ public partial class Chat
     private void StartNew()
     {
         if (!CanStart || busy) return;
-        selected = null; message = ""; pendingStart = null; promptIds.Clear(); error = null;
-        loadedRoute = (organization, null);
-        Navigation.NavigateTo(Url(organization));
+        if (selected is not null) Navigation.NavigateTo(Url(organization));
     }
     private async Task UseStarterAsync(string prompt)
     {
-        if (!CanStart || busy || pendingStart is not null) return;
+        if (!CanStart || busy || !draftRestored || pendingStart is not null) return;
         message = prompt;
+        await SaveDraftAsync();
         if (composer is not null) await composer.FocusAsync();
     }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (disposed || loading || draftRestoreGeneration == generation || selected is not null || Conversation is not null || !CanStart || draftStorage is null) return;
+        var current = generation;
+        draftRestoreGeneration = current;
+        draftScope = ChatDraftStorage.Scope(actor, Route, null);
+        var saved = await draftStorage.ReadAsync<ChatStartRequest>(draftScope);
+        if (!Current(current)) return;
+        draftRestored = true;
+        if (saved?.Text is { Length: <= 16000 } text)
+        {
+            message = text;
+            if (saved.Pending is { Text.Length: > 0 and <= 16000 } pending &&
+                pending.ConversationId != Guid.Empty && pending.ClientMessageId != Guid.Empty)
+                pendingStart = pending;
+        }
+        StateHasChanged();
+    }
+
+    private Task SaveDraftAsync() => draftStorage?.WriteAsync(draftScope, message, pendingStart) ?? Task.CompletedTask;
+    private async Task DiscardDraftAsync()
+    {
+        if (busy || pendingStart is not null) return;
+        message = "";
+        await SaveDraftAsync();
+    }
+
     private void SelectPrompt(Guid id, ChangeEventArgs e) { if (e.Value is true && promptIds.Count < 8) promptIds.Add(id); else if (e.Value is false) promptIds.Remove(id); }
     private async Task SearchChangedAsync(ChangeEventArgs e) { search = e.Value?.ToString() ?? ""; await ReadHistoryAsync(); }
     private Task SearchAsync() => ReadHistoryAsync();
@@ -148,12 +181,13 @@ public partial class Chat
 
     private async Task SendFirstAsync()
     {
-        if (!CanStart || busy || string.IsNullOrWhiteSpace(message)) return;
+        if (!CanStart || busy || !draftRestored || string.IsNullOrWhiteSpace(message)) return;
         var current = generation; var route = Route; var org = organization; var ct = cancellation.Token;
         var request = pendingStart ??= new(Guid.NewGuid(), Guid.NewGuid(), message, promptIds.ToArray());
         busy = true; error = null;
         try
         {
+            await SaveDraftAsync();
             using var api = Clients.CreateClient("HelpdeskChatCommands");
             using var response = await api.PostAsJsonAsync($"{route}/start", request, ct);
             response.EnsureSuccessStatusCode();
@@ -162,6 +196,8 @@ public partial class Chat
             if (saved is null || saved.OrganizationId != org || saved.ConversationId != request.ConversationId)
                 throw new JsonException("The conversation response did not match its requested scope.");
             selected = saved; pendingStart = null; message = "";
+            await SaveDraftAsync();
+            if (!Current(current)) return;
             loadedRoute = (org, saved.ConversationId);
             Navigation.NavigateTo(Url(org, saved.ConversationId), replace: true);
             await ReadHistoryAsync();
@@ -170,7 +206,11 @@ public partial class Chat
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
             if (!Current(current)) return;
-            if (ex is HttpRequestException { StatusCode: HttpStatusCode.BadRequest }) pendingStart = null;
+            if (ex is HttpRequestException { StatusCode: HttpStatusCode.BadRequest })
+            {
+                pendingStart = null;
+                await SaveDraftAsync();
+            }
             error = "The first message could not be confirmed. Retry uses the original conversation and message IDs; it does not send a second copy. You can also reopen the conversation from history.";
         }
         finally { if (Current(current)) busy = false; }
@@ -201,6 +241,9 @@ public partial class Chat
         var user = (await changed).User;
         if (disposed || identity?.Matches(user) == true) return;
         identity = new(user);
+        var priorActor = actor;
+        actor = ChatDraftStorage.Actor(user);
+        if (priorActor != actor && draftStorage is not null) await draftStorage.ClearActorAsync(priorActor);
         loadedRoute = null; await LoadWorkspaceAsync(); StateHasChanged();
     });
     public async ValueTask DisposeAsync()
@@ -208,5 +251,6 @@ public partial class Chat
         disposed = true; ++generation;
         Authentication.AuthenticationStateChanged -= IdentityChanged;
         await cancellation.CancelAsync(); cancellation.Dispose();
+        if (draftStorage is not null) await draftStorage.DisposeAsync();
     }
 }

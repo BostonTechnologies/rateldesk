@@ -165,13 +165,7 @@ public static class WorkflowOpsEndpoints
                 .OrderByDescending(n => n.CreatedUtc)
                 .Skip(skip)
                 .Take(safePageSize)
-                .Select(n => new
-                {
-                    n.Id,
-                    n.CreatedUtc,
-                    n.Message,
-                    n.CorrelationId
-                })
+                .Select(n => new CallbackRejectionNotification(n.Id, n.CreatedUtc, n.Message, n.CorrelationId))
                 .ToListAsync(ct);
 
             return Results.Ok(new PagedResponse<OrchestrationCallbackRejectionOpsDto>
@@ -485,37 +479,36 @@ public static class WorkflowOpsEndpoints
             : query.Where(b => requestManagerOrganizationIds.Contains(b.OrganizationId));
     }
 
-    private static OrchestrationCallbackRejectionOpsDto MapOrchestrationCallbackRejection(dynamic notification)
+    private sealed record CallbackRejectionNotification(Guid Id, DateTime CreatedUtc, string Message, string? CorrelationId);
+
+    private static OrchestrationCallbackRejectionOpsDto MapOrchestrationCallbackRejection(CallbackRejectionNotification notification)
     {
-        string? reasonCode = null;
-        string? callerClientId = null;
-
-        try
-        {
-            using var document = JsonDocument.Parse((string)notification.Message);
-            var root = document.RootElement;
-            if (root.TryGetProperty("reasonCode", out var reason))
-            {
-                reasonCode = reason.GetString();
-            }
-
-            if (root.TryGetProperty("callerClientId", out var caller))
-            {
-                callerClientId = caller.GetString();
-            }
-        }
-        catch (JsonException)
-        {
-        }
-
-        return new OrchestrationCallbackRejectionOpsDto
+        var result = new OrchestrationCallbackRejectionOpsDto
         {
             NotificationId = notification.Id,
             CreatedUtc = notification.CreatedUtc,
-            ReasonCode = string.IsNullOrWhiteSpace(reasonCode) ? "Unknown" : reasonCode,
-            CallerClientId = callerClientId,
+            ReasonCode = "Unknown",
             CorrelationId = notification.CorrelationId
         };
+
+        try
+        {
+            using var document = JsonDocument.Parse(notification.Message);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return result;
+
+            if (root.TryGetProperty("reasonCode", out var reason) && reason.ValueKind == JsonValueKind.String
+                && reason.GetString() is { } code && !string.IsNullOrWhiteSpace(code))
+                result.ReasonCode = code;
+
+            if (root.TryGetProperty("callerClientId", out var caller) && caller.ValueKind == JsonValueKind.String)
+                result.CallerClientId = caller.GetString();
+        }
+        catch (JsonException)
+        {
+            return result;
+        }
+        return result;
     }
 
     private static string? ResolveTaskName(JsonDocument schema, Guid taskTemplateId)

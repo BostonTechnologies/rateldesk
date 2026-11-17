@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
@@ -238,8 +239,13 @@ public sealed class RequestTaskLifecycleServiceTests
         await orchestrationClient.DidNotReceive().IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task StartAsync_OrchestrationSubmitFailure_MarksManualRetry_AndDoesNotScheduleRetry()
+    [Theory]
+    [InlineData(null, null, null)]
+    [InlineData("authorization", "authentication_rejected", 401)]
+    [InlineData("target", "capability_target_unavailable", null)]
+    [InlineData("protocol", "invalid_contract", null)]
+    [InlineData("transport", "transport_timeout", null)]
+    public async Task StartAsync_OrchestrationSubmitFailure_MarksManualRetry_AndDoesNotScheduleRetry(string? layer, string? code, int? status)
     {
         var tasks = Substitute.For<IRepository<RequestTask>>();
         var requests = Substitute.For<IRepository<Request>>();
@@ -269,13 +275,13 @@ public sealed class RequestTaskLifecycleServiceTests
         tasks.GetAsync(taskId).Returns(task);
         connectivity.GetResolvedOrchestrationSettingsAsync(task.OrganizationId, SystemConnectionId, Arg.Any<CancellationToken>())
             .Returns(PairedSettings());
+        var preDispatch = layer is null ? null : new AutomationPreDispatchFailure(
+            "capabilities", layer, code!, status, layer == "transport", "corr-submit", "provider-ref", null, SystemConnectionId);
+        const string preDispatchReason = "Capability check failed before dispatch. Attempt reference: corr-submit.";
         payloadBuilder.BuildAsync(task, "corr-submit", Arg.Any<CancellationToken>())
-            .Returns(RequestTaskPayloadBuildResult.Succeeded(
-                "Test Job (Linux)",
-                "{}",
-                "binding-1",
-                "2",
-                "2"));
+            .Returns(preDispatch is null
+                ? RequestTaskPayloadBuildResult.Succeeded("Test Job (Linux)", "{}", "binding-1", "2", "2")
+                : RequestTaskPayloadBuildResult.Failed(preDispatchReason, preDispatch));
         orchestrationClient.IngestAsync(Arg.Any<OrchestrationResolvedSettings>(), Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>())
             .Returns<Task<OrchestrationIngestResult>>(_ => throw new InvalidOperationException("provider failed with client_secret=synthetic-secret and Bearer synthetic-token"));
 
@@ -297,10 +303,24 @@ public sealed class RequestTaskLifecycleServiceTests
         await AssertSelectedSystemConnectionAsync(connectivity, failed);
         Assert.Equal(AutomationTaskStatuses.SubmitFailedManualRetry, failed.LastAutomationStatus);
         Assert.Null(failed.NextRetryAt);
-        Assert.Equal("External orchestration submission failed. Check provider status before retrying.", failed.FailureReason);
+        Assert.Equal(preDispatch is null
+            ? "External orchestration submission failed. Check provider status before retrying."
+            : preDispatchReason, failed.FailureReason);
         Assert.DoesNotContain("synthetic-secret", failed.FailureReason, StringComparison.Ordinal);
         Assert.DoesNotContain("synthetic-token", failed.FailureReason, StringComparison.Ordinal);
         await failurePolicy.Received(1).OnTaskFailedAsync(task.RequestId, task.Id, Arg.Any<CancellationToken>());
+        if (preDispatch is not null)
+        {
+            await orchestrationClient.DidNotReceive().IngestAsync(Arg.Any<OrchestrationResolvedSettings>(),
+                Arg.Any<OrchestrationIngestRequest>(), Arg.Any<CancellationToken>());
+            using var result = JsonDocument.Parse(failed.ResultJson!);
+            var persisted = result.RootElement.GetProperty("preDispatchFailure")
+                .Deserialize<AutomationPreDispatchFailure>(JsonSerializerOptions.Web);
+            Assert.Equal(preDispatch, persisted);
+            await domainEvents.Received(1).PublishAsync(
+                Arg.Is<RequestTaskAutomationSubmitFailedEvent>(e => e.PreDispatchFailure == preDispatch),
+                Arg.Any<CancellationToken>());
+        }
     }
 
     [Fact]

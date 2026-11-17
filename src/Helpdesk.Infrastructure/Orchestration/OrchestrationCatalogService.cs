@@ -50,20 +50,55 @@ public sealed class OrchestrationCatalogService(
 
     private async Task<T?> GetDocumentAsync<T>(string path, string? organizationId, Guid? connectionId, bool allowOlderPeer, CancellationToken ct)
     {
-        var settings = await ResolveSettingsAsync(organizationId, connectionId, ct);
-        if (!settings.Enabled) throw new InvalidOperationException("Select a current automation connection.");
-        RequirePeerTenantId(settings);
-        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, path), ct);
+        OrchestrationResolvedSettings settings;
+        Uri endpoint;
+        try
+        {
+            settings = await ResolveSettingsAsync(organizationId, connectionId, ct);
+            if (!settings.Enabled) throw new InvalidOperationException("Select a current automation connection.");
+            RequirePeerTenantId(settings);
+            endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, path), ct);
+        }
+        catch (Exception error) when (error is InvalidOperationException or UriFormatException)
+        {
+            throw new OrchestrationProviderException(new(path, 409, "capability_target_unavailable",
+                "The saved connection does not resolve to an authorized NetRatel automation target.", null));
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        await AttachAuthHeaderAsync(settings, request, ct);
+        try { await AttachAuthHeaderAsync(settings, request, ct); }
+        catch (InvalidOperationException)
+        {
+            throw new OrchestrationProviderException(new(path, 502, "capability_credentials_unavailable",
+                "NetRatel capability authentication could not be established with the saved connection.", null));
+        }
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(RequestTimeout);
-        using var response = await SendAsync(_httpClientFactory.CreateClient(PairingTransport.ClientName), request, timeout.Token);
-        if (allowOlderPeer && response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.NotImplemented) return default;
-        var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
-        if (!response.IsSuccessStatusCode) throw ProviderFailure(path, response, content, settings, request.Headers.Authorization?.Parameter);
-        try { return JsonSerializer.Deserialize<T>(content, JsonOptions) ?? throw new JsonException(); }
-        catch (JsonException) { throw new OrchestrationProviderException(new(path, 502, "invalid_contract", "NetRatel returned an incompatible automation response.", null)); }
+        try
+        {
+            using var client = _httpClientFactory.CreateClient(PairingTransport.ClientName);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (allowOlderPeer && response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.NotImplemented) return default;
+            var content = await ReadBoundedContentAsync(response.Content, timeout.Token);
+            if (!response.IsSuccessStatusCode) throw ProviderFailure(path, response, content, settings, request.Headers.Authorization?.Parameter);
+            return JsonSerializer.Deserialize<T>(content, JsonOptions) ?? throw new JsonException();
+        }
+        catch (Exception error) when (error is not OrchestrationProviderException && (error is JsonException or InvalidOperationException))
+        {
+            throw new OrchestrationProviderException(new(path, 502, "invalid_contract",
+                "NetRatel returned an incompatible automation response.", null));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new OrchestrationProviderException(new(path, 504, "transport_timeout",
+                "NetRatel did not respond before the automation deadline.", null));
+        }
+        catch (Exception error) when (error is HttpRequestException or IOException)
+        {
+            throw new OrchestrationProviderException(new(path, 502, "transport_unavailable",
+                "NetRatel could not be reached through the saved connection.", null));
+        }
     }
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpRequestMessage request, CancellationToken ct)
@@ -81,6 +116,7 @@ public sealed class OrchestrationCatalogService(
         try
         {
             using var json = JsonDocument.Parse(content);
+            if (json.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException();
             if (json.RootElement.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString();
             if (json.RootElement.TryGetProperty("correlationId", out value) && value.ValueKind == JsonValueKind.String) correlation = value.GetString();
         }
@@ -91,7 +127,7 @@ public sealed class OrchestrationCatalogService(
         code = SafeField(code) ? code : response.StatusCode switch { System.Net.HttpStatusCode.Unauthorized => "authentication_rejected", System.Net.HttpStatusCode.Forbidden => "access_denied", _ => "provider_rejected" };
         correlation = SafeField(correlation) ? correlation : null;
         return new(new(operation, (int)response.StatusCode, code!,
-            $"NetRatel {operation} failed (HTTP {(int)response.StatusCode}, {code}): {ExtractErrorMessage(content, settings, accessToken)}" + (correlation is null ? "" : $" Reference: {correlation}."), correlation));
+            $"NetRatel {operation} failed (HTTP {(int)response.StatusCode}, {code}): {ExtractErrorMessage(content, settings, accessToken)}" + (correlation is null ? "" : $" Reference: {correlation}."), correlation) { UpstreamStatus = (int)response.StatusCode });
     }
 
     private static void ValidateTargetContract(int contractVersion, OrchestrationAutomationTargetDto? target, string? legacyIdentity)
@@ -436,6 +472,7 @@ public sealed class OrchestrationCatalogService(
         try
         {
             using var document = JsonDocument.Parse(content);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return "provider returned an incompatible error response";
             foreach (var name in new[] { "message", "detail", "title", "error", "code" })
             {
                 if (document.RootElement.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String)
