@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import argparse
+import json
 import re
 import shutil
 from urllib.parse import quote, unquote, urlsplit
@@ -12,8 +13,7 @@ LINK = re.compile(r"!?\[[^\]\n]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+[\"'][^\n]*[\"'])?
 REFERENCE = re.compile(r"^\s*\[[^\]]+\]:\s*(<[^>]+>|\S+)")
 HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-SOURCE_PREFIXES = ("src/", "tests/", "tools/ci/", "tools/release/", "tools/size-campaign/", ".github/workflows/")
-SOURCE_ROOT_FILES = {"Directory.Build.props"}
+SOURCE_URL = "https://github.com/BostonTechnologies/RatelDesk"
 OFFLINE_ASSETS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".svgz", ".webp", ".ico",
                   ".pdf", ".css", ".woff", ".woff2", ".ttf", ".otf"}
 
@@ -37,13 +37,10 @@ def export_source_links(document: Path, repository: Path, destination: Path, rev
             relative = source.relative_to(repository).as_posix()
         except ValueError:
             return raw
-        root_config = relative in SOURCE_ROOT_FILES or (
-            "/" not in relative and relative.startswith("playwright.") and relative.endswith(".config.ts"))
-        if (not source.exists() or source.suffix.lower() in OFFLINE_ASSETS
-                or not (relative.startswith(SOURCE_PREFIXES) or root_config)):
+        if not source.exists() or source.suffix.lower() in OFFLINE_ASSETS:
             return raw
         route = "tree" if source.is_dir() else "blob"
-        pinned = f"https://github.com/BostonTechnologies/RatelDesk/{route}/{revision}/{quote(relative, safe='/')}"
+        pinned = f"{SOURCE_URL}/{route}/{revision}/{quote(relative, safe='/')}"
         if url.query:
             pinned += "?" + url.query
         if url.fragment:
@@ -103,24 +100,38 @@ def package_client_helpers(repository: Path, destination: Path) -> None:
         shutil.copy2(source, aliases / source.name)
 
 
+def package_operator_guides(repository: Path, destination: Path, revision: str) -> None:
+    profile = json.loads((repository / "tools/release/documentation-profile.json").read_text(encoding="utf-8"))
+    for name in profile["files"]:
+        relative = Path(name)
+        if relative.parts[0] != "docs" or ".." in relative.parts:
+            raise ValueError(f"invalid operator guide path: {name}")
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(repository / relative, target)
+    index = "# RatelDesk operator guides\n\n"
+    for label, path in profile["sections"].items():
+        index += f"- [{label}]({path})\n"
+    index += (f"\n[Release engineering and history]({SOURCE_URL}/tree/{revision}/docs/release-notes) · "
+              f"[Source documentation and implementation evidence]({SOURCE_URL}/tree/{revision}/docs)\n")
+    (destination / "docs/README.md").write_text(index, encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("destination", type=Path)
     parser.add_argument("--flat-deployment", action="store_true")
-    parser.add_argument("--source-revision", help="Pin exported source-only links to this full Git commit SHA.")
+    parser.add_argument("--source-revision", required=True, help="Pin exported source-only links to this full Git commit SHA.")
     args = parser.parse_args()
-    if args.source_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", args.source_revision):
+    if not re.fullmatch(r"[0-9a-f]{40}", args.source_revision):
         parser.error("--source-revision must be a full lowercase Git commit SHA")
     repository = Path(__file__).resolve().parents[2]
     destination = args.destination
     destination.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(repository / "docs", destination / "docs", dirs_exist_ok=True)
+    package_operator_guides(repository, destination, args.source_revision)
     shutil.copytree(repository / "licenses", destination / "licenses", dirs_exist_ok=True)
-    for name in ("AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", ".env.example"):
+    for name in ("SECURITY.md", ".env.example"):
         shutil.copy2(repository / name, destination / name)
-    # AGENTS.md and release notes refer to this portable, MIT-licensed index.
-    # Retain the complete references and upstream license in offline bundles.
-    shutil.copytree(repository / ".agents/skills", destination / ".agents/skills", dirs_exist_ok=True)
     if args.flat_deployment:
         # Existing deployments extract Compose at archive root. Fix only bundled
         # local-link targets; source canonical guides remain repository-relative.
@@ -131,9 +142,9 @@ def main() -> None:
     else:
         shutil.copytree(repository / "docker", destination / "docker", dirs_exist_ok=True)
         package_client_helpers(repository, destination)
-    if args.source_revision:
-        for document in (destination / "docs").rglob("*.md"):
-            export_source_links(document, repository, destination, args.source_revision)
+    for document in (destination / "docs").rglob("*.md"):
+        export_source_links(document, repository, destination, args.source_revision)
+    export_source_links(destination / "SECURITY.md", repository, destination, args.source_revision)
 
 
 if __name__ == "__main__":

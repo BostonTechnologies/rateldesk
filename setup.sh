@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Updating system and installing .NET SDK 10"
+cd "$(dirname "${BASH_SOURCE[0]}")"
+sdk_version="$(python3 -c 'import json; print(json.load(open("global.json"))["sdk"]["version"])')"
+echo "Updating system and installing .NET SDK $sdk_version"
 sudo apt-get update -qq
-sudo apt-get install -y -qq wget unzip
+sudo apt-get install -y -qq wget unzip python3
 
 # Install .NET SDK 10 via official script
 wget -q https://dotnet.microsoft.com/download/dotnet/scripts/v1/dotnet-install.sh -O dotnet-install.sh
 chmod +x dotnet-install.sh
 
-# Pin to the repository SDK version (adjust if you want a different 10.x)
-./dotnet-install.sh --version 10.0.400
+./dotnet-install.sh --version "$sdk_version"
 
 # Where the script put it
 DOTNET_ROOT="${HOME}/.dotnet"
@@ -37,9 +38,7 @@ fi
 
 # Verify installation (this should work both inside this script and in the next step)
 dotnet --info
-
-# Optional workloads
-dotnet workload install wasm-tools
+dotnet tool restore --tool-manifest .config/dotnet-tools.json
 
 # JS deps for repo (optional)
 if [ -f package.json ]; then

@@ -1,1079 +1,1160 @@
 {
-  "version": 1,
-  "createdAt": "2026-11-02T16:50:47.9071457+00:00",
-  "updatedAt": "2026-11-02T16:50:47.9111567+00:00",
-  "description": "Initial baseline created by 'slopwatch init' on 2026-11-02 16:50:47 UTC",
+  "version": 2,
+  "createdAt": "2026-11-17T18:18:37.2559573+00:00",
+  "updatedAt": "2026-11-17T18:18:37.2573151+00:00",
+  "description": "Reviewed legacy findings on main at 8142046d886407dc98d08233161c481cf037ced5, migrated with Slopwatch 0.5.0.",
   "entries": [
     {
-      "hash": "eb9f514350bf974c",
-      "ruleId": "SW005",
-      "filePath": "src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj",
-      "lineNumber": 7,
-      "codeSnippet": "<NoWarn>$(NoWarn);CS0618;CS8602;CS8604</NoWarn>",
-      "message": "Adding warnings to NoWarn: CS0618;CS8602;CS8604",
-      "baselinedAt": "2026-11-02T16:50:47.9100831+00:00"
-    },
-    {
-      "hash": "134ef71e0798d53a",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Pairing/PairingTransport.cs",
-      "lineNumber": 113,
-      "codeSnippet": "catch (JsonException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9101775+00:00"
-    },
-    {
-      "hash": "c7e48fdec917054e",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Logging/NotificationLoggerProvider.cs",
-      "lineNumber": 62,
-      "codeSnippet": "catch\n        {\n            // Never throw during logger provider disposal.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9103363+00:00"
-    },
-    {
-      "hash": "5a6485b1bbd94a23",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Logging/NotificationLoggerProvider.cs",
-      "lineNumber": 81,
-      "codeSnippet": "catch\n        {\n            // Swallow to keep logging pipeline safe.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9103502+00:00"
-    },
-    {
-      "hash": "ddae0b2b61b583c5",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Logging/NotificationLoggerProvider.cs",
-      "lineNumber": 115,
-      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // Expected during shutdown.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9103574+00:00"
-    },
-    {
-      "hash": "dce523f9a9571545",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
-      "lineNumber": 125,
-      "codeSnippet": "catch { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9103626+00:00"
-    },
-    {
-      "hash": "241e2c990b3f840c",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
-      "lineNumber": 253,
-      "codeSnippet": "catch { /* ignore */ }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9103668+00:00"
-    },
-    {
-      "hash": "4094bb3fabe9f4a4",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Infrastructure/Orchestration/AutomationBindingDriftService.cs",
-      "lineNumber": 166,
-      "codeSnippet": "catch\n            {\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.910393+00:00"
-    },
-    {
-      "hash": "d93006dbd5e93507",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Program.cs",
-      "lineNumber": 571,
-      "codeSnippet": "catch { /* fall through */ }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9103982+00:00"
-    },
-    {
-      "hash": "2fbd11903c34e011",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Program.cs",
-      "lineNumber": 1288,
-      "codeSnippet": "catch\n    {\n        // Email ingestion should not fail if SLA initialization fails.\n    }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104032+00:00"
-    },
-    {
-      "hash": "e56399517e66b72d",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Program.cs",
-      "lineNumber": 1401,
-      "codeSnippet": "catch { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104108+00:00"
-    },
-    {
-      "hash": "46a815c2f63ad7c0",
-      "ruleId": "SW005",
-      "filePath": "src/Helpdesk.API/Helpdesk.API.csproj",
-      "lineNumber": 8,
-      "codeSnippet": "<NoWarn>$(NoWarn);AD0001;CS0618;CS8601;CS8602;CS8604</NoWarn>",
-      "message": "Adding warnings to NoWarn: AD0001;CS0618;CS8601;CS8602;CS8604",
-      "baselinedAt": "2026-11-02T16:50:47.9104207+00:00"
-    },
-    {
-      "hash": "615d31852b549b8f",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Pairing/PairingEndpoints.cs",
-      "lineNumber": 109,
-      "codeSnippet": "catch (Exception) when (!http.RequestAborted.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104256+00:00"
-    },
-    {
-      "hash": "1dd25b7c9cc4ed26",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/AiAssistant/AiAssistantAiAssistantEndpoints.cs",
-      "lineNumber": 81,
-      "codeSnippet": "catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104305+00:00"
-    },
-    {
-      "hash": "923eb6748071f0f7",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/WorkLogs/WorkLogEndpoints.cs",
-      "lineNumber": 262,
-      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // connection terminated by client disconnect/cancellation\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104364+00:00"
-    },
-    {
-      "hash": "defb6e7c71d51ebe",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Ops/WorkflowOpsEndpoints.cs",
-      "lineNumber": 507,
-      "codeSnippet": "catch (JsonException)\n        {\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104413+00:00"
-    },
-    {
-      "hash": "c010e9b93d7997ae",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/System/SystemTokenEndpoints.cs",
-      "lineNumber": 16,
-      "codeSnippet": "catch { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104468+00:00"
-    },
-    {
-      "hash": "62a058156dcab957",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Notifications/NotificationEndpoints.cs",
-      "lineNumber": 934,
-      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // connection terminated by client disconnect/cancellation\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104568+00:00"
-    },
-    {
-      "hash": "e192a3ceba517685",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Changes/ChangeEndpoints.cs",
-      "lineNumber": 292,
-      "codeSnippet": "catch\n            {\n                // Ticket creation must not fail if SLA initialization fails.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104626+00:00"
-    },
-    {
-      "hash": "2641a7a11fab5730",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Changes/ChangeEndpoints.cs",
-      "lineNumber": 1490,
-      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // Connection terminated by client disconnect/cancellation.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104686+00:00"
-    },
-    {
-      "hash": "17f7a675897a51fb",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Requests/SelfServiceRequestEndpoints.cs",
-      "lineNumber": 168,
-      "codeSnippet": "catch\n        {\n            // Request submission must not fail if SLA initialization fails.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104739+00:00"
-    },
-    {
-      "hash": "49a1b796af558e8f",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Requests/RequestEndpoints.cs",
-      "lineNumber": 281,
-      "codeSnippet": "catch\n            {\n                // Ticket creation must not fail if SLA initialization fails.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104789+00:00"
-    },
-    {
-      "hash": "1bc955f5df3bd24c",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Requests/RequestEndpoints.cs",
-      "lineNumber": 300,
-      "codeSnippet": "catch\n            {\n                // Request creation must not fail if task generation fails.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104837+00:00"
-    },
-    {
-      "hash": "be7cfb24436701c3",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Requests/RequestEndpoints.cs",
-      "lineNumber": 1301,
-      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // connection terminated by client disconnect/cancellation\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9104917+00:00"
-    },
-    {
-      "hash": "cc9334a54304dd5d",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Endpoints/Incidents/IncidentEndpoints.cs",
-      "lineNumber": 1450,
-      "codeSnippet": "catch\n        {\n            // Assignment must not fail if support notification routing fails.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105017+00:00"
-    },
-    {
-      "hash": "bbeb290dbbcfb610",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.API/Middleware/ExceptionNotificationMiddleware.cs",
-      "lineNumber": 58,
-      "codeSnippet": "catch\n            {\n                // Swallow to keep exception pipeline stable.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105073+00:00"
-    },
-    {
-      "hash": "090618d46d3e4d6e",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Cli/HelpdeskCli.Transport.cs",
-      "lineNumber": 567,
-      "codeSnippet": "catch (JsonException)\n            {\n                // Treat malformed JSON-looking values as strings so agent commands still return validation from the API.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105129+00:00"
-    },
-    {
-      "hash": "1ed55fb8be47316a",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Application/Requests/CreateRequestCommand.cs",
-      "lineNumber": 82,
-      "codeSnippet": "catch\n        {\n            // Ticket creation must not fail if SLA initialization fails.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105192+00:00"
-    },
-    {
-      "hash": "6b34cd920589f0db",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Application/Workflow/WorkflowEngine.cs",
-      "lineNumber": 207,
-      "codeSnippet": "catch (InvalidOperationException)\n                    {\n                        // Another run may have started/transitioned the task first.\n                    }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105244+00:00"
-    },
-    {
-      "hash": "2e4673bc4d42f46d",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Application/Workflow/WorkflowEngine.cs",
-      "lineNumber": 211,
-      "codeSnippet": "catch (KeyNotFoundException)\n                    {\n                        // Task no longer exists.\n                    }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.910541+00:00"
-    },
-    {
-      "hash": "edd78c3cd8cf2f30",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.AgentClient/SecureConfigurationFiles.cs",
-      "lineNumber": 245,
-      "codeSnippet": "catch (FileNotFoundException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105459+00:00"
-    },
-    {
-      "hash": "2e36fc52151867a4",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.AgentClient/SecureConfigurationFiles.cs",
-      "lineNumber": 246,
-      "codeSnippet": "catch (DirectoryNotFoundException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105501+00:00"
-    },
-    {
-      "hash": "eae754e85e84245b",
-      "ruleId": "SW005",
-      "filePath": "src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj",
-      "lineNumber": 8,
-      "codeSnippet": "<NoWarn>$(NoWarn);MUD0002;CS0414;CS8601;CS8602;CS8618;CS8974</NoWarn>",
-      "message": "Adding warnings to NoWarn: MUD0002;CS0414;CS8601;CS8602;CS8618;CS8974",
-      "baselinedAt": "2026-11-02T16:50:47.9105559+00:00"
-    },
-    {
-      "hash": "f299611d9ec4e901",
+      "hash": "9c67a5d3f800894e",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Layout/NotificationBell.razor",
       "lineNumber": 199,
       "codeSnippet": "catch (TaskCanceledException)\n        {\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105613+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570843+00:00"
     },
     {
-      "hash": "f70eb6414b406564",
+      "hash": "737a2bc914d6fbe4",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
-      "lineNumber": 256,
-      "codeSnippet": "catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Layout/NotificationBell.razor",
+      "lineNumber": 219,
+      "codeSnippet": "catch (TaskCanceledException)\n        {\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105705+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570868+00:00"
     },
     {
-      "hash": "d7ebb38c4a2d5767",
+      "hash": "c236e740660b09b5",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
-      "lineNumber": 295,
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/EmailHtmlEditor.razor",
+      "lineNumber": 201,
+      "codeSnippet": "catch (OperationCanceledException)\n            {\n            }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.257156+00:00"
+    },
+    {
+      "hash": "5cec6fe3bad9c370",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/RequestFormBuilder.razor",
+      "lineNumber": 1201,
+      "codeSnippet": "catch\n        {\n            // ignore parse errors\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571684+00:00"
+    },
+    {
+      "hash": "ef87ff9ad210bf9f",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/ServiceExplorer.razor",
+      "lineNumber": 209,
+      "codeSnippet": "catch { /* ignore */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571642+00:00"
+    },
+    {
+      "hash": "edb3d58267bba96e",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Resources/DataManagement.razor",
+      "lineNumber": 459,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105749+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571607+00:00"
     },
     {
-      "hash": "c6b84f3cc9ad949d",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
-      "lineNumber": 371,
-      "codeSnippet": "catch (HttpRequestException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105878+00:00"
-    },
-    {
-      "hash": "24425491de6cc642",
+      "hash": "7dd52d2d7d89467b",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Pages/Authenticator.razor",
       "lineNumber": 54,
       "codeSnippet": "catch (JSDisconnectedException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9105963+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571006+00:00"
     },
     {
-      "hash": "3e7c72377ddab08e",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/ViewTicket.razor",
-      "lineNumber": 172,
-      "codeSnippet": "catch { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106015+00:00"
-    },
-    {
-      "hash": "7ccac1897c4994f7",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/ViewTicket.razor",
-      "lineNumber": 262,
-      "codeSnippet": "catch { /* non-critical */ }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106056+00:00"
-    },
-    {
-      "hash": "237e7442001e0575",
+      "hash": "b47508cea2cc5e0f",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Pages/ChangePassword.razor",
       "lineNumber": 43,
       "codeSnippet": "catch (JSDisconnectedException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106114+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571265+00:00"
     },
     {
-      "hash": "6c57e51866c3e638",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
-      "lineNumber": 691,
-      "codeSnippet": "catch (TaskCanceledException)\n        {\n            // ignore debounce cancellation\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106173+00:00"
-    },
-    {
-      "hash": "f6906d8bc67902a6",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
-      "lineNumber": 839,
-      "codeSnippet": "catch\n            {\n                // Ignore lifecycle race during teardown.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106229+00:00"
-    },
-    {
-      "hash": "11ad03a01554600f",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
-      "lineNumber": 1163,
-      "codeSnippet": "catch\n            {\n                // Keep raw JSON visible even if payload parsing fails.\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106276+00:00"
-    },
-    {
-      "hash": "e171953a45772d68",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
-      "lineNumber": 1202,
-      "codeSnippet": "catch\n        {\n            // ignore teardown exceptions\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106325+00:00"
-    },
-    {
-      "hash": "b0e8339dff10c2f0",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Tasks/TaskDashboard.razor",
-      "lineNumber": 392,
-      "codeSnippet": "catch (TaskCanceledException)\n        {\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106382+00:00"
-    },
-    {
-      "hash": "80b4ead791842bec",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/SelfService/SubmitOnBehalfDialog.razor",
-      "lineNumber": 113,
-      "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested)\n        {\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106437+00:00"
-    },
-    {
-      "hash": "426540325ea04ca6",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/SelfService/ServiceBrowser.razor",
-      "lineNumber": 207,
-      "codeSnippet": "catch\n            {\n                // ignore breadcrumb errors\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106489+00:00"
-    },
-    {
-      "hash": "16fb6a826c3b228a",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/SelfService/MyRequests.razor",
-      "lineNumber": 133,
-      "codeSnippet": "catch (TaskCanceledException)\n        {\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106537+00:00"
-    },
-    {
-      "hash": "0f217752c4159a48",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Ops/SlaOpsDashboard.razor",
-      "lineNumber": 331,
-      "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106586+00:00"
-    },
-    {
-      "hash": "cba280be492fcad0",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Ops/WorkflowOpsDashboard.razor",
-      "lineNumber": 288,
-      "codeSnippet": "catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106645+00:00"
-    },
-    {
-      "hash": "ab8032e9f042c342",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/PendingEmails.razor",
-      "lineNumber": 207,
-      "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106692+00:00"
-    },
-    {
-      "hash": "482b597ff9794c99",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/EmailHtmlEditor.razor",
-      "lineNumber": 199,
-      "codeSnippet": "catch (OperationCanceledException)\n            {\n            }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106742+00:00"
-    },
-    {
-      "hash": "5e884d73496322e4",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Resources/DataManagement.razor",
-      "lineNumber": 540,
-      "codeSnippet": "catch (OperationCanceledException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106795+00:00"
-    },
-    {
-      "hash": "884b28ad4386de96",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/ServiceExplorer.razor",
-      "lineNumber": 221,
-      "codeSnippet": "catch { /* ignore */ }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106842+00:00"
-    },
-    {
-      "hash": "e8af3ddaa148905a",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Requests/RequestFormBuilder.razor",
-      "lineNumber": 1241,
-      "codeSnippet": "catch\n        {\n            // ignore parse errors\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106899+00:00"
-    },
-    {
-      "hash": "bf64ab528f48d362",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Admin/Customer/CustomerManagement.razor",
-      "lineNumber": 204,
-      "codeSnippet": "catch\n        {\n            // Keep the existing row state if the status refresh also fails.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9106957+00:00"
-    },
-    {
-      "hash": "3500c23665896fc9",
+      "hash": "62df5c0dc1a63575",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Pages/Changes/ChangeDetail.razor",
-      "lineNumber": 398,
+      "lineNumber": 415,
       "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107005+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571524+00:00"
     },
     {
-      "hash": "332ea5de1cdd8ea5",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Requests/RequestDetail.razor",
-      "lineNumber": 633,
-      "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107053+00:00"
-    },
-    {
-      "hash": "a8da5859a8fa241b",
+      "hash": "b437f2cf9a7916fd",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Pages/Incidents/IncidentRelationTargetPickerDialog.razor",
       "lineNumber": 138,
       "codeSnippet": "catch (TaskCanceledException)\n        {\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107193+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571448+00:00"
     },
     {
-      "hash": "9b0c263abf03e79a",
+      "hash": "06c4d26dc8d909f8",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Pages/Incidents/IncidentSubjectWithPeek.razor",
       "lineNumber": 73,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.910724+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571476+00:00"
     },
     {
-      "hash": "6b0969212c87ebb0",
+      "hash": "c9e3baa670ddf75d",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Pages/AiOps/Chat.razor",
-      "lineNumber": 119,
-      "codeSnippet": "catch (OperationCanceledException) when (ct.IsCancellationRequested) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
+      "lineNumber": 712,
+      "codeSnippet": "catch (TaskCanceledException)\n        {\n            // ignore debounce cancellation\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107581+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570904+00:00"
     },
     {
-      "hash": "7296a5eae71602f0",
+      "hash": "7b3f009e40b3b9d2",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/AiAssistantChat.razor",
-      "lineNumber": 176,
-      "codeSnippet": "catch (JsonException) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
+      "lineNumber": 1192,
+      "codeSnippet": "catch\n            {\n                // Keep raw JSON visible even if payload parsing fails.\n            }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107634+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570939+00:00"
     },
     {
-      "hash": "efc1d8a92668c44e",
+      "hash": "98fcd34be103918b",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/AiAssistantChat.razor",
-      "lineNumber": 178,
-      "codeSnippet": "catch (JSException) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Notifications.razor",
+      "lineNumber": 1233,
+      "codeSnippet": "catch\n        {\n            // ignore teardown exceptions\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107676+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570968+00:00"
     },
     {
-      "hash": "3178146a080bb6ff",
+      "hash": "4ce24944872534c6",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/AiAssistantChat.razor",
-      "lineNumber": 438,
-      "codeSnippet": "catch (JSDisconnectedException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107759+00:00"
-    },
-    {
-      "hash": "34cf46fc179f2f22",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/EmailContent.razor",
-      "lineNumber": 68,
-      "codeSnippet": "catch (JSDisconnectedException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107819+00:00"
-    },
-    {
-      "hash": "abfd8db0f590553d",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/EmailContent.razor",
-      "lineNumber": 69,
-      "codeSnippet": "catch (TaskCanceledException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107863+00:00"
-    },
-    {
-      "hash": "c7f6d3d40e0cb5b7",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/ServiceCategoryPicker.razor",
-      "lineNumber": 105,
-      "codeSnippet": "catch (OperationCanceledException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9107984+00:00"
-    },
-    {
-      "hash": "26801d4abca7680c",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/CredentialReviewSurface.razor",
-      "lineNumber": 30,
-      "codeSnippet": "catch (JSDisconnectedException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108082+00:00"
-    },
-    {
-      "hash": "b4f29b2fdc941497",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketMessages.razor",
-      "lineNumber": 55,
-      "codeSnippet": "catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108129+00:00"
-    },
-    {
-      "hash": "16fe0b55ef47e26f",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/IntegrationCredentialDetails.razor",
-      "lineNumber": 261,
-      "codeSnippet": "catch (JsonException) { /* Some gateways return a plain error response. */ }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108181+00:00"
-    },
-    {
-      "hash": "3db34e91df1a94f1",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketAssigneePicker.razor",
-      "lineNumber": 66,
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Ops/SlaOpsDashboard.razor",
+      "lineNumber": 351,
       "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108227+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.257138+00:00"
     },
     {
-      "hash": "05d04b3ef6ad3c9b",
+      "hash": "8ac220114f410222",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketListFilters.razor",
-      "lineNumber": 95,
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Ops/WorkflowOpsDashboard.razor",
+      "lineNumber": 304,
+      "codeSnippet": "catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571339+00:00"
+    },
+    {
+      "hash": "d9092bc613dc147e",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/SelfService/SubmitOnBehalfDialog.razor",
+      "lineNumber": 114,
+      "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested)\n        {\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571411+00:00"
+    },
+    {
+      "hash": "6eec36c57d29852a",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
+      "lineNumber": 256,
+      "codeSnippet": "catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571093+00:00"
+    },
+    {
+      "hash": "cf12524e6b260eb4",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
+      "lineNumber": 295,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108272+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571117+00:00"
     },
     {
-      "hash": "628331e8c96ecd39",
+      "hash": "9a6898b38c394e79",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketListFilters.razor",
-      "lineNumber": 96,
-      "codeSnippet": "catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { /* Keep the selected stable ID visible when its label is unavailable. */ }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
+      "lineNumber": 315,
+      "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108319+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571154+00:00"
     },
     {
-      "hash": "fda1f3c4c4dbd447",
+      "hash": "2245d9dcce63777b",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/SessionAccessMonitor.razor",
-      "lineNumber": 24,
-      "codeSnippet": "catch (JSDisconnectedException) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
+      "lineNumber": 352,
+      "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108781+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571179+00:00"
     },
     {
-      "hash": "8b51f437834cbe05",
+      "hash": "58d47cf1b7b53f73",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
+      "lineNumber": 371,
+      "codeSnippet": "catch (HttpRequestException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571204+00:00"
+    },
+    {
+      "hash": "904e8b0519889f3f",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Setup.razor",
+      "lineNumber": 379,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571241+00:00"
+    },
+    {
+      "hash": "7a25f0080bc7a3a7",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/Tasks/TaskDashboard.razor",
+      "lineNumber": 486,
+      "codeSnippet": "catch (TaskCanceledException)\n        {\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571306+00:00"
+    },
+    {
+      "hash": "215143981f8f18df",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/ViewTicket.razor",
+      "lineNumber": 172,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571033+00:00"
+    },
+    {
+      "hash": "f1aa74cd19291c02",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Pages/ViewTicket.razor",
+      "lineNumber": 262,
+      "codeSnippet": "catch { /* non-critical */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571054+00:00"
+    },
+    {
+      "hash": "68a63718fcb126e8",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/AssigneeSelector.razor",
       "lineNumber": 150,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108826+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570543+00:00"
     },
     {
-      "hash": "d2f2634c1e34198b",
+      "hash": "b3d221df97b3b331",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/AssigneeSelector.razor",
       "lineNumber": 151,
       "codeSnippet": "catch (Exception ex) when (ex is HttpRequestException or JsonException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108872+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570578+00:00"
     },
     {
-      "hash": "227b1b7769293732",
+      "hash": "b0e252a808eda278",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/AssigneeSelector.razor",
       "lineNumber": 205,
       "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108917+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570602+00:00"
     },
     {
-      "hash": "eef25b8e8ebc3c13",
+      "hash": "a3fdaeef774fbe22",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/AssigneeSelector.razor",
       "lineNumber": 268,
       "codeSnippet": "catch (JSDisconnectedException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9108958+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570626+00:00"
     },
     {
-      "hash": "40d5ed2af995c967",
+      "hash": "5718127df1b245d2",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
-      "lineNumber": 136,
-      "codeSnippet": "catch (JSException) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/CredentialReviewSurface.razor",
+      "lineNumber": 30,
+      "codeSnippet": "catch (JSDisconnectedException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109015+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570768+00:00"
     },
     {
-      "hash": "0281aabbffa66e22",
+      "hash": "eeee5b0dc8406718",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
-      "lineNumber": 137,
-      "codeSnippet": "catch (InvalidOperationException) { }",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/EmailContent.razor",
+      "lineNumber": 68,
+      "codeSnippet": "catch (JSDisconnectedException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109057+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570427+00:00"
     },
     {
-      "hash": "de6b0a61c85ed1d0",
+      "hash": "b7bf8624edce33a7",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/EmailContent.razor",
+      "lineNumber": 69,
+      "codeSnippet": "catch (TaskCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570457+00:00"
+    },
+    {
+      "hash": "927889e3a14ea768",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/EmailContent.razor",
+      "lineNumber": 82,
+      "codeSnippet": "catch (JSDisconnectedException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570479+00:00"
+    },
+    {
+      "hash": "6140fda6b93d94fd",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/EmailContent.razor",
+      "lineNumber": 83,
+      "codeSnippet": "catch (TaskCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570512+00:00"
+    },
+    {
+      "hash": "0417fdee5964d817",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/IntegrationCredentialDetails.razor",
+      "lineNumber": 261,
+      "codeSnippet": "catch (JsonException) { /* Some gateways return a plain error response. */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570802+00:00"
+    },
+    {
+      "hash": "deda4dd4ec4cb497",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/MonacoTextEditor.razor",
       "lineNumber": 144,
       "codeSnippet": "catch (JSDisconnectedException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109144+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570056+00:00"
     },
     {
-      "hash": "1f3e82f8c97bb754",
+      "hash": "6d87ca3c83b14936",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/MonacoTextEditor.razor",
+      "lineNumber": 150,
+      "codeSnippet": "catch (JSDisconnectedException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570091+00:00"
+    },
+    {
+      "hash": "eace2d46c751f8e1",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Components/Shared/PairingConnectionsPanel.razor",
-      "lineNumber": 205,
+      "lineNumber": 243,
       "codeSnippet": "catch (Exception exception) when (Expected(exception)) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109234+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570229+00:00"
     },
     {
-      "hash": "429795bb944eaeca",
+      "hash": "fa1d34bf6fb463e0",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
-      "lineNumber": 62,
-      "codeSnippet": "catch { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.910928+00:00"
-    },
-    {
-      "hash": "521c82b9bfc2ed8b",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
-      "lineNumber": 103,
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/ServiceCategoryPicker.razor",
+      "lineNumber": 105,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109408+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570123+00:00"
     },
     {
-      "hash": "6690e5153001df4a",
+      "hash": "1543cea5d340ba1d",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
-      "lineNumber": 260,
-      "codeSnippet": "catch\n        {\n            // ignore\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109496+00:00"
-    },
-    {
-      "hash": "a09c59f639707ff7",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Services/TimelineStreamService.cs",
-      "lineNumber": 62,
-      "codeSnippet": "catch { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109541+00:00"
-    },
-    {
-      "hash": "0e17bb8d4ccec83a",
-      "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Services/TimelineStreamService.cs",
-      "lineNumber": 103,
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/ServiceCategoryPicker.razor",
+      "lineNumber": 197,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109668+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2570156+00:00"
     },
     {
-      "hash": "0979d38a87e1aaf2",
+      "hash": "ca0b208136abd764",
       "ruleId": "SW003",
-      "filePath": "src/HelpDesk.NewWeb/Services/TimelineStreamService.cs",
-      "lineNumber": 257,
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/SessionAccessMonitor.razor",
+      "lineNumber": 24,
+      "codeSnippet": "catch (JSDisconnectedException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570395+00:00"
+    },
+    {
+      "hash": "98dcf913bb0fb548",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
+      "lineNumber": 143,
+      "codeSnippet": "catch (JSException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570661+00:00"
+    },
+    {
+      "hash": "5e270d534493fd4c",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
+      "lineNumber": 144,
+      "codeSnippet": "catch (InvalidOperationException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570705+00:00"
+    },
+    {
+      "hash": "003df2256246e8eb",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketActivityTabs.razor",
+      "lineNumber": 152,
+      "codeSnippet": "catch (JSException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570728+00:00"
+    },
+    {
+      "hash": "94cc15810d7f20fd",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketAssigneePicker.razor",
+      "lineNumber": 66,
+      "codeSnippet": "catch (OperationCanceledException) when (token.IsCancellationRequested) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570262+00:00"
+    },
+    {
+      "hash": "d3f272474e34096d",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketListFilters.razor",
+      "lineNumber": 101,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570302+00:00"
+    },
+    {
+      "hash": "dc6a7ab8249554cf",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketListFilters.razor",
+      "lineNumber": 102,
+      "codeSnippet": "catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { /* Keep the selected stable ID visible when its label is unavailable. */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570333+00:00"
+    },
+    {
+      "hash": "bcad01968912d105",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketListFilters.razor",
+      "lineNumber": 133,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570366+00:00"
+    },
+    {
+      "hash": "28c6db5f39502d49",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Components/Shared/TicketMessages.razor",
+      "lineNumber": 55,
+      "codeSnippet": "catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2570186+00:00"
+    },
+    {
+      "hash": "dc09fbe7dc444fb1",
+      "ruleId": "SW005",
+      "filePath": "src/HelpDesk.NewWeb/HelpDesk.NewWeb.csproj",
+      "lineNumber": 8,
+      "codeSnippet": "<NoWarn>$(NoWarn);MUD0002;CS0414;CS8601;CS8602;CS8618;CS8974</NoWarn>",
+      "message": "Adding warnings to NoWarn: MUD0002;CS0414;CS8601;CS8602;CS8618;CS8974",
+      "baselinedAt": "2026-11-17T18:18:37.2570023+00:00"
+    },
+    {
+      "hash": "f34a8081432d5e4f",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
+      "lineNumber": 72,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571713+00:00"
+    },
+    {
+      "hash": "18b65eb76f3dc112",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
+      "lineNumber": 96,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571735+00:00"
+    },
+    {
+      "hash": "58e68ea6f2cdecce",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
+      "lineNumber": 108,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571766+00:00"
+    },
+    {
+      "hash": "9b35e15dd5e072e3",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
+      "lineNumber": 113,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.257179+00:00"
+    },
+    {
+      "hash": "9df2c965c99e2a95",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
+      "lineNumber": 120,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.257181+00:00"
+    },
+    {
+      "hash": "8ac765d06d0008cf",
+      "ruleId": "SW003",
+      "filePath": "src/HelpDesk.NewWeb/Services/NotificationStreamService.cs",
+      "lineNumber": 273,
       "codeSnippet": "catch\n        {\n            // ignore\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109756+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571843+00:00"
     },
     {
-      "hash": "05c0c3c01bc5fe4a",
+      "hash": "6bee343ad7e6282a",
       "ruleId": "SW003",
       "filePath": "src/HelpDesk.NewWeb/Services/Pairing/SystemConnectionApi.cs",
       "lineNumber": 58,
       "codeSnippet": "catch (Exception exception) when (exception is JsonException or HttpRequestException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109806+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2571873+00:00"
     },
     {
-      "hash": "aa3cfb0bb7452c13",
+      "hash": "3acd45c0704520ac",
       "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
-      "lineNumber": 263,
-      "codeSnippet": "catch { /* The bounded server expiry remains the cleanup fallback. Never touch an older profile. */ }",
+      "filePath": "src/Helpdesk.API/Endpoints/AiAssistant/AiAssistantAiAssistantEndpoints.cs",
+      "lineNumber": 81,
+      "codeSnippet": "catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109879+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572362+00:00"
     },
     {
-      "hash": "2ee9c99380f40288",
+      "hash": "f1214acf67bff2c8",
       "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
-      "lineNumber": 520,
-      "codeSnippet": "catch (Exception pollFailure) when (pollFailure is HttpRequestException or AgentClientValidationException or OperationCanceledException) { }",
+      "filePath": "src/Helpdesk.API/Endpoints/Changes/ChangeEndpoints.cs",
+      "lineNumber": 296,
+      "codeSnippet": "catch\n            {\n                // Ticket creation must not fail if SLA initialization fails.\n            }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109926+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572433+00:00"
     },
     {
-      "hash": "3c28e5ea9d2ffb12",
+      "hash": "fce7ef59b7de51ac",
       "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
-      "lineNumber": 559,
-      "codeSnippet": "catch (OperationCanceledException) { }",
+      "filePath": "src/Helpdesk.API/Endpoints/Changes/ChangeEndpoints.cs",
+      "lineNumber": 1533,
+      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // Connection terminated by client disconnect/cancellation.\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9109966+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572456+00:00"
     },
     {
-      "hash": "c41c300726b11292",
+      "hash": "364321cec5b4fb8f",
       "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
-      "lineNumber": 573,
-      "codeSnippet": "catch (Exception exception) when (exception is OperationCanceledException or AgentClientValidationException or HttpRequestException or IOException) { }",
+      "filePath": "src/Helpdesk.API/Endpoints/Incidents/IncidentEndpoints.cs",
+      "lineNumber": 1467,
+      "codeSnippet": "catch\n        {\n            // Assignment must not fail if support notification routing fails.\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110015+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572392+00:00"
     },
     {
-      "hash": "a24357fe63895d22",
+      "hash": "14308db326f4bed0",
       "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
-      "lineNumber": 652,
-      "codeSnippet": "catch { /* No credential exists; a pending proposal expires on the server in ten minutes. */ }",
+      "filePath": "src/Helpdesk.API/Endpoints/Notifications/NotificationEndpoints.cs",
+      "lineNumber": 934,
+      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // connection terminated by client disconnect/cancellation\n        }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110149+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572052+00:00"
     },
     {
-      "hash": "ed0ea4a97c093295",
+      "hash": "c461332b792c7314",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Endpoints/Pairing/PairingEndpoints.cs",
+      "lineNumber": 109,
+      "codeSnippet": "catch (Exception) when (!http.RequestAborted.IsCancellationRequested) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572138+00:00"
+    },
+    {
+      "hash": "3bc5328d6a507f0b",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Endpoints/Requests/RequestEndpoints.cs",
+      "lineNumber": 289,
+      "codeSnippet": "catch\n            {\n                // Ticket creation must not fail if SLA initialization fails.\n            }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572251+00:00"
+    },
+    {
+      "hash": "e113fd6315d05277",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Endpoints/Requests/RequestEndpoints.cs",
+      "lineNumber": 308,
+      "codeSnippet": "catch\n            {\n                // Request creation must not fail if task generation fails.\n            }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572284+00:00"
+    },
+    {
+      "hash": "83d6feebab9c3a07",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Endpoints/System/SystemTokenEndpoints.cs",
+      "lineNumber": 16,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572077+00:00"
+    },
+    {
+      "hash": "c541fc64c5f39894",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Endpoints/System/SystemTokenEndpoints.cs",
+      "lineNumber": 17,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572109+00:00"
+    },
+    {
+      "hash": "b4ca89ee91bb71c3",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Endpoints/WorkLogs/WorkLogEndpoints.cs",
+      "lineNumber": 262,
+      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // connection terminated by client disconnect/cancellation\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572314+00:00"
+    },
+    {
+      "hash": "56e6930c53177257",
+      "ruleId": "SW005",
+      "filePath": "src/Helpdesk.API/Helpdesk.API.csproj",
+      "lineNumber": 8,
+      "codeSnippet": "<NoWarn>$(NoWarn);AD0001;CS0618;CS8601;CS8602;CS8604</NoWarn>",
+      "message": "Adding warnings to NoWarn: AD0001;CS0618;CS8601;CS8602;CS8604",
+      "baselinedAt": "2026-11-17T18:18:37.257201+00:00"
+    },
+    {
+      "hash": "3526996262857e0a",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Middleware/ExceptionNotificationMiddleware.cs",
+      "lineNumber": 78,
+      "codeSnippet": "catch\n            {\n                // Swallow to keep exception pipeline stable.\n            }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572498+00:00"
+    },
+    {
+      "hash": "c0a8cb0d6fc1b72e",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Program.cs",
+      "lineNumber": 576,
+      "codeSnippet": "catch { /* fall through */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571914+00:00"
+    },
+    {
+      "hash": "292b35a79ed1a19d",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Program.cs",
+      "lineNumber": 1302,
+      "codeSnippet": "catch\n    {\n        // Email ingestion should not fail if SLA initialization fails.\n    }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571936+00:00"
+    },
+    {
+      "hash": "6ac5b3b14704c530",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Program.cs",
+      "lineNumber": 1423,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2571971+00:00"
+    },
+    {
+      "hash": "8ed7a028c953afec",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.API/Program.cs",
+      "lineNumber": 1424,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.257199+00:00"
+    },
+    {
+      "hash": "afcd34f746364489",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.AgentClient/SecureConfigurationFiles.cs",
+      "lineNumber": 245,
+      "codeSnippet": "catch (FileNotFoundException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572527+00:00"
+    },
+    {
+      "hash": "6a59c92db1133e05",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.AgentClient/SecureConfigurationFiles.cs",
+      "lineNumber": 246,
+      "codeSnippet": "catch (DirectoryNotFoundException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572548+00:00"
+    },
+    {
+      "hash": "8f1358f050771591",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Application/Requests/CreateRequestCommand.cs",
+      "lineNumber": 82,
+      "codeSnippet": "catch\n        {\n            // Ticket creation must not fail if SLA initialization fails.\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2573044+00:00"
+    },
+    {
+      "hash": "7544a307f36e345e",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Application/Workflow/WorkflowEngine.cs",
+      "lineNumber": 210,
+      "codeSnippet": "catch (InvalidOperationException)\n                    {\n                        // Another run may have started/transitioned the task first.\n                    }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2573087+00:00"
+    },
+    {
+      "hash": "c6e20396ba6b3d2f",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Application/Workflow/WorkflowEngine.cs",
+      "lineNumber": 214,
+      "codeSnippet": "catch (KeyNotFoundException)\n                    {\n                        // Task no longer exists.\n                    }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2573123+00:00"
+    },
+    {
+      "hash": "a7b6727d4de26bda",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Cli/HelpdeskCli.Transport.cs",
+      "lineNumber": 567,
+      "codeSnippet": "catch (JsonException)\n            {\n                // Treat malformed JSON-looking values as strings so agent commands still return validation from the API.\n            }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.257315+00:00"
+    },
+    {
+      "hash": "6b60a65c6b18ffb3",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
+      "lineNumber": 125,
+      "codeSnippet": "catch { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569772+00:00"
+    },
+    {
+      "hash": "b44e214325229d36",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
+      "lineNumber": 253,
+      "codeSnippet": "catch { /* ignore */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569802+00:00"
+    },
+    {
+      "hash": "25b533517988ac6c",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
+      "lineNumber": 259,
+      "codeSnippet": "catch { /* ignore */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569903+00:00"
+    },
+    {
+      "hash": "2b831a72438a78d0",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
+      "lineNumber": 260,
+      "codeSnippet": "catch { /* ignore */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569928+00:00"
+    },
+    {
+      "hash": "bc8e5fc8ff599786",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Email/ImapEmailService.cs",
+      "lineNumber": 265,
+      "codeSnippet": "catch { /* ignore */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569951+00:00"
+    },
+    {
+      "hash": "868ac76e6b3ceabf",
+      "ruleId": "SW005",
+      "filePath": "src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj",
+      "lineNumber": 7,
+      "codeSnippet": "<NoWarn>$(NoWarn);CS0618;CS8602;CS8604</NoWarn>",
+      "message": "Adding warnings to NoWarn: CS0618;CS8602;CS8604",
+      "baselinedAt": "2026-11-17T18:18:37.256967+00:00"
+    },
+    {
+      "hash": "9ed3ec731cb75b4d",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Logging/NotificationLoggerProvider.cs",
+      "lineNumber": 125,
+      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // Expected during shutdown.\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569994+00:00"
+    },
+    {
+      "hash": "dd4883644e6d18ed",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Orchestration/AutomationBindingDriftService.cs",
+      "lineNumber": 166,
+      "codeSnippet": "catch\n            {\n            }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569705+00:00"
+    },
+    {
+      "hash": "80a0f38f8af12e3b",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Infrastructure/Pairing/PairingTransport.cs",
+      "lineNumber": 113,
+      "codeSnippet": "catch (JsonException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2569744+00:00"
+    },
+    {
+      "hash": "3a2b46d8fd3310d1",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/HttpMcpEffectiveDeployment.cs",
+      "lineNumber": 150,
+      "codeSnippet": "catch (JsonException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572688+00:00"
+    },
+    {
+      "hash": "1cc51214cbebf515",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/HttpMcpEffectiveDeployment.cs",
+      "lineNumber": 541,
+      "codeSnippet": "catch (InvalidOperationException)\n        {\n            // Retain an explicit correction when the current value cannot bind;\n            // the proposed deployment must still pass the serving validators.\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.257272+00:00"
+    },
+    {
+      "hash": "b1e53204e77a930b",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/HttpMcpEffectiveDeployment.cs",
+      "lineNumber": 1023,
+      "codeSnippet": "catch (Exception error) when (error is InvalidOperationException or AgentClientValidationException or FormatException or JsonException or ArgumentException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572747+00:00"
+    },
+    {
+      "hash": "6f625913c933b0a3",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/McpSetupDiagnostics.cs",
+      "lineNumber": 239,
+      "codeSnippet": "catch (InvalidOperationException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572631+00:00"
+    },
+    {
+      "hash": "6829bfe2e6353435",
       "ruleId": "SW003",
       "filePath": "src/Helpdesk.Setup/McpSetupDiagnostics.cs",
       "lineNumber": 240,
-      "codeSnippet": "catch (InvalidOperationException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110274+00:00"
-    },
-    {
-      "hash": "6fca1b524ecc1367",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/McpSetupDiagnostics.cs",
-      "lineNumber": 241,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110313+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572661+00:00"
     },
     {
-      "hash": "d3db938c91a723b7",
+      "hash": "129be47f97d1232d",
       "ruleId": "SW003",
       "filePath": "src/Helpdesk.Setup/SetupTerminalHostedService.cs",
       "lineNumber": 20,
       "codeSnippet": "catch (OperationCanceledException) when (linked.IsCancellationRequested) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110357+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2573014+00:00"
     },
     {
-      "hash": "9d1a9b1958f22c5d",
+      "hash": "97643d5a74efa119",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 263,
+      "codeSnippet": "catch { /* The bounded server expiry remains the cleanup fallback. Never touch an older profile. */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572774+00:00"
+    },
+    {
+      "hash": "4a3daf0eb5824283",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 520,
+      "codeSnippet": "catch (Exception pollFailure) when (pollFailure is HttpRequestException or AgentClientValidationException or OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572808+00:00"
+    },
+    {
+      "hash": "e6b1f3c85145872a",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 559,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572828+00:00"
+    },
+    {
+      "hash": "dab7e9a522ce418e",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 573,
+      "codeSnippet": "catch (Exception exception) when (exception is OperationCanceledException or AgentClientValidationException or HttpRequestException or IOException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572859+00:00"
+    },
+    {
+      "hash": "1e8f022ce0dc021b",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 608,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572882+00:00"
+    },
+    {
+      "hash": "740dd39afd8cee19",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 643,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572904+00:00"
+    },
+    {
+      "hash": "e905c6ca10c7688a",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 652,
+      "codeSnippet": "catch { /* No credential exists; a pending proposal expires on the server in ten minutes. */ }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572933+00:00"
+    },
+    {
+      "hash": "582e4be131a803e7",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 689,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572956+00:00"
+    },
+    {
+      "hash": "a74a31e2165c1010",
+      "ruleId": "SW003",
+      "filePath": "src/Helpdesk.Setup/SetupViewModel.cs",
+      "lineNumber": 710,
+      "codeSnippet": "catch (OperationCanceledException) { }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-11-17T18:18:37.2572976+00:00"
+    },
+    {
+      "hash": "7e3c15988b18361f",
       "ruleId": "SW003",
       "filePath": "src/Helpdesk.Setup/SetupWorkflow.cs",
       "lineNumber": 141,
       "codeSnippet": "catch (InvalidOperationException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110399+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572583+00:00"
     },
     {
-      "hash": "eb1a87efc64eb1aa",
+      "hash": "8a16792ef4e4cd63",
       "ruleId": "SW003",
       "filePath": "src/Helpdesk.Setup/SetupWorkflow.cs",
       "lineNumber": 142,
       "codeSnippet": "catch (OperationCanceledException) { }",
       "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110449+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2572604+00:00"
     },
     {
-      "hash": "364d17e6443f5b8e",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/HttpMcpEffectiveDeployment.cs",
-      "lineNumber": 147,
-      "codeSnippet": "catch (JsonException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110492+00:00"
-    },
-    {
-      "hash": "7678daa41f6b4b0c",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/HttpMcpEffectiveDeployment.cs",
-      "lineNumber": 538,
-      "codeSnippet": "catch (InvalidOperationException)\n        {\n            // Retain an explicit correction when the current value cannot bind;\n            // the proposed deployment must still pass the serving validators.\n        }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110548+00:00"
-    },
-    {
-      "hash": "d52249d231fcc13a",
-      "ruleId": "SW003",
-      "filePath": "src/Helpdesk.Setup/HttpMcpEffectiveDeployment.cs",
-      "lineNumber": 1020,
-      "codeSnippet": "catch (Exception error) when (error is InvalidOperationException or AgentClientValidationException or FormatException or JsonException or ArgumentException) { }",
-      "message": "Empty catch block swallows exceptions without handling",
-      "baselinedAt": "2026-11-02T16:50:47.9110591+00:00"
-    },
-    {
-      "hash": "a066026d93afbed0",
+      "hash": "19fd5d32f9f70341",
       "ruleId": "SW001",
       "filePath": "tests/Helpdesk.Tests/Api/IncidentsEndpointsTests.cs",
       "lineNumber": 67,
       "codeSnippet": "Fact(Skip = \"RevisitCodex\")",
       "message": "Test method 'Get_Incidents_ReturnsUnauthorized_ForAnonymousUser' is disabled: RevisitCodex",
-      "baselinedAt": "2026-11-02T16:50:47.9110636+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2569312+00:00"
     },
     {
-      "hash": "efb8c5ffcad582ff",
+      "hash": "276a0c27725f437e",
       "ruleId": "SW001",
       "filePath": "tests/Helpdesk.Tests/Api/IncidentsEndpointsTests.cs",
       "lineNumber": 75,
       "codeSnippet": "Fact(Skip = \"JWT validation not configured for tests\")",
       "message": "Test method 'Get_Incidents_ReturnsSuccess_ForAuthenticatedUser' is disabled: JWT validation not configured for tests",
-      "baselinedAt": "2026-11-02T16:50:47.911068+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2569337+00:00"
     },
     {
-      "hash": "ad44df7925f23fce",
+      "hash": "2bc3297ec6ef5fa3",
       "ruleId": "SW001",
-      "filePath": "tests/Helpdesk.Tests/Api/ProblemDetailsTests.cs",
-      "lineNumber": 67,
-      "codeSnippet": "Fact(Skip = \"RevisitCodex\")",
-      "message": "Test method 'InvalidRequest_ReturnsProblemDetails' is disabled: RevisitCodex",
-      "baselinedAt": "2026-11-02T16:50:47.9110774+00:00"
+      "filePath": "tests/Helpdesk.Tests/Api/IncidentsEndpointsTests.cs",
+      "lineNumber": 83,
+      "codeSnippet": "Fact(Skip = \"JWT validation not configured for tests\")",
+      "message": "Test method 'Post_Incidents_ReturnsCreated' is disabled: JWT validation not configured for tests",
+      "baselinedAt": "2026-11-17T18:18:37.2569369+00:00"
     },
     {
-      "hash": "c7522c4102486e24",
+      "hash": "b37f7b42f99f804f",
       "ruleId": "SW001",
       "filePath": "tests/Helpdesk.Tests/Api/PresenceEndpointsTests.cs",
       "lineNumber": 69,
       "codeSnippet": "Fact(Skip = \"RevisitCodex\")",
       "message": "Test method 'Get_Presence_RequiresAuthentication' is disabled: RevisitCodex",
-      "baselinedAt": "2026-11-02T16:50:47.9110819+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2569241+00:00"
     },
     {
-      "hash": "1e07b84d258976ca",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/NewWeb/TokenServiceTests.cs",
-      "lineNumber": 359,
-      "codeSnippet": "Thread.Sleep(100)",
-      "message": "Test uses Thread.Sleep(100) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9110906+00:00"
+      "hash": "18f5b9691bbe3a29",
+      "ruleId": "SW001",
+      "filePath": "tests/Helpdesk.Tests/Api/PresenceEndpointsTests.cs",
+      "lineNumber": 77,
+      "codeSnippet": "Fact(Skip = \"RevisitCodex\")",
+      "message": "Test method 'Get_Presence_ReturnsOk_WhenAuthenticated' is disabled: RevisitCodex",
+      "baselinedAt": "2026-11-17T18:18:37.2569287+00:00"
     },
     {
-      "hash": "544b0152f3c2fb8e",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/NewWeb/ReverseProxyConfigurationTests.cs",
-      "lineNumber": 422,
-      "codeSnippet": "Task.Delay(100, startupDeadline.Token)",
-      "message": "Test uses Task.Delay(100) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9110953+00:00"
+      "hash": "c5086f3242bf5e25",
+      "ruleId": "SW001",
+      "filePath": "tests/Helpdesk.Tests/Api/ProblemDetailsTests.cs",
+      "lineNumber": 67,
+      "codeSnippet": "Fact(Skip = \"RevisitCodex\")",
+      "message": "Test method 'InvalidRequest_ReturnsProblemDetails' is disabled: RevisitCodex",
+      "baselinedAt": "2026-11-17T18:18:37.2569214+00:00"
     },
     {
-      "hash": "efb53490585cd711",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/NewWeb/GlobalSearchServiceTests.cs",
-      "lineNumber": 352,
-      "codeSnippet": "Task.Delay(delay, cancellationToken)",
-      "message": "Test uses Task.Delay(delay) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9110999+00:00"
-    },
-    {
-      "hash": "a98d4210b8ab7b27",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Setup/TerminaSetupTests.cs",
-      "lineNumber": 503,
-      "codeSnippet": "Task.Delay(50)",
-      "message": "Test uses Task.Delay(50) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111059+00:00"
-    },
-    {
-      "hash": "aa50866e0c3b8a50",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Setup/TerminaSetupTests.cs",
-      "lineNumber": 946,
-      "codeSnippet": "Task.Delay(10, deadline.Token)",
-      "message": "Test uses Task.Delay(10) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111139+00:00"
-    },
-    {
-      "hash": "5b2a3dde2f4dc263",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Setup/SetupProtocolTests.cs",
-      "lineNumber": 285,
-      "codeSnippet": "Task.Delay(Timeout.Infinite, cancellationToken)",
-      "message": "Test uses Task.Delay(Timeout.Infinite) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111189+00:00"
-    },
-    {
-      "hash": "d62d349a72bf96fa",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Mcp/McpHttpHostTests.cs",
-      "lineNumber": 93,
-      "codeSnippet": "Task.Delay(100, deadline.Token)",
-      "message": "Test uses Task.Delay(100) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111235+00:00"
-    },
-    {
-      "hash": "91944f4b6626bd9a",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Mcp/McpHttpHostTests.cs",
-      "lineNumber": 1399,
-      "codeSnippet": "Task.Delay(pause, overall.Token)",
-      "message": "Test uses Task.Delay(pause) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.911128+00:00"
-    },
-    {
-      "hash": "181b6bce64552fc0",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Mcp/AgentClientHttpTests.cs",
-      "lineNumber": 193,
-      "codeSnippet": "Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)",
-      "message": "Test uses Task.Delay(Timeout.InfiniteTimeSpan) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111329+00:00"
-    },
-    {
-      "hash": "5adffeb6c0ef9a20",
-      "ruleId": "SW004",
-      "filePath": "tests/Helpdesk.Tests/Mcp/ConfigurationDoctorHttpTests.cs",
-      "lineNumber": 108,
-      "codeSnippet": "Task.Delay(Timeout.Infinite, context.RequestAborted)",
-      "message": "Test uses Task.Delay(Timeout.Infinite) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111429+00:00"
-    },
-    {
-      "hash": "e1eeba0adce08154",
+      "hash": "5dd725fecfb3202e",
       "ruleId": "SW004",
       "filePath": "tests/Helpdesk.Tests/Application/Notifications/NotificationLoggerProviderTests.cs",
       "lineNumber": 59,
       "codeSnippet": "Task.Delay(150)",
       "message": "Test uses Task.Delay(150) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111481+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2568554+00:00"
     },
     {
-      "hash": "7e30cd6c1f7d270a",
+      "hash": "254911c81c6f94d9",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Application/Notifications/NotificationLoggerProviderTests.cs",
+      "lineNumber": 73,
+      "codeSnippet": "Task.Delay(150)",
+      "message": "Test uses Task.Delay(150) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2568975+00:00"
+    },
+    {
+      "hash": "de07aed842052d6a",
       "ruleId": "SW004",
       "filePath": "tests/Helpdesk.Tests/Application/Notifications/NotificationLoggerProviderTests.cs",
       "lineNumber": 116,
       "codeSnippet": "Task.Delay(50)",
       "message": "Test uses Task.Delay(50) which may indicate a timing-dependent test",
-      "baselinedAt": "2026-11-02T16:50:47.9111567+00:00"
+      "baselinedAt": "2026-11-17T18:18:37.2569009+00:00"
+    },
+    {
+      "hash": "5575c7d4cb5f711a",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Mcp/AgentClientHttpTests.cs",
+      "lineNumber": 193,
+      "codeSnippet": "Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)",
+      "message": "Test uses Task.Delay(Timeout.InfiniteTimeSpan) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.256944+00:00"
+    },
+    {
+      "hash": "834ca17cf9dc50bb",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Mcp/AgentClientHttpTests.cs",
+      "lineNumber": 238,
+      "codeSnippet": "Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)",
+      "message": "Test uses Task.Delay(Timeout.InfiniteTimeSpan) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569467+00:00"
+    },
+    {
+      "hash": "e37b27dc40992b1c",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Mcp/ConfigurationDoctorHttpTests.cs",
+      "lineNumber": 108,
+      "codeSnippet": "Task.Delay(Timeout.Infinite, context.RequestAborted)",
+      "message": "Test uses Task.Delay(Timeout.Infinite) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569398+00:00"
+    },
+    {
+      "hash": "18324572d40a4ff2",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Mcp/McpHttpHostTests.cs",
+      "lineNumber": 93,
+      "codeSnippet": "Task.Delay(100, deadline.Token)",
+      "message": "Test uses Task.Delay(100) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569509+00:00"
+    },
+    {
+      "hash": "f266cf4f148e9aae",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Mcp/McpHttpHostTests.cs",
+      "lineNumber": 1399,
+      "codeSnippet": "Task.Delay(pause, overall.Token)",
+      "message": "Test uses Task.Delay(pause) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569537+00:00"
+    },
+    {
+      "hash": "2fe748c6c06d84d8",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/NewWeb/GlobalSearchServiceTests.cs",
+      "lineNumber": 352,
+      "codeSnippet": "Task.Delay(delay, cancellationToken)",
+      "message": "Test uses Task.Delay(delay) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569607+00:00"
+    },
+    {
+      "hash": "d5cdb2d69932f417",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/NewWeb/ReverseProxyConfigurationTests.cs",
+      "lineNumber": 422,
+      "codeSnippet": "Task.Delay(100, startupDeadline.Token)",
+      "message": "Test uses Task.Delay(100) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569635+00:00"
+    },
+    {
+      "hash": "ce7fa5b12976f960",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/NewWeb/TokenServiceTests.cs",
+      "lineNumber": 359,
+      "codeSnippet": "Thread.Sleep(100)",
+      "message": "Test uses Thread.Sleep(100) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569578+00:00"
+    },
+    {
+      "hash": "7f8d20a91881414d",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Setup/SetupProtocolTests.cs",
+      "lineNumber": 285,
+      "codeSnippet": "Task.Delay(Timeout.Infinite, cancellationToken)",
+      "message": "Test uses Task.Delay(Timeout.Infinite) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.256915+00:00"
+    },
+    {
+      "hash": "240e0e487b5381b6",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Setup/TerminaSetupTests.cs",
+      "lineNumber": 503,
+      "codeSnippet": "Task.Delay(50)",
+      "message": "Test uses Task.Delay(50) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569053+00:00"
+    },
+    {
+      "hash": "9444c4ffa62fedef",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Setup/TerminaSetupTests.cs",
+      "lineNumber": 543,
+      "codeSnippet": "Task.Delay(50)",
+      "message": "Test uses Task.Delay(50) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569087+00:00"
+    },
+    {
+      "hash": "aa441326d580217f",
+      "ruleId": "SW004",
+      "filePath": "tests/Helpdesk.Tests/Setup/TerminaSetupTests.cs",
+      "lineNumber": 946,
+      "codeSnippet": "Task.Delay(10, deadline.Token)",
+      "message": "Test uses Task.Delay(10) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-11-17T18:18:37.2569112+00:00"
     }
   ]
 }

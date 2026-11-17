@@ -19,9 +19,9 @@ on:
         required: false
         default: false
       workspace_suite:
-        description: Limit optional workspace acceptance to coordinated traceability, or run all deep acceptance
+        description: Select an optional acceptance suite
         type: choice
-        options: [all, automation-traceability]
+        options: [all, automation-traceability, release-artifacts]
         default: all
         required: false
 
@@ -68,6 +68,7 @@ jobs:
         run: |
           python3 tools/release/test-package-documentation.py
           python3 tools/release/test-package-source-links.py
+          python3 tools/release/test-archive-sizes.py
           python3 tools/release/test-create-prerelease-tag.py
           python3 tools/release/test-validate-stable-promotion.py
           tools/release/test-promote-stable-images.sh
@@ -130,14 +131,15 @@ jobs:
   dotnet:
     name: .NET validation
     if: always()
-    needs: dotnet-shards
+    needs: [dotnet-shards, layout]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require every .NET shard
+      - name: Require every .NET shard and source validation
         env:
-          RESULT: ${{ needs.dotnet-shards.result }}
-        run: test "$RESULT" = success
+          SHARDS: ${{ needs.dotnet-shards.result }}
+          LAYOUT: ${{ needs.layout.result }}
+        run: test "$SHARDS" = success && test "$LAYOUT" = success
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download complete test receipts
@@ -197,7 +199,7 @@ jobs:
           retention-days: 14
 
   ux:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Playwright UX validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -263,7 +265,7 @@ jobs:
           retention-days: 14
 
   workspace-ux:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'release-artifacts' }}
     name: Workspace browser acceptance (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -383,7 +385,7 @@ jobs:
           retention-days: 14
 
   mailbox-lifecycle:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Mailbox lifecycle acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -479,7 +481,7 @@ jobs:
           retention-days: 14
 
   docker:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Docker build (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -525,6 +527,7 @@ jobs:
   release-assets:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Release asset rehearsal
+    needs: layout
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -536,8 +539,18 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Assemble self-contained CLI, stdio MCP, and deployment assets
-        run: tools/release/package-assets.sh 0.0.0-pr "${{ github.sha }}" release-assets
+      - id: package
+        name: Assemble self-contained CLI, stdio MCP, and deployment assets
+        env:
+          WORKSPACE_SUITE: ${{ inputs.workspace_suite }}
+        run: |
+          set -euo pipefail
+          version=0.0.0-pr
+          if [[ "$WORKSPACE_SUITE" == release-artifacts ]]; then
+            version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version)"
+          fi
+          tools/release/package-assets.sh "$version" "$GITHUB_SHA" release-assets
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Verify asset manifest and checksums
         run: |
@@ -549,7 +562,9 @@ jobs:
           test -s release-assets/release-manifest.json
 
       - name: Render MCP Compose recipes from the extracted deployment archive
-        run: tools/ci/test-deployment-archive-compose-config.sh release-assets/rateldesk-deployment-0.0.0-pr.tar.gz
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: tools/ci/test-deployment-archive-compose-config.sh "release-assets/rateldesk-deployment-$VERSION.tar.gz"
 
       - name: Execute extracted Linux x64 archives
         env:
@@ -566,6 +581,7 @@ jobs:
             release-assets/SHA256SUMS
             release-assets/release-manifest.json
             release-assets/release-manifest.json.sha256
+            release-assets/archive-sizes.json
           retention-days: 14
 
   archive-runtime:
@@ -599,7 +615,7 @@ jobs:
         run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}" --validate-docs
 
   compose:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Compose startup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -665,7 +681,7 @@ jobs:
         run: docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
 
   compose-postgres:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Compose PostgreSQL setup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -732,5 +748,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ripgrep
 
+      - name: Enforce full-tree Slopwatch source policy
+        run: python3 tools/ci/run-slopwatch.py --report-dir "$RUNNER_TEMP/slopwatch"
+      - name: Retain Slopwatch results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: slopwatch-results
+          path: ${{ runner.temp }}/slopwatch
+          if-no-files-found: warn
+          retention-days: 14
       - name: Validate repository layout and active path references
         run: tools/ci/validate-layout.sh

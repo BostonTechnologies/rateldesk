@@ -40,8 +40,8 @@ Routing (use the installed skill by name):
   dotnet-project-structure, dotnet-local-tools, package-management, serialization,
   dotnet-devcert-trust, ilspy-decompile, opentelemetry-net-instrumentation.
 - Skill maintenance: skills-index-snippets, marketplace-publishing.
-- Quality gates when applicable: dotnet-slopwatch for authored/refactored C# and
-  project changes; crap-analysis for complex code whose tests changed. Preserve
+- Quality gates: run `python3 tools/ci/run-slopwatch.py` (local Slopwatch 0.5.0,
+  full-tree Info enforcement) for authored/refactored source and MSBuild changes; crap-analysis for complex code whose tests changed. Preserve
   real assertions and required repository checks; never expand a baseline to hide
   a regression. Keep optional deep acceptance separate from normal CI.
 

@@ -647,6 +647,31 @@ Layout and reference validation, and Offline HTTP MCP campaign harness. Require
 all six applicable normal jobs even though the tag helper currently names five.
 The .NET suite uses six disjoint native-discovery shards. The unchanged `.NET validation` gate verifies their complete receipt union; failed, cancelled or empty shards fail the gate. The baseline full-suite job took 46 minutes; the split retains cases while placing ordinary validation within the repository budget. Browser/native display matrices remain opt-in.
 
+Use the SDK pinned in `global.json` and the repository's Slopwatch 0.5.0
+gate. Run it before handing off authored or refactored source and MSBuild changes.
+
+```sh
+dotnet tool restore --tool-manifest .config/dotnet-tools.json
+python3 tools/ci/run-slopwatch.py
+```
+
+The gate restores the pinned tool and scans the full source tree, including tests,
+Razor and root MSBuild files. Every new finding at Info or higher fails. The
+scanner skips recognized generated files and standard build output. Generated-code
+attributes do not exempt hand-written source. The gate reads the checked-in v2
+baseline and writes findings, diagnostics and timing under `.slopwatch/reports/`.
+The PR and release workflows retain these reports as artifacts.
+
+For an intentional baseline, suppression or exclusion change, include the source
+revision, rule/file/context, rationale and measured before/after findings in the
+PR. Review added ignore directives and generated-code markers as policy changes.
+Create or regenerate baseline candidates only during a deliberate review. The
+full-tree gate is authoritative over the vendored skill's global-install,
+older-version and dirty-worktree hook examples.
+
+The layout job runs one scan and its result feeds the required .NET aggregate.
+Release source validation and active campaign jobs use the same gate.
+
 Layout includes offline documentation
 placement/link checks, bounded launcher regressions and source/release MCP
 setup/environment recipe rendering.
@@ -734,6 +759,14 @@ layout and first-run Compose; packages archives; and executes the native archive
 on Linux x64, Linux ARM64 and Windows x64. Image jobs publish exact amd64/arm64
 tags with SBOM/provenance. After all jobs succeed, anonymous image pulls are
 checked before the verified draft release is assembled.
+
+The release packs the operator guides selected in the
+[distribution profile](../../tools/release/documentation-profile.json). The offline
+index links to the included guides. Source references and historical evidence use
+links pinned to the release commit. Packaging checks the seven compressed
+[archive budgets](../../tools/release/archive-size-budgets.json) before upload.
+The workflow retains a measurement of compressed and expanded bytes, file
+categories, SHA-256 and SDK for each archive.
 
 The manifest contains source/tag/version, exactly seven archives and three
 container digests. `SHA256SUMS` covers the archives; the detached manifest checksum

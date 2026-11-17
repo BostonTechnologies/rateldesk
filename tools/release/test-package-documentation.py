@@ -17,6 +17,8 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REVISION = "0123456789abcdef0123456789abcdef01234567"
+PROFILE = json.loads((ROOT / "tools/release/documentation-profile.json").read_text())
 sys.dont_write_bytecode = True
 
 
@@ -47,21 +49,42 @@ class PackageDocumentationTests(unittest.TestCase):
             (self.working / name).write_text('raise AssertionError("ambient helper imported")\n')
         self.environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         shutil.copy2(ROOT / "LICENSE", self.bundle / "LICENSE")
-        result = self.run_command([sys.executable, ROOT / "tools/release/package-documentation.py", self.bundle])
+        result = self.run_command([sys.executable, ROOT / "tools/release/package-documentation.py", self.bundle, "--source-revision", REVISION])
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def run_command(self, command):
         return subprocess.run(command, cwd=self.working, env=self.environment,
                               capture_output=True, text=True, timeout=30)
 
-    def test_complete_offline_documentation_skills_and_notices_are_unchanged(self):
-        for relative in ("docs", ".agents/skills", "licenses", "docker"):
-            with self.subTest(tree=relative):
-                expected = hashes(ROOT / relative)
-                self.assertTrue(expected)
-                self.assertEqual(expected, hashes(self.bundle / relative))
-        for name in ("LICENSE", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", ".env.example"):
+    def test_bundled_operator_guides_notices_and_runtime_helpers(self):
+        expected = {name.removeprefix("docs/") for name in PROFILE["files"]} | {"README.md"}
+        self.assertEqual(expected, set(hashes(self.bundle / "docs")))
+        for relative in ("licenses", "docker"):
+            self.assertEqual(hashes(ROOT / relative), hashes(self.bundle / relative))
+        for name in ("LICENSE", ".env.example"):
             self.assertEqual((ROOT / name).read_bytes(), (self.bundle / name).read_bytes())
+        for name in (".agents", ".slopwatch", "AGENTS.md", "CONTRIBUTING.md", "docs/implementation"):
+            self.assertFalse((self.bundle / name).exists())
+
+    def test_unlisted_gallery_cannot_change_either_documentation_payload(self):
+        packager = load_module(ROOT / "tools/release/package-documentation.py")
+        repository = self.directory / "source copy"
+        manifest = repository / "tools/release/documentation-profile.json"
+        manifest.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / manifest.relative_to(repository), manifest)
+        for name in PROFILE["files"]:
+            target = repository / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, target)
+        control = self.directory / "control"
+        packager.package_operator_guides(repository, control, REVISION)
+        gallery = repository / "docs/implementation/assets/new-gallery"
+        gallery.mkdir(parents=True)
+        (gallery / "image.webp").write_bytes(os.urandom(1024 * 1024))
+        for mode in ("client", "deployment"):
+            output = self.directory / mode
+            packager.package_operator_guides(repository, output, REVISION)
+            self.assertEqual(hashes(control), hashes(output))
 
     def test_one_complete_helper_tree_and_importable_forwarders(self):
         for relative, digest in hashes(ROOT / "tools/mcp").items():
@@ -158,19 +181,16 @@ class PackageDocumentationTests(unittest.TestCase):
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         shutil.copy2(ROOT / "LICENSE", deployment / "LICENSE")
         result = self.run_command([sys.executable, ROOT / "tools/release/package-documentation.py",
-                                   deployment, "--flat-deployment"])
+                                   deployment, "--flat-deployment", "--source-revision", REVISION])
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         for relative, digest in hashes(ROOT / "tools/mcp").items():
             self.assertEqual(digest, hashlib.sha256((deployment / relative).read_bytes()).hexdigest())
         self.assertFalse((deployment / "tools/mcp").exists())
-        for source in (ROOT / "docs").rglob("*"):
-            if source.is_file():
-                expected = source.read_bytes()
-                if source.suffix == ".md":
-                    expected = source.read_text().replace("](../../docker/", "](../../").encode("utf-8")
-                self.assertEqual(expected, (deployment / "docs" / source.relative_to(ROOT / "docs")).read_bytes())
-        for relative in (".agents/skills", "licenses"):
-            self.assertEqual(hashes(ROOT / relative), hashes(deployment / relative))
+        expected = {name.removeprefix("docs/") for name in PROFILE["files"]} | {"README.md"}
+        self.assertEqual(expected, set(hashes(deployment / "docs")))
+        self.assertFalse((deployment / ".agents").exists())
+        self.assertEqual(hashes(ROOT / "licenses"), hashes(deployment / "licenses"))
+        self.assertTrue((deployment / "docker-compose.release.yml").is_file())
 
 
 if __name__ == "__main__":

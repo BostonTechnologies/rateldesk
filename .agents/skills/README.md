@@ -46,17 +46,13 @@ updating this copy, even if a runtime plugin has been updated separately.
 
 Specialized Claude Code agents are not part of this portable project installation.
 
-Slopwatch is pinned as a local tool in `.config/dotnet-tools.json`:
+Slopwatch 0.5.0 and dotnet-ef are pinned in `.config/dotnet-tools.json`.
+Run `python3 tools/ci/run-slopwatch.py` for full-tree Info enforcement using the
+reviewed v2 baseline. The repository gate takes precedence over older examples
+in the portable skill.
 
-```bash
-dotnet tool restore
-dotnet tool run slopwatch -- analyze --fail-on warning --exclude '**/bin/**,**/obj/**'
-```
-
-Its initial baseline records existing findings from reviewed main
-`c31b15ff15dce2ca3ba7c3b73ac39c99adf85db3`, before this UX implementation.
-Do not expand it to accept new findings. The initial capture excludes generated
-`bin`/`obj` output; preserve that boundary when analyzing a built workspace.
+The original v1 baseline captured findings from reviewed main
+`c31b15ff15dce2ca3ba7c3b73ac39c99adf85db3` before the UX implementation.
 
 ## Skill index
 

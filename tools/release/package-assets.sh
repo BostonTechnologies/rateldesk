@@ -103,6 +103,9 @@ are included in licenses/.
 EOF
 tar -C "$staging_directory" -cf - "rateldesk-deployment-$version" | gzip -9n > "$output_directory/rateldesk-deployment-$version.tar.gz"
 
+python3 "$repository_root/tools/release/check-archive-sizes.py" \
+  "$output_directory" "$version" "$source_revision" "$(dotnet --version)"
+
 (cd "$output_directory" && find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS)
 python3 - "$output_directory" "$version" "$source_revision" <<'PY'
 import hashlib, json, pathlib, sys
