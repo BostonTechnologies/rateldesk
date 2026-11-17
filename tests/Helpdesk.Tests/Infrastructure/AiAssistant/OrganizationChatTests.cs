@@ -34,7 +34,9 @@ public sealed class OrganizationChatTests(ChatPostgresFixture fixture) : IClassF
         Assert.Equal(ChatState.DeliveryUnknown, stopped.State);
         Assert.Equal(request.ClientMessageId, stopped.ActiveMessageId);
         Assert.Single(stopped.Events, x => x.Type == "operator");
-        Assert.Contains(stopped.Events, x => x.Type == "delivery_unknown");
+        var cutoff = Assert.Single(stopped.Events, x => x.Type == "observation_stopped");
+        Assert.Equal("operator", cutoff.CreatedByUserId);
+        Assert.DoesNotContain(stopped.Events, x => x.Type == "delivery_unknown");
     }
 
     [Fact]
