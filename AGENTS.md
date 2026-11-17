@@ -88,3 +88,42 @@ Before creating documentation, inspect [docs/README.md](docs/README.md) and the 
 - Preserve the three image families: `rateldesk-api`, `rateldesk-web`, `rateldesk-mcp-http`, with their existing amd64/arm64 contract. Preserve CLI/stdio self-contained archives for Linux x64/arm64 and Windows x64, checksums, release manifests, immutable digests, SBOM/provenance and public-download/pull verification.
 - Published prerelease tags/assets are immutable. Never overwrite published bytes or move `latest` for a beta/RC. Stable promotion remains the separate protected process; verify existing exact digests instead of rebuilding a released version.
 - Include required third-party notices/license and setup entrypoints in existing distributions. Do not add a new image family or runtime package downloads merely for setup.
+
+## Artifact size and AOT/trimming requirements
+
+- Artifact size is a release requirement. Before changing dependencies, serialization/reflection, publish settings, documentation packaging or release workflows, read [.agents/skills/aot-trimming/SKILL.md](.agents/skills/aot-trimming/SKILL.md) and its relevant references. Use trimming and Native AOT wherever the complete target is compatible and validated; preserve the smallest supported profile that passes its actual published-artifact behavior checks. Keep precise blockers and follow-up work explicit for targets that remain JIT.
+- Do not disable an accepted optimized profile, broaden trimming roots, suppress new IL2xxx/IL3xxx diagnostics or expand a warning baseline merely to pass a build. Resolve warnings with source generation, narrow annotations or isolated dynamic boundaries as directed by the skill. Validate changed profiles on native Linux x64, Linux ARM64 and Windows x64 as applicable; a successful publish or ordinary JIT unit test is insufficient. Preserve the self-contained client contract, CLI commands, MCP protocol/catalog, setup, authentication isolation, diagnostics and notices.
+- Measure complete distributables after packaging. Record compressed archive bytes, expanded regular-file bytes and separate runtime, documentation and support-file totals for all six CLI/stdio RID archives and the deployment archive. Record source revision, effective publish flags, actual SDK/RID and SHA-256. For image changes, measure the existing Web/API/HTTP MCP families on both supported architectures with shared-layer accounting; do not infer whole-image savings from an app directory.
+- Distribute an explicit selection of operator guides, their required offline assets, notices/licenses and established helpers. Do not recursively ship implementation evidence, UI review galleries, historical test output, caches, build output or developer/agent tooling merely because they exist in the repository. Preserve historical evidence in source and use immutable source links for material omitted from downloads. This supersedes the older full-history offline distribution choice in the size campaign; update the packaging tests and offline index together.
+- Compare all seven final archives against checked-in per-artifact byte ceilings before upload/publication. Require an enforced release gate and inexpensive selection/budget regression checks; optional size campaigns and executable smoke checks are not substitutes. Until the automated correction linked below is merged, produce and review the complete size matrix manually before any release. Missing measurements or unexplained/excessive growth block publication. Never replace the approved baseline with a bloated release or raise a budget merely to make CI pass; a legitimate change requires attributed measurements and a reviewed rationale in the same PR.
+- The initial recovery ceilings are the corresponding beta.9 compressed byte counts below. Tighten budgets to measured clean outputs with justified headroom after the repair. Recheck current published versions before allocating a fresh corrective prerelease; do not overwrite historical assets.
+
+### Published size regression: 0.1.3-beta.9 to beta.11
+
+Verified against the GitHub Releases API on 17 November 2026. Values are **exact
+compressed bytes for complete downloads**, not executable sizes. Linux uses
+`.tar.gz`; Windows uses `.zip`. Release references:
+[beta.9](https://github.com/BostonTechnologies/RatelDesk/releases/tag/v0.1.3-beta.9),
+[beta.10](https://github.com/BostonTechnologies/RatelDesk/releases/tag/v0.1.3-beta.10),
+[beta.11](https://github.com/BostonTechnologies/RatelDesk/releases/tag/v0.1.3-beta.11).
+
+| Artifact | beta.9 baseline bytes | beta.10 bytes | beta.11 bytes |
+| --- | ---: | ---: | ---: |
+| CLI linux-arm64 | 50,558,898 | 90,508,097 | 154,778,199 |
+| CLI linux-x64 | 52,685,050 | 92,637,743 | 156,904,844 |
+| CLI win-x64 | 53,333,672 | 93,323,263 | 158,684,564 |
+| deployment | 14,351,812 | 54,295,380 | 118,554,701 |
+| stdio MCP linux-arm64 | 50,471,670 | 90,423,989 | 154,703,157 |
+| stdio MCP linux-x64 | 52,593,649 | 92,552,040 | 156,822,774 |
+| stdio MCP win-x64 | 53,240,319 | 93,233,252 | 158,626,759 |
+
+The Linux x64 CLI archives were independently downloaded and SHA-256 verified.
+Their runtime binaries/resources/symbols/metadata grew only **24,082 expanded
+bytes** (90,195,678 to 90,219,760), while bundled implementation evidence grew
+**116,296,736 expanded bytes** (14,433,609 to 130,730,345). The publish settings did
+not change across these versions. The accepted profile was already self-contained
+JIT; the [previous AOT pilot](https://github.com/BostonTechnologies/RatelDesk/issues/321)
+had unresolved JSON/R3 diagnostic blockers. Trimming does not remove collateral
+copied into an archive after publishing. See [#428](https://github.com/BostonTechnologies/RatelDesk/issues/428) for the verified hashes,
+root cause, required packaging/CI correction and completion evidence. beta.10 and
+beta.11 are regression records, not acceptable replacement baselines.
