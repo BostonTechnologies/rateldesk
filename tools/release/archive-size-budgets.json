@@ -1,55 +1,71 @@
 {
   "referenceVersion": "0.1.3-beta.9",
   "referenceSource": "11c8997816833d753caf8df912a8279490da34fb",
+  "measurementSource": "e080d8f74f61db95f275f552312142028b5549bc",
+  "measurementRun": 44154709998,
   "archives": [
     {
       "family": "rateldesk-cli",
       "rid": "linux-arm64",
       "referenceAsset": "rateldesk-cli-0.1.3-beta.9-linux-arm64.tar.gz",
-      "maximumCompressedBytes": 50558898,
-      "referenceSha256": "06dc2c33f538476a4371dc066d2fd5d274bbbdb0eaf1d4fe2f8aa8e6cd7d617b"
+      "referenceSha256": "06dc2c33f538476a4371dc066d2fd5d274bbbdb0eaf1d4fe2f8aa8e6cd7d617b",
+      "referenceCompressedBytes": 50558898,
+      "measuredCompressedBytes": 36541141,
+      "maximumCompressedBytes": 40000000
     },
     {
       "family": "rateldesk-cli",
       "rid": "linux-x64",
       "referenceAsset": "rateldesk-cli-0.1.3-beta.9-linux-x64.tar.gz",
-      "maximumCompressedBytes": 52685050,
-      "referenceSha256": "400dd01b732041817b1cc8a95b6f5374035765d11541a9ae1fafc9aff043a8e6"
+      "referenceSha256": "400dd01b732041817b1cc8a95b6f5374035765d11541a9ae1fafc9aff043a8e6",
+      "referenceCompressedBytes": 52685050,
+      "measuredCompressedBytes": 38663510,
+      "maximumCompressedBytes": 42000000
     },
     {
       "family": "rateldesk-cli",
       "rid": "win-x64",
       "referenceAsset": "rateldesk-cli-0.1.3-beta.9-win-x64.zip",
-      "maximumCompressedBytes": 53333672,
-      "referenceSha256": "652cd73f148273b167bb587ba56b8914bf097dba5e30a61541ba00f5f0c4c807"
+      "referenceSha256": "652cd73f148273b167bb587ba56b8914bf097dba5e30a61541ba00f5f0c4c807",
+      "referenceCompressedBytes": 53333672,
+      "measuredCompressedBytes": 39158834,
+      "maximumCompressedBytes": 42000000
     },
     {
       "family": "rateldesk-deployment",
       "rid": null,
       "referenceAsset": "rateldesk-deployment-0.1.3-beta.9.tar.gz",
-      "maximumCompressedBytes": 14351812,
-      "referenceSha256": "6b21112191bf13f084dd8c02a1552ae1a67fae2397fa6e720662636895b17e15"
+      "referenceSha256": "6b21112191bf13f084dd8c02a1552ae1a67fae2397fa6e720662636895b17e15",
+      "referenceCompressedBytes": 14351812,
+      "measuredCompressedBytes": 432081,
+      "maximumCompressedBytes": 550000
     },
     {
       "family": "rateldesk-mcp-stdio",
       "rid": "linux-arm64",
       "referenceAsset": "rateldesk-mcp-stdio-0.1.3-beta.9-linux-arm64.tar.gz",
-      "maximumCompressedBytes": 50471670,
-      "referenceSha256": "1ebc4dc759d3bc181868a7f68793bc9757eec400d9a011818bef0bf573468a4a"
+      "referenceSha256": "1ebc4dc759d3bc181868a7f68793bc9757eec400d9a011818bef0bf573468a4a",
+      "referenceCompressedBytes": 50471670,
+      "measuredCompressedBytes": 36442789,
+      "maximumCompressedBytes": 40000000
     },
     {
       "family": "rateldesk-mcp-stdio",
       "rid": "linux-x64",
       "referenceAsset": "rateldesk-mcp-stdio-0.1.3-beta.9-linux-x64.tar.gz",
-      "maximumCompressedBytes": 52593649,
-      "referenceSha256": "64738edc763932abeb50e47259cc8feb2e9c959d7bc8cffc5954857cf2e2b525"
+      "referenceSha256": "64738edc763932abeb50e47259cc8feb2e9c959d7bc8cffc5954857cf2e2b525",
+      "referenceCompressedBytes": 52593649,
+      "measuredCompressedBytes": 38570999,
+      "maximumCompressedBytes": 42000000
     },
     {
       "family": "rateldesk-mcp-stdio",
       "rid": "win-x64",
       "referenceAsset": "rateldesk-mcp-stdio-0.1.3-beta.9-win-x64.zip",
-      "maximumCompressedBytes": 53240319,
-      "referenceSha256": "cfa3916a24446c1b3dc67ca2425e3cd293257796d46dda9d68afd7f2bc1d8062"
+      "referenceSha256": "cfa3916a24446c1b3dc67ca2425e3cd293257796d46dda9d68afd7f2bc1d8062",
+      "referenceCompressedBytes": 53240319,
+      "measuredCompressedBytes": 39061249,
+      "maximumCompressedBytes": 42000000
     }
   ]
 }

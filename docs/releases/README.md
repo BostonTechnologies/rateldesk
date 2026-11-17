@@ -768,6 +768,12 @@ links pinned to the release commit. Packaging checks the seven compressed
 The workflow retains a measurement of compressed and expanded bytes, file
 categories, SHA-256 and SDK for each archive.
 
+The budgets record the published beta.9 reference bytes and hashes and the
+first hosted measurement of the corrected packages. Executable archives have
+roughly 7–10% headroom for normal dependency growth. The deployment archive has
+about 118 KB of headroom for additions to the operator guides and scripts. The
+historical ceilings still bound each budget.
+
 For pre-merge testing, dispatch **Pull request validation** on the reviewed
 candidate branch with deep acceptance and the `release-artifacts` suite. It
 uploads the seven candidate archives, their size and integrity receipts, and

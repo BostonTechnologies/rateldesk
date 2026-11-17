@@ -60,6 +60,12 @@ class ArchiveSizeTests(unittest.TestCase):
         self.assertEqual(7, len(report["archives"]))
         self.assertIn("exceeds 1", report["errors"][0])
 
+    def test_budget_above_published_recovery_ceiling_is_rejected(self):
+        example = self.policy["archives"][0]
+        example["maximumCompressedBytes"] = example["referenceCompressedBytes"] + 1
+        with self.assertRaisesRegex(ValueError, "published recovery ceiling"):
+            budgets.verify(self.directory, VERSION, self.policy, {"archives": [], "errors": []})
+
     def test_unexpected_and_missing_archive_block_validation(self):
         (self.directory / budgets.archive_name("rateldesk-deployment", None, VERSION)).unlink()
         self.archive("extra.zip")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the complete release payload and enforce its published recovery ceilings."""
+"""Measure the complete release payload and enforce its compressed archive budgets."""
 
 import argparse
 from collections import Counter
@@ -67,6 +67,8 @@ def measure(path, budget):
         "rid": budget["rid"],
         "compressedBytes": path.stat().st_size,
         "maximumCompressedBytes": budget["maximumCompressedBytes"],
+        "referenceCompressedBytes": budget["referenceCompressedBytes"],
+        "measuredCompressedBytes": budget["measuredCompressedBytes"],
         "expandedBytes": sum(expanded.values()),
         "expandedBytesByCategory": dict(expanded),
         "sha256": digest,
@@ -78,6 +80,10 @@ def verify(directory, version, budgets, report):
     rows = budgets["archives"]
     if len(rows) != len(ARCHIVES) or {(row["family"], row["rid"]) for row in rows} != ARCHIVES:
         raise ValueError("archive budgets must contain exactly the seven supported identities")
+    for row in rows:
+        maximum, reference = row["maximumCompressedBytes"], row["referenceCompressedBytes"]
+        if type(maximum) is not int or type(reference) is not int or not 0 < maximum <= reference:
+            raise ValueError(f"{row['referenceAsset']}: budget must be positive and within the published recovery ceiling")
     expected = {archive_name(row["family"], row["rid"], version): row for row in rows}
     present = {path.name for path in directory.iterdir() if path.name.endswith((".zip", ".tar.gz"))}
     if expected.keys() != present:
