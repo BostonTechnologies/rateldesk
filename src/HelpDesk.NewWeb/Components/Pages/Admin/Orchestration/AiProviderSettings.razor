@@ -18,8 +18,7 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
                     <div>
                         <MudText Typo="Typo.subtitle2">@profile.Name</MudText>
-                        <MudText Typo="Typo.caption">@(profile.Kind == ChatProviderKind.Netclaw ? "SignalR" : $"OpenAI Agents API · {profile.Model}") · @(profile.Enabled ? "Enabled" : "Disabled")@(profile.IsDefault ? " · Default for new work" : "")</MudText>
-                        <MudText Typo="Typo.caption">@OrganizationLabel(profile.OrganizationId)@(profile.LastVerification is { } verification ? $" · {verification}" : "")</MudText>
+                        <MudText Typo="Typo.caption">@(profile.Kind == ChatProviderKind.Netclaw ? "SignalR" : $"OpenAI Agents API · {profile.Model}") · @(profile.Enabled ? "Enabled" : "Disabled")@(profile.IsDefault ? " · Default for new work" : "") · @OrganizationLabel(profile.OrganizationId)@(profile.LastVerification is { } verification ? $" · {verification}" : "")</MudText>
                     </div>
                     <MudStack Row="true" AlignItems="AlignItems.Center">
                         @if (profile.Enabled && !profile.IsDefault)

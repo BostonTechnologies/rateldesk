@@ -132,7 +132,7 @@ internal sealed partial class OpenAiChatRun
                 if (!NewReceipt(conversation, receipts, $"tool\n{item.SubagentId}\n{id}\n{item.Status}")) continue;
                 var toolName = ChatOutputSafety.Identifier(item.ToolName);
                 var status = item.Status is "completed" or "failed" or "cancelled" or "incomplete" ? item.Status : "in progress";
-                var activity = new ChatActivityMetadata(toolName, item.SubagentId is null ? "tool" : "subagent", "OpenAI Agents",
+                var activity = new ChatActivityMetadata(toolName, item.ToolKind ?? "tool", "OpenAI Agents",
                     null, null, status, new(ToolName: toolName, Result: ProviderText(item.Text, 4096)),
                     Metadata(conversation, dispatch, item.TurnId, id, item.SubagentId, status, item.CallId, item.Operation));
                 AiAssistantChatStore.AppendActivity(db, conversation, status == "in progress" ? "tool_call" : "tool_result",

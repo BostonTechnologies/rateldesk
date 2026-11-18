@@ -150,7 +150,13 @@ internal sealed class OpenAiAgentsClient(HttpClient http, OpenAiAgentsConfigurat
         if (item.Type is "mcp_call" or "function_call" or "command_execution" or "create_subagent_call" or "wait_for_subagents_call" or "send_subagent_input_call" or "resume_subagent_call")
             return new(item.Id, item.TurnId, childId, ProviderItemKind.ToolCall, item.Status,
                 item.Output.ValueKind == JsonValueKind.String ? item.Output.GetString() ?? "" : "", item.Name ?? item.Type,
-                item.CallId, ReadOperation(item.Arguments));
+                item.CallId, ReadOperation(item.Arguments), item.Type switch
+                {
+                    "mcp_call" => "mcp",
+                    "function_call" => "function",
+                    "command_execution" => "command",
+                    _ => "subagent"
+                });
         return null;
     }
 

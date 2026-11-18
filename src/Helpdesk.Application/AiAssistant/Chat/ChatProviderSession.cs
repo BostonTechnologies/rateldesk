@@ -41,7 +41,7 @@ public sealed record ProviderSessionHistory(string Id, string Status, IReadOnlyL
 public enum ProviderItemKind { UserMessage, AssistantMessage, ToolCall }
 
 public sealed record ProviderItem(string? Id, string? TurnId, string? SubagentId, ProviderItemKind Kind,
-    string? Status, string Text, string? ToolName = null, string? CallId = null, string? Operation = null);
+    string? Status, string Text, string? ToolName = null, string? CallId = null, string? Operation = null, string? ToolKind = null);
 
 public sealed record ProviderTurn(string Id, string? SubagentId, string Status, DateTimeOffset? CreatedAt,
     DateTimeOffset? CompletedAt, ProviderUsage? Usage, string? FailureCode);

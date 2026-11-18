@@ -57,7 +57,7 @@
     private bool disposed, open, pinned;
     private bool Fresh => status is { } value && DateTimeOffset.UtcNow - value.ObservedAtUtc is var age && age >= TimeSpan.FromSeconds(-30) && age <= TimeSpan.FromSeconds(30);
     private bool Connected => Fresh && status is { Enabled: true, ObservationAvailable: true } value && value.Sessions.Any(x => x.State == ChatTransportConnectionState.Connected);
-    private string StatusClass => Connected ? "connected" : status?.LastTestSucceeded == false ? "failed" : "unverified";
+    private string StatusClass => status?.Profile is not null ? "provider-profile" : Connected ? "connected" : status?.LastTestSucceeded == false ? "failed" : "unverified";
     private string ProviderLabel => status?.Profile?.Name ?? "Netclaw";
     private string StatusText => status switch
     {

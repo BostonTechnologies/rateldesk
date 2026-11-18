@@ -51,8 +51,8 @@
                     @if (hasMore) { <button type="button" class="chat-secondary-button chat-load-more" @onclick="MoreAsync">Older conversations</button> }
                 </nav>
                 <label class="chat-archive-toggle"><input type="checkbox" checked="@includeArchived" @onchange="ArchivedChangedAsync" />Show archived chats</label>
-                @if (capabilities?.SetupUrl is { } setup) { <a class="chat-settings-link" href="@setup"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</a> }
-                else { <span class="chat-settings-link" title="An administrator manages this connection"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</span> }
+                @if (capabilities?.SetupUrl is { } setup) { <a class="chat-settings-link" href="@setup"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />AI Providers</a> }
+                else { <span class="chat-settings-link" title="An administrator manages AI providers"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />AI Providers</span> }
             </aside>
             @if (selected is { } savedChat)
             {
