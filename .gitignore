@@ -25,6 +25,7 @@ id_rsa
 **/.keys/
 .slopwatch/*
 !.slopwatch/baseline.json
+!.slopwatch/config.json
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

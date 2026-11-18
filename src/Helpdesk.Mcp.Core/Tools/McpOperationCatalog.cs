@@ -27,7 +27,7 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-11-16.automation-traceability-v32";
+    public const string Revision = "2026-11-17.ticket-relations-v33";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [

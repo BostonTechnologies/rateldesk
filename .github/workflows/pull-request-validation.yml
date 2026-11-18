@@ -19,9 +19,9 @@ on:
         required: false
         default: false
       workspace_suite:
-        description: Limit optional workspace acceptance to coordinated traceability, or run all deep acceptance
+        description: Select an optional acceptance suite
         type: choice
-        options: [all, automation-traceability]
+        options: [all, automation-traceability, release-artifacts]
         default: all
         required: false
 
@@ -68,6 +68,7 @@ jobs:
         run: |
           python3 tools/release/test-package-documentation.py
           python3 tools/release/test-package-source-links.py
+          python3 tools/release/test-archive-sizes.py
           python3 tools/release/test-create-prerelease-tag.py
           python3 tools/release/test-validate-stable-promotion.py
           tools/release/test-promote-stable-images.sh
@@ -130,14 +131,15 @@ jobs:
   dotnet:
     name: .NET validation
     if: always()
-    needs: dotnet-shards
+    needs: [dotnet-shards, layout]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require every .NET shard
+      - name: Require every .NET shard and source validation
         env:
-          RESULT: ${{ needs.dotnet-shards.result }}
-        run: test "$RESULT" = success
+          SHARDS: ${{ needs.dotnet-shards.result }}
+          LAYOUT: ${{ needs.layout.result }}
+        run: test "$SHARDS" = success && test "$LAYOUT" = success
       - name: Check out triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download complete test receipts
@@ -197,7 +199,7 @@ jobs:
           retention-days: 14
 
   ux:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Playwright UX validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -263,7 +265,7 @@ jobs:
           retention-days: 14
 
   workspace-ux:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'release-artifacts' }}
     name: Workspace browser acceptance (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -383,7 +385,7 @@ jobs:
           retention-days: 14
 
   mailbox-lifecycle:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Mailbox lifecycle acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -479,7 +481,7 @@ jobs:
           retention-days: 14
 
   docker:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Docker build (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -525,6 +527,7 @@ jobs:
   release-assets:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
     name: Release asset rehearsal
+    needs: layout
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -536,8 +539,18 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Assemble self-contained CLI, stdio MCP, and deployment assets
-        run: tools/release/package-assets.sh 0.0.0-pr "${{ github.sha }}" release-assets
+      - id: package
+        name: Assemble self-contained CLI, stdio MCP, and deployment assets
+        env:
+          WORKSPACE_SUITE: ${{ inputs.workspace_suite }}
+        run: |
+          set -euo pipefail
+          version=0.0.0-pr
+          if [[ "$WORKSPACE_SUITE" == release-artifacts ]]; then
+            version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version)"
+          fi
+          tools/release/package-assets.sh "$version" "$GITHUB_SHA" release-assets
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Verify asset manifest and checksums
         run: |
@@ -549,7 +562,9 @@ jobs:
           test -s release-assets/release-manifest.json
 
       - name: Render MCP Compose recipes from the extracted deployment archive
-        run: tools/ci/test-deployment-archive-compose-config.sh release-assets/rateldesk-deployment-0.0.0-pr.tar.gz
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: tools/ci/test-deployment-archive-compose-config.sh "release-assets/rateldesk-deployment-$VERSION.tar.gz"
 
       - name: Execute extracted Linux x64 archives
         env:
@@ -566,6 +581,7 @@ jobs:
             release-assets/SHA256SUMS
             release-assets/release-manifest.json
             release-assets/release-manifest.json.sha256
+            release-assets/archive-sizes.json
           retention-days: 14
 
   archive-runtime:
@@ -598,8 +614,66 @@ jobs:
         shell: bash
         run: tools/release/test-executable-archives.sh release-assets "${{ matrix.rid }}" --validate-docs
 
+  release-candidate-images:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'release-artifacts' }}
+    name: Candidate container images (${{ matrix.platform }})
+    needs: layout
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: amd64
+          - runner: ubuntu-24.04-arm
+            platform: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Build and export container images for local testing
+        run: |
+          set -euo pipefail
+          version="$(dotnet msbuild src/Helpdesk.API/Helpdesk.API.csproj -nologo -getProperty:Version)"
+          revision="$GITHUB_SHA"
+          built_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          printf 'RATELDESK_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          mkdir candidate-images
+          for service in api web mcp-http; do
+            image="ghcr.io/bostontechnologies/rateldesk-$service:$version"
+            docker build --file "docker/$service/Dockerfile" --tag "$image" \
+              --build-arg "VERSION=$version" --build-arg "SOURCE_REVISION_ID=$revision" \
+              --build-arg "BUILD_TIMESTAMP=$built_at" \
+              --label "org.opencontainers.image.version=$version" --label "org.opencontainers.image.revision=$revision" .
+            docker save "$image" | gzip -n > "candidate-images/rateldesk-$service-$version.tar.gz"
+          done
+          (cd candidate-images && sha256sum -- *.tar.gz > SHA256SUMS && sha256sum --check SHA256SUMS)
+
+      - name: Verify local release Compose and published assets
+        run: |
+          tools/ci/smoke-web-static-assets.sh "ghcr.io/bostontechnologies/rateldesk-web:$RATELDESK_VERSION"
+          tools/ci/test-mcp-compose-config.sh "ghcr.io/bostontechnologies/rateldesk-mcp-http:$RATELDESK_VERSION"
+          docker compose -p rateldesk-candidate -f docker/docker-compose.release.yml up --pull never --detach --wait
+          COMPOSE_PROJECT_NAME=rateldesk-candidate tools/ci/smoke-first-run-local.sh docker/docker-compose.release.yml
+
+      - name: Stop disposable release Compose
+        if: always() && env.RATELDESK_VERSION != ''
+        run: docker compose -p rateldesk-candidate -f docker/docker-compose.release.yml down --volumes
+
+      - name: Upload loadable candidate images and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-candidate-images-${{ matrix.platform }}
+          path: candidate-images
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   compose:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Compose startup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -665,7 +739,7 @@ jobs:
         run: docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
 
   compose-postgres:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite != 'automation-traceability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deep_acceptance && inputs.workspace_suite == 'all' }}
     name: Compose PostgreSQL setup validation
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -732,5 +806,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ripgrep
 
+      - name: Enforce full-tree Slopwatch source policy
+        run: python3 tools/ci/run-slopwatch.py --report-dir "$RUNNER_TEMP/slopwatch"
+      - name: Retain Slopwatch results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: slopwatch-results
+          path: ${{ runner.temp }}/slopwatch
+          if-no-files-found: warn
+          retention-days: 14
       - name: Validate repository layout and active path references
         run: tools/ci/validate-layout.sh

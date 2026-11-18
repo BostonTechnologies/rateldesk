@@ -137,6 +137,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ripgrep
 
+      - name: Enforce full-tree Slopwatch source policy
+        run: python3 tools/ci/run-slopwatch.py --report-dir "$RUNNER_TEMP/slopwatch"
+      - name: Retain Slopwatch results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: slopwatch-results
+          path: ${{ runner.temp }}/slopwatch
+          if-no-files-found: warn
+          retention-days: 14
       - name: Run public disclosure gate
         run: tools/ci/check-public-disclosure.sh
 
@@ -165,6 +175,14 @@ jobs:
 
       - name: Rehearse executable and deployment assets
         run: tools/release/package-assets.sh "${{ needs.metadata.outputs.version }}" "${{ needs.metadata.outputs.source_revision }}" release-assets
+
+      - name: Retain archive size measurement
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-archive-sizes
+          path: release-assets/archive-sizes.json
+          if-no-files-found: warn
 
       - name: Verify executable asset checksums
         run: (cd release-assets && sha256sum --check SHA256SUMS)

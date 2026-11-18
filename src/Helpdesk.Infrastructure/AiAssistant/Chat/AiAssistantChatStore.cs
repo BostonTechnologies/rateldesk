@@ -64,9 +64,11 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         if (conversation.State is not (ChatState.Processing or ChatState.WaitingForChildren) || conversation.ActiveMessageId != request.ExpectedMessageId)
             throw new ChatConflictException("The processing turn changed or already completed.");
         conversation.State = ChatState.DeliveryUnknown;
-        Append(db, conversation, "delivery_unknown", "Operator stopped waiting locally. The remote assistant may still be processing; this request will not be resent automatically.", actor, atUtc: Now);
+        conversation.RecoveryResult = "You stopped waiting. The attached session can still deliver the original result for a limited time. Remote work may continue if the connection closes.";
+        Append(db, conversation, "observation_stopped", conversation.RecoveryResult, actor, atUtc: Now);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        ChatTelemetry.Record("foreground_observation_stopped");
         await PublishAsync(conversation, "StopWaiting", ct);
     }
 
@@ -217,6 +219,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         Append(db, conversation, "operator", request.Text, actor, request.ClientMessageId, atUtc: conversation.TurnStartedAtUtc);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        ChatTelemetry.Record("app_message_accepted");
         await PublishAsync(conversation, "MessageAccepted", ct);
         return true;
     }

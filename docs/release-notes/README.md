@@ -1,5 +1,7 @@
 # Release notes
 
+- [0.1.3 — stable candidate](0.1.3.md) — upgrade summary and testing scope.
+
 ## 0.1.3-beta.11
 
 [Owner-review workspaces and safe account cleanup](0.1.3-beta.11.md) covers

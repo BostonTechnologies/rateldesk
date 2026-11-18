@@ -240,6 +240,38 @@ for (const route of routes) {
   });
 }
 
+test('multiline organization draft survives navigation, Back, reload and an organization switch', async ({ page, request }) => {
+  await request.get(`${fixture}/fixture/reset?mode=empty`);
+  await page.goto('/auth/development');
+  await page.goto('/ai/chat?organizationId=org');
+  const input = page.getByRole('textbox', { name: 'Message Netclaw' });
+  await input.fill('First draft line');
+  await input.press('Alt+Enter');
+  await input.pressSequentially('Second draft line');
+  const draft = 'First draft line\nSecond draft line';
+  await expect(input).toHaveValue(draft);
+
+  await page.getByRole('link', { name: 'Operations console', exact: true }).click();
+  await expect(page).toHaveURL(/\/ops$/);
+  await page.goBack();
+  await expect(input).toHaveValue(draft);
+  await page.reload();
+  await expect(input).toHaveValue(draft);
+  const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
+  await organization.selectOption('org-b');
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue('');
+  await organization.selectOption('org');
+  await expect(input).toHaveValue(draft);
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await page.reload();
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue('');
+  const counts = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+  expect(counts.startAttempts).toBe(0);
+  expect(counts.sends).toBe(0);
+});
+
 test('uncertain first-send response retries the same conversation and message', async ({ page, request }) => {
   await request.get(`${fixture}/fixture/reset?mode=empty&loseStartResponse=true`);
   await page.goto('/auth/development'); await page.goto('/ai/chat?organizationId=org');
@@ -247,6 +279,9 @@ test('uncertain first-send response retries the same conversation and message', 
   await page.getByRole('textbox', { name: 'Message Netclaw' }).fill('Preserve this first message');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry message', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Message Netclaw' })).toHaveValue('Preserve this first message');
+  expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).startAttempts).toBe(1);
   await expect(page.getByRole('button', { name: 'Retry message', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Retry message', exact: true }).click();
   await expect(page.getByText('Synthetic first reply.')).toBeVisible();

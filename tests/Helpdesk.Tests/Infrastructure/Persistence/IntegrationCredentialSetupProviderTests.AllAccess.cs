@@ -19,8 +19,17 @@ public sealed partial class IntegrationCredentialSetupProviderTests
         var clock = new Clock();
         var request = Request(clock);
         var permissions = HelpdeskPermissions.AssignablePermissions.Order(StringComparer.Ordinal).ToArray();
+        // Seed the catalog the old release wrote, including its HTTP-only boundary.
+        using var historical = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(TestEnvironment.RepositoryRoot, "tools", "ci", "beta10-operation-ids.json")));
+        var historicalKeys = historical.RootElement.GetProperty("operationIds").EnumerateArray()
+            .Select(id => id.GetString()).Append("helpdesk_email_settings.delete_rule").ToHashSet(StringComparer.Ordinal);
+        var originalOperations = McpPolicyDefinitionService.Operations.Select(x => x.Key)
+            .Where(historicalKeys.Contains).ToArray();
+        Assert.Equal("E0F019CC1038A79E959248906ADD61779D8E68133D8912525DD65EC1117D1DED",
+            McpPolicyDefinitionService.CatalogFingerprint(originalOperations));
         var original = request.Policies.Single() with { Name = "Connection · All access", Permissions = permissions,
-            Operations = McpPolicyDefinitionService.Operations.Select(x => x.Key).ToArray() };
+            Operations = originalOperations };
         request = request with { Credential = request.Credential with { Permissions = permissions }, Policies = [original] };
         await using var identity = fixture.Identity();
         await using var domain = fixture.Open();
@@ -38,7 +47,9 @@ public sealed partial class IntegrationCredentialSetupProviderTests
         await repair.ReconcileAsync();
         var row = await domain.Set<McpAccessPolicy>().AsNoTracking().SingleAsync(p => p.CredentialId == credential.Id);
         Assert.Equal(2, row.Revision);
-        Assert.True(McpPolicyDefinitionDocumentReader.Read(row.DefinitionJson)!.Scopes.Single().AllAccess);
+        var repaired = McpPolicyDefinitionDocumentReader.Read(row.DefinitionJson)!.Scopes.Single();
+        Assert.True(repaired.AllAccess);
+        Assert.Contains("helpdesk_tickets.relations", repaired.Operations);
         var current = await identity.IntegrationCredentials.AsNoTracking().SingleAsync(c => c.Id == credential.Id);
         Assert.Equal(hash, current.SecretHash); Assert.Equal(credential.ExpiresAtUtc, current.ExpiresAtUtc);
         Assert.Equal(credential.OrganizationId, current.OrganizationId); Assert.Equal(credential.McpResourceUri, current.McpResourceUri);

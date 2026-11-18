@@ -2,6 +2,7 @@
 """Validate exported source references and retained offline evidence without networking."""
 
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -78,18 +79,19 @@ class SourceLinkExportTests(unittest.TestCase):
         self.assertEqual(0, count)
         self.assertEqual(text, actual)
 
-    def test_missing_source_documentation_and_images_still_fail_strict_validation(self):
+    def test_omitted_guide_is_pinned_and_missing_local_assets_fail_validation(self):
         self.write_source("src/diagram.png", b"must remain offline")
         self.write_source("docs/required.md")
         text = ('# Missing targets\n\n[missing](../src/Absent.cs)\n'
                 '[required guide](required.md)\n![required image](../src/diagram.png)\n')
         count, actual = self.export(text)
-        self.assertEqual((0, text), (count, actual))
+        self.assertEqual(1, count)
+        self.assertIn(f"{SOURCE_URL}/blob/{REVISION}/docs/required.md", actual)
         (self.bundle / "AGENTS.md").write_text("# Fixture\n")
         result = subprocess.run([sys.executable, ROOT / "tools/ci/validate-docs.py", "--root", self.bundle],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(1, result.returncode)
-        for target in ("../src/Absent.cs", "required.md", "../src/diagram.png"):
+        for target in ("../src/Absent.cs", "../src/diagram.png"):
             self.assertIn("local target " + target, result.stderr)
 
     def test_invalid_revision_is_rejected_before_creating_a_bundle(self):
@@ -118,7 +120,7 @@ class SourceLinkExportTests(unittest.TestCase):
                 self.assertEqual("", result.stdout)
                 self.assertIn("usage:" if expected == 64 else "Asset directory does not exist", result.stderr)
 
-    def test_full_client_and_deployment_bundles_pass_with_immutable_evidence(self):
+    def test_selected_client_and_deployment_guides_pass_with_pinned_source_links(self):
         for flat in (False, True):
             with self.subTest(flat_deployment=flat):
                 output = self.directory / ("deployment" if flat else "client")
@@ -139,22 +141,20 @@ class SourceLinkExportTests(unittest.TestCase):
                                            capture_output=True, text=True, timeout=30)
                 self.assertEqual(0, validated.returncode, validated.stdout + validated.stderr)
                 self.assertIn("documentation validation passed", validated.stdout)
-                changed_markdown = []
-                source_files = {p.relative_to(ROOT / "docs") for p in (ROOT / "docs").rglob("*") if p.is_file()}
-                bundled_files = {p.relative_to(output / "docs") for p in (output / "docs").rglob("*") if p.is_file()}
-                self.assertEqual(source_files, bundled_files)
-                for relative in source_files:
-                    source, copied = ROOT / "docs" / relative, output / "docs" / relative
-                    if source.suffix != ".md":
-                        # Historical JSON, images, fixtures/checksums and logs retain exact bytes.
-                        self.assertEqual(source.read_bytes(), copied.read_bytes(), str(relative))
-                    elif f"{SOURCE_URL}/blob/{REVISION}/" in copied.read_text() or f"{SOURCE_URL}/tree/{REVISION}/" in copied.read_text():
-                        changed_markdown.append(relative)
-                self.assertTrue(changed_markdown)
-                for tree in (".agents/skills", "licenses"):
-                    for source in (ROOT / tree).rglob("*"):
-                        if source.is_file():
-                            self.assertEqual(source.read_bytes(), (output / source.relative_to(ROOT)).read_bytes())
+                profile = json.loads((ROOT / "tools/release/documentation-profile.json").read_text())
+                expected = set(profile["files"]) | {"docs/README.md"}
+                actual = {p.relative_to(output).as_posix() for p in (output / "docs").rglob("*") if p.is_file()}
+                self.assertEqual(expected, actual)
+                for name in profile["files"]:
+                    if not name.endswith(".md"):
+                        self.assertEqual((ROOT / name).read_bytes(), (output / name).read_bytes())
+                self.assertFalse((output / "docs/implementation").exists())
+                self.assertFalse((output / ".agents").exists())
+                self.assertIn(f"{SOURCE_URL}/tree/{REVISION}/docs",
+                              (output / "docs/README.md").read_text())
+                for source in (ROOT / "licenses").rglob("*"):
+                    if source.is_file():
+                        self.assertEqual(source.read_bytes(), (output / source.relative_to(ROOT)).read_bytes())
                 for relative in ("docs/mcp-http/setup.md", "docs/integrations/cli-stdio.md"):
                     self.assertTrue((output / relative).is_file())
                 self.assertTrue((output / "setup-http-mcp.sh").is_file())

@@ -116,10 +116,13 @@ public sealed class RequestTaskPayloadBuildResult
     public string? OrchestrationJobDefinitionId { get; init; }
     public string? Error { get; init; }
 
-    public static RequestTaskPayloadBuildResult Failed(string error) => new()
+    public AutomationPreDispatchFailure? PreDispatchFailure { get; init; }
+
+    public static RequestTaskPayloadBuildResult Failed(string error, AutomationPreDispatchFailure? preDispatchFailure = null) => new()
     {
         Success = false,
-        Error = error
+        Error = error,
+        PreDispatchFailure = preDispatchFailure
     };
 
     public static RequestTaskPayloadBuildResult Succeeded(

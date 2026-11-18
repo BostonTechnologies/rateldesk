@@ -249,6 +249,15 @@ its next call. Incident-source administration can register, revise and disable
 an existing API credential's organization/customer source binding, with current
 credential validation and revision conflicts; it does not issue a credential.
 
+Use `helpdesk_tickets` with `operation: "relations"` and
+`request: { "id": "REQ-EXAMPLE", "page": 1, "pageSize": 25 }` to read
+universal links for an incident, request, task or change. The page includes
+visible outgoing and incoming relationships, their types and ticket references.
+Follow the page totals to read more. An automation failure relationship links
+the incident to its originating request. To identify the specific attempt,
+look for a matching retained execution reference in the automation report or
+workflow history. The relationship alone supplies no attempt reference.
+
 Incident relationship creation uses an explicit `relationType` and
 `closeSourceTicket`. `DuplicateOf` (`0`) always resolves the source; `RelatedTo`
 (`1`) follows the submitted closure choice. Both copy source listeners to the

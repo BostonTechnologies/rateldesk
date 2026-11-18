@@ -137,7 +137,7 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
     }
 
     [Fact]
-    public async Task StopWaitingRecordsUncertainDeliveryAndRetiresTheTransportOwner()
+    public async Task StopWaitingRecordsForegroundCutoffWithoutRetiringTheOriginalReceiver()
     {
         var (ticket, conversation) = await database.CreateAsync();
         var messageId = Guid.NewGuid();
@@ -151,11 +151,11 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
         Assert.Equal(HttpStatusCode.Forbidden, (await customer.PostAsJsonAsync(endpoint, request)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(endpoint, request with { ExpectedMessageId = Guid.NewGuid() })).StatusCode);
         Assert.Equal(HttpStatusCode.Accepted, (await staff.PostAsJsonAsync(endpoint, request)).StatusCode);
-        await host.Transport.Received(1).RetireAsync(conversation, Arg.Any<CancellationToken>());
+        await host.Transport.DidNotReceive().RetireAsync(conversation, Arg.Any<CancellationToken>());
         await host.Transport.DidNotReceive().SendAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await using var check = database.Context();
         Assert.Equal(ChatState.DeliveryUnknown, (await check.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == conversation)).State);
-        Assert.Contains(await check.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == conversation).ToListAsync(), x => x.Type == "delivery_unknown" && x.CreatedByUserId == "operator");
+        Assert.Contains(await check.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == conversation).ToListAsync(), x => x.Type == "observation_stopped" && x.CreatedByUserId == "operator");
     }
 
     [Fact]

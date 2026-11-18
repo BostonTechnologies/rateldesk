@@ -87,6 +87,7 @@ internal static class McpSchemaTypes
         [typeof(global::Helpdesk.Mcp.Tools.OperatorTicketModule)] = typeof(global::Helpdesk.Mcp.Tools.OperatorTicketModule).GetProperties(BindingFlags.Public | BindingFlags.Instance),
         [typeof(global::Helpdesk.Mcp.Tools.OperatorTicketOrganization)] = typeof(global::Helpdesk.Mcp.Tools.OperatorTicketOrganization).GetProperties(BindingFlags.Public | BindingFlags.Instance),
         [typeof(global::Helpdesk.Mcp.Tools.OperatorTicketPath)] = typeof(global::Helpdesk.Mcp.Tools.OperatorTicketPath).GetProperties(BindingFlags.Public | BindingFlags.Instance),
+        [typeof(global::Helpdesk.Mcp.Tools.OperatorTicketRelations)] = typeof(global::Helpdesk.Mcp.Tools.OperatorTicketRelations).GetProperties(BindingFlags.Public | BindingFlags.Instance),
         [typeof(global::Helpdesk.Mcp.Tools.OperatorUpdateForm)] = typeof(global::Helpdesk.Mcp.Tools.OperatorUpdateForm).GetProperties(BindingFlags.Public | BindingFlags.Instance),
         [typeof(global::Helpdesk.Mcp.Tools.OperatorWorkflowTimelineFilter)] = typeof(global::Helpdesk.Mcp.Tools.OperatorWorkflowTimelineFilter).GetProperties(BindingFlags.Public | BindingFlags.Instance),
         [typeof(global::Helpdesk.Shared.AiAssistant.Chat.ChatNewRequest)] = typeof(global::Helpdesk.Shared.AiAssistant.Chat.ChatNewRequest).GetProperties(BindingFlags.Public | BindingFlags.Instance),

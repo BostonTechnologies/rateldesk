@@ -1,3 +1,5 @@
+import { saveText } from '../../js/chat-drafts.js';
+
 const bindings = new WeakMap();
 export function resize(root) {
     const input = root.querySelector('textarea');
@@ -14,13 +16,17 @@ export function attach(root, dotnet) {
     let sending = false;
     input.addEventListener('compositionstart', () => composing = true, options);
     input.addEventListener('compositionend', () => composing = false, options);
-    input.addEventListener('input', () => resize(root), options);
+    input.addEventListener('input', () => {
+        resize(root);
+        saveText(root.dataset.chatDraftScope, input.value);
+    }, options);
     input.addEventListener('keydown', event => {
         if (event.key !== 'Enter' || event.isComposing || composing || event.keyCode === 229) return;
         if (event.repeat) { event.preventDefault(); return; }
         if (event.altKey && !event.ctrlKey && !event.metaKey) {
             event.preventDefault();
             if (input.disabled || input.readOnly) return;
+            if (input.value.length - (input.selectionEnd - input.selectionStart) >= input.maxLength) return;
             input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
             input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertLineBreak', data: '\n' }));
             resize(root);

@@ -32,7 +32,7 @@ jobs:
       - name: Set up the campaign SDK accepted by global.json
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
-          dotnet-version: '10.0.403'
+          global-json-file: global.json
 
       - name: Verify receipt, measurement and test-evidence failure boundaries
         run: python3 -m unittest discover -s tools/size-campaign -p 'test_host_telemetry*.py' -v
@@ -55,8 +55,7 @@ jobs:
         run: |
           set -o pipefail
           dotnet restore Helpdesk.sln 2>&1 | tee "$RUNNER_TEMP/host-telemetry-restore.log"
-          dotnet tool restore 2>&1 | tee "$RUNNER_TEMP/host-telemetry-tool-restore.log"
-          dotnet tool run slopwatch analyze --fail-on warning 2>&1 | tee "$RUNNER_TEMP/host-telemetry-slopwatch.log"
+          python3 tools/ci/run-slopwatch.py --report-dir "$RUNNER_TEMP/host-telemetry-slopwatch"
 
       - name: Retain graph and quality evidence on success or failure
         if: always()
@@ -65,8 +64,7 @@ jobs:
           name: rd-size-host-telemetry-quality-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/host-telemetry-restore.log
-            ${{ runner.temp }}/host-telemetry-tool-restore.log
-            ${{ runner.temp }}/host-telemetry-slopwatch.log
+            ${{ runner.temp }}/host-telemetry-slopwatch
           if-no-files-found: warn
           retention-days: 14
 

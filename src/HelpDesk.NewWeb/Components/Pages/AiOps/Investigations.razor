@@ -116,7 +116,7 @@
             }
             else if (selected is { } investigation)
             {
-                <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" InvestigationId="investigation.Id" Workspace="true" ShowConnectionStatus="false"
+                <AiAssistantChat @key="investigation.Id" TicketId="@investigation.TicketId" TicketType="@investigation.TicketType" TicketOrganizationId="@investigation.OrganizationId" InvestigationId="investigation.Id" Workspace="true" ShowConnectionStatus="false"
                     Title="@investigation.Title" Identity="@OrganizationName(investigation.OrganizationId)" Archive="Archive" StateChanged="@(state => ChatStateChanged(investigation.Id, state))">
                     <SavedContext><details class="ai-snapshot"><summary>Saved guidance and ticket context</summary><pre>@investigation.ContextSnapshot</pre></details></SavedContext>
                 </AiAssistantChat>

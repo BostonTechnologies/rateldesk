@@ -74,7 +74,7 @@ def main() -> int:
             failures.append(f"docs-root file must be categorized: {path.relative_to(REPO)}")
     if not (REPO / "docs/README.md").is_file():
         failures.append("missing docs/README.md")
-    if not (REPO / "AGENTS.md").is_file():
+    if args.root is None and not (REPO / "AGENTS.md").is_file():
         failures.append("missing canonical uppercase AGENTS.md")
 
     # Include untracked guides so a local check catches new files before staging.

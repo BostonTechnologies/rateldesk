@@ -266,6 +266,32 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
     }
 
     [Fact]
+    public async Task Foreground_stop_keeps_the_live_receiver_and_persists_only_the_matching_late_turn()
+    {
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await using (var db = fixture.Context())
+            await fixture.Store(db).StopWaitingAsync(run.Scope, new(run.Conversation, run.Request.ClientMessageId), "operator", default);
+        await run.Manager.ReconcileAsync(run.Conversation, default);
+        Assert.False(run.Client.Disposed);
+
+        await run.Client.CompleteAsync(9, []);
+        await run.Client.EmitAsync(new { type = "text", sessionId = run.Client.SessionId, text = "Original late report" });
+        await run.Client.CompleteAsync(1, []);
+        var events = await run.WaitForAsync(items => items.Any(x => x.Type == "observation_reconciled"));
+
+        Assert.Single(events, x => x.Type == "operator");
+        Assert.Equal("Original late report", Assert.Single(events, x => x.Type == "assistant").Text);
+        Assert.Equal(1, ChatContinuationSafety.Read(Assert.Single(events, x => x.Type == "turn_completed").MetadataJson)!.TurnNumber);
+        Assert.Single(run.Client.Sent);
+        Assert.Empty(run.Client.Responses);
+        await using var verify = fixture.Context();
+        var saved = await fixture.Store(verify).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
+        Assert.Equal(ChatState.Idle, saved.State);
+        Assert.Equal(run.Request.ClientMessageId, saved.ActiveMessageId);
+    }
+
+    [Fact]
     public async Task Automatic_recovery_has_backoff_a_finite_budget_and_explicit_manual_reset_without_resends()
     {
         var isolated = new ChatPostgresFixture();

@@ -50,6 +50,7 @@ public sealed partial class AiAssistantChatStore
         Append(db, conversation, "operator", request.Text, actor, request.ClientMessageId, atUtc: Now);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        ChatTelemetry.Record("app_message_accepted");
         await PublishAsync(conversation, "MessageAccepted", ct);
         return new(OrganizationDto(conversation), true);
     }

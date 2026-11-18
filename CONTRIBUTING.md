@@ -2,6 +2,8 @@
 
 Open an issue before substantial changes. Keep changes focused, include tests, and do not add real customer data, credentials, infrastructure identifiers, or screenshots from private environments.
 
+Run `python3 tools/ci/run-slopwatch.py` for authored/refactored source and MSBuild changes.
+
 Run `dotnet build Helpdesk.sln` and `dotnet test Helpdesk.sln` before opening a pull request. Configuration examples must use reserved example values and secrets must be injected at runtime.
 
 Follow [AGENTS.md](AGENTS.md) and start documentation work from the

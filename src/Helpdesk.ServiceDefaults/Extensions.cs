@@ -158,7 +158,7 @@ public static class Extensions
             })
             .WithMetrics(metrics =>
             {
-                metrics.AddMeter(HelpdeskMeterName)
+                metrics.AddMeter(HelpdeskMeterName).AddMeter("RatelDesk.Chat")
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()

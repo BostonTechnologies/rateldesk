@@ -6,6 +6,8 @@
 @inject IHttpClientFactory Clients
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+@inject ILogger<Chat> Logger
 
 <PageTitle>Chat · RatelDesk</PageTitle>
 <main class="chat-page" data-testid="organization-chat">
@@ -76,7 +78,7 @@
                         {
                             <div class="chat-welcome"><div class="chat-welcome-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></div><p class="chat-eyebrow">NETCLAW · @OrganizationName(organization)</p><h2>What would you like to work on?</h2><p>Write a script, review notifications, or talk through your next task.</p>
                                 <div class="chat-starters" aria-label="Conversation starters">
-                                    @foreach (var starter in Starters) { <button type="button" class="chat-starter" @onclick="() => UseStarterAsync(starter.Prompt)" disabled="@(!CanStart || busy || pendingStart is not null)"><MudIcon Icon="@starter.Icon" Size="Size.Small" /><strong>@starter.Title</strong><span>@starter.Description</span></button> }
+                                    @foreach (var starter in Starters) { <button type="button" class="chat-starter" @onclick="() => UseStarterAsync(starter.Prompt)" disabled="@(!CanStart || busy || !draftRestored || pendingStart is not null)"><MudIcon Icon="@starter.Icon" Size="Size.Small" /><strong>@starter.Title</strong><span>@starter.Description</span></button> }
                                 </div>
                                 @if (prompts.Any(x => !x.IsDefault))
                                 {
@@ -89,7 +91,7 @@
                     </div>
                     @if (capabilities?.Enabled == true)
                     {
-                        <div class="chat-composer-area"><AiAssistantComposer @ref="composer" @bind-Value="message" Send="SendFirstAsync" Disabled="@(!CanStart || busy)" ReadOnly="@(pendingStart is not null)" Identity="@OrganizationName(organization)" ShowAttachmentNotice="false" SendLabel="@(pendingStart is null ? "Send" : "Retry message")" /></div>
+                        <div class="chat-composer-area"><AiAssistantComposer @key="organization" @ref="composer" @bind-Value="message" Send="SendFirstAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" Disabled="@(!CanStart || busy || !draftRestored)" ReadOnly="@(pendingStart is not null)" Identity="@OrganizationName(organization)" ShowAttachmentNotice="false" SendLabel="@(pendingStart is null ? "Send" : "Retry message")" /></div>
                     }
                 </section>
             }

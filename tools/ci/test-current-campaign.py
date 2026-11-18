@@ -20,13 +20,14 @@ class CurrentCampaignTests(unittest.TestCase):
             target = Path(directory) / "new-campaign"
             result = gate.initialize(target, CATALOG)
             self.assertEqual("NOT_RUN", result["readiness"])
-            self.assertEqual(390, result["operations"])
+            self.assertEqual(adapter.current_catalog["operationCount"], result["operations"])
             self.assertEqual(103, result["domainCases"])
             self.assertEqual(86, result["historicalObligations"])
             self.assertEqual(9, result["cleanupAssertions"])
             receipt = json.loads((target / "receipt.json").read_text(encoding="utf-8"))
             self.assertEqual("rateldesk-campaign/v1", receipt["format"])
             self.assertEqual(adapter.version, receipt["campaign"]["version"])
+            self.assertIn("helpdesk_tickets.relations", gate.export_catalog(CATALOG)[1])
 
     def test_current_adapter_rejects_historical_revision(self):
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))

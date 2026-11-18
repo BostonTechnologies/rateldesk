@@ -20,6 +20,9 @@ internal static class OperatorTicketOperations
             Authority: "Current module ticket visibility", Description: "Search authorized organization, requested-for and assignee labels for ticket filters. selectedId and customerOrgId are bounded repeated query values."),
         new("helpdesk_tickets", "set_customer", "POST", "/api/v1/{ticketType}/{ticketId}/customer", typeof(OperatorSetTicketCustomer), typeof(OperatorTicketPath),
             Authority: "Manager of the parent ticket's organization and module", Description: "Set a requester only on a ticket without one, using an enabled customer in the same organization. Read the ticket afterward to verify the saved requester."),
+        new("helpdesk_tickets", "relations", "GET", "/api/v1/tickets/{id}/relations", QueryType: typeof(OperatorTicketRelations),
+            Authority: "Current visibility of both tickets in the same organization",
+            Description: "Read a page of visible universal incident, request, task and change relationships. Use the ticket ID or tracking reference. Each row includes direction, type and both visible ticket references. An automation failure link identifies the originating request and does not attest to a particular execution attempt."),
         new("helpdesk_tickets", "incident_activity", "GET", "/api/v1/incidents/{incidentId}/activity",
             Authority: "Parent incident visibility", Description: "Read the persisted incident activity audit, independently of the rendered timeline."),
         new("helpdesk_tickets", "request_worklogs", "GET", "/api/v1/requests/{requestId}/worklogs",
@@ -104,6 +107,12 @@ internal sealed class OperatorTicketFilterOptions : OperatorTicketModule
     [Range(1, 50)] public int? Take { get; set; }
     [MaxLength(20)] public string[]? CustomerOrgId { get; set; }
     [MaxLength(20)] public string[]? SelectedId { get; set; }
+}
+internal sealed class OperatorTicketRelations
+{
+    [Required, MaxLength(128), RegularExpression(@".*\S.*")] public string Id { get; set; } = "";
+    [Range(1, 100000)] public int? Page { get; set; }
+    [AllowedValues(25, 50, 100)] public int? PageSize { get; set; }
 }
 internal sealed class OperatorTicketPath
 {

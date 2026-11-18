@@ -105,10 +105,9 @@ public static partial class AiAssistantChatEndpoints
             await transport.ReconcileAsync(request.ConversationId, ct);
             return Results.Accepted();
         });
-        group.MapPost("/stop-waiting", async (string organizationId, ChatStopWaitingRequest request, HttpContext ctx, IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>
+        group.MapPost("/stop-waiting", async (string organizationId, ChatStopWaitingRequest request, HttpContext ctx, IAiAssistantChatStore store, CancellationToken ct) =>
         {
             await store.StopWaitingAsync(ChatScope.Organization(organizationId), request, Actor(ctx), ct);
-            await transport.RetireAsync(request.ConversationId, ct);
             return Results.Accepted();
         });
         group.MapPost("/abandon", async (string organizationId, ChatAbandonRequest request, HttpContext ctx, IAiAssistantChatStore store, IAiAssistantChatTransport transport, CancellationToken ct) =>
