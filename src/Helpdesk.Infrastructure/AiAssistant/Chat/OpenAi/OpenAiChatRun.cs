@@ -31,10 +31,12 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(45));
 
+        var observationMinutes = 30;
         try
         {
             var token = deadline.Token;
             var (profile, revision) = await profiles.ResolveAsync(conversation, token);
+            observationMinutes = profile.ObservationMinutes;
             using var client = http.CreateClient(OpenAiAgentsClient.ClientName);
             if (dispatch.State == OpenAiDispatchState.Queued && dispatch.CancelRequestedAtUtc is not null)
             {
@@ -58,7 +60,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or OperationCanceledException
             or System.Text.Json.JsonException or ChatConflictException or KeyNotFoundException or ArgumentException or InvalidOperationException)
         {
-            await SaveObservationFailureAsync(dispatch, ex, ct);
+            await SaveObservationFailureAsync(dispatch, ex, observationMinutes, ct);
         }
     }
 
@@ -140,7 +142,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             logger.LogDebug("OpenAI observation stream was unavailable for {ConversationId}: {FailureType}", conversation.Id, ex.GetType().Name);
         }
         await using var observation = connected;
-        var channel = Channel.CreateBounded<ProviderStreamEvent>(256);
+        var channel = Channel.CreateBounded<ProviderStreamEvent>(32);
         var stream = connected is null ? Task.CompletedTask : PumpAsync(connected, channel.Writer, streamLifetime.Token);
         try
         {
@@ -250,7 +252,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         return await ChatOutboundMessage.BuildAsync(db, conversation, message, dispatch.MessageId, ct);
     }
 
-    private async Task SaveObservationFailureAsync(OpenAiChatDispatch dispatch, Exception error, CancellationToken ct)
+    private async Task SaveObservationFailureAsync(OpenAiChatDispatch dispatch, Exception error, int observationMinutes, CancellationToken ct)
     {
         logger.LogWarning("OpenAI request for {ConversationId} reported {FailureType}", dispatch.ConversationId, error.GetType().Name);
         await ChangeAsync(dispatch, (row, current) =>
@@ -272,7 +274,9 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             if (row.State == OpenAiDispatchState.Dispatching) row.State = OpenAiDispatchState.Unknown;
             var retry = error is OpenAiRequestException { RetryAfter: { } delay }
                 ? TimeSpan.FromSeconds(Math.Clamp(delay.TotalSeconds, 5, 300)) : TimeSpan.FromSeconds(10);
-            row.NextObservationAtUtc = Now + retry;
+            var limit = (row.DispatchedAtUtc ?? row.AdmittedAtUtc).AddMinutes(observationMinutes);
+            if (current.RecoveryLastAttemptUtc > limit) limit = current.RecoveryLastAttemptUtc.Value.AddMinutes(2);
+            row.NextObservationAtUtc = Now < limit ? Now + retry : DateTimeOffset.MaxValue;
             Unknown(current, SafeFailure(error));
         }, ct);
     }

@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using Microsoft.Extensions.Configuration;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -182,6 +184,88 @@ public sealed class OpenAiAgentsProtocolTests
     [InlineData("/workspace/outputs/foo\\secret.txt", false)]
     public void Artifact_paths_are_confined_to_provider_outputs(string path, bool expected) =>
         Assert.Equal(expected, OpenAiChatRun.SafeArtifactPath(path));
+
+    [Fact]
+    public async Task Hosted_skill_uses_the_pinned_archive_and_downloads_a_saved_artifact()
+    {
+        var directory = Directory.CreateTempSubdirectory("rateldesk-provider-fixture-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "fixture.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                Write(archive, "fixture/.codex-plugin/plugin.json", """
+                    {"name":"fixture-report","version":"1.0.0","description":"Write a synthetic report","skills":"./skills/"}
+                    """);
+                Write(archive, "fixture/skills/report/SKILL.md", """
+                    ---
+                    name: fixture-report
+                    description: Write a synthetic report
+                    ---
+                    Write the word ready to /workspace/outputs/report.txt.
+                    """);
+            }
+            var data = await File.ReadAllBytesAsync(path);
+            var hash = Convert.ToHexString(SHA256.HashData(data));
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AiProviders:SkillBundles:fixture-v1:Path"] = path,
+                ["AiProviders:SkillBundles:fixture-v1:Sha256"] = hash
+            }).Build();
+            var bundle = Assert.IsType<OpenAiSkillBundle>(OpenAiSkillBundle.Load(configuration, "fixture-v1"));
+            Assert.Equal(hash, bundle.Sha256);
+
+            using var client = Client(async (request, ct) =>
+            {
+                if (request.Method == HttpMethod.Post)
+                {
+                    var body = await request.Content!.ReadFromJsonAsync<JsonElement>(ct);
+                    var environment = body.GetProperty("environment");
+                    Assert.Equal("openai_hosted", environment.GetProperty("type").GetString());
+                    Assert.Equal("disabled", environment.GetProperty("network").GetProperty("access").GetString());
+                    var plugin = Assert.Single(environment.GetProperty("plugins").EnumerateArray());
+                    Assert.Equal("fixture-report", plugin.GetProperty("name").GetString());
+                    Assert.Equal(data, Convert.FromBase64String(plugin.GetProperty("source").GetProperty("data").GetString()!));
+                    return Response("""{"id":"sess_hosted","status":"in_progress"}""", HttpStatusCode.Created);
+                }
+                return request.RequestUri!.AbsolutePath switch
+                {
+                    "/v1/agents/sessions/sess_hosted/artifacts" => Response("""
+                        {"data":[{"id":"file_fixture","path":"/workspace/outputs/report.txt","turn_id":"turn_fixture","size_bytes":5}],"has_more":false}
+                        """),
+                    "/v1/agents/sessions/sess_hosted/artifacts/file_fixture/content" => new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(Encoding.UTF8.GetBytes("ready"))
+                    },
+                    _ => throw new InvalidOperationException("Unexpected hosted fixture request.")
+                };
+            });
+            var adapter = new OpenAiAgentsClient(client, new("fixture-key-for-adapter", "fixture-model", null, null, null,
+                new("openai_hosted", "small", new("disabled"), Plugins: [bundle.Plugin]), [], 1));
+            Assert.True(adapter.Features.HasFlag(ChatProviderFeatures.Artifacts));
+            Assert.Equal("sess_hosted", await adapter.CreateAsync(Guid.NewGuid(), "Run the fixture-report skill", default));
+            var artifact = Assert.Single(await adapter.ListArtifactsAsync("sess_hosted", default));
+            Assert.Equal("turn_fixture", artifact.TurnId);
+            Assert.Equal("ready", Encoding.UTF8.GetString(await adapter.ReadArtifactAsync("sess_hosted", artifact, 1024, default)));
+
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Update))
+                Write(archive, "fixture/skills/../escape.txt", "synthetic");
+            var changed = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path)));
+            Assert.Throws<ArgumentException>(() => OpenAiSkillBundle.Load(configuration, "fixture-v1"));
+            configuration["AiProviders:SkillBundles:fixture-v1:Sha256"] = changed;
+            Assert.Throws<ArgumentException>(() => OpenAiSkillBundle.Load(configuration, "fixture-v1"));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private static void Write(ZipArchive archive, string path, string value)
+    {
+        using var writer = new StreamWriter(archive.CreateEntry(path).Open());
+        writer.Write(value);
+    }
 
     private static OpenAiAgentsClient Adapter(HttpClient client) => new(client,
         new("fixture-key-for-adapter", "fixture-model", null, "proj_fixture", null, new("none"),
