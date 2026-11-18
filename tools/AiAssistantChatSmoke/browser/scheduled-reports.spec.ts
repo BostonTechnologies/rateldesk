@@ -34,7 +34,6 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     const marker = randomBytes(6).toString('hex');
     const finalMarker = `RD-SCHEDULED-FINAL-${marker}`;
     const reminderId = `rd-smoke-${marker}`;
-    const daemonLog = required('NETCLAW_SMOKE_DAEMON_LOG');
     const nativeLogs = required('NETCLAW_SMOKE_SESSION_LOGS');
     const model = new URL(required('NETCLAW_SMOKE_MODEL_URL'));
     expect(model.host).toMatch(/^127\.0\.0\.1:\d+$/);
@@ -58,6 +57,7 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     await page.goto(webPath);
     await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
     if (scope === 'ticket') await openTicketTab();
+    else await page.getByRole('button', { name: 'New chat', exact: true }).click();
     const input = page.getByRole('textbox', { name: 'Message Netclaw' });
     await expect(input).toBeEnabled();
     await input.fill(`RD-SCHEDULE-SMOKE ${mode} ${marker}. Load scheduling if needed and register one current_session one-shot reminder after 30 seconds. Its only action is to return a harmless marker. Do not access records or perform other actions.`);
@@ -66,7 +66,13 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     const savedUrl = page.url();
     const id = new URL(savedUrl).searchParams.get('conversationId') ?? (await readJson(apiPath)).conversationId;
     const snapshot = async () => await readJson(`${apiPath}?conversationId=${id}`) as ChatSnapshot;
-    const dispatchAcknowledgements = async () => (await readFile(daemonLog, 'utf8')).split('\n')
+    let sessionId = '';
+    await expect.poll(async () => {
+      const observed = await readJson(`${apiPath}/connection?conversationId=${id}`);
+      sessionId = observed.sessions.find((session: { conversationId: string }) => session.conversationId === id)?.sessionId;
+      return sessionId;
+    }, { timeout: 15_000 }).toMatch(/^signalr\/[a-f0-9]{32}$/);
+    const dispatchAcknowledgements = async () => (await nativeAudit(nativeLogs, sessionId)).split('\n')
       .filter(line => line.includes('reminder_current_session_dispatch_acked') && line.includes(reminderId));
     if (mode === 'buffered') {
       await expect.poll(async () => (await dispatchAcknowledgements()).length, { timeout: 47_000 }).toBe(1);
@@ -87,9 +93,6 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     expect(parent).toHaveLength(1);
     expect(metadata(parent[0]).ScheduledReports?.map(report => report.Id)).toEqual([reminderId]);
     if (mode === 'post-parent') expect(await dispatchAcknowledgements()).toHaveLength(0);
-    const observed = await readJson(`${apiPath}/connection?conversationId=${id}`);
-    const sessionId = observed.sessions.find((session: { conversationId: string }) => session.conversationId === id)?.sessionId;
-    expect(sessionId).toMatch(/^signalr\/[a-f0-9]{32}$/);
     if (scope === 'ticket') {
       await page.goto('/home');
       await page.goto(savedUrl);
@@ -136,7 +139,9 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     expect(nativeFinal).toHaveLength(1);
     expect(nativeTerminal).toHaveLength(1);
     expect(nativeInput).toHaveLength(1);
+    expect(native.some(line => line.includes(reminderId) && line.includes('origin=SignalR'))).toBe(true);
     expect(native.some(line => line.includes('turn_received channel=signalr sender=reminder-system'))).toBe(true);
+    if (mode === 'buffered') expect(native.some(line => line.includes('turn_buffer_drain'))).toBe(true);
 
     await page.reload();
     await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');

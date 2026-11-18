@@ -24,6 +24,8 @@ scheduled_gates = defaultdict(threading.Event)
 
 
 def scheduled_response(messages, tools):
+    if not tools:
+        return 'title', None, 'Disposable scheduled report', None
     user = next((str(message.get('content', '')) for message in reversed(messages) if message.get('role') == 'user'), '')
     final = re.search(r'Return exactly RD-SCHEDULED-FINAL-([a-f0-9]{12})', user)
     if final:
@@ -33,7 +35,7 @@ def scheduled_response(messages, tools):
         return 'scheduled-final', marker, f'RD-SCHEDULED-FINAL-{marker}', None
 
     request = re.search(r'RD-SCHEDULE-SMOKE (buffered|post-parent) ([a-f0-9]{12})', user)
-    if not tools or not request:
+    if not request:
         return 'title', None, 'Disposable scheduled report', None
 
     mode, marker = request.groups()

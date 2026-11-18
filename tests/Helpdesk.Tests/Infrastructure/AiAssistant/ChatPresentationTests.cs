@@ -28,6 +28,23 @@ public sealed class ChatPresentationTests
     }
 
     [Fact]
+    public void Scheduled_parent_terminal_keeps_the_saved_report_in_the_same_rendered_turn()
+    {
+        var input = E(1, "operator");
+        input.ClientMessageId = Guid.NewGuid();
+        var first = Completion(3, input, 1, [], reports: [new("follow-up", false, DateTimeOffset.UnixEpoch.AddSeconds(30))]);
+        var final = Completion(5, input, 2, [], reports: []);
+        var events = new[] { input, E(2, "assistant"), first, E(4, "assistant"), final };
+
+        var pending = Assert.Single(AiAssistantChatPresentation.Build(events.Take(3)));
+        Assert.False(pending.Completed);
+        var reloaded = Assert.Single(AiAssistantChatPresentation.Build(events.Concat(events)));
+        Assert.True(reloaded.Completed);
+        Assert.Equal(new long[] { 2, 4 }, reloaded.Responses.Select(reply => reply.Sequence));
+        Assert.Equal(new int?[] { 1, 2 }, reloaded.NativeTurns.Select(turn => turn.TurnNumber));
+    }
+
+    [Fact]
     public void Parent_completion_does_not_close_an_actionable_child_approval()
     {
         var input = E(1, "operator");
@@ -51,10 +68,12 @@ public sealed class ChatPresentationTests
         Assert.True(turn.InitiallyExpanded);
     }
 
-    private static AiAssistantChatEvent Completion(long sequence, AiAssistantChatEvent input, int ordinal, string[] children, string outcome = "completed")
+    private static AiAssistantChatEvent Completion(long sequence, AiAssistantChatEvent input, int ordinal, string[] children,
+        string outcome = "completed", ChatScheduledReport[]? reports = null)
     {
         var completed = E(sequence, "turn_completed");
-        completed.MetadataJson = JsonSerializer.Serialize(new ChatTurnCompletion(input.ClientMessageId!.Value, ordinal, outcome, false, children));
+        completed.MetadataJson = JsonSerializer.Serialize(new ChatTurnCompletion(input.ClientMessageId!.Value, ordinal, outcome, false,
+            children, ScheduledReports: reports));
         return completed;
     }
 

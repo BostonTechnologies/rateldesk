@@ -83,8 +83,7 @@ operator credentials through `HELPDESK_E2E_LOCAL_EMAIL` and
 `HELPDESK_E2E_LOCAL_PASSWORD`. Set `HELPDESK_E2E_SCHEDULED_TICKET` to the
 disposable incident ID. Record the app build and native binary version and
 revision in `RATELDESK_SMOKE_VERSION` and `NETCLAW_SMOKE_VERSION`.
-`NETCLAW_SMOKE_DAEMON_LOG` is the active UTC daemon log file.
-`NETCLAW_SMOKE_SESSION_LOGS` is the native home containing the session audit
+`NETCLAW_SMOKE_SESSION_LOGS` is the native home containing the UTC session audit
 folders. The model endpoint is the local control URL
 `NETCLAW_SMOKE_MODEL_URL=http://127.0.0.1:19598`.
 
