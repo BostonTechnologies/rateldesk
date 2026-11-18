@@ -149,8 +149,10 @@ public sealed class FailurePolicyEngineTests
         await sender.DidNotReceive().Send(Arg.Any<CreateWorkLogCommand>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task OnTaskFailedAsync_SelfServiceFailure_CreatesInvestigationIncidentAndSendsFailureEmail()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnTaskFailedAsync_SelfServiceFailure_CreatesInvestigationIncidentAndSendsFailureEmail(bool preDispatch)
     {
         var requests = Substitute.For<IRepository<Request>>();
         var tasks = Substitute.For<IRepository<RequestTask>>();
@@ -212,13 +214,21 @@ public sealed class FailurePolicyEngineTests
             incidents,
             notifications);
 
-        await engine.OnTaskFailedAsync(requestId, taskId, CancellationToken.None);
+        var diagnostic = preDispatch ? new Helpdesk.Shared.DTOs.Orchestration.AutomationPreDispatchFailure(
+            "capabilities", "authorization", "access_denied", 403, false, "attempt-1", "provider-1", "trace-1", null) : null;
+        await engine.OnTaskFailedAsync(requestId, taskId, CancellationToken.None, diagnostic);
 
         Assert.NotNull(capturedIncident);
         Assert.Equal(TicketPriority.Low, capturedIncident.Priority);
         Assert.Equal("customer@example.com", capturedIncident.RequesterEmail);
         Assert.Equal("tenant-1", capturedIncident.OrganizationId);
         Assert.Contains("Source self-service request: req-ss-1", capturedIncident.Description);
+        if (preDispatch)
+        {
+            Assert.Contains("phase=capabilities, layer=authorization, code=access_denied, HTTP status=403, retryable=false", capturedIncident.Description);
+            Assert.Contains("Attempt: attempt-1. Connection: unavailable. Provider reference: provider-1. Trace: trace-1.", capturedIncident.Description);
+        }
+        else Assert.DoesNotContain("Pre-dispatch diagnostic:", capturedIncident.Description);
         await notifications.Received(1).SendSelfServiceRequestFailedAsync(
             request,
             incident,

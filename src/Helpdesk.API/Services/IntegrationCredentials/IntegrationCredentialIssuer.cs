@@ -48,11 +48,13 @@ public sealed class IntegrationCredentialIssuer(
         if (!ownerAdministration && permissions.Any(p => !HelpdeskPermissions.AssignablePermissions.Contains(p, StringComparer.OrdinalIgnoreCase)))
             throw Invalid("permissions", "Permissions must be known assignable permissions.");
         var organizationId = request.OrganizationId?.Trim();
-        var organization = string.IsNullOrWhiteSpace(organizationId) ? null :
-            await db.Organizations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == organizationId, ct);
+        if (string.IsNullOrWhiteSpace(organizationId)) throw Invalid("organizationId", "An enabled organization is required.");
+        var access = await accessService.ResolveAsync(principal, ct);
+        if (!access.CanManageIntegrationCredentialsFor(organizationId))
+            throw new CredentialGrantException(null);
+        var organization = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == organizationId, ct);
         if (organization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
             throw Invalid("organizationId", "An enabled organization is required.");
-        var access = await accessService.ResolveAsync(principal, ct);
         if (ownerAdministration && (!access.IsHelpdeskAdmin || !await identityDb.Users.AsNoTracking()
             .AnyAsync(user => user.Id == owner.UserId && user.IsEnabled && user.IsInstanceAdministrator, ct)))
             throw new CredentialGrantException(null);
@@ -65,7 +67,7 @@ public sealed class IntegrationCredentialIssuer(
             (exactExpiry.Offset != TimeSpan.Zero || exactExpiry <= now ||
              exactExpiry > now.AddDays(MaximumLifetimeDays) || exactExpiry.Ticks % 10 != 0))
             throw Invalid("expiresAtUtc", "Choose a future UTC expiry within 90 days, with at most six fractional second digits.");
-        return new(owner.UserId, request.Name.Trim(), ownerAdministration ? IntegrationCredentialGrantKinds.OwnerAdministrationPurpose : purpose, organizationId!, permissions,
+        return new(owner.UserId, request.Name.Trim(), ownerAdministration ? IntegrationCredentialGrantKinds.OwnerAdministrationPurpose : purpose, organizationId, permissions,
             request.LifetimeDays ?? DefaultLifetimeDays, resource) { ExpiresAtUtc = request.ExpiresAtUtc };
     }
 
@@ -80,12 +82,12 @@ public sealed class IntegrationCredentialIssuer(
             throw Invalid("permissions", "Setup verification grants only authenticated status, with no business permissions or configurable lifetime.");
         var resource = CanonicalMcpResourceUri(request.McpResourceUri);
         if (resource is null) throw Invalid("mcpResourceUri", "Setup verification requires the reviewed HTTPS /mcp resource.");
+        var access = await accessService.ResolveAsync(principal, ct);
+        if (!access.CanManageIntegrationCredentialsFor(request.OrganizationId))
+            throw new CredentialGrantException(null);
         var organization = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == request.OrganizationId, ct);
         if (organization?.State != Helpdesk.Shared.Models.EntityState.Enabled)
             throw Invalid("organizationId", "An enabled organization is required.");
-        var access = await accessService.ResolveAsync(principal, ct);
-        if (!access.IsAuthenticated || (!access.IsHelpdeskAdmin && !access.AllowedOrganizationIds.Contains(organization.Id)))
-            throw new CredentialGrantException(null);
         return new(owner.UserId, request.Name, SetupVerificationPurpose, organization.Id, [], 0, resource);
     }
 

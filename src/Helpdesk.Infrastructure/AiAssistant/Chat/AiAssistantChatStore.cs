@@ -42,6 +42,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var conversation = await LockAsync(id, ct);
         Bind(conversation, ticket);
         if (conversation.State != ChatState.DeliveryUnknown) throw new ChatConflictException("Only unresolved delivery can be checked.");
+        if (await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct) is { ScheduledWorkUnconfirmed: true })
+            throw new ChatConflictException("NetClaw session history cannot restore the exact scheduled report.");
         var last = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == id && x.Type == "recovery_requested").OrderByDescending(x => x.Sequence).FirstOrDefaultAsync(ct);
         if (conversation.ProviderKind == ChatProviderKind.OpenAiAgents && await ActiveDispatchAsync(conversation, ct) is { } dispatch)
             dispatch.NextObservationAtUtc = null;
@@ -63,7 +65,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
         Bind(conversation, ticket);
-        if (conversation.State is not (ChatState.Processing or ChatState.WaitingForChildren) || conversation.ActiveMessageId != request.ExpectedMessageId)
+        if (conversation.State is not (ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
+            || conversation.ActiveMessageId != request.ExpectedMessageId)
             throw new ChatConflictException("The processing turn changed or already completed.");
         conversation.State = ChatState.DeliveryUnknown;
         conversation.RecoveryResult = "You stopped waiting. The attached session can still deliver the original result for a limited time. Remote work may continue if the connection closes.";
@@ -141,11 +144,11 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             throw new KeyNotFoundException("Conversation not found.");
     }
 
-    public static void Append(HelpdeskDbContext db, AiAssistantChatConversation conversation, string type, string text, string? actor = null, Guid? messageId = null, string? callId = null, string? options = null, DateTimeOffset? atUtc = null)
+    public static void Append(HelpdeskDbContext db, AiAssistantChatConversation conversation, string type, string text, string? actor = null, Guid? messageId = null, string? callId = null, string? options = null, DateTimeOffset? atUtc = null, string? metadata = null)
     {
         var now = atUtc ?? DateTimeOffset.UtcNow;
         conversation.LastActivityUtc = now;
-        db.Set<AiAssistantChatEvent>().Add(new() { ConversationId = conversation.Id, Sequence = ++conversation.LastSequence, Type = type, Text = text, CreatedByUserId = actor, ClientMessageId = messageId, CallId = callId, OptionsJson = options, CreatedUtc = now });
+        db.Set<AiAssistantChatEvent>().Add(new() { ConversationId = conversation.Id, Sequence = ++conversation.LastSequence, Type = type, Text = text, CreatedByUserId = actor, ClientMessageId = messageId, CallId = callId, OptionsJson = options, MetadataJson = metadata, CreatedUtc = now });
     }
 
     public static void AppendActivity(HelpdeskDbContext db, AiAssistantChatConversation conversation, string type,

@@ -15,6 +15,7 @@ guidance is linked from the [documentation index](../README.md).
 - [Task-first request service editor: #357 implementation and synthetic acceptance](357-task-first-editor.md)
 - [Shared ticket requester containment: #356 browser evidence](356-for-column.md)
 - [#355 connected native child follow-ups and reproducible acceptance](355-child-followups.md)
+- [#351 NetClaw scheduled reports and native browser receipts](351-scheduled-reports.md)
 - [0.1.3-beta.5 durable chat repair and acceptance limits](0.1.3-beta.5-durable-chat.md)
 - [0.1.3-beta.4 UX implementation and delivery evidence](0.1.3-beta.4-ux.md)
 - [Artifact size, trimming and Native AOT campaign](size-campaign-20261103.md)

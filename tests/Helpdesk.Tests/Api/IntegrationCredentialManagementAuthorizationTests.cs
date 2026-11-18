@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Helpdesk.API.Authentication;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -28,21 +30,38 @@ public sealed class IntegrationCredentialManagementAuthorizationTests
             new Claim("auth_mode", authenticationMode));
 
         Assert.Null(await fixture.Resolver.ResolveAsync(principal));
-        Assert.False(await IsAuthorizedAsync(fixture.Resolver, principal));
+        Assert.False(await IsAuthorizedAsync(fixture, principal));
     }
 
-    [Fact]
-    public async Task Local_enabled_account_can_manage_its_own_credentials()
+    [Theory]
+    [InlineData(null, false, false)]
+    [InlineData(ScopedRoleCatalog.SelfServiceUser, false, false)]
+    [InlineData(ScopedRoleCatalog.TenantAdministrator, false, true)]
+    [InlineData(null, true, true)]
+    public async Task Management_requires_current_tenant_or_instance_administration(string? roleKey,
+        bool instanceAdministrator, bool expected)
     {
         await using var fixture = Fixture.Create();
-        fixture.Identity.Users.Add(new ApplicationUser { Id = "owner", UserName = "owner", IsEnabled = true });
+        fixture.Identity.Users.Add(new ApplicationUser
+        {
+            Id = "owner", UserName = "owner", IsEnabled = true, IsInstanceAdministrator = instanceAdministrator
+        });
+        fixture.Application.Organizations.Add(new Organization { Id = "org-a", Name = "Tenant A", IsEnabled = true });
+        fixture.Application.Users.Add(new User { Id = "owner", Name = "Owner", OrganizationId = "org-a" });
+        if (roleKey is not null)
+            fixture.Application.ScopedRoleAssignments.Add(new ScopedRoleAssignment
+            {
+                Id = "assignment", UserId = "owner", OrganizationId = "org-a", RoleKey = roleKey
+            });
         await fixture.Identity.SaveChangesAsync();
+        await fixture.Application.SaveChangesAsync();
         var principal = Principal(
             new Claim(ClaimTypes.NameIdentifier, "owner"),
-            new Claim("auth_mode", "local"));
+            new Claim("auth_mode", "local"),
+            new Claim(ClaimTypes.Role, HelpdeskPermissions.TenantSettingsManage));
 
         Assert.Equal("owner", (await fixture.Resolver.ResolveAsync(principal))?.UserId);
-        Assert.True(await IsAuthorizedAsync(fixture.Resolver, principal));
+        Assert.Equal(expected, await IsAuthorizedAsync(fixture, principal));
     }
 
     [Fact]
@@ -66,7 +85,7 @@ public sealed class IntegrationCredentialManagementAuthorizationTests
             new Claim("sub", "provider-subject"));
 
         Assert.Equal("application-user", (await fixture.Resolver.ResolveAsync(principal))?.UserId);
-        Assert.True(await IsAuthorizedAsync(fixture.Resolver, principal));
+        Assert.False(await IsAuthorizedAsync(fixture, principal));
     }
 
     [Fact]
@@ -93,11 +112,12 @@ public sealed class IntegrationCredentialManagementAuthorizationTests
     private static ClaimsPrincipal Principal(params Claim[] claims) =>
         new(new ClaimsIdentity(claims, "Test", ClaimTypes.Name, ClaimTypes.Role));
 
-    private static async Task<bool> IsAuthorizedAsync(IIntegrationCredentialOwnerResolver resolver, ClaimsPrincipal principal)
+    private static async Task<bool> IsAuthorizedAsync(Fixture fixture, ClaimsPrincipal principal)
     {
         var context = new AuthorizationHandlerContext(
             [new IntegrationCredentialManagementSessionRequirement()], principal, resource: null);
-        await new IntegrationCredentialManagementSessionHandler(resolver).HandleAsync(context);
+        await new IntegrationCredentialManagementSessionHandler(fixture.Resolver,
+            new CurrentUserAccessService(fixture.Application, fixture.Identity)).HandleAsync(context);
         return context.HasSucceeded;
     }
 

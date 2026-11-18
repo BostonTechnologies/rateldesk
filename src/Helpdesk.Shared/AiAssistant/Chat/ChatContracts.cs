@@ -1,6 +1,6 @@
 namespace Helpdesk.Shared.AiAssistant.Chat;
 
-public enum ChatState { Idle, Processing, AwaitingApproval, DeliveryUnknown, Archived, WaitingForChildren }
+public enum ChatState { Idle, Processing, AwaitingApproval, DeliveryUnknown, Archived, WaitingForChildren, WaitingForScheduledReports }
 public enum ChatConversationScope { Ticket, Organization }
 
 public sealed class AiAssistantChatConversation
@@ -66,8 +66,12 @@ public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long Las
 // an admission exactly once through its unique (conversation, message) index.
 public sealed record ChatTurnCompletion(Guid OperatorMessageId, int? TurnNumber, string? TurnOutcome,
     bool QuietEnd, string[]? OpenChildRunIds, DateTimeOffset? ObservationExpiresAtUtc = null, int Version = 1,
-    bool ChildSnapshotKnown = true, string[]? PendingChildRunIds = null);
-public sealed record ChatOutputAssociation(Guid OperatorMessageId, int? AfterNativeTurnNumber);
+    bool ChildSnapshotKnown = true, string[]? PendingChildRunIds = null,
+    ChatScheduledReport[]? ScheduledReports = null, bool ScheduledWorkUnconfirmed = false, string? SourceReminderId = null);
+public sealed record ChatScheduledReport(string Id, bool Recurring, DateTimeOffset? DueAtUtc,
+    long? LastFireAtUnixMs = null, bool Unconfirmed = false);
+public sealed record ChatOutputAssociation(Guid OperatorMessageId, int? AfterNativeTurnNumber,
+    int? NativeTurnNumber = null, string? SourceReminderId = null);
 public sealed record ChatOption(string Key, string Label);
 public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, string? ProviderName,
     string? SkillName, long? DurationMs, string Outcome,

@@ -17,11 +17,11 @@
 }
 else
 {
-<div @ref="root" class="ai-conversation-surface @(Workspace ? "ai-chat-workspace" : "") @(fullscreen ? "ai-chat-fullscreen" : "")" role="@(fullscreen ? "dialog" : "region")" aria-modal="@(fullscreen ? "true" : null)" aria-label="Conversation">
+<div @ref="root" class="ai-conversation-surface @(Workspace ? "ai-chat-workspace" : "") @(fullscreen ? "ai-chat-fullscreen" : "")" role="@(fullscreen ? "dialog" : "region")" aria-modal="@(fullscreen ? "true" : null)" aria-label="Conversation" data-pending-scheduled-reports="@PendingScheduledReports">
 <header class="conversation-header">
     <div class="conversation-identity"><span class="conversation-avatar"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /></span><div><h2>@Title</h2><small>@(string.IsNullOrWhiteSpace(Identity) ? StateLabel(state) : $"{Identity} · {StateLabel(state)}")</small></div></div>
     <div class="conversation-actions">
-        @if (state is ChatState.Processing or ChatState.WaitingForChildren)
+        @if (state is ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
         {
             <MudTooltip Text="Stop waiting"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.StopCircle" aria-label="Stop waiting" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="StopWaitingAsync" /></MudTooltip>
         }
@@ -96,19 +96,39 @@ else
     }
     @if (state == ChatState.DeliveryUnknown)
     {
-        <MudAlert Severity="Severity.Warning">Delivery or completion could not be confirmed. AiAssistant may already have accepted this turn. Checking the session never resends it.</MudAlert>
-        @if (recoveryResult is not null) { <MudAlert Severity="Severity.Info">@recoveryResult</MudAlert> }
+        @if (continuation?.ScheduledWorkUnconfirmed == true)
+        {
+            <MudAlert Severity="Severity.Warning">
+                <strong>Scheduled report unconfirmed</strong>
+                <p>@recoveryResult</p>
+                @if (continuation.ScheduledReports is { Length: > 0 } reports)
+                {
+                    <p>Reminder IDs @string.Join(", ", reports.Select(report => report.Id))</p>
+                }
+            </MudAlert>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning">Delivery or completion could not be confirmed. AiAssistant may already have accepted this turn. Checking the session never resends it.</MudAlert>
+            @if (recoveryResult is not null) { <MudAlert Severity="Severity.Info">@recoveryResult</MudAlert> }
+            <MudButton Disabled="@(busy || capabilities?.CanWrite == false)" OnClick="ReconcileAsync">Check saved session</MudButton>
+        }
         @if (recoveryAt is not null) { <small>Last check: @recoveryAt.Value.UtcDateTime.ToString("u") · reference @conversation</small> }
-        <MudButton Disabled="@(busy || capabilities?.CanWrite == false)" OnClick="ReconcileAsync">Check saved session</MudButton>
         @if (capabilities?.CanWrite != false) {
         <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="I understand the old turn may still execute. Archive this transcript without retrying it. Remote side effects may already have occurred." />
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and archive</MudButton>
         }
     }
-    @if (state is ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren)
+    @if (state is ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
     {
         <div role="status" data-testid="chat-observation-status" class="pa-3">
-            <strong>@(state == ChatState.AwaitingApproval ? "Waiting for your decision" : state == ChatState.WaitingForChildren ? "Waiting for delegated follow-ups" : $"Awaiting {ProviderName}")</strong>
+            <strong>@(state switch
+            {
+                ChatState.AwaitingApproval => "Waiting for your decision",
+                ChatState.WaitingForChildren => "Waiting for delegated follow-ups",
+                ChatState.WaitingForScheduledReports => "Waiting for scheduled reports",
+                _ => $"Awaiting {ProviderName}"
+            })</strong>
             <p>@(recoveryResult ?? "RatelDesk keeps observing this request. A connection does not prove that the task is complete.")</p>
             @if (events.LastOrDefault(item => item.Type == "operator") is { } activeInput)
             {
@@ -211,12 +231,14 @@ else
     private ChatDisplayPreferences preferences = new();
     private string? recoveryResult;
     private DateTimeOffset? recoveryAt;
+    private ChatTurnCompletion? continuation;
+    private int PendingScheduledReports => continuation?.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0;
     private string connectionStatus = "Connecting";
     private string? currentActor, draftScope;
     private ChatDraftStorage? draftStorage;
     private ChatIdentitySnapshot? identity;
     private string ActorLabel(string? actor) => actor == currentActor && currentActor is not null ? "You" : "Helpdesk operator";
-    private static string StateLabel(ChatState value) => value switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.WaitingForChildren => "Waiting for delegated work", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
+    private static string StateLabel(ChatState value) => value switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.WaitingForChildren => "Waiting for delegated work", ChatState.WaitingForScheduledReports => "Waiting for scheduled reports", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
     private bool VisibleActivity(AiAssistantChatEvent item) => item.Type switch
     {
         "usage" => preferences.ShowUsage, "processing_state" => preferences.ShowProcessing,
@@ -290,6 +312,7 @@ else
             stream = Task.CompletedTask;
             if (disposed) return;
             connectionStatus = "Connecting"; error = null;
+            continuation = null; recoveryResult = null; recoveryAt = null;
             events.Clear(); artifacts = []; draft = ""; cursor = 0; acknowledgeAbandon = false;
             resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null; draftScope = null; conversation = Guid.Empty;
             using var api = Api;
@@ -302,7 +325,8 @@ else
             var snapshot = await api.GetFromJsonAsync<ChatSnapshot>(id == Guid.Empty ? Route : $"{Route}?conversationId={id}", cancellation.Token);
             if (snapshot is not null)
             {
-                conversation = snapshot.ConversationId; provider = snapshot.Provider; providerProfileId = snapshot.ProviderProfileId; state = snapshot.State; recoveryAt = snapshot.RecoveryLastAttemptUtc; recoveryResult = snapshot.RecoveryResult;
+                conversation = snapshot.ConversationId; provider = snapshot.Provider; providerProfileId = snapshot.ProviderProfileId; state = snapshot.State;
+                ApplyRecovery(snapshot);
                 await StateChanged.InvokeAsync(state);
                 if (provider == ChatProviderKind.OpenAiAgents) await LoadArtifactsAsync();
                 events.AddRange(snapshot.Events); cursor = events.LastOrDefault()?.Sequence ?? 0;
@@ -351,6 +375,13 @@ else
         catch (HttpRequestException) { error = "Conversation history could not be loaded. The current transcript is unchanged."; }
     }
 
+    private void ApplyRecovery(ChatSnapshot snapshot)
+    {
+        recoveryAt = snapshot.RecoveryLastAttemptUtc;
+        recoveryResult = snapshot.RecoveryResult;
+        continuation = snapshot.Continuation;
+    }
+
     private async Task ReadAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -385,7 +416,8 @@ else
                                 if (item.Type is "assistant" or "turn_completed" or "turn_cancelled") draft = "";
                                 if (provider == ChatProviderKind.OpenAiAgents && item.Type == "file") await LoadArtifactsAsync();
                             }
-                            else if (frameKind == "recovery" && JsonSerializer.Deserialize<ChatSnapshot>(frameData) is { } recovery) { recoveryAt = recovery.RecoveryLastAttemptUtc; recoveryResult = recovery.RecoveryResult; }
+                            else if (frameKind == "recovery" && JsonSerializer.Deserialize<ChatSnapshot>(frameData) is { } recovery)
+                                ApplyRecovery(recovery);
                             else if (frameKind == "text-delta") draft = JsonSerializer.Deserialize<ChatDelta>(frameData)?.Text ?? "";
                             else if (frameKind == "state")
                             {
@@ -544,7 +576,8 @@ else
         if (await Dialogs.ShowMessageBoxAsync("Stop waiting?",
             "The remote assistant may still be processing. RatelDesk will stop waiting locally and will not resend this request automatically.",
             yesText: "Stop waiting", cancelText: "Keep waiting") != true) return;
-        if (disposed || state is not (ChatState.Processing or ChatState.WaitingForChildren) || conversation != expectedConversation || UnresolvedMessageId != expectedMessage) return;
+        if (disposed || state is not (ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
+            || conversation != expectedConversation || UnresolvedMessageId != expectedMessage) return;
         busy = true; error = null;
         try
         {

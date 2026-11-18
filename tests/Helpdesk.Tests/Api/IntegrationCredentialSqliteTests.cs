@@ -13,6 +13,7 @@ using Helpdesk.API.Authentication;
 using Helpdesk.API.Middleware;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
@@ -197,6 +198,32 @@ public sealed partial class IntegrationCredentialSqliteTests
         await using var scope = harness.Services.CreateAsyncScope();
         Assert.Empty(await scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>()
             .IntegrationCredentials.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Mixed_role_administrator_cannot_manage_preexisting_owned_credentials_in_another_tenant()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var ownTenant = Credential("owner", "Tenant A", DateTimeOffset.UtcNow);
+        var otherTenant = Credential("owner", "Tenant B", DateTimeOffset.UtcNow);
+        otherTenant.OrganizationId = "org-b";
+        await harness.AddCredentialsAsync(ownTenant, otherTenant);
+        var access = (TestAccessService)harness.Services.GetRequiredService<ICurrentUserAccessService>();
+        access.Profile = access.Profile with
+        {
+            ScopedPermissionGrants = access.Profile.ScopedPermissionGrants.Append(new("Incident.Read", "org-b")).ToHashSet()
+        };
+
+        const string route = "/api/v1/integration-credentials/";
+        var list = await harness.Client.GetFromJsonAsync<IntegrationCredentialEndpoints.IntegrationCredentialMetadata[]>(route);
+        Assert.Equal(ownTenant.Id, Assert.Single(list!).Id);
+        Assert.Equal(HttpStatusCode.NotFound, (await harness.Client.GetAsync($"{route}{otherTenant.Id}/access")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await harness.Client.DeleteAsync($"{route}{otherTenant.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await harness.Client.DeleteAsync($"{route}{otherTenant.Id}/record")).StatusCode);
+        await using var scope = harness.Services.CreateAsyncScope();
+        var saved = await scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>().IntegrationCredentials.FindAsync(otherTenant.Id);
+        Assert.NotNull(saved);
+        Assert.Null(saved.RevokedAtUtc);
     }
 
     [Theory]
@@ -500,7 +527,7 @@ public sealed partial class IntegrationCredentialSqliteTests
         public CurrentUserAccessProfile Profile { get; set; } = new(
             true, "owner", "owner@example.test", "org-a", null, null, false,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(["Incident.Read", "Incident.Write"], StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(["Incident.Read", "Incident.Write", HelpdeskPermissions.TenantSettingsManage], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(["org-a", "org-b"], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase))
         {
@@ -508,7 +535,8 @@ public sealed partial class IntegrationCredentialSqliteTests
             ScopedPermissionGrants = new HashSet<ScopedPermissionGrant>
             {
                 new("Incident.Read", "org-a"),
-                new("Incident.Write", "org-a")
+                new("Incident.Write", "org-a"),
+                new(HelpdeskPermissions.TenantSettingsManage, "org-a")
             }
         };
 

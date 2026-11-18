@@ -75,18 +75,20 @@ public sealed class IntegrationCredentialPairingService(
     {
         var owner = await owners.ResolveAsync(principal, ct);
         if (owner is null) throw new CredentialGrantException(null);
+        var access = await accessService.ResolveAsync(principal, ct);
+        if (!access.CanManageIntegrationCredentials) throw new CredentialGrantException(null);
         if (!await TakeAttemptAsync($"code:{owner.UserId}", 30, ct)) throw new PairingRateLimitException();
         var pair = await FindHumanAsync(human, ct);
         if (pair is null || pair.State != "pending" || pair.ExpiresAtUnixMilliseconds <= Now.ToUnixTimeMilliseconds()) return null;
-        var access = await accessService.ResolveAsync(principal, ct);
         var ownerAdministrationAvailable = pair.Purpose is "mcp" or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose &&
             access.IsHelpdeskAdmin && await identity.Users.AsNoTracking().AnyAsync(account => account.Id == owner.UserId && account.IsEnabled && account.IsInstanceAdministrator, ct);
         if (pair.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose && !ownerAdministrationAvailable)
             throw new CredentialGrantException(null);
         var organizations = await db.Organizations.AsNoTracking().Where(o => o.IsEnabled).OrderBy(o => o.Name).ToListAsync(ct);
-        var allowed = organizations.Select(o => new IntegrationPairingOrganization(o.Id, o.Name,
-            pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? [] : HelpdeskPermissions.AssignablePermissions.Where(p => access.IsHelpdeskAdmin || access.HasPermission(p, o.Id)).ToArray()))
-            .Where(o => pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? access.IsHelpdeskAdmin || access.AllowedOrganizationIds.Contains(o.Id) : o.Permissions.Count > 0).ToArray();
+        var allowed = organizations.Where(o => access.CanManageIntegrationCredentialsFor(o.Id))
+            .Select(o => new IntegrationPairingOrganization(o.Id, o.Name,
+                pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? [] :
+                    HelpdeskPermissions.AssignablePermissions.Where(p => access.HasPermission(p, o.Id)).ToArray())).ToArray();
         return new(NormalizeHuman(human).Insert(4, "-"), pair.Name, pair.Purpose is IntegrationCredentialIssuer.SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? "mcp" : pair.Purpose, pair.McpResourceUri,
             DateTimeOffset.FromUnixTimeMilliseconds(pair.ExpiresAtUnixMilliseconds), allowed)
             {
@@ -130,7 +132,8 @@ public sealed class IntegrationCredentialPairingService(
     public async Task<bool> DenyAsync(string human, ClaimsPrincipal principal, string remote, CancellationToken ct)
     {
         var owner = await owners.ResolveAsync(principal, ct);
-        if (owner is null) throw new CredentialGrantException(null);
+        if (owner is null || !(await accessService.ResolveAsync(principal, ct)).CanManageIntegrationCredentials)
+            throw new CredentialGrantException(null);
         if (!await TakeAttemptAsync($"code:{owner.UserId}", 30, ct)) throw new PairingRateLimitException();
         var pair = await FindHumanAsync(human, ct);
         if (pair is null || pair.State != "pending" || pair.ExpiresAtUnixMilliseconds <= Now.ToUnixTimeMilliseconds()) return false;
@@ -158,10 +161,7 @@ public sealed class IntegrationCredentialPairingService(
             {
                 try
                 {
-                    var approval = JsonSerializer.Deserialize<ApprovalSnapshot>(protector.Unprotect(pair.ProtectedApproval!))!;
-                    var principal = new ClaimsPrincipal(new ClaimsIdentity(approval.Claims.Select(c => new Claim(c.Type, c.Value)), "PairingApproval"));
-                    var grant = await ValidateGrantAsync(pair, principal, approval.Request, ct);
-                    if (grant.OwnerUserId != pair.OwnerUserId) throw new CredentialGrantException(null);
+                    var grant = await ValidateApprovedGrantAsync(pair, ct);
                     if (pair.State == "approved")
                     {
                         var issued = issuer.Create(grant, Now);
@@ -213,6 +213,8 @@ public sealed class IntegrationCredentialPairingService(
             if (pair.State == "consumed") return true; // Durable retry after a lost acknowledgement response.
             try { if (await ExpireAsync(pair, Now.ToUnixTimeMilliseconds(), ct) || pair.State != "issued") return false; }
             catch (DbUpdateConcurrencyException) { identity.ChangeTracker.Clear(); continue; }
+            try { await ValidateApprovedGrantAsync(pair, ct); }
+            catch (Exception error) when (error is CredentialGrantException or CryptographicException or JsonException) { return false; }
             pair.State = "consumed"; pair.ProtectedDelivery = null; pair.ProtectedApproval = null; pair.Revision++;
             try { await identity.SaveChangesAsync(ct); return true; }
             catch (DbUpdateConcurrencyException) { identity.ChangeTracker.Clear(); }
@@ -319,6 +321,15 @@ public sealed class IntegrationCredentialPairingService(
         pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose
             ? issuer.ValidateSetupVerificationAsync(principal, request, ct)
             : issuer.ValidateAsync(principal, request, ct);
+
+    private async Task<ValidatedCredentialGrant> ValidateApprovedGrantAsync(IntegrationCredentialPairing pair, CancellationToken ct)
+    {
+        var approval = JsonSerializer.Deserialize<ApprovalSnapshot>(protector.Unprotect(pair.ProtectedApproval!))!;
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(approval.Claims.Select(c => new Claim(c.Type, c.Value)), "PairingApproval"));
+        var grant = await ValidateGrantAsync(pair, principal, approval.Request, ct);
+        if (grant.OwnerUserId != pair.OwnerUserId) throw new CredentialGrantException(null);
+        return grant;
+    }
 
     private static CredentialGrantException Invalid(string key, string message) => new(new() { [key] = [message] });
     private sealed record StoredClaim(string Type, string Value);

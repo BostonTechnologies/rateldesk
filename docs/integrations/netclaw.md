@@ -352,9 +352,56 @@ and [#351](https://github.com/BostonTechnologies/RatelDesk/issues/351) limitatio
 below remain separate. Acceptance uses disposable data and distinguishes
 deterministic protocol/browser fixtures from the actual supported native daemon.
 
+### Scheduled reports
+
+NetClaw can schedule a `current_session` report. RatelDesk records a recognized
+`set_reminder` receipt with the original request and, after the parent turn ends,
+shows how many scheduled reports and delegated follow-ups are outstanding.
+The original receiving connection stays attached during this observation.
+The report and its matching native turn terminal are saved together. A matched
+one-shot report clears its pending entry. A recurring reminder stays pending
+through its observed occurrences. The observation window ends at most one hour
+after the original request. Ready and the composer return when observed work
+and approvals have cleared.
+
+On the uninterrupted SignalR path, NetClaw 0.28.2 carries the occurrence as
+`sourceReminderId` on `turn_completed`. Its value is the reminder definition ID
+and the scheduled Unix time in milliseconds, separated by a colon. The one-shot
+tool receipt identifies the definition and due second. RatelDesk also checks the
+original session, provider, request and advancing native ordinal before saving a
+report. A reminder marked **Delivered** in NetClaw acknowledges dispatch.
+[0.28.2 tool receipt](https://github.com/netclaw-dev/netclaw/blob/7419d84f7317dae42783d8a9ed6e353f78f961a8/src/Netclaw.Actors/Reminders/SetReminderTool.cs)
+· [0.28.2 fire key](https://github.com/netclaw-dev/netclaw/blob/7419d84f7317dae42783d8a9ed6e353f78f961a8/src/Netclaw.Actors/Reminders/ReminderFireKey.cs)
+· [0.28.2 SignalR mapping](https://github.com/netclaw-dev/netclaw/blob/7419d84f7317dae42783d8a9ed6e353f78f961a8/src/Netclaw.Actors/Protocol/SessionOutputDtoMapper.cs)
+
+**Scheduled report unconfirmed** means RatelDesk could not verify registration,
+could not save a final from the matching turn, or lost the original observation
+to interruption or expiry. Ask the NetClaw administrator to check the named
+reminder in the originating session. The transcript retains the reference you
+can share with the administrator. You can acknowledge the uncertain outcome and
+archive the transcript to open a fresh conversation. RatelDesk sends the
+original task once.
+
+An unattached native SignalR gateway can initialize a reminder using its TUI
+default with no connected recipient. Session join on 0.28.2 and 0.28.3 returns
+recent content and a turn count. Production recovery requires a pinned daemon
+version or commit that preserves the originating channel and recipient binding
+across rematerialization, reports pending occurrences scoped to the original
+input, and exposes exact, authorized report-and-terminal replay by session,
+input, reminder fire key and ordinal. The inspected releases lack that
+contract. A deployment upgrade alone cannot establish acceptance. Record the
+qualifying revision and re-run the opt-in live test against its actual output.
+[SignalR gateway](https://github.com/netclaw-dev/netclaw/blob/7419d84f7317dae42783d8a9ed6e353f78f961a8/src/Netclaw.Daemon/Gateway/SignalRSessionActor.cs)
+· [0.28.3](https://github.com/netclaw-dev/netclaw/releases/tag/0.28.3)
+
+The roughly 643-second model/tool-call gap and missing required tool metadata
+remain a separate native investigation. A quiet connected chat can still
+receive output. App observation and uncertainty handling never retry an
+operation. [NetClaw #2791](https://github.com/netclaw-dev/netclaw/issues/2791)
+
 After a real connection loss, output-buffer overflow, uncertain send/approval or
 API restart, the existing uncertainty fence remains. Automatic saved-session
-checks use at most six attempts per API process and unresolved conversation,
+checks for ordinary unresolved turns use at most six attempts per API process and conversation,
 with delays of 15, 30, 60, 120, 240 and 300 seconds after consecutive attempts
 finish, so a slow failed check does not consume its own backoff.
 Each connection/join check has a 30-second deadline and respects caller/shutdown

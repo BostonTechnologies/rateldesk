@@ -1,8 +1,11 @@
+using Helpdesk.Shared.DTOs.Orchestration;
+
 namespace Helpdesk.Application.Workflow;
 
 public interface IFailurePolicyEngine
 {
-    Task<FailurePolicyResult> OnTaskFailedAsync(string requestId, string taskId, CancellationToken ct);
+    Task<FailurePolicyResult> OnTaskFailedAsync(string requestId, string taskId, CancellationToken ct,
+        AutomationPreDispatchFailure? preDispatchFailure = null);
 }
 
 public sealed class FailurePolicyResult

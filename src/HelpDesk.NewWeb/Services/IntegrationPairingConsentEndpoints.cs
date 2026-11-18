@@ -1,5 +1,6 @@
 using System.Net;
 using Helpdesk.Shared.DTOs.Auth;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Antiforgery;
 
 namespace HelpDesk.NewWeb.Services;
@@ -52,7 +53,7 @@ public static class IntegrationPairingConsentEndpoints
             catch (Exception error) when (error is HttpRequestException ||
                 error is OperationCanceledException && !context.RequestAborted.IsCancellationRequested)
             { return Reply(context, "retry", host); }
-        }).RequireAuthorization();
+        }).RequireAuthorization(nameof(CurrentUserAccessProfile.CanManageIntegrationCredentials));
     }
     private static IResult Reply(HttpContext context, string status, bool host)
     {

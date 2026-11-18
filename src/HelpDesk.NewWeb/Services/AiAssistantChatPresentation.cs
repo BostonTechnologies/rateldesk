@@ -26,7 +26,9 @@ public static class AiAssistantChatPresentation
                 var completion = ReadCompletion(item.MetadataJson);
                 if (completion is not null && completion.OperatorMessageId != current.Operator.ClientMessageId) continue;
                 if (completion is { Version: 1 }) current.NativeTurns.Add(completion);
-                current.Completed = (completion?.PendingChildRunIds ?? completion?.OpenChildRunIds) is not { Length: > 0 } && !current.HasPendingApproval;
+                current.Completed = (completion?.PendingChildRunIds ?? completion?.OpenChildRunIds) is not { Length: > 0 }
+                    && completion is not { ScheduledReports.Length: > 0 } and not { ScheduledWorkUnconfirmed: true }
+                    && !current.HasPendingApproval;
                 if (current.Completed) current = null;
             }
             else if (item.Type is "tool_call" or "tool_result")

@@ -4,6 +4,7 @@ using Helpdesk.Application.Messaging;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.WorkLogs;
+using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -37,7 +38,8 @@ public sealed class FailurePolicyEngine(
     private readonly IRepository<Incident>? _incidents = incidents;
     private readonly ITicketNotificationService? _ticketNotificationService = ticketNotificationService;
 
-    public async Task<FailurePolicyResult> OnTaskFailedAsync(string requestId, string taskId, CancellationToken ct)
+    public async Task<FailurePolicyResult> OnTaskFailedAsync(string requestId, string taskId, CancellationToken ct,
+        AutomationPreDispatchFailure? preDispatchFailure = null)
     {
         var requestIdText = string.IsNullOrWhiteSpace(requestId) ? string.Empty : requestId.Trim();
         var taskIdText = string.IsNullOrWhiteSpace(taskId) ? string.Empty : taskId.Trim();
@@ -138,7 +140,7 @@ public sealed class FailurePolicyEngine(
                         correlationId),
                     ct);
 
-                await CreateSelfServiceFailureIncidentAsync(request, task, now, ct);
+                await CreateSelfServiceFailureIncidentAsync(request, task, now, ct, preDispatchFailure);
                 await CreateFailureTimelineNotificationAsync(
                     request,
                     task,
@@ -169,7 +171,7 @@ public sealed class FailurePolicyEngine(
                         correlationId),
                     ct);
 
-                await CreateSelfServiceFailureIncidentAsync(request, task, now, ct);
+                await CreateSelfServiceFailureIncidentAsync(request, task, now, ct, preDispatchFailure);
                 await CreateFailureTimelineNotificationAsync(
                     request,
                     task,
@@ -323,7 +325,8 @@ public sealed class FailurePolicyEngine(
         Request request,
         RequestTask task,
         DateTimeOffset updatedAt,
-        CancellationToken ct)
+        CancellationToken ct,
+        AutomationPreDispatchFailure? preDispatchFailure)
     {
         if (string.IsNullOrWhiteSpace(request.RequestFormId) || _requestSender is null)
         {
@@ -341,19 +344,27 @@ public sealed class FailurePolicyEngine(
             task.FailureReason,
             request.WorkflowBlockReason,
             $"Task '{task.Name}' failed.")!;
-        var description = string.Join(
-            Environment.NewLine,
+        var description = new List<string>
+        {
             $"Self-service automation failed for request {request.TrackingId}.",
             $"Request: {request.Title}",
             $"Task: {task.Name}",
-            $"Failure: {failureReason}",
-            $"Updated: {updatedAt.UtcDateTime:yyyy-MM-dd HH:mm} UTC",
-            marker);
+            $"Failure: {failureReason}"
+        };
+        if (preDispatchFailure is { } failure)
+        {
+            var httpStatus = failure.UpstreamStatus?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unavailable";
+            var retryable = failure.Retryable?.ToString().ToLowerInvariant() ?? "unknown";
+            description.Add($"Pre-dispatch diagnostic: phase={failure.Phase}, layer={failure.Layer}, code={failure.Code}, HTTP status={httpStatus}, retryable={retryable}");
+            description.Add($"Attempt: {failure.AttemptCorrelationId}. Connection: {failure.ConnectionId?.ToString() ?? "unavailable"}. Provider reference: {failure.ProviderCorrelationId ?? "unavailable"}. Trace: {failure.TraceId ?? "unavailable"}.");
+        }
+        description.Add($"Updated: {updatedAt.UtcDateTime:yyyy-MM-dd HH:mm} UTC");
+        description.Add(marker);
 
         var incident = await _requestSender.Send(
             new CreateIncidentCommand(
                 $"Self-service automation failed for {request.TrackingId}",
-                description,
+                string.Join(Environment.NewLine, description),
                 request.Priority,
                 request.CustomerId,
                 request.OrganizationId,

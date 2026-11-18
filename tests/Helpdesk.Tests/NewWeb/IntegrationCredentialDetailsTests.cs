@@ -229,7 +229,7 @@ public sealed class IntegrationCredentialDetailsTests
         {
             var authorization = context.AddAuthorization();
             authorization.SetAuthorized("Credential owner");
-            authorization.SetRoles("Incident.Read", "Incident.Write", "Request.Read");
+            authorization.SetRoles("Incident.Read", "Incident.Write", "Request.Read", HelpdeskPermissions.TenantSettingsManage);
             authorization.SetClaims(new Claim("auth_mode", "local"), new Claim("organization_id", "org-a"), new Claim("allowed_organization_id", "org-a"));
         }
         // Setting renderer metadata resolves the renderer and freezes bUnit's service
@@ -285,8 +285,11 @@ public sealed class IntegrationCredentialDetailsTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
-            if (request.Method == HttpMethod.Get && path == "/api/v1/organizations")
+            if (request.Method == HttpMethod.Get && path == "/api/v1/tenant-admin/organizations")
+            {
+                Assert.Equal($"?permission={HelpdeskPermissions.TenantSettingsManage}", request.RequestUri.Query);
                 return Json(new[] { new OrganizationDto { Id = "org-a", Name = "Organization A", IsEnabled = true } });
+            }
             if (request.Method == HttpMethod.Get && path == "/api/v1/integration-credentials/")
                 return PendingList is null ? Json(Metadata()) : await PendingList.Task;
             if (request.Method == HttpMethod.Get && path.EndsWith("/access", StringComparison.Ordinal)) return Json(Access);

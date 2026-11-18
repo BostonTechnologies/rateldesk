@@ -20,6 +20,11 @@ internal sealed class NetclawOutput
     public string? Text => String(frame, "text");
     public string? ToolName => String(frame, "toolName");
     public string? CallId => ChatTraceSafety.CallId(String(frame, "callId"));
+    public string? ToolArguments => String(frame, "argumentsJson");
+    public string? ToolResult => String(frame, "result");
+    public bool ToolFailed => String(frame, "toolFailureCode") is not null;
+    public bool HasReminderSource => frame.TryGetProperty("sourceReminderId", out var source) && source.ValueKind != JsonValueKind.Null;
+    public string? ReminderFireKey => String(frame, "sourceReminderId");
     public string? CloseKind => String(frame, "interactionCloseKind");
     public string AgentName => ChatOutputSafety.Identifier(String(frame, "agentName"));
     public string FileName => ChatOutputSafety.FileName(String(frame, "fileName"));
@@ -65,8 +70,8 @@ internal sealed class NetclawOutput
     public ChatActivityMetadata Activity(long? duration)
     {
         var started = Type == "tool_call";
-        return ChatActivitySafety.Extract(ToolName, started ? String(frame, "argumentsJson") : null,
-            !started, String(frame, "toolFailureCode") is not null, duration) with { Details = Trace };
+        return ChatActivitySafety.Extract(ToolName, started ? ToolArguments : null,
+            !started, ToolFailed, duration) with { Details = Trace };
     }
 
     private static string? String(JsonElement item, string name) => item.ValueKind == JsonValueKind.Object &&

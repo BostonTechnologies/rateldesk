@@ -346,7 +346,8 @@ public sealed class RequestTaskLifecycleService(
     public async Task<RequestTask> FailAsync(string taskId, string reason, CancellationToken ct) =>
         await FailAsync(await GetRequiredTaskAsync(taskId), reason, ct);
 
-    private async Task<RequestTask> FailAsync(RequestTask task, string reason, CancellationToken ct, string? resultJson = null)
+    private async Task<RequestTask> FailAsync(RequestTask task, string reason, CancellationToken ct,
+        AutomationPreDispatchFailure? preDispatchFailure = null)
     {
         if (task.Status is RequestTaskStatus.Completed or RequestTaskStatus.Skipped)
         {
@@ -366,7 +367,9 @@ public sealed class RequestTaskLifecycleService(
             task.AutomationContinuationPending = true;
         }
         task.FailureReason = string.IsNullOrWhiteSpace(reason) ? task.FailureReason : reason;
-        task.ResultJson = resultJson ?? (string.IsNullOrWhiteSpace(reason) ? task.ResultJson : reason);
+        task.ResultJson = preDispatchFailure is null
+            ? string.IsNullOrWhiteSpace(reason) ? task.ResultJson : reason
+            : JsonSerializer.Serialize(new { PreDispatchFailure = preDispatchFailure }, JsonSerializerOptions.Web);
         task.UpdatedAt = DateTime.UtcNow;
 
         await _requestTasks.UpdateAsync(task);
@@ -397,7 +400,7 @@ public sealed class RequestTaskLifecycleService(
         if (!string.IsNullOrWhiteSpace(task.RequestId)
             && !string.IsNullOrWhiteSpace(task.Id))
         {
-            await _failurePolicyEngine.OnTaskFailedAsync(task.RequestId, task.Id, ct);
+            await _failurePolicyEngine.OnTaskFailedAsync(task.RequestId, task.Id, ct, preDispatchFailure);
         }
 
         return task;
@@ -549,9 +552,7 @@ public sealed class RequestTaskLifecycleService(
         task.ResultJson = reason;
         task.FailureReason = reason;
 
-        var resultJson = preDispatchFailure is null ? null : JsonSerializer.Serialize(
-            new { PreDispatchFailure = preDispatchFailure }, JsonSerializerOptions.Web);
-        return await FailAsync(task, reason, ct, resultJson);
+        return await FailAsync(task, reason, ct, preDispatchFailure);
     }
 
     private async Task<RequestTask> HandleUncertainAutomationSubmissionAsync(

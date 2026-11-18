@@ -55,6 +55,12 @@ public sealed record CurrentUserAccessProfile(
     public IReadOnlySet<string> OrganizationIdsForAny(params string[] permissions) =>
         permissions.SelectMany(OrganizationIdsFor).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    public bool CanManageIntegrationCredentials =>
+        IsAuthenticated && (IsHelpdeskAdmin || OrganizationIdsFor(HelpdeskPermissions.TenantSettingsManage).Count > 0);
+
+    public bool CanManageIntegrationCredentialsFor(string? organizationId) =>
+        IsAuthenticated && HasPermission(HelpdeskPermissions.TenantSettingsManage, organizationId);
+
     public bool CanViewIncident(string? organizationId, string? customerId, string? requesterEmail) =>
         HasPermission(HelpdeskPermissions.IncidentRead, organizationId) || CanManageIncident(organizationId) ||
         CanOwn(HelpdeskPermissions.IncidentUser, organizationId, customerId, requesterEmail);

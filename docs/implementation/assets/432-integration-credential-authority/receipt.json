@@ -1,0 +1,48 @@
+[
+  {
+    "operation": "basic-list",
+    "status": 403
+  },
+  {
+    "operation": "basic-create",
+    "status": 403
+  },
+  {
+    "operation": "basic-revoke",
+    "status": 403
+  },
+  {
+    "operation": "basic-setup-options",
+    "status": 403
+  },
+  {
+    "operation": "basic-setup-create",
+    "status": 403
+  },
+  {
+    "operation": "basic-host-review",
+    "status": 403
+  },
+  {
+    "operation": "basic-pair-review",
+    "status": 403
+  },
+  {
+    "operation": "basic-pair-approve",
+    "status": 403
+  },
+  {
+    "operation": "basic-pair-deny",
+    "status": 403
+  },
+  {
+    "mixedCrossTenantCreate": 403,
+    "mixedCrossTenantApproval": 403,
+    "tenantOwnCreate": 201,
+    "tenantOwnApproval": 204,
+    "instanceCrossTenantCreate": 201,
+    "staleStatus": 401,
+    "refreshedStatus": 403,
+    "deliveryAfterRemoval": "denied"
+  }
+]

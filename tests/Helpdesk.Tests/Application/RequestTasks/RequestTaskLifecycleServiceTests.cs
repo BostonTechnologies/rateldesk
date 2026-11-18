@@ -308,7 +308,7 @@ public sealed class RequestTaskLifecycleServiceTests
             : preDispatchReason, failed.FailureReason);
         Assert.DoesNotContain("synthetic-secret", failed.FailureReason, StringComparison.Ordinal);
         Assert.DoesNotContain("synthetic-token", failed.FailureReason, StringComparison.Ordinal);
-        await failurePolicy.Received(1).OnTaskFailedAsync(task.RequestId, task.Id, Arg.Any<CancellationToken>());
+        await failurePolicy.Received(1).OnTaskFailedAsync(task.RequestId, task.Id, Arg.Any<CancellationToken>(), preDispatch);
         if (preDispatch is not null)
         {
             await orchestrationClient.DidNotReceive().IngestAsync(Arg.Any<OrchestrationResolvedSettings>(),
