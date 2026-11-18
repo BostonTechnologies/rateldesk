@@ -9,6 +9,7 @@ using HelpDesk.NewWeb.Services;
 using HelpDesk.NewWeb.Services.Search;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Pairing;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.RateLimiting;
@@ -100,6 +101,9 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddAuthorizationCore(options =>
 {
+    options.AddPolicy(nameof(CurrentUserAccessProfile.CanManageIntegrationCredentials), policy =>
+        policy.RequireAuthenticatedUser().RequireAssertion(context =>
+            CurrentUserAccessProfile.FromClaims(context.User).CanManageIntegrationCredentials));
     options.AddPolicy("DataManagementAccess", policy =>
     {
         policy.RequireAuthenticatedUser();

@@ -1,5 +1,6 @@
 ﻿@inherits LayoutComponentBase
 @implements IAsyncDisposable
+@using Helpdesk.Shared.Services
 @inject IJSRuntime JS
 @inject IHttpClientFactory HttpClientFactory
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment HostEnvironment
@@ -27,6 +28,7 @@
         </div>
         <AuthorizeView>
             <Authorized>
+                @{ var canManageIntegrationCredentials = CurrentUserAccessProfile.FromClaims(context.User).CanManageIntegrationCredentials; }
                 <div class="helpdesk-appbar-search-wrap">
                     <button @ref="searchTrigger" type="button" class="helpdesk-appbar-search" @onclick="OpenSearch" disabled="@(!interactive)"
                             aria-label="@SearchLabel" title="@SearchLabel" aria-keyshortcuts="Shift+S" data-testid="global-search-trigger">
@@ -64,7 +66,10 @@
                         <MudMenuItem>Profile</MudMenuItem>
                         <MudMenuItem>Preferences</MudMenuItem>
                         <MudDivider />
-                        <MudMenuItem Href="/account/integration-credentials">Integration credentials</MudMenuItem>
+                        @if (canManageIntegrationCredentials)
+                        {
+                            <MudMenuItem Href="/account/integration-credentials">Integration credentials</MudMenuItem>
+                        }
                         @if (SupportsLocalAccounts)
                         {
                             <MudMenuItem Href="/account/change-password">Change passphrase</MudMenuItem>
@@ -92,7 +97,10 @@
                         <MudMenuItem Icon="@Icons.Material.Filled.Person">Profile</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.Tune">Preferences</MudMenuItem>
                         <MudDivider />
-                        <MudMenuItem Href="/account/integration-credentials" Icon="@Icons.Material.Filled.Key">Integration credentials</MudMenuItem>
+                        @if (canManageIntegrationCredentials)
+                        {
+                            <MudMenuItem Href="/account/integration-credentials" Icon="@Icons.Material.Filled.Key">Integration credentials</MudMenuItem>
+                        }
                         @if (SupportsLocalAccounts)
                         {
                             <MudMenuItem Href="/account/change-password" Icon="@Icons.Material.Filled.Password">Change passphrase</MudMenuItem>

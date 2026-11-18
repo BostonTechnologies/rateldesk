@@ -105,7 +105,7 @@ public sealed partial class IntegrationCredentialPairingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Ordinary_scoped_users_choose_only_current_grants_and_lost_roles_block_delivery(bool afterIssue)
+    public async Task Tenant_administrators_choose_only_current_grants_and_lost_admin_roles_block_delivery(bool afterIssue)
     {
         await using var fixture = await Fixture.CreateAsync();
         await using var session = fixture.Session();
@@ -113,23 +113,27 @@ public sealed partial class IntegrationCredentialPairingTests
         session.Domain.Users.Add(new() { Id = "owner", Name = "Owner", OrganizationId = "org-a" });
         session.Domain.Organizations.Add(new() { Id = "org-b", Name = "Organization B", IsEnabled = true });
         session.Domain.ScopedRoleAssignments.Add(new() { Id = "reader", UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.IncidentReader });
+        session.Domain.ScopedRoleAssignments.Add(new() { Id = "admin", UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.TenantAdministrator });
+        session.Domain.ScopedRoleAssignments.Add(new() { Id = "other-reader", UserId = "owner", OrganizationId = "org-b", RoleKey = ScopedRoleCatalog.IncidentReader });
         await session.Identity.SaveChangesAsync(); await session.Domain.SaveChangesAsync();
         var started = await session.Service.StartAsync(new("reader client", "api"), "ip", default);
         var review = await session.Service.ReviewAsync(started.HumanCode, Owner, "ip", default);
         Assert.Equal("org-a", Assert.Single(review!.Organizations).Id);
-        Assert.Equal(["Incident.Read"], review.Organizations[0].Permissions);
-        Assert.Null((await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(
-            new(started.HumanCode, "org-a", ["Incident.Write"], 30, true), Owner, "ip", default))).Errors);
+        Assert.Contains(HelpdeskPermissions.TenantSettingsManage, review.Organizations[0].Permissions);
         Assert.Null((await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.ApproveAsync(
             new(started.HumanCode, "org-b", ["Incident.Read"], 30, true), Owner, "ip", default))).Errors);
         Assert.True(await session.Service.ApproveAsync(new(started.HumanCode, "org-a", ["Incident.Read"], 30, true), Owner, "ip", default));
+        Guid? issuedId = null;
         if (afterIssue)
         {
-            Assert.Equal("issued", (await session.Service.PollAsync(started.DeviceCode, default)).Status);
+            var issued = await session.Service.PollAsync(started.DeviceCode, default);
+            Assert.Equal("issued", issued.Status);
+            issuedId = issued.Credential!.Id;
             fixture.Clock.Advance(TimeSpan.FromSeconds(5));
         }
-        session.Domain.ScopedRoleAssignments.Remove(await session.Domain.ScopedRoleAssignments.SingleAsync());
+        session.Domain.ScopedRoleAssignments.Remove(await session.Domain.ScopedRoleAssignments.SingleAsync(assignment => assignment.Id == "admin"));
         await session.Domain.SaveChangesAsync();
+        if (issuedId is { } id) Assert.False(await session.Service.AckAsync(started.DeviceCode, id, default));
         var refused = await session.Service.PollAsync(started.DeviceCode, default);
         Assert.Equal("denied", refused.Status); Assert.Null(refused.Credential);
         if (afterIssue) Assert.NotNull((await session.Identity.IntegrationCredentials.SingleAsync()).RevokedAtUtc);
@@ -275,7 +279,7 @@ public sealed partial class IntegrationCredentialPairingTests
         (await session.Identity.Users.SingleAsync()).IsInstanceAdministrator = false;
         session.Domain.Users.Add(new() { Id = "owner", Name = "Owner", OrganizationId = "org-a" });
         session.Domain.Organizations.Add(new() { Id = "org-b", Name = "Other", IsEnabled = true });
-        session.Domain.ScopedRoleAssignments.Add(new() { Id = "reader", UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.IncidentReader });
+        session.Domain.ScopedRoleAssignments.Add(new() { Id = "admin", UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.TenantAdministrator });
         await session.Identity.SaveChangesAsync(); await session.Domain.SaveChangesAsync();
         await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.StartAsync(new("host verify", "mcp", "https://other.example/mcp") { GrantKind = "setup-verification" }, "ip", default));
         await Assert.ThrowsAsync<CredentialGrantException>(() => session.Service.StartAsync(new("host verify", "api") { GrantKind = "setup-verification" }, "ip", default));

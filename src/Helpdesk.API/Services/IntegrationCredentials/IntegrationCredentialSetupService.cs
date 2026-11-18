@@ -39,6 +39,8 @@ public sealed class IntegrationCredentialSetupService(
         if (request is not { Approved: true, Credential: not null } || request.RequestId == Guid.Empty ||
             request.Credential.Purpose != "mcp")
             throw Failure(400, "setup_review_required", "Review and approve an HTTP MCP integration before creating it.", "review");
+        if (!(await access.ResolveAsync(principal, ct)).CanManageIntegrationCredentialsFor(request.Credential.OrganizationId?.Trim()))
+            throw new CredentialGrantException(null);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request))));
         var previous = await identity.IntegrationCredentialSetupAttempts.AsNoTracking()
             .SingleOrDefaultAsync(x => x.RequestId == request.RequestId, ct);
@@ -146,6 +148,8 @@ public sealed class IntegrationCredentialSetupService(
         var credential = await identity.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(x => x.Id == attempt.CredentialId, ct);
         if (credential is null || credential.RevokedAtUtc is not null || credential.ExpiresAtUtc <= Now)
             throw Failure(410, "setup_revoked", "This integration is no longer active.", "acknowledgement");
+        if (!(await access.ResolveAsync(principal, ct)).CanManageIntegrationCredentialsFor(credential.OrganizationId))
+            throw new CredentialGrantException(null);
         if (attempt.State == "Acknowledged") return;
         if (attempt.State == "Expired" || attempt.DeliveryExpiresAtUnixMilliseconds <= Now.ToUnixTimeMilliseconds())
         {

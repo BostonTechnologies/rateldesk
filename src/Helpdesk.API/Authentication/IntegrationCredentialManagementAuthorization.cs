@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -67,27 +68,31 @@ public sealed class IntegrationCredentialOwnerManagementRequirement : IAuthoriza
 
 public sealed class IntegrationCredentialOwnerManagementHandler(
     IIntegrationCredentialOwnerResolver ownerResolver,
-    RatelDeskIdentityDbContext identityDb)
+    RatelDeskIdentityDbContext identityDb,
+    ICurrentUserAccessService access)
     : AuthorizationHandler<IntegrationCredentialOwnerManagementRequirement>
 {
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         IntegrationCredentialOwnerManagementRequirement requirement)
     {
-        if (await AdministrationOwnerResolver.ResolveAsync(context.User, ownerResolver, identityDb) is not null)
+        if (await AdministrationOwnerResolver.ResolveAsync(context.User, ownerResolver, identityDb) is not null &&
+            (await access.ResolveAsync(context.User)).CanManageIntegrationCredentials)
             context.Succeed(requirement);
     }
 }
 
 public sealed class IntegrationCredentialManagementSessionHandler(
-    IIntegrationCredentialOwnerResolver ownerResolver)
+    IIntegrationCredentialOwnerResolver ownerResolver,
+    ICurrentUserAccessService access)
     : AuthorizationHandler<IntegrationCredentialManagementSessionRequirement>
 {
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         IntegrationCredentialManagementSessionRequirement requirement)
     {
-        if (await ownerResolver.ResolveAsync(context.User) is not null)
+        if (await ownerResolver.ResolveAsync(context.User) is not null &&
+            (await access.ResolveAsync(context.User)).CanManageIntegrationCredentials)
             context.Succeed(requirement);
     }
 }

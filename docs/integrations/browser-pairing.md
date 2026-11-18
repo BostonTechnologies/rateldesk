@@ -13,6 +13,9 @@ accounts can retain their own gateway credentials; external Authentik/OAuth is
 an explicit separate mode.
 
 The browser approval page is `/account/integration-credentials/approve`.
+Integration credential management and CLI/MCP client approval require
+tenant administration (`Tenant.Settings.Manage`) in the selected tenant.
+Instance administrators can manage their own credentials across tenants.
 Its compact **HTTP MCP host deployment** / **CLI / MCP client access** entry
 panels use **Review host** and **Review client** respectively. Entering a code,
 opening a deep link or signing in never approves it. A code for the wrong kind

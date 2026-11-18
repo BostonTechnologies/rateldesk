@@ -112,9 +112,12 @@ public sealed class IntegrationCredentialAccessService(
         // itself or siblings, even though it can list and revoke credentials elsewhere.
         var owner = await owners.ResolveAsync(principal, ct);
         if (owner is null) throw new CredentialGrantException(null);
-        return await identity.IntegrationCredentials.AsNoTracking()
-            .SingleOrDefaultAsync(candidate => candidate.Id == id && candidate.OwnerUserId == owner.UserId, ct)
-            ?? throw new CredentialAccessException(StatusCodes.Status404NotFound, "The credential is no longer available.");
+        var credential = await identity.IntegrationCredentials.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == id && candidate.OwnerUserId == owner.UserId, ct);
+        var access = await accessService.ResolveAsync(principal, ct);
+        if (credential is null || !access.CanManageIntegrationCredentialsFor(credential.OrganizationId))
+            throw new CredentialAccessException(StatusCodes.Status404NotFound, "The credential is no longer available.");
+        return credential;
     }
 
     private async Task<string[]> ValidateAsync(IntegrationCredential credential, IReadOnlyList<string>? requested,

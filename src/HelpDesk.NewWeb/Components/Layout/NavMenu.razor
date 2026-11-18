@@ -1,3 +1,5 @@
+@using Helpdesk.Shared.Services
+
 <nav class="helpdesk-nav" aria-label="Primary navigation">
 <MudNavMenu>
     <div class="nav-section-heading"><span>Work</span></div>
@@ -65,12 +67,10 @@
             <div class="helpdesk-nav-account">
                 <div class="nav-section-heading"><span>Account</span></div>
                 <HelpdeskNavLink Href="auth" Match="NavLinkMatch.Prefix" Aliases="@AccountAliases" Icon="@Icons.Material.Filled.Person" Title="@context.User.Identity?.Name">@context.User.Identity?.Name</HelpdeskNavLink>
-                <AuthorizeView Context="credentialAuth"><Authorized>
-                    @if (!credentialAuth.User.IsInRole("HelpdeskAdmin"))
-                    {
-                        <HelpdeskNavLink Href="/account/integration-credentials" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Key" Title="Integration credentials">Integration credentials</HelpdeskNavLink>
-                    }
-                </Authorized></AuthorizeView>
+                @if (CurrentUserAccessProfile.FromClaims(context.User) is { CanManageIntegrationCredentials: true, IsHelpdeskAdmin: false })
+                {
+                    <HelpdeskNavLink Href="/account/integration-credentials" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Key" Title="Integration credentials">Integration credentials</HelpdeskNavLink>
+                }
                 <TenantAdministrationNavigation />
                 <AuthorizeView Roles="HelpdeskAdmin" Context="adminAuth">
                     <div class="nav-section-heading"><span>Administration</span></div>

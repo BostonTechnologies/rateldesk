@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Security.Claims;
 using MudBlazor;
 using MudBlazor.Interfaces;
 using MudBlazor.Services;
@@ -16,7 +17,7 @@ namespace Helpdesk.Tests.NewWeb;
 
 public sealed class NavMenuRenderedTests
 {
-    private static readonly string[] Account = ["home", "auth", "notifications", "/account/integration-credentials", "/logout"];
+    private static readonly string[] Account = ["home", "auth", "notifications", "/logout"];
     private static readonly string[] GlobalAdministration =
     [
         "/admin/users", "/admin/customers", "/admin/organizations", "/admin/support-routing", "/admin/tenant-sla-settings",
@@ -29,7 +30,7 @@ public sealed class NavMenuRenderedTests
     {
         await using var context = Context("HelpdeskAdmin");
         var menu = context.Render<NavMenu>();
-        var expected = Account.Where(x => x != "/account/integration-credentials").Concat(GlobalAdministration).Concat([
+        var expected = Account.Concat(GlobalAdministration).Concat([
             "self-service", "incidents", "requests", "tasks", "changes",
             "/ops", "/ai/chat", "/ai/ops", "/ai/prompts", "assets", "/admin/resources/data-management"
         ]).OrderBy(route => route).ToArray();
@@ -78,10 +79,11 @@ public sealed class NavMenuRenderedTests
     [InlineData("Change.Manager", "changes,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
     [InlineData("DataManagement.Admin", "/admin/resources/data-management", "Resources")]
     [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/organizations,/admin/roles", "Administration,Accounts & Orgs")]
-    [InlineData("Tenant.Settings.Manage", "/admin/organizations", "Administration,Accounts & Orgs")]
+    [InlineData("Tenant.Settings.Manage", "/admin/organizations,/account/integration-credentials", "Administration,Accounts & Orgs")]
     public async Task Scoped_roles_keep_exact_leaf_visibility_and_hide_empty_groups(string role, string routes, string groups)
     {
         await using var context = Context(role);
+        context.Authorization.SetClaims(new Claim("organization_id", "test-tenant"));
         var menu = context.Render<NavMenu>();
         Assert.Equal(Account.Concat(routes.Split(',')).OrderBy(route => route), Hrefs(menu));
         Assert.Equal(groups.Split(',', StringSplitOptions.RemoveEmptyEntries).Append("Operations").Distinct().OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
@@ -211,7 +213,7 @@ public sealed class NavMenuRenderedTests
     }
 
     [Fact]
-    public async Task Account_integration_remains_reachable_without_business_roles_and_logout_removes_authorized_destinations()
+    public async Task Account_integration_is_hidden_without_administration_and_logout_removes_authorized_destinations()
     {
         await using var context = Context();
         var menu = context.Render<NavMenu>();
