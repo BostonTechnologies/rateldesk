@@ -85,6 +85,7 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatRun>();
         if (databaseProvider is DatabaseProvider.PostgreSql)
             services.AddHostedService<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatWorker>();
+        // The worker owns retries. A session creation can be accepted before its response is lost.
         services.AddHttpClient(Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiAgentsClient.ClientName,
             client => client.Timeout = Timeout.InfiniteTimeSpan)
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -93,7 +94,8 @@ public static class DependencyInjection
                 ConnectTimeout = TimeSpan.FromSeconds(10),
                 PooledConnectionLifetime = TimeSpan.FromMinutes(10)
             })
-            .RedactLoggedHeaders(["Authorization", "OpenAI-Project", "OpenAI-Organization"]);
+            .RedactLoggedHeaders(["Authorization", "OpenAI-Project", "OpenAI-Organization"])
+            .RemoveAllResilienceHandlers();
 
         services.AddScoped<IIntegrationProviderSettingsService, IntegrationProviderSettingsService>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatSessionManager>();
