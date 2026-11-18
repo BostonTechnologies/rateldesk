@@ -522,15 +522,20 @@ jobs:
           MCP_HTTP_DIGEST: ${{ needs.publish-mcp-http.outputs.digest }}
         run: |
           set -euo pipefail
-          release_notes="RatelDesk $VERSION
+          notes_file="docs/release-notes/$VERSION.md"
+          release_notes="RatelDesk $VERSION"
+          if [[ -s "$notes_file" ]]; then
+            release_notes="$(cat "$notes_file")"
+          fi
+          release_notes+="
 
-          Containers
+          ## Containers
 
           ghcr.io/bostontechnologies/rateldesk-web:$VERSION
           ghcr.io/bostontechnologies/rateldesk-api:$VERSION
           ghcr.io/bostontechnologies/rateldesk-mcp-http:$VERSION
 
-          Digests
+          ## Digests
 
           Web: $WEB_DIGEST
           API: $API_DIGEST

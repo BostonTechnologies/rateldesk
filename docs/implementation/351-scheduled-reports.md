@@ -21,7 +21,7 @@ diverted stream remain acceptance gates.
   `0d4f4e38f7af76714891aba8e396a56dd53a9901` and the shared native `0.28.2` OCI
   digest `sha256:59bb46d084e440793bf0f382de8be772ae063c18a7941cb89f74c970a634093d`.
   The receipts below use the standalone release binary in a separate environment.
-  [Production reproduction](https://github.com/BostonTechnologies/rateldesk/issues/351#issuecomment-6976118365)
+  [Production reproduction](https://github.com/BostonTechnologies/RatelDesk/issues/351#issuecomment-6976118365)
 
 ## Native, durable, and browser evidence
 
@@ -74,10 +74,8 @@ input, fire key, and turn ordinal. The inspected `0.28.2` and `0.28.3`
 (`584023bda9ab4a30c7f3f6d8fbd0a7091b5a88ae`) code lacks that recovery
 contract. A qualifying revision remains unverified.
 [Operator guide](../integrations/netclaw.md#scheduled-reports)
-· [NetRatel counterpart](https://github.com/BostonTechnologies/netratel/issues/757#issuecomment-6976102951)
 
 The roughly 643-second provider/tool-call gap remains a separate upstream
 dependency. Lifecycle diagnostics retain the route, pending counts, rejected
 terminals, final persistence, and observation cutoff without using request
 identifiers as metric dimensions. [NetClaw #2791](https://github.com/netclaw-dev/netclaw/issues/2791)
-· [Latency evidence](https://github.com/BostonTechnologies/netratel/issues/754#issuecomment-6976209049)

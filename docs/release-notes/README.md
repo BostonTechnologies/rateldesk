@@ -1,5 +1,7 @@
 # Release notes
 
+- [0.1.4-beta.2](0.1.4-beta.2.md) adds tenant-scoped integration administration and connected NetClaw scheduled reports.
+
 - [0.1.4-beta.1](0.1.4-beta.1.md) adds AI Providers for Netclaw and OpenAI Agents API.
 
 - [0.1.3 — stable candidate](0.1.3.md) — upgrade summary and testing scope.

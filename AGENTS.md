@@ -53,6 +53,7 @@ the user's task and the repository's existing authority/version rules govern the
 ## Work and verification
 
 - Inspect existing source, scoped instructions and applicable issues before changing behavior. Preserve unrelated work and use reviewable branches; do not commit directly to `main`.
+- Own GitHub issue and PR follow-through for authorized work. Link the issues and verification evidence in the PR, commit and push the work for review, and update each affected issue with the delivery links and test results. Close completed issues after verifying their acceptance criteria. Leave outstanding issues open with the remaining dependency or verification gap recorded.
 - Use the SDK pinned by `global.json`. Keep runtime projects under `src/`, tests under `tests/`, deployment collateral under `docker/`, and build/release tooling under `tools/`.
 - Run the checks appropriate to a change and preserve the required PR/main CI gates. Normal repository validation includes `dotnet build Helpdesk.sln`, `dotnet test Helpdesk.sln`, and `tools/ci/validate-layout.sh`. Keep focused tests in their owning projects; do not suppress failures or count zero tests as passing.
 - Preserve both SQLite and PostgreSQL, including existing data, migration histories and authorization boundaries. PostgreSQL-specific native AI chat does not make the rest of the product PostgreSQL-only.
@@ -85,6 +86,7 @@ Before creating documentation, inspect [docs/README.md](docs/README.md) and the 
 
 - Product version ownership is exclusively the root `Directory.Build.props` (`VersionPrefix`/`VersionSuffix`). Projects and deployment settings must not invent independent product versions. Allocate a fresh beta only after rechecking published tags/releases.
 - Follow [release engineering](docs/releases/README.md) and the existing hosted Actions workflows after normal reviewed merge and required PR/main checks. Preserve the supported SemVer and `RatelDesk-` tag compatibility.
+- Add concise, reader-facing notes in `docs/release-notes/<version>.md` and include them in the GitHub release body. Give each shipped change a one-line explanation and link its issue or PR. Call out known limitations that affect testing. Include source and artifact metadata alongside these notes. Verify the public downloads and image digests before posting the release and evidence links back to the affected issues.
 - Preserve the three image families: `rateldesk-api`, `rateldesk-web`, `rateldesk-mcp-http`, with their existing amd64/arm64 contract. Preserve CLI/stdio self-contained archives for Linux x64/arm64 and Windows x64, checksums, release manifests, immutable digests, SBOM/provenance and public-download/pull verification.
 - Published prerelease tags/assets are immutable. Never overwrite published bytes or move `latest` for a beta/RC. Stable promotion remains the separate protected process; verify existing exact digests instead of rebuilding a released version.
 - Include required third-party notices/license and setup entrypoints in existing distributions. Do not add a new image family or runtime package downloads merely for setup.
