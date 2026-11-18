@@ -84,7 +84,11 @@ public sealed partial class AiAssistantChatSessionManager
         interaction.SelectedKey ??= "closed";
         if (conversation.State == ChatState.AwaitingApproval && !await db.Set<AiAssistantChatInteraction>().AnyAsync(x =>
             x.ConversationId == conversation.Id && x.CallId != callId && x.SelectedKey == null, ct))
-            conversation.State = HasChildren(owner.Continuation) ? ChatState.WaitingForChildren : ChatState.Processing;
+        {
+            conversation.State = owner.Continuation is { } completion && (HasPendingWork(completion) || kind == "withdrawn")
+                ? StateAfterCompletion(completion) : ChatState.Processing;
+            owner.Retired = conversation.State is ChatState.Idle or ChatState.DeliveryUnknown;
+        }
         AiAssistantChatStore.Append(db, conversation, "approval_closed",
             kind == "answered" ? "NetClaw closed the original approval as answered." : "NetClaw withdrew the original approval.",
             callId: callId, atUtc: Now);
@@ -96,8 +100,9 @@ public sealed partial class AiAssistantChatSessionManager
     private void ObserveLifecycle(string phase, AiAssistantChatConversation conversation, Owner owner, string? outcome = null, string? nativeCorrelation = null)
     {
         ChatTelemetry.Record(phase, outcome, conversation.TurnStartedAtUtc is { } accepted ? (Now - accepted).TotalSeconds : null);
-        logger.LogInformation("NetClaw chat {Phase}: conversation {ConversationId}, organization {OrganizationId}, message {MessageId}, native session {SessionId}, turn {NativeTurn}, outcome {Outcome}, native correlation {NativeCorrelation}",
-            phase, conversation.Id, conversation.OrganizationId, owner.MessageId, owner.SessionId, owner.LastCompletedTurn, outcome, nativeCorrelation);
+        logger.LogInformation("NetClaw chat {Phase}: conversation {ConversationId}, organization {OrganizationId}, message {MessageId}, native session {SessionId}, turn {NativeTurn}, outcome {Outcome}, native correlation {NativeCorrelation}, pending reports {PendingReports}, pending children {PendingChildren}",
+            phase, conversation.Id, conversation.OrganizationId, owner.MessageId, owner.SessionId, owner.LastCompletedTurn, outcome, nativeCorrelation,
+            owner.Continuation?.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0, ChildIds(owner.Continuation).Length);
     }
 
     private void ObserveLifecycle(string phase, Guid conversation, Owner owner)

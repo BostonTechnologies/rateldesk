@@ -18,7 +18,7 @@ using NSubstitute;
 
 namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
-public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : IClassFixture<ChatPostgresFixture>
+public sealed partial class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : IClassFixture<ChatPostgresFixture>
 {
     [Theory]
     [InlineData(false)]
@@ -165,12 +165,12 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         await run.Client.CompleteAsync(1, ["child-a"]);
         await run.WaitForAsync(items => items.Any(x => x.Type == "turn_completed"));
         clock.Advance(TimeSpan.FromMinutes(16));
-        await run.Manager.SweepPendingChildrenAsync(default);
+        await run.Manager.SweepPendingContinuationsAsync(default);
         Assert.False(run.Client.Disposed);
         await using (var db = fixture.Context())
             Assert.Equal(ChatState.WaitingForChildren, (await db.Set<AiAssistantChatConversation>().SingleAsync(x => x.Id == run.Conversation)).State);
         clock.Advance(TimeSpan.FromMinutes(45));
-        await run.Manager.SweepPendingChildrenAsync(default);
+        await run.Manager.SweepPendingContinuationsAsync(default);
         Assert.True(run.Client.Disposed);
         await using var check = fixture.Context();
         var expired = await fixture.Store(check).LoadAsync(run.Scope, run.Conversation, 0, "operator", default);
@@ -203,7 +203,7 @@ public sealed class ChatTransportLifecycleTests(ChatPostgresFixture fixture) : I
         Assert.False(reattached.Disposed);
         Assert.Equal(ChatTransportConnectionState.Connected, run.Manager.ObserveConnection(run.Conversation)!.State);
         clock.Advance(TimeSpan.FromMinutes(61));
-        await run.Manager.SweepPendingChildrenAsync(default);
+        await run.Manager.SweepPendingContinuationsAsync(default);
         Assert.True(reattached.Disposed);
         Assert.Null(run.Manager.ObserveConnection(run.Conversation));
         await using (var check = fixture.Context())

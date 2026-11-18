@@ -5,7 +5,10 @@ after observing its durable pending state; no timing sleep establishes success.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import argparse
+from collections import defaultdict
+from datetime import datetime, timezone
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -13,9 +16,46 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port', type=int, default=19598)
 parser.add_argument('--events', type=Path, help='Optional phase/role receipt file; no message content is logged.')
+parser.add_argument('--scheduled-reports', action='store_true', help='Serve only the disposable scheduled-report fixture.')
 args = parser.parse_args()
 pending = threading.Event()
 release_child = threading.Event()
+scheduled_gates = defaultdict(threading.Event)
+
+
+def scheduled_response(messages, tools):
+    user = next((str(message.get('content', '')) for message in reversed(messages) if message.get('role') == 'user'), '')
+    final = re.search(r'Return exactly RD-SCHEDULED-FINAL-([a-f0-9]{12})', user)
+    if final:
+        marker = final[1]
+        if not scheduled_gates['report', marker].wait(60):
+            raise TimeoutError('Browser did not observe pending work')
+        return 'scheduled-final', marker, f'RD-SCHEDULED-FINAL-{marker}', None
+
+    request = re.search(r'RD-SCHEDULE-SMOKE (buffered|post-parent) ([a-f0-9]{12})', user)
+    if not tools or not request:
+        return 'title', None, 'Disposable scheduled report', None
+
+    mode, marker = request.groups()
+    if any(call['function']['name'] == 'set_reminder' for message in messages for call in message.get('tool_calls') or []):
+        if mode == 'buffered' and not scheduled_gates['parent', marker].wait(60):
+            raise TimeoutError('Native dispatch was not observed before the parent completed')
+        return 'scheduled-parent-final', marker, f'RD-SCHEDULED-REGISTERED-{marker}', None
+
+    if not any(tool.get('function', {}).get('name') == 'set_reminder' for tool in tools):
+        if any(call['function']['name'] == 'load_tool' for message in messages for call in message.get('tool_calls') or []):
+            raise ValueError('The disposable profile did not load the native set_reminder tool')
+        call = {'id': f'load-schedule-{marker}', 'type': 'function',
+                'function': {'name': 'load_tool', 'arguments': json.dumps({
+                    'Name': 'set_reminder', '_rationale': 'Load scheduling for the requested disposable reminder.'})}}
+        return 'scheduled-load-tool', marker, None, [call]
+    arguments = {'Id': f'rd-smoke-{marker}', 'Name': 'Disposable scheduled report',
+                 'Prompt': f'Return exactly RD-SCHEDULED-FINAL-{marker}', 'ScheduleType': 'once',
+                 'Schedule': '30s', 'DeliveryKind': 'current_session',
+                 '_rationale': 'Register the explicitly requested harmless one-shot report.'}
+    call = {'id': f'schedule-{marker}', 'type': 'function',
+            'function': {'name': 'set_reminder', 'arguments': json.dumps(arguments)}}
+    return 'scheduled-register', marker, None, [call]
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -35,6 +75,10 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response({'fixture':'ready'})
 
     def do_POST(self):
+        gate = re.fullmatch(r'/fixture/release-(parent|report)/([a-f0-9]{12})', self.path)
+        if args.scheduled_reports and gate:
+            scheduled_gates[gate.groups()].set()
+            return self.json_response({'released': True})
         if self.path == '/fixture/release-child':
             release_child.set()
             return self.json_response({'released':True})
@@ -42,7 +86,13 @@ class Handler(BaseHTTPRequestHandler):
         messages = body.get('messages', [])
         systems = '\n'.join(str(m.get('content','')) for m in messages if m.get('role') == 'system')
         tool_calls = None
-        if not body.get('tools'):
+        marker = None
+        if args.scheduled_reports:
+            try:
+                phase, marker, content, tool_calls = scheduled_response(messages, body.get('tools'))
+            except (TimeoutError, ValueError) as error:
+                return self.json_response({'error': str(error)}, 500)
+        elif not body.get('tools'):
             phase = 'title'
             content = 'Disposable arithmetic acceptance'
         elif 'SYNTHETIC_CHILD_EXECUTOR' in systems:
@@ -70,7 +120,8 @@ class Handler(BaseHTTPRequestHandler):
             tool_calls = [{'id':'synthetic-spawn-1','type':'function','function':{'name':'spawn_agent','arguments':json.dumps({'agent':'synthetic-reader','task':'Return a harmless arithmetic report for 2 + 2.','_rationale':'Run the explicitly requested disposable arithmetic acceptance task.'})}}]
         if args.events:
             with args.events.open('a') as out:
-                out.write(json.dumps({'phase':phase,'at':time.time(),'roles':[m.get('role') for m in messages]})+'\n')
+                out.write(json.dumps({'phase':phase,'at':time.time(),'utc':datetime.now(timezone.utc).isoformat(),
+                                      'marker':marker,'roles':[m.get('role') for m in messages]})+'\n')
         if body.get('stream'):
             self.send_response(200)
             self.send_header('Content-Type','text/event-stream')

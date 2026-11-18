@@ -17,7 +17,8 @@ public sealed partial class AiAssistantChatStore
             $"SELECT pg_advisory_xact_lock(hashtextextended({profile}, 436))", ct);
         var options = (await profiles!.ResolveAsync(conversation, ct)).Settings;
         var active = await db.Set<AiAssistantChatConversation>().CountAsync(row => row.ProviderProfileId == conversation.ProviderProfileId &&
-            (row.State == ChatState.Processing || row.State == ChatState.AwaitingApproval || row.State == ChatState.WaitingForChildren || row.State == ChatState.DeliveryUnknown), ct);
+            (row.State == ChatState.Processing || row.State == ChatState.AwaitingApproval || row.State == ChatState.WaitingForChildren
+                || row.State == ChatState.WaitingForScheduledReports || row.State == ChatState.DeliveryUnknown), ct);
         if (active >= options.ConcurrentSessions)
             throw new ChatConflictException("The OpenAI profile has reached its active conversation limit.");
         if (conversation.AiAssistantSessionId is not null &&

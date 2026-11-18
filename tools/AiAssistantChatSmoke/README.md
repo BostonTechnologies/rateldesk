@@ -62,3 +62,41 @@ lost subscription, missing pending state or missing final report fails the run.
 Stop both fixture processes and remove only the disposable work directory and
 database after retaining the safe receipts. The executable is separate from
 normal CI; owning test suites use deterministic transport and browser fixtures.
+
+## Scheduled report browser acceptance
+
+Use a disposable PostgreSQL RatelDesk API/Web stack and a separate official
+NetClaw daemon. The pinned Linux x64 test binary is [NetClaw 0.28.2](https://github.com/netclaw-dev/netclaw/releases/tag/0.28.2)
+at commit `7419d84f7317dae42783d8a9ed6e353f78f961a8`. Use the same loopback
+configuration above with `Logging.LogLevel` set to `Information`. Pair one
+disposable RatelDesk API device, set its NetClaw instance to `dev`, and leave the
+API as the session's sole SignalR recipient. Run the model before the daemon.
+Use an empty organization called Fixture Organization, a synthetic local
+administrator, and a fresh incident in that organization.
+
+```bash
+python3 tools/AiAssistantChatSmoke/fixtures/synthetic-model.py --scheduled-reports --events "$acceptance_dir/model-events.jsonl"
+```
+
+Supply `HELPDESK_E2E_BASE_URL` as the loopback Web origin and inject the local
+operator credentials through `HELPDESK_E2E_LOCAL_EMAIL` and
+`HELPDESK_E2E_LOCAL_PASSWORD`. Set `HELPDESK_E2E_SCHEDULED_TICKET` to the
+disposable incident ID. Record the app build and native binary version and
+revision in `RATELDESK_SMOKE_VERSION` and `NETCLAW_SMOKE_VERSION`.
+`NETCLAW_SMOKE_DAEMON_LOG` is the active UTC daemon log file.
+`NETCLAW_SMOKE_SESSION_LOGS` is the native home containing the session audit
+folders. The model endpoint is the local control URL
+`NETCLAW_SMOKE_MODEL_URL=http://127.0.0.1:19598`.
+
+```bash
+npx playwright test --config tools/AiAssistantChatSmoke/browser/playwright.config.ts --output "$acceptance_dir/browser"
+```
+
+The browser sends one 30-second marker request in each view. Organization Chat
+exercises dispatch after the parent terminal. Ticket AI Assistant holds the
+loopback model's parent response until native dispatch has been acknowledged,
+then releases the parent and verifies the buffered report. The fixture
+supplies model replies and leaves tool execution, scheduling, buffering,
+routing and SignalR output to the actual daemon. The test checks native audit
+lines, durable API events, the pending and Ready UI, and reload. It emits UTC
+receipts and screenshots. The suite runs only with this explicit configuration.
