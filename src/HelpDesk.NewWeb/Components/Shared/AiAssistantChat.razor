@@ -465,7 +465,7 @@ else
         try
         {
             using var api = Commands;
-            using var response = await api.PostAsJsonAsync($"{Route}/new", new ChatNewRequest(conversation, nextProfile), cancellation.Token);
+            using var response = await api.PostAsJsonAsync($"{Route}/new", new ChatNewWithProfileRequest(conversation, nextProfile), cancellation.Token);
             response.EnsureSuccessStatusCode();
             var snapshot = await response.Content.ReadFromJsonAsync<ChatSnapshot>(cancellation.Token);
             if (snapshot is not null)

@@ -57,7 +57,8 @@ public sealed class AiAssistantChatInteraction
 
 public sealed record ChatMessageRequest(Guid ConversationId, Guid ClientMessageId, string Text);
 public sealed record ChatApprovalRequest(Guid ConversationId, string SelectedKey);
-public sealed record ChatNewRequest(Guid ConversationId, Guid? ProviderProfileId = null);
+public sealed record ChatNewRequest(Guid ConversationId);
+public sealed record ChatNewWithProfileRequest(Guid ConversationId, Guid? ProviderProfileId = null);
 public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long LastSequence, IReadOnlyList<AiAssistantChatEvent> Events,
     DateTimeOffset? RecoveryLastAttemptUtc = null, string? RecoveryResult = null, ChatTurnCompletion? Continuation = null,
     Guid? ActiveMessageId = null, ChatProviderKind Provider = ChatProviderKind.Netclaw, Guid? ProviderProfileId = null);

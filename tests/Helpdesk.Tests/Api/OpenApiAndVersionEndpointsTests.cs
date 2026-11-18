@@ -149,13 +149,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Premium workspaces add five administration queries and an owned-request stream.
         // Owner review adds administrator-only organization assessment and retirement.
         // Automation traceability adds fifteen report, relation and internal-template operations.
+        // AI Providers adds six configuration operations, one signed webhook and four
+        // cancellation, cleanup and artifact operations each for organization and ticket chat.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(504, operationCount);
+        Assert.Equal(519, operationCount);
 #else
-        Assert.Equal(503, operationCount);
+        Assert.Equal(518, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var (path, method, operationId, tag) in new[]

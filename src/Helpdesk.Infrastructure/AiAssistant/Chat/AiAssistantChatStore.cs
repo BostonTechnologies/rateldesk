@@ -258,7 +258,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
     public Task<ChatSnapshot> NewAsync(string type, string ticketId, Guid id, string actor, CancellationToken ct)
         => NewWithProfileAsync(type, ticketId, new(id), actor, ct);
 
-    public async Task<ChatSnapshot> NewWithProfileAsync(string type, string ticketId, ChatNewRequest request, string actor, CancellationToken ct)
+    public async Task<ChatSnapshot> NewWithProfileAsync(string type, string ticketId, ChatNewWithProfileRequest request, string actor, CancellationToken ct)
     {
         var id = request.ConversationId;
         var ticket = await ResolveScopeAsync(ChatScope.Ticket(type, ticketId), ct);

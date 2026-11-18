@@ -66,7 +66,7 @@ public interface IAiAssistantChatStore
         => Task.FromResult<IReadOnlyList<ChatProviderArtifact>>([]);
     Task<ProviderArtifactDownload> DownloadProviderArtifactAsync(ChatScope scope, Guid id, Guid artifactId, CancellationToken ct)
         => throw new KeyNotFoundException("Artifact not found.");
-    Task<ChatSnapshot> NewWithProfileAsync(string type, string ticket, ChatNewRequest request, string actor, CancellationToken ct)
+    Task<ChatSnapshot> NewWithProfileAsync(string type, string ticket, ChatNewWithProfileRequest request, string actor, CancellationToken ct)
         => NewAsync(type, ticket, request.ConversationId, actor, ct);
     Task<ChatSnapshot> NewAsync(string type, string ticket, Guid conversation, string actor, CancellationToken ct);
 }

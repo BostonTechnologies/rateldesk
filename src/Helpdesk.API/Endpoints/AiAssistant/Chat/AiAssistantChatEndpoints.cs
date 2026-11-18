@@ -48,6 +48,7 @@ public static partial class AiAssistantChatEndpoints
             {
                 ChatMessageRequest r => r.ConversationId,
                 ChatNewRequest r => r.ConversationId,
+                ChatNewWithProfileRequest r => r.ConversationId,
                 ChatApprovalRequest r => r.ConversationId,
                 ChatStopWaitingRequest r => r.ConversationId,
                 ChatCancelRequest r => r.ConversationId,
@@ -123,7 +124,7 @@ public static partial class AiAssistantChatEndpoints
             await transport.RespondAsync(request.ConversationId, callId, request.SelectedKey, ct);
             return Results.Accepted();
         }).WithName("ApproveAiAssistantChatInteraction").WithSummary("Select an offered interaction option once");
-        group.MapPost("/new", (string ticketType, string ticketId, ChatNewRequest request, HttpContext context, IAiAssistantChatStore store, CancellationToken ct) => store.NewWithProfileAsync(ticketType, ticketId, request, Actor(context), ct)).WithName("NewAiAssistantChat").WithSummary("Archive an idle conversation and start a new one");
+        group.MapPost("/new", (string ticketType, string ticketId, ChatNewWithProfileRequest request, HttpContext context, IAiAssistantChatStore store, CancellationToken ct) => store.NewWithProfileAsync(ticketType, ticketId, request, Actor(context), ct)).WithName("NewAiAssistantChat").WithSummary("Archive an idle conversation and start a new one");
 
         MapProviderCommands(group, http => ChatScope.Ticket(http.Request.RouteValues["ticketType"]!.ToString()!, http.Request.RouteValues["ticketId"]!.ToString()!));
         group.MapGet("/stream", StreamAsync).WithName("StreamAiAssistantChat").WithSummary("Replay durable conversation events and stream live text");
