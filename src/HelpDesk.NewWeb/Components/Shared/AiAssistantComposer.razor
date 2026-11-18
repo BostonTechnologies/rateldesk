@@ -3,10 +3,10 @@
 @inject ILogger<AiAssistantComposer> Logger
 
 <div class="chat-composer" @ref="root" data-testid="ai-assistant-composer" data-chat-draft-scope="@DraftScope">
-    <textarea aria-label="Message Netclaw" placeholder="Message Netclaw…" rows="3"
+    <textarea aria-label="@($"Message {ProviderName}")" placeholder="@($"Message {ProviderName}…")" rows="3"
               @bind:get="Value" @bind:set="ChangedAsync" @bind:event="oninput" disabled="@Disabled" readonly="@ReadOnly" maxlength="16000"></textarea>
     <div class="composer-actions">
-        <span class="composer-identity"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /><span>Netclaw</span>
+        <span class="composer-identity"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /><span>@ProviderName</span>
             @if (!string.IsNullOrWhiteSpace(Identity)) { <span>· @Identity</span> }
         </span>
         @if (Discard.HasDelegate && !ReadOnly && !Disabled && !string.IsNullOrEmpty(Value))
@@ -29,6 +29,7 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool ShowAttachmentNotice { get; set; } = true;
+    [Parameter] public string ProviderName { get; set; } = "Netclaw";
     [Parameter] public string Identity { get; set; } = "";
     [Parameter] public string SendLabel { get; set; } = "Send";
     [Parameter] public EventCallback Send { get; set; }

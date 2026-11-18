@@ -4,6 +4,7 @@ using System.Text;
 namespace Helpdesk.Application.AiAssistant.Chat;
 
 public sealed class ChatConflictException(string message) : Exception(message);
+public sealed record ProviderArtifactDownload(string Name, byte[] Contents);
 public sealed record ChatStartAdmission(ChatOrganizationConversation Conversation, bool Accepted);
 
 public static class ChatRules
@@ -57,6 +58,16 @@ public interface IAiAssistantChatStore
     Task<ChatSnapshot> LoadAsync(string type, string ticket, Guid? conversation, long after, string actor, CancellationToken ct);
     Task<bool> AcceptMessageAsync(string type, string ticket, ChatMessageRequest request, string actor, CancellationToken ct);
     Task AcceptApprovalAsync(string type, string ticket, string callId, ChatApprovalRequest request, string actor, CancellationToken ct);
+    Task RequestCancellationAsync(ChatScope scope, ChatCancelRequest request, string actor, CancellationToken ct)
+        => throw new ChatConflictException("The provider does not support remote cancellation.");
+    Task RequestProviderCleanupAsync(ChatScope scope, Guid id, string actor, CancellationToken ct)
+        => throw new ChatConflictException("The provider does not support remote cleanup.");
+    Task<IReadOnlyList<ChatProviderArtifact>> ProviderArtifactsAsync(ChatScope scope, Guid id, CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<ChatProviderArtifact>>([]);
+    Task<ProviderArtifactDownload> DownloadProviderArtifactAsync(ChatScope scope, Guid id, Guid artifactId, CancellationToken ct)
+        => throw new KeyNotFoundException("Artifact not found.");
+    Task<ChatSnapshot> NewWithProfileAsync(string type, string ticket, ChatNewWithProfileRequest request, string actor, CancellationToken ct)
+        => NewAsync(type, ticket, request.ConversationId, actor, ct);
     Task<ChatSnapshot> NewAsync(string type, string ticket, Guid conversation, string actor, CancellationToken ct);
 }
 

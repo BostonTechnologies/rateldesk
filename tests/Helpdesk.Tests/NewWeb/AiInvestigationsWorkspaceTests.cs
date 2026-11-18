@@ -135,7 +135,30 @@ public sealed class AiInvestigationsWorkspaceTests
         Assert.Empty(page.FindAll(".ai-investigation"));
         Assert.DoesNotContain("Baseline", page.Find(".ai-create").TextContent);
         Assert.Contains(api.Requests, request => request.Contains("investigations?q=&organizationId=org-b", StringComparison.Ordinal));
+        Assert.Contains("/api/v1/ai/chat/organizations/org-b/capabilities", api.Requests);
         Assert.Empty(api.Creations);
+    }
+
+    [Fact]
+    public async Task Unavailable_provider_options_preserve_ticket_context_and_recover_on_refresh()
+    {
+        using var api = new Api { FailCapabilities = true };
+        await using var context = Context(api);
+        var page = context.Render<Page>();
+        page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
+        page.Find(".ai-toolbar select").Change("org-a");
+        page.Find(".ai-toolbar .ai-primary").Click();
+        page.Find(".ai-create > label input").Input("Investigate delivery delay");
+        page.Find(".ai-ticket-picker input").Change(true);
+        Assert.Contains("Always included: Baseline", page.Find(".ai-default-guidance").TextContent);
+        Assert.Contains("AI provider options are unavailable", page.Find(".ai-create [role='status']").TextContent);
+        Assert.True(page.Find(".ai-create-actions .ai-primary").HasAttribute("disabled"));
+        Assert.Empty(api.Creations);
+
+        api.FailCapabilities = false;
+        page.FindAll(".ai-toolbar button").Single(x => x.TextContent == "Refresh").Click();
+        page.WaitForAssertion(() => Assert.False(page.Find(".ai-create-actions .ai-primary").HasAttribute("disabled")));
+        Assert.True(page.Find(".ai-ticket-picker input").HasAttribute("checked"));
     }
 
     [Fact]
@@ -179,6 +202,7 @@ public sealed class AiInvestigationsWorkspaceTests
         public bool RejectCreate { get; set; }
         public bool FailHistory { get; set; }
         public bool FailOrganizations { get; set; }
+        public bool FailCapabilities { get; set; }
         public List<string> Requests { get; } = [];
         public List<CreateAiInvestigationDto> Creations { get; } = [];
         public List<Guid> Archived { get; } = [];
@@ -197,6 +221,8 @@ public sealed class AiInvestigationsWorkspaceTests
             if (request.Method == HttpMethod.Get)
             {
                 if (path.EndsWith("/connection", StringComparison.Ordinal)) return new(HttpStatusCode.ServiceUnavailable);
+                if (path is "/api/v1/ai/chat/organizations/org-a/capabilities" or "/api/v1/ai/chat/organizations/org-b/capabilities")
+                    return FailCapabilities ? new(HttpStatusCode.ServiceUnavailable) : Json(new ChatCapabilities(true, null));
                 if (path == "/api/v1/organizations") return new(HttpStatusCode.Forbidden);
                 if (path == "/api/v1/ai/ops/organizations" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);
                 if (path == "/api/v1/ai/ops/organizations")

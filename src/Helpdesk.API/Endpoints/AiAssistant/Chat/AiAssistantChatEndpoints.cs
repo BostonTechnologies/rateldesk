@@ -17,25 +17,23 @@ public static partial class AiAssistantChatEndpoints
     public static void MapAiAssistantChatEndpoints(this IEndpointRouteBuilder app)
     {
         MapOrganizationChatEndpoints(app);
+        app.MapAiProviderAdministrationEndpoints();
+        app.MapOpenAiProviderWebhook();
         app.MapGet("/api/v1/{ticketType}/{ticketId}/ai-assistant/chat-capabilities", async (
             string ticketType, string ticketId, HttpContext context, HelpdeskDbContext db,
             ICurrentUserAccessService access, IAiAssistantChatRuntimeState runtime, CancellationToken ct) =>
         {
             var failure = await AuthorizeTicketManagementAsync(ticketType, ticketId, context.User, db, access, ct);
             if (failure is not null) return failure;
-            return Results.Ok(db.Database.IsSqlite()
-                ? new ChatCapabilities(false, "Native chat requires PostgreSQL. Webhook AI assistance is available below.")
-                : runtime.Current.Enabled
-                    ? new ChatCapabilities(true, null)
-                    : new ChatCapabilities(false, "Native chat has not been enabled for this instance. Webhook AI assistance is available below."));
+            var organization = await db.Tickets.IgnoreQueryFilters().Where(row => row.Id == ticketId)
+                .Select(row => row.OrganizationId).SingleAsync(ct);
+            var profile = await access.ResolveAsync(context.User, ct);
+            return Results.Ok(await ProviderCapabilitiesAsync(context, db, runtime, organization, true, profile.IsHelpdeskAdmin, ct));
         }).RequireAuthorization("HelpdeskStaff").WithTags("AiAssistant Chat");
 
         var group = app.MapGroup("/api/v1/{ticketType}/{ticketId}/ai-assistant/chat").RequireAuthorization("HelpdeskStaff").WithTags("AiAssistant Chat");
         group.AddEndpointFilter(async (context, next) =>
         {
-            if (!context.HttpContext.RequestServices.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled
-                && !context.HttpContext.Request.Path.Value!.EndsWith("/connection", StringComparison.Ordinal))
-                return Results.Problem("Chat is not enabled.", statusCode: 503);
             var routeValues = context.HttpContext.Request.RouteValues;
             var failure = await AuthorizeTicketManagementAsync(
                 routeValues["ticketType"]?.ToString(),
@@ -50,15 +48,29 @@ public static partial class AiAssistantChatEndpoints
             {
                 ChatMessageRequest r => r.ConversationId,
                 ChatNewRequest r => r.ConversationId,
+                ChatNewWithProfileRequest r => r.ConversationId,
                 ChatApprovalRequest r => r.ConversationId,
                 ChatStopWaitingRequest r => r.ConversationId,
+                ChatCancelRequest r => r.ConversationId,
                 ChatAbandonRequest r => r.ConversationId,
                 _ => Guid.Empty
             }).FirstOrDefault(id => id != Guid.Empty);
             if (conversationId == Guid.Empty) Guid.TryParse(context.HttpContext.Request.Query["conversationId"], out conversationId);
+            var db = context.HttpContext.RequestServices.GetRequiredService<HelpdeskDbContext>();
+            if (db.Database.IsSqlite() && !context.HttpContext.Request.Path.Value!.EndsWith("/connection", StringComparison.Ordinal))
+                return Results.Problem("Native chat requires PostgreSQL.", statusCode: 503);
+            if (conversationId == Guid.Empty && HttpMethods.IsGet(context.HttpContext.Request.Method) &&
+                context.HttpContext.Request.Path.Value!.EndsWith("/chat", StringComparison.Ordinal))
+            {
+                var organization = await db.Tickets.IgnoreQueryFilters().Where(row => row.Id == routeValues["ticketId"]!.ToString())
+                    .Select(row => row.OrganizationId).SingleAsync(context.HttpContext.RequestAborted);
+                var runtime = context.HttpContext.RequestServices.GetRequiredService<IAiAssistantChatRuntimeState>();
+                var capabilities = await ProviderCapabilitiesAsync(context.HttpContext, db, runtime, organization, true, false,
+                    context.HttpContext.RequestAborted);
+                if (!capabilities.Enabled) return Results.Problem(capabilities.Reason, statusCode: 503);
+            }
             if (conversationId != Guid.Empty)
             {
-                var db = context.HttpContext.RequestServices.GetRequiredService<HelpdeskDbContext>();
                 var investigation = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == conversationId, context.HttpContext.RequestAborted);
                 if (investigation is not null)
                 {
@@ -112,7 +124,9 @@ public static partial class AiAssistantChatEndpoints
             await transport.RespondAsync(request.ConversationId, callId, request.SelectedKey, ct);
             return Results.Accepted();
         }).WithName("ApproveAiAssistantChatInteraction").WithSummary("Select an offered interaction option once");
-        group.MapPost("/new", (string ticketType, string ticketId, ChatNewRequest request, HttpContext context, IAiAssistantChatStore store, CancellationToken ct) => store.NewAsync(ticketType, ticketId, request.ConversationId, Actor(context), ct)).WithName("NewAiAssistantChat").WithSummary("Archive an idle conversation and start a new one");
+        group.MapPost("/new", (string ticketType, string ticketId, ChatNewWithProfileRequest request, HttpContext context, IAiAssistantChatStore store, CancellationToken ct) => store.NewWithProfileAsync(ticketType, ticketId, request, Actor(context), ct)).WithName("NewAiAssistantChat").WithSummary("Archive an idle conversation and start a new one");
+
+        MapProviderCommands(group, http => ChatScope.Ticket(http.Request.RouteValues["ticketType"]!.ToString()!, http.Request.RouteValues["ticketId"]!.ToString()!));
         group.MapGet("/stream", StreamAsync).WithName("StreamAiAssistantChat").WithSummary("Replay durable conversation events and stream live text");
     }
 
@@ -172,7 +186,6 @@ public static partial class AiAssistantChatEndpoints
                 await using (var scope = scopes.CreateAsyncScope())
                 {
                     var services = scope.ServiceProvider;
-                    if (!services.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled) return;
                     var db = services.GetRequiredService<HelpdeskDbContext>();
                     var access = services.GetRequiredService<ICurrentUserAccessService>();
                     if (chatScope.Kind == ChatConversationScope.Organization)

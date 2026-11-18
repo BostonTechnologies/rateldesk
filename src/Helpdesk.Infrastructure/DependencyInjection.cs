@@ -79,6 +79,13 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Application.AiAssistant.Chat.IAiAssistantChatStore, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatStore>();
         services.AddSingleton<Helpdesk.Application.AiAssistant.Chat.IChatLiveFeed, Helpdesk.Infrastructure.AiAssistant.Chat.ChatLiveFeed>();
         services.AddScoped<IntegrationProviderSecretProtector>();
+        services.AddScoped<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfiles>();
+        services.AddScoped<Helpdesk.Application.AiAssistant.Chat.IChatProviderProfiles>(sp =>
+            sp.GetRequiredService<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfiles>());
+        services.AddScoped<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatRun>();
+        if (databaseProvider is DatabaseProvider.PostgreSql)
+            services.AddHostedService<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatWorker>();
+        services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiAgentsHttpClient>();
         services.AddScoped<IIntegrationProviderSettingsService, IntegrationProviderSettingsService>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatSessionManager>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.IAiAssistantChatClientFactory, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatClientFactory>();

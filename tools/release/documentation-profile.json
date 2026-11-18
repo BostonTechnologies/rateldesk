@@ -41,6 +41,7 @@
     "docs/integrations/netclaw.md",
     "docs/integrations/netratel-orchestrator.md",
     "docs/integrations/netratel-pairing.md",
+    "docs/integrations/openai-agents.md",
     "docs/mcp-http/README.md",
     "docs/mcp-http/configuration.md",
     "docs/mcp-http/deployment.md",

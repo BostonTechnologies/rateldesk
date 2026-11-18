@@ -1,0 +1,254 @@
+@using Helpdesk.Shared.AiAssistant.Chat
+@using Helpdesk.Shared.DTOs.McpPolicies
+@using Helpdesk.Shared.DTOs.Organization
+@using System.Text.Json
+@inject IHttpClientFactory Clients
+
+<MudStack Spacing="2">
+    @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
+    @if (notice is not null) { <MudAlert Severity="Severity.Info" Dense="true">@notice</MudAlert> }
+    @if (loading) { <MudProgressLinear Indeterminate="true" aria-label="Loading AI provider profiles" /> }
+    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Add" OnClick="StartOpenAi" Disabled="busy">Add OpenAI profile</MudButton>
+    </MudStack>
+    <div class="ai-provider-list" aria-label="AI provider profiles">
+        @foreach (var profile in profiles)
+        {
+            <MudPaper @key="profile.Id" Class="pa-3" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                    <div>
+                        <MudText Typo="Typo.subtitle2">@profile.Name</MudText>
+                        <MudText Typo="Typo.caption">@(profile.Kind == ChatProviderKind.Netclaw ? "SignalR" : $"OpenAI Agents API · {profile.Model}") · @(profile.Enabled ? "Enabled" : "Disabled")@(profile.IsDefault ? " · Default for new work" : "") · @OrganizationLabel(profile.OrganizationId)@(profile.LastVerification is { } verification ? $" · {verification}" : "")</MudText>
+                    </div>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        @if (profile.Enabled && !profile.IsDefault)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="busy" OnClick="@(() => SetDefaultAsync(profile.Id))">Set default</MudButton>
+                        }
+                        <MudTooltip Text="@($"Edit {profile.Name}")"><MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small"
+                            aria-label="@($"Edit {profile.Name}")" Disabled="busy" OnClick="@(() => EditAsync(profile))" /></MudTooltip>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        }
+    </div>
+    @if (showNetclaw)
+    {
+        <NetclawConnectivity Embedded="true" />
+        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="RefreshAsync" Disabled="busy">Refresh provider list</MudButton>
+    }
+    @if (draft is { } form)
+    {
+        <MudPaper Outlined="true" Class="pa-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle1">OpenAI Agents API (Codex harness)</MudText>
+                <div class="ai-provider-fields">
+                    <MudTextField Label="Profile name" @bind-Value="form.Name" MaxLength="100" Margin="Margin.Dense" />
+                    <MudSelect T="string" Label="Organization" @bind-Value="form.OrganizationId" Margin="Margin.Dense">
+                        @foreach (var organization in Organizations)
+                        {
+                            <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField Label="Model" @bind-Value="form.Model" MaxLength="128" Margin="Margin.Dense" />
+                    <MudTextField Label="Server key reference" @bind-Value="form.KeyReference" MaxLength="64" Margin="Margin.Dense" HelperText="Reference under AiProviders:OpenAiKeys" />
+                    <MudTextField Label="OpenAI project (optional)" @bind-Value="form.Project" MaxLength="128" Margin="Margin.Dense" />
+                    <MudTextField Label="OpenAI organization (optional)" @bind-Value="form.OpenAiOrganization" MaxLength="128" Margin="Margin.Dense" />
+                    <MudTextField Label="Canonical HTTPS MCP resource" @bind-Value="form.McpResource" MaxLength="1024" Margin="Margin.Dense" />
+                    <MudSelect T="ChatProviderEnvironment" Label="Execution profile" @bind-Value="form.Environment" Margin="Margin.Dense">
+                        <MudSelectItem T="ChatProviderEnvironment" Value="ChatProviderEnvironment.None">Chat and MCP</MudSelectItem>
+                        <MudSelectItem T="ChatProviderEnvironment" Value="ChatProviderEnvironment.OpenAiHosted">Workspace and skills</MudSelectItem>
+                    </MudSelect>
+                    @if (form.Environment == ChatProviderEnvironment.OpenAiHosted)
+                    {
+                        <MudTextField Label="Environment template ID (optional)" @bind-Value="form.Template" MaxLength="128" Margin="Margin.Dense" />
+                        <MudTextField Label="Versioned skill bundle reference (optional)" @bind-Value="form.Bundle" MaxLength="128" Margin="Margin.Dense" />
+                    }
+                    <MudNumericField T="int" Label="Concurrent conversations" @bind-Value="form.Concurrency" Min="1" Max="25" Margin="Margin.Dense" />
+                    <MudNumericField T="int" Label="Observation limit (minutes)" @bind-Value="form.ObservationMinutes" Min="1" Max="240" Margin="Margin.Dense" />
+                    <MudNumericField T="int" Label="Concurrent subagents" @bind-Value="form.SubagentLimit" Min="1" Max="12" Margin="Margin.Dense" />
+                </div>
+                <MudTextField Label="Instructions (optional)" @bind-Value="form.Instructions" Lines="3" MaxLength="12000" Margin="Margin.Dense" />
+                <MudSelect T="string" Label="Permitted MCP reads" MultiSelection="true" @bind-SelectedValues="form.Reads" Margin="Margin.Dense">
+                    @foreach (var operation in readCatalog)
+                    {
+                        <MudSelectItem T="string" Value="@operation.Key">@operation.Family · @operation.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudCheckBox @bind-Value="form.ApproveInternalWorklogs" Dense="true" Label="Allow approved internal incident notes from the main agent" />
+                <MudCheckBox @bind-Value="form.Enabled" Dense="true" Label="Enable for new conversations in this organization" />
+                <MudStack Row="true" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="busy" OnClick="SaveAsync">Save profile</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@(busy || form.Revision == 0)" OnClick="VerifyAsync">Verify Agents read access</MudButton>
+                    <MudButton Variant="Variant.Text" Disabled="busy" OnClick="CloseEditor">Close</MudButton>
+                </MudStack>
+                @if (form.Revision > 0) { <MudText Typo="Typo.caption">Saved revision @form.Revision. Complete a conversation to check the model and MCP connection.</MudText> }
+            </MudStack>
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    [Parameter] public bool ShowNetclawInitially { get; set; }
+    [Parameter] public IReadOnlyList<OrganizationDto> Organizations { get; set; } = [];
+    private const string Route = "api/v1/admin/ai-providers";
+    private IReadOnlyList<ChatProviderProfile> profiles = [];
+    private IReadOnlyList<McpPolicyOperation> readCatalog = [];
+    private ProfileForm? draft;
+    private bool loading = true, busy, showNetclaw, previousAlias;
+    private string? error, notice;
+
+    protected override void OnParametersSet()
+    {
+        if (ShowNetclawInitially && !previousAlias) { showNetclaw = true; draft = null; }
+        previousAlias = ShowNetclawInitially;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            readCatalog = await api.GetFromJsonAsync<McpPolicyOperation[]>($"{Route}/read-operations") ?? [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            error = "The provider operation catalog is unavailable.";
+        }
+    }
+
+    private string OrganizationLabel(string? id) => id is null ? "Authorized organizations" : Organizations.FirstOrDefault(x => x.Id == id)?.Name ?? id;
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            profiles = await api.GetFromJsonAsync<ChatProviderProfile[]>(Route) ?? [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            error = "AI provider profiles could not be loaded.";
+        }
+        finally { loading = false; }
+    }
+
+    private void StartOpenAi()
+    {
+        error = notice = null;
+        showNetclaw = false;
+        draft = new() { Id = Guid.NewGuid(), OrganizationId = Organizations.Count == 1 ? Organizations[0].Id : "" };
+    }
+
+    private Task EditAsync(ChatProviderProfile profile)
+    {
+        error = notice = null;
+        if (profile.Kind == ChatProviderKind.Netclaw)
+        {
+            showNetclaw = true;
+            draft = null;
+            return Task.CompletedTask;
+        }
+        showNetclaw = false;
+        return RunAsync(async () =>
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            var saved = await api.GetFromJsonAsync<OpenAiChatProfileEditor>($"{Route}/openai/{profile.Id}");
+            draft = saved is null ? null : ProfileForm.From(saved);
+        }, "Unable to open the saved profile.");
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        if (draft is not { } form) return;
+        using var client = Clients.CreateClient("SystemPairingApi");
+        using var response = await client.PutAsJsonAsync($"{Route}/openai/{form.Id}", new OpenAiChatProfileUpdate(form.Id, form.Revision, form.Settings()));
+        if (!await ShowFailureAsync(response, "The profile could not be saved.")) return;
+        var saved = await response.Content.ReadFromJsonAsync<OpenAiChatProfileEditor>();
+        if (saved is not null) draft = ProfileForm.From(saved);
+        await RefreshAsync();
+    }, "The profile save could not be confirmed. Reload its saved revision to check.");
+
+    private Task SetDefaultAsync(Guid id) => RunAsync(async () =>
+    {
+        using var client = Clients.CreateClient("SystemPairingApi");
+        using var response = await client.PutAsJsonAsync($"{Route}/default", new ChatProviderDefault(id));
+        if (await ShowFailureAsync(response, "The default profile could not be set.")) await RefreshAsync();
+    }, "The default profile could not be set.");
+
+    private Task VerifyAsync() => RunAsync(async () =>
+    {
+        if (draft is not { } form) return;
+        using var client = Clients.CreateClient("SystemPairingApi");
+        using var response = await client.PostAsync($"{Route}/openai/{form.Id}/verify", null);
+        if (!await ShowFailureAsync(response, "OpenAI verification failed.")) return;
+        notice = await response.Content.ReadAsStringAsync();
+        await RefreshAsync();
+    }, "OpenAI verification did not finish.");
+
+    private void CloseEditor() { draft = null; error = notice = null; }
+
+    private async Task RunAsync(Func<Task> action, string fallback)
+    {
+        if (busy) return;
+        busy = true;
+        error = notice = null;
+        try { await action(); }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException) { error = fallback; }
+        finally { busy = false; }
+    }
+
+    private async Task<bool> ShowFailureAsync(HttpResponseMessage response, string fallback)
+    {
+        if (response.IsSuccessStatusCode) return true;
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProviderProblem>();
+            error = problem?.Message ?? problem?.Detail ?? fallback;
+        }
+        catch (JsonException) { error = fallback; }
+        return false;
+    }
+
+    private sealed record ProviderProblem(string? Message, string? Detail);
+
+    private sealed class ProfileForm
+    {
+        public Guid Id { get; init; }
+        public int Revision { get; init; }
+        public string Name { get; set; } = "";
+        public bool Enabled { get; set; }
+        public string OrganizationId { get; set; } = "";
+        public string Model { get; set; } = "";
+        public string KeyReference { get; set; } = "primary";
+        public string? Project { get; set; }
+        public string? OpenAiOrganization { get; set; }
+        public string? Instructions { get; set; }
+        public string McpResource { get; set; } = "";
+        public IReadOnlyCollection<string>? Reads { get; set; } = ["helpdesk_incidents.get"];
+        public bool ApproveInternalWorklogs { get; set; }
+        public ChatProviderEnvironment Environment { get; set; }
+        public string? Template { get; set; }
+        public string? Bundle { get; set; }
+        public int Concurrency { get; set; } = 4;
+        public int ObservationMinutes { get; set; } = 30;
+        public int SubagentLimit { get; set; } = 4;
+        public OpenAiChatProfileSettings Settings() => new(Name.Trim(), Enabled, OrganizationId, Model.Trim(),
+            KeyReference.Trim(), Optional(Project), Optional(OpenAiOrganization), Optional(Instructions), McpResource.Trim(),
+            Reads?.ToArray() ?? [], ApproveInternalWorklogs, Environment,
+            Environment == ChatProviderEnvironment.OpenAiHosted ? Optional(Template) : null,
+            Environment == ChatProviderEnvironment.OpenAiHosted ? Optional(Bundle) : null, Concurrency, ObservationMinutes, SubagentLimit);
+        private static string? Optional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        public static ProfileForm From(OpenAiChatProfileEditor source)
+        {
+            var settings = source.Settings;
+            return new ProfileForm { Id = source.Profile.Id, Revision = source.Profile.Revision, Name = settings.Name,
+                Enabled = settings.Enabled, OrganizationId = settings.OrganizationId, Model = settings.Model, KeyReference = settings.KeyReference,
+                Project = settings.Project, OpenAiOrganization = settings.OpenAiOrganization, Instructions = settings.Instructions,
+                McpResource = settings.McpResource, Reads = settings.ReadOperations, ApproveInternalWorklogs = settings.ApproveInternalWorklogs,
+                Environment = settings.Environment, Template = settings.EnvironmentTemplateId, Bundle = settings.SkillBundle,
+                Concurrency = settings.ConcurrentSessions, ObservationMinutes = settings.ObservationMinutes, SubagentLimit = settings.SubagentLimit };
+        }
+    }
+}

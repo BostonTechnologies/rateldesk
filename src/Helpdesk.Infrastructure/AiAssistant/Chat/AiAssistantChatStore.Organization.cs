@@ -15,7 +15,8 @@ public sealed partial class AiAssistantChatStore
         ValidateCreation(request);
         var scope = await ResolveScopeAsync(ChatScope.Organization(organization), ct);
         var ids = request.PromptIds.Distinct().Order().ToArray();
-        var fingerprint = Fingerprint(new { organization, request.Title, ids, actor });
+        var fingerprint = request.ProviderProfileId is null ? Fingerprint(new { organization, request.Title, ids, actor })
+            : Fingerprint(new { organization, request.Title, ids, actor, request.ProviderProfileId });
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var (conversation, created) = await OrganizationDraftAsync(organization, request, actor, scope, fingerprint, false, ct);
         if (!created) return OrganizationDto(conversation);
@@ -28,11 +29,12 @@ public sealed partial class AiAssistantChatStore
     public async Task<ChatStartAdmission> StartOrganizationAsync(string organization, ChatStartRequest request, string actor, CancellationToken ct)
     {
         ChatRules.ValidateMessage(new(request.ConversationId, request.ClientMessageId, request.Text));
-        var creation = new ChatCreateRequest(request.ConversationId, ChatRules.ConversationTitle(request.Text), request.PromptIds);
+        var creation = new ChatCreateRequest(request.ConversationId, ChatRules.ConversationTitle(request.Text), request.PromptIds, request.ProviderProfileId);
         ValidateCreation(creation);
         var scope = await ResolveScopeAsync(ChatScope.Organization(organization), ct);
         var ids = request.PromptIds.Distinct().Order().ToArray();
-        var fingerprint = Fingerprint(new { organization, request.ClientMessageId, request.Text, ids, actor });
+        var fingerprint = request.ProviderProfileId is null ? Fingerprint(new { organization, request.ClientMessageId, request.Text, ids, actor })
+            : Fingerprint(new { organization, request.ClientMessageId, request.Text, ids, actor, request.ProviderProfileId });
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var (conversation, created) = await OrganizationDraftAsync(organization, creation, actor, scope, fingerprint, true, ct);
         if (!created)
@@ -43,6 +45,7 @@ public sealed partial class AiAssistantChatStore
             return new(OrganizationDto(conversation), false);
         }
         AiOpsContext.ValidatePayload(OrganizationChatContext.Outbound(conversation, request.ClientMessageId, request.Text, actor));
+        await AdmitProviderTurnAsync(conversation, request.ClientMessageId, actor, ct);
         conversation.State = ChatState.Processing;
         conversation.ActiveMessageId = request.ClientMessageId;
         conversation.TurnStartedAtUtc = Now;
@@ -87,6 +90,7 @@ public sealed partial class AiAssistantChatStore
                 guidance = prompts.Select(x => new { x.Id, x.Name, x.Revision, x.IsDefault, x.Content }) })
         };
         AiOpsContext.ValidatePayload(OrganizationChatContext.Outbound(conversation, Guid.Empty, "", actor));
+        if (profiles is not null) await profiles.BindNewAsync(conversation, request.ProviderProfileId, ct);
         db.Add(conversation);
         Append(db, conversation, "created", firstMessage ? "Organization conversation started." : "Organization conversation saved. No message was sent.", actor, atUtc: Now);
         return (conversation, true);
@@ -115,7 +119,7 @@ public sealed partial class AiAssistantChatStore
     }
 
     private static ChatOrganizationConversation OrganizationDto(AiAssistantChatConversation x) =>
-        new(x.Id, x.OrganizationId, x.Title, x.GuidanceSnapshot ?? "", x.State);
+        new(x.Id, x.OrganizationId, x.Title, x.GuidanceSnapshot ?? "", x.State, x.ProviderKind, x.ProviderProfileId);
 }
 
 internal static class OrganizationChatContext

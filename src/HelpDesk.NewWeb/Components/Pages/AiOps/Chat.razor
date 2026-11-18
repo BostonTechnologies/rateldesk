@@ -12,7 +12,7 @@
 <PageTitle>Chat · RatelDesk</PageTitle>
 <main class="chat-page" data-testid="organization-chat">
     <header class="chat-page-heading">
-        <div><p class="chat-eyebrow">AI OPERATIONS</p><h1>Chat</h1><p class="chat-page-description">A place to work things through with Netclaw.</p></div>
+        <div><p class="chat-eyebrow">AI OPERATIONS</p><h1>Chat</h1><p class="chat-page-description">Ask questions and investigate work in your organization.</p></div>
         <div class="chat-workspace-controls">
             <label class="chat-tenant">Organization
                 <select value="@organization" @onchange="ChangeOrganization" disabled="@(loading || organizations.Count == 0)">
@@ -51,8 +51,8 @@
                     @if (hasMore) { <button type="button" class="chat-secondary-button chat-load-more" @onclick="MoreAsync">Older conversations</button> }
                 </nav>
                 <label class="chat-archive-toggle"><input type="checkbox" checked="@includeArchived" @onchange="ArchivedChangedAsync" />Show archived chats</label>
-                @if (capabilities?.SetupUrl is { } setup) { <a class="chat-settings-link" href="@setup"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</a> }
-                else { <span class="chat-settings-link" title="An administrator manages this connection"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</span> }
+                @if (capabilities?.SetupUrl is { } setup) { <a class="chat-settings-link" href="@setup"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />AI Providers</a> }
+                else { <span class="chat-settings-link" title="An administrator manages AI providers"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />AI Providers</span> }
             </aside>
             @if (selected is { } savedChat)
             {
@@ -65,21 +65,23 @@
             else
             {
                 <section class="chat-canvas" aria-label="Organization conversation workspace">
-                    <header class="chat-conversation-heading"><div class="chat-assistant-identity"><h2>Netclaw · @OrganizationName(organization)</h2></div></header>
+                    <header class="chat-conversation-heading"><div class="chat-assistant-identity"><h2>@NewProviderName · @OrganizationName(organization)</h2></div></header>
                     <div class="chat-transcript">
                         @if (capabilities?.Enabled != true)
                         {
-                            <div class="chat-welcome chat-connect"><div class="chat-welcome-mark"><MudIcon Icon="@Icons.Material.Outlined.Forum" /></div><p class="chat-eyebrow">YOUR ORGANIZATION WORKSPACE</p><h2>Connect with Netclaw</h2>
+                            <div class="chat-welcome chat-connect"><div class="chat-welcome-mark"><MudIcon Icon="@Icons.Material.Outlined.Forum" /></div><p class="chat-eyebrow">YOUR ORGANIZATION WORKSPACE</p><h2>Choose an AI provider</h2>
                                 <p>@(capabilities?.Reason ?? "Connection details are unavailable. Refresh the workspace to try again.")</p>
-                                @if (capabilities?.SetupUrl is { } connection) { <a class="chat-primary-button" href="@connection">Set up Netclaw <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></a> }
+                                @if (capabilities?.SetupUrl is { } connection) { <a class="chat-primary-button" href="@connection">Configure AI Providers <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></a> }
                             </div>
                         }
                         else
                         {
-                            <div class="chat-welcome"><div class="chat-welcome-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></div><p class="chat-eyebrow">NETCLAW · @OrganizationName(organization)</p><h2>What would you like to work on?</h2><p>Write a script, review notifications, or talk through your next task.</p>
+                            <div class="chat-welcome"><div class="chat-welcome-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></div><h2>What would you like to work on?</h2><p>Write a script, review notifications, or talk through your next task.</p>
                                 <div class="chat-starters" aria-label="Conversation starters">
                                     @foreach (var starter in Starters) { <button type="button" class="chat-starter" @onclick="() => UseStarterAsync(starter.Prompt)" disabled="@(!CanStart || busy || !draftRestored || pendingStart is not null)"><MudIcon Icon="@starter.Icon" Size="Size.Small" /><strong>@starter.Title</strong><span>@starter.Description</span></button> }
                                 </div>
+                                <ChatProviderSelector Profiles="@(capabilities?.Profiles ?? [])" @bind-Value="newProfileId"
+                                                      Disabled="@(busy || !CanStart || pendingStart is not null)" />
                                 @if (prompts.Any(x => !x.IsDefault))
                                 {
                                     <details class="chat-guidance"><summary>Additional guidance</summary>
@@ -91,7 +93,7 @@
                     </div>
                     @if (capabilities?.Enabled == true)
                     {
-                        <div class="chat-composer-area"><AiAssistantComposer @key="organization" @ref="composer" @bind-Value="message" Send="SendFirstAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" Disabled="@(!CanStart || busy || !draftRestored)" ReadOnly="@(pendingStart is not null)" Identity="@OrganizationName(organization)" ShowAttachmentNotice="false" SendLabel="@(pendingStart is null ? "Send" : "Retry message")" /></div>
+                        <div class="chat-composer-area"><AiAssistantComposer @key="organization" @ref="composer" @bind-Value="message" Send="SendFirstAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" Disabled="@(!CanStart || busy || !draftRestored)" ReadOnly="@(pendingStart is not null)" Identity="@OrganizationName(organization)" ProviderName="@NewProviderName" ShowAttachmentNotice="false" SendLabel="@(pendingStart is null ? "Send" : "Retry message")" /></div>
                     }
                 </section>
             }

@@ -274,6 +274,7 @@ public class HelpdeskDbContext(
             entity.HasIndex(x => new { x.OrganizationId, x.CreatedUtc });
             entity.HasOne<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>().WithMany().HasForeignKey(x => x.Id).OnDelete(DeleteBehavior.Restrict);
         });
+        Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatModel.Configure(modelBuilder);
         modelBuilder.Entity<Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation>(entity =>
         {
             entity.ToTable("AiAssistantChatConversations");

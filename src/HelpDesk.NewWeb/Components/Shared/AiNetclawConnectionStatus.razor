@@ -7,12 +7,19 @@
 
 <span @ref="root" class="netclaw-connection-status" @onmouseenter="ShowDetails" @onmouseleave="HideDetails">
     <button type="button" class="netclaw-connection-badge @StatusClass" data-testid="netclaw-connection-status" data-chat-popover-trigger="connection"
-            aria-label="Netclaw connection status" aria-expanded="@open.ToString().ToLowerInvariant()" @onclick="ToggleDetails">@StatusText</button>
+            aria-label="@($"{ProviderLabel} connection status")" aria-expanded="@open.ToString().ToLowerInvariant()" @onclick="ToggleDetails">@StatusText</button>
     @if (open)
     {
-        <span class="netclaw-connection-details" popover="manual" role="dialog" aria-label="Netclaw connection details" data-chat-popover="connection" @onmouseenter="ShowDetails" @onmouseleave="HideDetails">
-            <strong>Netclaw@(string.IsNullOrWhiteSpace(OrganizationName) ? "" : $" · {OrganizationName}")</strong>
-            @if (status is { } current)
+        <span class="netclaw-connection-details" popover="manual" role="dialog" aria-label="@($"{ProviderLabel} connection details")" data-chat-popover="connection" @onmouseenter="ShowDetails" @onmouseleave="HideDetails">
+            <strong>@ProviderLabel@(string.IsNullOrWhiteSpace(OrganizationName) ? "" : $" · {OrganizationName}")</strong>
+            @if (status?.Profile is { } provider)
+            {
+                <span>Model @provider.Model · revision @provider.Revision</span>
+                <span>@(provider.Environment == ChatProviderEnvironment.OpenAiHosted ? "Workspace and skills" : "Chat and MCP")</span>
+                <span>@(provider.LastVerification ?? "No saved OpenAI verification.")</span>
+                @if (status.SetupUrl is { } setup) { <a href="@setup">AI Providers settings</a> }
+            }
+            else if (status is { } current)
             {
                 <span>Organization @current.OrganizationId</span>
                 @if (current.Endpoint is { } endpoint) { <span>Daemon: @endpoint</span> }
@@ -50,9 +57,12 @@
     private bool disposed, open, pinned;
     private bool Fresh => status is { } value && DateTimeOffset.UtcNow - value.ObservedAtUtc is var age && age >= TimeSpan.FromSeconds(-30) && age <= TimeSpan.FromSeconds(30);
     private bool Connected => Fresh && status is { Enabled: true, ObservationAvailable: true } value && value.Sessions.Any(x => x.State == ChatTransportConnectionState.Connected);
-    private string StatusClass => Connected ? "connected" : status?.LastTestSucceeded == false ? "failed" : "unverified";
+    private string StatusClass => status?.Profile is not null ? "provider-profile" : Connected ? "connected" : status?.LastTestSucceeded == false ? "failed" : "unverified";
+    private string ProviderLabel => status?.Profile?.Name ?? "Netclaw";
     private string StatusText => status switch
     {
+        { Profile: { Kind: ChatProviderKind.OpenAiAgents } profile } => profile.Enabled
+            ? $"{profile.Name} · {profile.Model}" : $"{profile.Name} · History only",
         null => "○ Netclaw status unknown",
         { Enabled: false } => "○ Netclaw unavailable",
         _ when Connected => "● Netclaw connected",

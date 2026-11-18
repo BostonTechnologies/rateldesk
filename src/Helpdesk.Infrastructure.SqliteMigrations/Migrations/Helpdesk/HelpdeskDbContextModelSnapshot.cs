@@ -15,7 +15,238 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.15");
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.ChatProviderPreference", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChatProviderPreference");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatArtifact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("Contents")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RemoteId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TurnId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "RemoteId")
+                        .IsUnique();
+
+                    b.ToTable("OpenAiChatArtifact");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatDecision", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CallId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("Approved")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ArgumentHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Arguments")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RemoteActionId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Result")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TurnId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConversationId", "CallId");
+
+                    b.ToTable("OpenAiChatDecision");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatDispatch", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("AdmittedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("CancelRequestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("CancelSentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("DispatchedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("NextObservationAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TurnId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConversationId", "MessageId");
+
+                    b.HasIndex("State", "NextObservationAtUtc");
+
+                    b.ToTable("OpenAiChatDispatch");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatEventReceipt", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RemoteKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConversationId", "RemoteKey");
+
+                    b.ToTable("OpenAiChatEventReceipt");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastVerification")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("LastVerifiedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("OpenAiChatProfile");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfileRevision", b =>
+                {
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProtectedKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SettingsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SkillBundleHash")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ProfileId", "Revision");
+
+                    b.ToTable("OpenAiChatProfileRevision");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatSessionGrant", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("CleanupNextAttemptAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("CleanupRequestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CredentialId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("RemoteDeletedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConversationId");
+
+                    b.HasIndex("CredentialId")
+                        .IsUnique();
+
+                    b.ToTable("OpenAiChatSessionGrant");
+                });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiGuidancePrompt", b =>
                 {
@@ -1133,9 +1364,21 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ProviderActorId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProviderKind")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ProviderProfileFingerprint")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ProviderProfileId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ProviderRevision")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTimeOffset?>("RecoveryLastAttemptUtc")
                         .HasColumnType("TEXT");
@@ -4900,6 +5143,42 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasIndex("Type", "AutomationNextCheckUtcTicks");
 
                     b.HasDiscriminator().HasValue("RequestTask");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatArtifact", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatDispatch", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfileRevision", b =>
+                {
+                    b.HasOne("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatSessionGrant", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiOpsInvestigation", b =>

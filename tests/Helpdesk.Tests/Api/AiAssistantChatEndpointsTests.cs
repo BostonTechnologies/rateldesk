@@ -1,3 +1,4 @@
+using Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -377,6 +378,35 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
         var capability = await staff.GetFromJsonAsync<ChatCapabilities>($"{route}/capabilities");
         Assert.False(capability!.Enabled);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await staff.PostAsJsonAsync($"{route}/new", new ChatCreateRequest(Guid.NewGuid(), "Disabled", []))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Saved_openai_profile_is_available_with_netclaw_disabled_and_is_scoped_to_its_organization()
+    {
+        const string organization = "openai-only-fixture";
+        await database.CreateAsync(organization);
+        var profileId = Guid.NewGuid();
+        var settings = new OpenAiChatProfileSettings("Synthetic OpenAI", true, organization, "fixture-model", "fixture",
+            null, null, null, "https://mcp.example.com/mcp", ["helpdesk_incidents.get"], false, ChatProviderEnvironment.None, null, null);
+        await using (var db = database.Context(organization))
+        {
+            db.Add(new OpenAiChatProfile { Id = profileId, Revision = 1, Enabled = true });
+            db.Add(new OpenAiChatProfileRevision { ProfileId = profileId, Revision = 1, SettingsJson = JsonSerializer.Serialize(settings) });
+            await db.SaveChangesAsync();
+        }
+        await using var host = new ChatApi(database, enabled: false);
+        using var staff = host.Client(tenant: organization);
+        var capabilities = await staff.GetFromJsonAsync<ChatCapabilities>($"/api/v1/ai/chat/organizations/{organization}/capabilities");
+        Assert.True(capabilities!.Enabled);
+        var profile = Assert.Single(capabilities.Profiles!);
+        Assert.Equal(profileId, profile.Id);
+        Assert.Equal(ChatProviderKind.OpenAiAgents, profile.Kind);
+        Assert.True(profile.IsDefault);
+
+        using var foreign = host.Client(tenant: "org");
+        var other = await foreign.GetFromJsonAsync<ChatCapabilities>("/api/v1/ai/chat/organizations/org/capabilities");
+        Assert.False(other!.Enabled);
+        Assert.Empty(other.Profiles!);
     }
 
     private sealed class ChatApi(ChatPostgresFixture database, bool enabled = true) : WebApplicationFactory<Program>

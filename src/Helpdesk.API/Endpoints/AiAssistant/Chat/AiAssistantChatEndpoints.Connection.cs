@@ -1,5 +1,6 @@
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
+using Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Services;
@@ -28,6 +29,18 @@ public static partial class AiAssistantChatEndpoints
         }
         else if (scope.Kind == ChatConversationScope.Ticket)
             query = query.Where(x => false); // Other investigations may have additional pinned-context grants.
+        var access = await accessService.ResolveAsync(context.User, ct);
+        var providerProfiles = context.RequestServices.GetService<OpenAiChatProfiles>();
+        if (providerProfiles is not null && db.Database.IsNpgsql())
+        {
+            var pinned = selected is null ? null : await query.SingleAsync(ct);
+            var provider = pinned is null ? (await providerProfiles.AvailableAsync(organization, ct)).SingleOrDefault(item => item.IsDefault)
+                : await providerProfiles.DescribeAsync(pinned, ct);
+            if (provider is { Kind: ChatProviderKind.OpenAiAgents })
+                return Results.Ok(new ChatConnectionStatus(organization, provider.Enabled, null, "openai-agents",
+                    provider.Revision, provider.LastVerifiedAtUtc, null, DateTimeOffset.UtcNow, false, [],
+                    access.IsHelpdeskAdmin ? ProviderSetupUrl : null, provider));
+        }
         var ids = await query.Where(x => x.State != ChatState.Archived && x.ProviderProfileFingerprint == profile.ProfileFingerprint)
             .OrderByDescending(x => x.LastActivityUtc).Select(x => x.Id).Take(50).ToArrayAsync(ct);
         var sessions = ids.Select(transport.ObserveConnection).OfType<ChatSessionConnection>().ToArray();
@@ -36,11 +49,10 @@ public static partial class AiAssistantChatEndpoints
                 .Where(x => x.ProviderKey == "Netclaw" && x.Revision == profile.Revision && x.ProfileFingerprint == profile.ProfileFingerprint)
                 .Select(x => new { x.LastTestedAtUtc, x.LastTestSucceeded }).FirstOrDefaultAsync(ct)
             : null;
-        var access = await accessService.ResolveAsync(context.User, ct);
         var endpoint = Uri.TryCreate(profile.Endpoint, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
             ? new UriBuilder(uri) { UserName = "", Password = "", Query = "", Fragment = "" }.Uri.GetLeftPart(UriPartial.Authority) : null;
         return Results.Ok(new ChatConnectionStatus(organization, db.Database.IsNpgsql() && profile.Enabled, endpoint,
             profile.Source, profile.Revision, verified?.LastTestedAtUtc, verified?.LastTestSucceeded, DateTimeOffset.UtcNow,
-            transport.ConnectionObservationsAvailable, sessions, access.IsHelpdeskAdmin ? "/admin/automation/integration/netclaw" : null));
+            transport.ConnectionObservationsAvailable, sessions, access.IsHelpdeskAdmin ? ProviderSetupUrl : null));
     }
 }

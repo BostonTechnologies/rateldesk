@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Helpdesk.Infrastructure.Migrations;
+using Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.Models;
@@ -68,6 +69,14 @@ public sealed class ChatMigrationTests : IAsyncLifetime
             // Exercise a database that has already completed the beta.14 chain.
             Assert.Equal(1, await db.Database.SqlQueryRaw<int>("SELECT count(*)::integer AS \"Value\" FROM pg_indexes WHERE indexname = 'IX_NetclawChatConversations_OrganizationId_TicketType_TicketId'").SingleAsync());
         }
+        var boundConversationId = Guid.NewGuid();
+        var savedFingerprint = new string('A', 64);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "AiAssistantChatConversations"
+                ("Id", "OrganizationId", "TicketId", "TicketType", "AiAssistantSessionId", "State", "LastSequence", "LastActivityUtc", "CreatedByUserId", "IsInvestigation", "ProviderProfileFingerprint")
+            VALUES
+                ({boundConversationId}, {"migration-test"}, {"bound-ticket"}, {"incidents"}, {"bound-session"}, {(int)ChatState.Idle}, 0, {DateTimeOffset.UtcNow}, {"operator"}, FALSE, {savedFingerprint});
+            """);
         await migrator.MigrateAsync();
         await migrator.MigrateAsync(); // Normal repository EF migration path is repeatable.
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
@@ -75,6 +84,12 @@ public sealed class ChatMigrationTests : IAsyncLifetime
         var upgradedConversation = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == legacyConversationId);
         Assert.Equal("beta3-session", upgradedConversation.AiAssistantSessionId);
         Assert.Null(upgradedConversation.ProviderProfileFingerprint);
+        Assert.Null(upgradedConversation.ProviderProfileId);
+        var bound = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == boundConversationId);
+        Assert.Equal(ChatProviderKind.Netclaw, bound.ProviderKind);
+        Assert.Equal(OpenAiChatProfiles.NetclawId, bound.ProviderProfileId);
+        Assert.Equal(savedFingerprint, bound.ProviderProfileFingerprint);
+        Assert.Equal("bound-session", bound.AiAssistantSessionId);
         Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::integer AS \"Value\" FROM pg_indexes WHERE indexname = 'IX_NetclawChatConversations_OrganizationId_TicketType_TicketId'").SingleAsync());
         db.AddRange(
             new AiAssistantChatConversation { Id = Guid.NewGuid(), OrganizationId = "migration-test", TicketId = "legacy-ticket", TicketType = "incidents", CreatedByUserId = "operator", IsInvestigation = true },

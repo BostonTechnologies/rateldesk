@@ -55,7 +55,7 @@
                 }
             </div>
             <p class="ai-list-note">@(listAvailable ? $"Latest authorized results · {investigations.Count} loaded" : busy ? "Loading recent history…" : "History is unavailable. Refresh to try again.")</p>
-            <AuthorizeView Roles="HelpdeskAdmin"><a class="ai-connection-link" href="/admin/automation/integration/netclaw"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</a></AuthorizeView>
+            <AuthorizeView Roles="HelpdeskAdmin"><a class="ai-connection-link" href="/admin/integration?tab=ai-providers"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />AI Providers</a></AuthorizeView>
         </aside>
         <section class="ai-conversation" aria-label="Investigation workspace">
             @if (creating)
@@ -70,6 +70,9 @@
                     }
                     else
                     {
+                        <ChatProviderSelector Profiles="@(chatCapabilities?.Profiles ?? [])" @bind-Value="providerProfileId" Disabled="busy" />
+                        @if (chatCapabilities is { Enabled: false }) { <p role="status">@chatCapabilities.Reason</p> }
+                        @if (!busy && chatCapabilities is null) { <p role="status">AI provider options are unavailable. Refresh to try again.</p> }
                         <label>Investigation title<input @bind="title" @bind:event="oninput" maxlength="200" placeholder="For example: investigate recurring email delivery failures" disabled="@busy" /></label>
                         <form class="ai-search" @onsubmit="FindTickets" @onsubmit:preventDefault>
                             <label for="investigation-ticket-search">Find tickets</label>
@@ -110,7 +113,7 @@
                             </details>
                         }
                     }
-                    <div class="ai-create-actions"><button type="button" class="ai-primary" @onclick="Create" disabled="@(busy || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0)">Save investigation context</button>
+                    <div class="ai-create-actions"><button type="button" class="ai-primary" @onclick="Create" disabled="@(!CanSaveContext)">Save investigation context</button>
                         <button type="button" @onclick="CancelCreate" disabled="@busy">Cancel</button></div>
                 </div>
             }
@@ -138,6 +141,8 @@
     private List<AiContextTicketDto> tickets = [];
     private List<AiPromptDto> prompts = [];
     private AiInvestigationDto? selected;
+    private ChatCapabilities? chatCapabilities;
+    private Guid? providerProfileId;
     private string organization = "", title = "", search = "", ticketSearch = "", statusFilter = "all";
     private string? error;
     private bool busy, creating, initialized, listAvailable;
@@ -145,6 +150,8 @@
     private Guid creationId = Guid.NewGuid();
     private readonly HashSet<string> ticketIds = [];
     private readonly HashSet<Guid> promptIds = [];
+    private bool CanSaveContext => !busy && chatCapabilities is { Enabled: true, CanWrite: true }
+        && organization.Length > 0 && !string.IsNullOrWhiteSpace(title) && ticketIds.Count > 0;
     private IEnumerable<AiInvestigationDto> FilteredInvestigations => investigations.Where(x => statusFilter switch
     {
         "active" => x.State is ChatState.Processing or ChatState.WaitingForChildren,
@@ -220,6 +227,7 @@
                 selected = loaded;
             }
             await LoadList(current);
+            if (organization.Length > 0) await LoadChatCapabilities(current);
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
         {
@@ -236,7 +244,7 @@
     {
         if (busy) return;
         var current = ++generation; busy = true; error = null;
-        organization = value; investigations = []; ticketIds.Clear(); promptIds.Clear(); tickets = []; prompts = []; ticketSearch = ""; creationId = Guid.NewGuid();
+        organization = value; chatCapabilities = null; providerProfileId = null; investigations = []; ticketIds.Clear(); promptIds.Clear(); tickets = []; prompts = []; ticketSearch = ""; creationId = Guid.NewGuid();
         if (selected?.OrganizationId != value) selected = null;
         try
         {
@@ -247,10 +255,26 @@
                 if (current != generation) return;
                 prompts = loaded.Where(x => !x.Archived).ToList();
                 await LoadTickets(current);
+                await LoadChatCapabilities(current);
             }
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Unable to load tickets and guidance for this organization. Refresh or select the organization again."; }
         finally { if (current == generation) busy = false; }
+    }
+    private async Task LoadChatCapabilities(int current)
+    {
+        if (current != generation) return;
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            var loaded = await api.GetFromJsonAsync<ChatCapabilities>($"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}/capabilities");
+            if (current == generation) chatCapabilities = loaded;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException
+            or Polly.CircuitBreaker.BrokenCircuitException or Polly.Timeout.TimeoutRejectedException)
+        {
+            if (current == generation) chatCapabilities = null;
+        }
     }
     private void StartCreate() { creating = true; error = null; }
     private void CancelCreate() { creating = false; error = null; }
@@ -303,12 +327,12 @@
     }
     private async Task Create()
     {
-        if (busy || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0) return;
+        if (!CanSaveContext) return;
         var current = generation;
         busy = true; error = null;
         try
         {
-            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray()));
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray(), providerProfileId));
             if (current != generation) return;
             if (!response.IsSuccessStatusCode) { error = "Unable to save context. Check ticket access, prompt revisions, PostgreSQL availability and context size. Your selections are preserved."; return; }
             var savedId = creationId;

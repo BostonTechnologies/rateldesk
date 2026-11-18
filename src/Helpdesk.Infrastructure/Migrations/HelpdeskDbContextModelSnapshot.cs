@@ -18,10 +18,241 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.13")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.ChatProviderPreference", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChatProviderPreference");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatArtifact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("Contents")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RemoteId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TurnId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "RemoteId")
+                        .IsUnique();
+
+                    b.ToTable("OpenAiChatArtifact");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatDecision", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CallId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool?>("Approved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ArgumentHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Arguments")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RemoteActionId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Result")
+                        .HasColumnType("text");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TurnId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("ConversationId", "CallId");
+
+                    b.ToTable("OpenAiChatDecision");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatDispatch", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("AdmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("CancelRequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("CancelSentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DispatchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("NextObservationAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TurnId")
+                        .HasColumnType("text");
+
+                    b.HasKey("ConversationId", "MessageId");
+
+                    b.HasIndex("State", "NextObservationAtUtc");
+
+                    b.ToTable("OpenAiChatDispatch");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatEventReceipt", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RemoteKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("ConversationId", "RemoteKey");
+
+                    b.ToTable("OpenAiChatEventReceipt");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastVerification")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("LastVerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("OpenAiChatProfile");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfileRevision", b =>
+                {
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProtectedKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SettingsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SkillBundleHash")
+                        .HasColumnType("text");
+
+                    b.HasKey("ProfileId", "Revision");
+
+                    b.ToTable("OpenAiChatProfileRevision");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatSessionGrant", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CleanupNextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("CleanupRequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RemoteDeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ConversationId");
+
+                    b.HasIndex("CredentialId")
+                        .IsUnique();
+
+                    b.ToTable("OpenAiChatSessionGrant");
+                });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiGuidancePrompt", b =>
                 {
@@ -1139,9 +1370,21 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ProviderActorId")
+                        .HasColumnType("text");
+
+                    b.Property<int>("ProviderKind")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ProviderProfileFingerprint")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("ProviderProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ProviderRevision")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset?>("RecoveryLastAttemptUtc")
                         .HasColumnType("timestamp with time zone");
@@ -4854,6 +5097,42 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasIndex("Type", "AutomationNextCheckUtcTicks");
 
                     b.HasDiscriminator().HasValue("RequestTask");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatArtifact", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatDispatch", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfileRevision", b =>
+                {
+                    b.HasOne("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatSessionGrant", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.AiAssistant.Chat.AiAssistantChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.AiOps.AiOpsInvestigation", b =>

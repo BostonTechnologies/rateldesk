@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat;
 
-public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPublisher domainEvents, ICorrelationContext correlation, ILogger<AiAssistantChatStore> logger, TimeProvider? timeProvider = null) : IAiAssistantChatStore
+public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPublisher domainEvents, ICorrelationContext correlation, ILogger<AiAssistantChatStore> logger, TimeProvider? timeProvider = null, OpenAi.OpenAiChatProfiles? profiles = null) : IAiAssistantChatStore
 {
     public Task RequestRecoveryAsync(string type, string ticketId, Guid id, string actor, CancellationToken ct) => RequestRecoveryAsync(ChatScope.Ticket(type, ticketId), id, actor, ct);
     public Task StopWaitingAsync(string type, string ticketId, ChatStopWaitingRequest request, string actor, CancellationToken ct) => StopWaitingAsync(ChatScope.Ticket(type, ticketId), request, actor, ct);
@@ -43,6 +43,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         Bind(conversation, ticket);
         if (conversation.State != ChatState.DeliveryUnknown) throw new ChatConflictException("Only unresolved delivery can be checked.");
         var last = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == id && x.Type == "recovery_requested").OrderByDescending(x => x.Sequence).FirstOrDefaultAsync(ct);
+        if (conversation.ProviderKind == ChatProviderKind.OpenAiAgents && await ActiveDispatchAsync(conversation, ct) is { } dispatch)
+            dispatch.NextObservationAtUtc = null;
         conversation.RecoveryLastAttemptUtc = Now;
         conversation.RecoveryResult = "Checking saved session. No message is resent.";
         var activeSequence = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == id && x.Type == "operator" && x.ClientMessageId == conversation.ActiveMessageId).Select(x => x.Sequence).SingleAsync(ct);
@@ -97,6 +99,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         if (ticket.Kind == ChatConversationScope.Ticket && !conversation.IsInvestigation)
         {
             var next = new AiAssistantChatConversation { OrganizationId = ticket.OrganizationId, TicketId = ticket.Id, TicketType = ticket.Type, CreatedByUserId = actor };
+            if (profiles is not null && (await profiles.AvailableAsync(ticket.OrganizationId, ct)).Count > 0)
+                await profiles.BindNewAsync(next, null, ct);
             db.Add(next);
             Append(db, next, "created", "New conversation started. No previous message has been resent.", actor, atUtc: Now);
             await db.SaveChangesAsync(ct);
@@ -182,6 +186,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             if (conversation is null)
             {
                 conversation = new() { OrganizationId = ticket.OrganizationId!, TicketId = ticket.Id, TicketType = ticket.Type, Scope = ticket.Kind, CreatedByUserId = actor };
+                if (profiles is not null) await profiles.BindNewAsync(conversation, null, ct);
                 db.Add(conversation);
                 Append(db, conversation, "created", "Conversation started.", actor, atUtc: Now);
                 await db.SaveChangesAsync(ct);
@@ -194,7 +199,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var head = conversation.LastSequence;
         var events = await db.Set<AiAssistantChatEvent>().AsNoTracking().Where(x => x.ConversationId == conversation.Id && x.Sequence > after && x.Sequence <= head).OrderBy(x => x.Sequence).Take(200).ToListAsync(ct);
         var continuation = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
-        return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult, continuation, conversation.ActiveMessageId);
+        return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult, continuation, conversation.ActiveMessageId, conversation.ProviderKind, conversation.ProviderProfileId);
     }
 
     public async Task<bool> AcceptMessageAsync(ChatScope scope, ChatMessageRequest request, string actor, CancellationToken ct)
@@ -211,6 +216,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             return false;
         }
         ChatRules.RequireIdle(conversation.State);
+        await AdmitProviderTurnAsync(conversation, request.ClientMessageId, actor, ct);
         if (conversation.Scope == ChatConversationScope.Organization) AiOpsContext.ValidatePayload(OrganizationChatContext.Outbound(conversation, request.ClientMessageId, request.Text, actor));
         conversation.State = ChatState.Processing;
         conversation.ActiveMessageId = request.ClientMessageId;
@@ -234,6 +240,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var interaction = await db.Set<AiAssistantChatInteraction>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.CallId == callId, ct)
             ?? throw new KeyNotFoundException("Approval not found.");
         ChatRules.ValidateApproval(interaction, request.SelectedKey, JsonSerializer.Deserialize<List<ChatOption>>(interaction.OptionsJson)!);
+        await RecordProviderDecisionAsync(conversation, callId, request.SelectedKey, actor, ct);
         var now = Now;
         interaction.SelectedKey = request.SelectedKey;
         interaction.AnsweredByUserId = actor;
@@ -248,17 +255,31 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         await PublishAsync(conversation, "ApprovalSelected", ct);
     }
 
-    public async Task<ChatSnapshot> NewAsync(string type, string ticketId, Guid id, string actor, CancellationToken ct)
+    public Task<ChatSnapshot> NewAsync(string type, string ticketId, Guid id, string actor, CancellationToken ct)
+        => NewWithProfileAsync(type, ticketId, new(id), actor, ct);
+
+    public async Task<ChatSnapshot> NewWithProfileAsync(string type, string ticketId, ChatNewWithProfileRequest request, string actor, CancellationToken ct)
     {
+        var id = request.ConversationId;
         var ticket = await ResolveScopeAsync(ChatScope.Ticket(type, ticketId), ct);
         await using (var tx = await db.Database.BeginTransactionAsync(ct))
         {
+            if (profiles is not null)
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({ticket.LockKey}, 0))", ct);
             var old = await LockAsync(id, ct);
             Bind(old, ticket);
             ChatRules.RequireIdle(old.State);
             old.State = ChatState.Archived;
             Append(db, old, "archived", "Conversation archived.", actor, atUtc: Now);
             await db.SaveChangesAsync(ct);
+            if (profiles is not null)
+            {
+                var next = new AiAssistantChatConversation { OrganizationId = ticket.OrganizationId, TicketId = ticket.Id, TicketType = ticket.Type, CreatedByUserId = actor };
+                await profiles.BindNewAsync(next, request.ProviderProfileId, ct);
+                db.Add(next);
+                Append(db, next, "created", "Conversation started.", actor, atUtc: Now);
+                await db.SaveChangesAsync(ct);
+            }
             await tx.CommitAsync(ct);
         }
         return await LoadAsync(type, ticketId, null, 0, actor, ct);

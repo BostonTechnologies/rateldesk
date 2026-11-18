@@ -11,3 +11,5 @@
 .netclaw-connection-details a{color:var(--mud-palette-primary);text-decoration:none;margin-top:.35rem}
 
 .netclaw-connection-details:popover-open{display:flex}
+
+.netclaw-connection-badge.provider-profile{color:var(--mud-palette-text-secondary);border-color:var(--mud-palette-divider);white-space:normal;overflow-wrap:anywhere;text-align:left}

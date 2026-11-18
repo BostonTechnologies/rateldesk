@@ -14,4 +14,6 @@
   [deployment reference](../mcp-http/deployment.md) covers coordinated settings,
   configuration mounts and apply/recreate instructions.
 
+Configure native AI through **Administration → Integration → AI Providers**. See the [Netclaw guide](../integrations/netclaw.md) and [OpenAI Agents API guide](../integrations/openai-agents.md).
+
 Runnable source/release examples remain under [docker](../../docker/).
