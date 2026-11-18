@@ -102,3 +102,15 @@ export function restore(root) {
     if (saved.focus?.isConnected) saved.focus.focus({ preventScroll: true });
     active.delete(root);
 }
+
+export async function downloadArtifact(filename, streamReference) {
+    const contents = await streamReference.arrayBuffer();
+    const url = URL.createObjectURL(new Blob([contents], { type: "application/octet-stream" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

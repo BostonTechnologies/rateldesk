@@ -1,0 +1,14 @@
+.ai-provider-list {
+    display: grid;
+    gap: .5rem;
+}
+
+.ai-provider-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: .75rem 1rem;
+}
+
+.ai-provider-list ::deep .mud-typography {
+    overflow-wrap: anywhere;
+}

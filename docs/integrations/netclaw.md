@@ -1,5 +1,7 @@
 # NetClaw AI Assistant and tenant-scoped MCP
 
+Find the Netclaw editor under **Administration → Integration → AI Providers → Netclaw**. Existing Netclaw URLs still open the editor. An administrator can also set Netclaw as the default for new chats and investigations when another profile is enabled. [OpenAI Agents API](openai-agents.md)
+
 NetClaw can work with RatelDesk in two directions. They are complementary, but
 they are not the same integration and they do not share credentials.
 

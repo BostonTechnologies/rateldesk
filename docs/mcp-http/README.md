@@ -32,3 +32,5 @@ share the Web public origin or use an explicitly configured standalone origin.
   captures, generic repository test collateral and future capability coverage.
 
 Keep runnable recipes in the [Docker HTTP MCP example](../../docker/examples/mcp-http/README.md).
+
+For a managed OpenAI session, configure the canonical HTTPS gateway in a profile. RatelDesk issues a scoped, expiring session credential and enforces operation-level policy. [OpenAI Agents API setup](../integrations/openai-agents.md#tool-authority-and-approvals)

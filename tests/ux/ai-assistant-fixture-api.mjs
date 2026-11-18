@@ -4,13 +4,21 @@ import http from 'node:http';
 const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
 let events = [], state = 0, recoveryResult = null;
+let selectedProvider = 0;
+const profiles = [
+  { id: '90b1a190-f989-4cf8-ac56-0ce23b566840', kind: 0, name: 'Netclaw', enabled: true, isDefault: false, revision: 3, environment: 0 },
+  { id: '22222222-2222-4222-8222-222222222222', kind: 1, name: 'Synthetic OpenAI', enabled: true, isDefault: true,
+    model: 'fixture-model', organizationId: 'org', revision: 1, environment: 1, lastVerification: 'Agents read access verified.' }
+];
+const providerFields = () => selectedProvider === 1 ? { provider: 1, providerProfileId: profiles[1].id } : {};
+const capabilityFields = () => selectedProvider === 1 ? { profiles, canViewHistory: true } : {};
 let streamOpens = 0, sends = 0, recoveries = 0;
 let starts = 0, startAttempts = 0, activeConversation = conversation, loseStartResponse = false, connectionMode = 'verified';
 let holdStartResponse = false;
 const heldStarts = [];
 const startRequests = new Map();
 const generalChats = new Map();
-const generalRow = (id = conversation, organizationId = 'org', title = 'Synthetic organization planning') => ({ conversationId: id, organizationId, title, guidanceSnapshot: 'Pinned synthetic organization guidance', state });
+const generalRow = (id = conversation, organizationId = 'org', title = 'Synthetic organization planning') => ({ conversationId: id, organizationId, title, guidanceSnapshot: 'Pinned synthetic organization guidance', state, ...providerFields() });
 const investigation = () => ({ id: conversation, organizationId: 'org', title: 'Synthetic ticket investigation', ticketId: 'ux-chat', ticketType: 'incidents', contextSnapshot: 'Pinned synthetic ticket and guidance', createdUtc: new Date().toISOString(), state });
 let netclawPresentationMode = 'first-run';
 let netclawPairResponseStatuses = [];
@@ -46,7 +54,8 @@ function completeChildTurn(turnNumber, children, outcome = 'completed', quiet = 
     stream.write(`event: recovery\ndata: ${JSON.stringify({ RecoveryResult: recoveryResult, Events: [] })}\n\n`);
   }
 }
-function reset(mode = 'completed') {
+function reset(mode = 'completed', provider = 'netclaw') {
+  selectedProvider = provider === 'openai' ? 1 : 0;
   activeConversation = conversation; starts = startAttempts = 0; loseStartResponse = false; startRequests.clear(); connectionMode = 'verified';
   generalChats.clear(); generalChats.set(conversation, generalRow()); streamOpens = sends = recoveries = 0;
   events = []; state = ['processing', 'quiet'].includes(mode) ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : mode === 'recovery' ? 3 : 0;
@@ -83,6 +92,8 @@ function reset(mode = 'completed') {
 reset();
 function connectionStatus(organizationId, selected) {
   const now = new Date().toISOString();
+  if (selectedProvider === 1) return { organizationId, enabled: true, source: 'openai-agents', revision: 1,
+    observedAtUtc: now, sessions: [], profile: profiles[1], setupUrl: '/admin/integration?tab=ai-providers' };
   return { organizationId, enabled: true, endpoint: 'https://netclaw.example.test', source: 'database', revision: 3,
     lastTestedAtUtc: now, lastTestSucceeded: true, observedAtUtc: connectionMode === 'stale' ? new Date(Date.now() - 120000).toISOString() : now,
     observationAvailable: true, setupUrl: '/admin/automation/integration/netclaw',
@@ -107,7 +118,7 @@ http.createServer(async (req, res) => {
   const orgRoute = url.pathname.match(/^\/api\/v1\/ai\/chat\/organizations\/([^/]+)(.*)$/);
   if (orgRoute) {
     const [, org, suffix] = orgRoute;
-    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true, setupUrl: '/admin/automation/integration/netclaw' });
+    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true, setupUrl: '/admin/automation/integration/netclaw', ...capabilityFields() });
     if (suffix === '/connection') return reply(connectionStatus(org, url.searchParams.get('conversationId')));
     if (suffix.startsWith('/conversations/')) {
       const row = generalChats.get(suffix.split('/')[2]);
@@ -139,7 +150,7 @@ http.createServer(async (req, res) => {
     }
     if (suffix === '/archive' || suffix === '/abandon') { state = 4; event('archived', 'Archived synthetic conversation.'); for (const stream of streams) stream.write('event: state\ndata: 4\n\n'); return reply({}); }
     chatPath = `/chat${suffix}`;
-    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events, recoveryResult });
+    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events, recoveryResult, ...providerFields() });
   }
   if (chatPath.endsWith('/chat/reconcile')) {
     recoveries++;
@@ -159,7 +170,7 @@ http.createServer(async (req, res) => {
     }
     return reply({ mode: netclawPresentationMode, pairResponseStatuses: [...netclawPairResponseStatuses] });
   }
-  if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode')); loseStartResponse = url.searchParams.get('loseStartResponse') === 'true'; holdStartResponse = url.searchParams.get('holdStartResponse') === 'true'; return reply({ ok: true }); }
+  if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode'), url.searchParams.get('provider')); loseStartResponse = url.searchParams.get('loseStartResponse') === 'true'; holdStartResponse = url.searchParams.get('holdStartResponse') === 'true'; return reply({ ok: true }); }
   if (url.pathname === '/fixture/draft') {
     const table = url.searchParams.get('table');
     const text = table === 'partial' ? '| Host | Total | Free | Sample time (UTC) |\n| :--- | ---:' : table === 'complete' ? tableReply : 'Streaming response';
@@ -193,6 +204,16 @@ http.createServer(async (req, res) => {
     allowedOrganizationIds: [], managedOrganizationIds: [], scopedPermissionGrants: []
   });
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
+  if (url.pathname === '/api/v1/admin/ai-providers') return reply(profiles);
+  if (url.pathname === '/api/v1/admin/ai-providers/read-operations')
+    return reply([{ key: 'helpdesk_incidents.get', name: 'Get', family: 'Incidents', effect: 'read' }]);
+  if (url.pathname === `/api/v1/admin/ai-providers/openai/${profiles[1].id}`)
+    return reply({ profile: profiles[1], settings: { name: profiles[1].name, enabled: true, organizationId: 'org',
+      model: 'fixture-model', keyReference: 'fixture', mcpResource: 'https://mcp.example.test/mcp',
+      readOperations: ['helpdesk_incidents.get'], approveInternalWorklogs: true, environment: 1,
+      environmentTemplateId: 'fixture-template', skillBundle: 'fixture-bundle-v1',
+      concurrentSessions: 4, observationMinutes: 30, subagentLimit: 4 } });
+  if (url.pathname.endsWith('/artifacts')) return reply([]);
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/netclaw') {
     const connected = netclawPresentationMode === 'connected';
     const verificationFailed = netclawPresentationMode === 'uncertain-saved';
@@ -254,7 +275,7 @@ http.createServer(async (req, res) => {
     res.write(`event: state\ndata: ${state}\n\n`);
     streams.add(res); req.on('close', () => streams.delete(res)); return;
   }
-  if (url.pathname.endsWith('/chat-capabilities')) return reply({ enabled: true, reason: null });
+  if (url.pathname.endsWith('/chat-capabilities')) return reply({ enabled: true, reason: null, ...capabilityFields() });
   if (url.pathname.endsWith('/chat/history')) return reply([{ conversationId: conversation, state, lastActivityUtc: new Date().toISOString(), createdByUserId: actor }]);
   if (chatPath.endsWith('/chat/stop-waiting')) {
     state = 3; event('delivery_unknown', 'Operator stopped waiting locally.');
@@ -270,7 +291,7 @@ http.createServer(async (req, res) => {
     for (const stream of streams) stream.write('event: state\ndata: 1\n\n');
     return reply({ accepted: true });
   }
-  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events, recoveryResult });
+  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events, recoveryResult, ...providerFields() });
   if (url.pathname === '/api/v1/incidents/ux-chat') return reply({ id: 'ux-chat', subject: 'AiAssistant UX fixture', trackingId: 'UX-799', state: 0, priority: 1, categoryIds: [] });
   if (url.pathname.endsWith('/count')) return reply(0);
   if (url.pathname.includes('summary')) return reply({});

@@ -86,7 +86,7 @@
     private bool HasPendingApproval => Turn.Activity.Any(IsPendingApproval);
     private bool IsPendingApproval(AiAssistantChatEvent item) => item.Type == "approval_request"
         && State == ChatState.AwaitingApproval
-        && !Turn.Activity.Any(x => x.Type == "approval_response" && x.CallId == item.CallId);
+        && !Turn.Activity.Any(x => x.Type is ("approval_response" or "approval_closed") && x.CallId == item.CallId);
     private static Color ApprovalColor(string key) => key == "deny" ? Color.Error : Color.Primary;
     private static Variant ApprovalVariant(string key) => key == "deny" ? Variant.Outlined : Variant.Filled;
     private static string ApprovalIcon(string key) => key == "deny"

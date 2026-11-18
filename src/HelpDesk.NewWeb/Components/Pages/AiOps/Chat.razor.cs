@@ -21,6 +21,8 @@ public partial class Chat
     private readonly HashSet<Guid> promptIds = [];
     private ChatOrganizationConversation? selected;
     private ChatCapabilities? capabilities;
+    private Guid? newProfileId;
+    private string NewProviderName => capabilities?.Profiles?.FirstOrDefault(item => newProfileId is { } id ? item.Id == id : item.IsDefault)?.Name ?? "Netclaw";
     private ChatStartRequest? pendingStart;
     private AiAssistantComposer? composer;
     private (string? Organization, Guid? Conversation)? loadedRoute;
@@ -90,10 +92,10 @@ public partial class Chat
             var caps = await api.GetFromJsonAsync<ChatCapabilities>($"{Route}/capabilities", ct);
             if (!Current(current)) return;
             capabilities = caps;
-            if (caps?.Enabled != true) return;
+            if (caps is null || !caps.Enabled && !caps.CanViewHistory) return;
             await ReadHistoryAsync();
             if (!Current(current)) return;
-            if (caps.CanWrite)
+            if (caps.Enabled && caps.CanWrite)
             {
                 var guidance = await api.GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(organization)}", ct) ?? [];
                 if (!Current(current)) return;
@@ -115,7 +117,7 @@ public partial class Chat
     {
         var next = e.Value?.ToString() ?? "";
         if (next == organization) return;
-        ++generation; selected = null; capabilities = null; history = []; message = ""; pendingStart = null;
+        ++generation; selected = null; capabilities = null; newProfileId = null; history = []; message = ""; pendingStart = null;
         Navigation.NavigateTo(Url(next));
     }
     private void StartNew()
@@ -164,7 +166,7 @@ public partial class Chat
     private async Task ArchivedChangedAsync(ChangeEventArgs e) { includeArchived = e.Value is true; await ReadHistoryAsync(); }
     private async Task ReadHistoryAsync(bool more = false)
     {
-        if (capabilities?.Enabled != true) return;
+        if (capabilities is null || !capabilities.Enabled && !capabilities.CanViewHistory) return;
         var current = generation; var request = ++historyGeneration; var route = Route; var ct = cancellation.Token;
         try
         {
@@ -183,7 +185,7 @@ public partial class Chat
     {
         if (!CanStart || busy || !draftRestored || string.IsNullOrWhiteSpace(message)) return;
         var current = generation; var route = Route; var org = organization; var ct = cancellation.Token;
-        var request = pendingStart ??= new(Guid.NewGuid(), Guid.NewGuid(), message, promptIds.ToArray());
+        var request = pendingStart ??= new(Guid.NewGuid(), Guid.NewGuid(), message, promptIds.ToArray(), newProfileId);
         busy = true; error = null;
         try
         {

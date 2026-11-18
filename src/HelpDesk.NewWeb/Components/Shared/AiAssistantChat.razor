@@ -9,11 +9,11 @@
 @inject ILogger<AiAssistantChat> Logger
 @inject IDialogService Dialogs
 
-@if (capabilities is { Enabled: false })
+@if (capabilities is { Enabled: false, CanViewHistory: false })
 {
     <MudAlert Severity="Severity.Info">@capabilities.Reason</MudAlert>
     @if (OrganizationId is null) { <TicketAiAssistant TicketId="@TicketId" TicketType="@TicketType" /> }
-    @if (capabilities.SetupUrl is { } setup) { <MudLink Href="@setup">Configure Netclaw connection</MudLink> }
+    @if (capabilities.SetupUrl is { } setup) { <MudLink Href="@setup">Configure AI providers</MudLink> }
 }
 else
 {
@@ -25,9 +25,14 @@ else
         {
             <MudTooltip Text="Stop waiting"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.StopCircle" aria-label="Stop waiting" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="StopWaitingAsync" /></MudTooltip>
         }
+        @if (provider == ChatProviderKind.OpenAiAgents && state is (ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren or ChatState.DeliveryUnknown))
+        {
+            <MudTooltip Text="Cancel remote turn"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.Cancel"
+                aria-label="Cancel remote turn" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="CancelRemoteAsync" /></MudTooltip>
+        }
         @if (state != ChatState.Archived && (Archive.HasDelegate || OrganizationId is null && InvestigationId is null))
         {
-            <MudTooltip Text="Archive conversation"><MudIconButton Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" aria-label="Archive conversation" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" OnClick="ArchiveCurrentAsync" /></MudTooltip>
+            <MudTooltip Text="Archive conversation"><MudIconButton Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" aria-label="Archive conversation" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty || (!Archive.HasDelegate && capabilities?.Enabled == false))" OnClick="ArchiveCurrentAsync" /></MudTooltip>
         }
         <MudTooltip Text="@(fullscreen ? "Restore conversation" : "Maximise conversation")"><MudIconButton Size="Size.Small" Icon="@(fullscreen ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)" aria-label="@(fullscreen ? "Restore conversation" : "Maximise conversation")" Disabled="@(module is null || conversation == Guid.Empty)" OnClick="ToggleFullscreenAsync" /></MudTooltip>
         <div class="chat-settings-anchor">
@@ -44,6 +49,10 @@ else
                     <label><input type="checkbox" checked="@preferences.ShowProcessing" @onchange="e => SavePreferenceAsync(() => preferences.ShowProcessing = e.Value is true)" />Processing trace</label>
                     <label><input type="checkbox" checked="@preferences.ShowCompaction" @onchange="e => SavePreferenceAsync(() => preferences.ShowCompaction = e.Value is true)" />Compaction</label>
                     <label><input type="checkbox" checked="@preferences.ShowSubagents" @onchange="e => SavePreferenceAsync(() => preferences.ShowSubagents = e.Value is true)" />Subagent activity</label>
+                    @if (provider == ChatProviderKind.OpenAiAgents && state is (ChatState.Idle or ChatState.Archived))
+                    {
+                        <button type="button" disabled="@(busy || capabilities?.CanWrite == false)" @onclick="CleanupRemoteAsync">Delete remote session</button>
+                    }
                     @if (OrganizationId is not null && SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
                 </div>
             }
@@ -56,7 +65,11 @@ else
 </header>
 <div class="ai-chat-content"><div class="ai-chat-scroll">
     @if (OrganizationId is null && SavedContext is not null) { <div class="conversation-context">@SavedContext</div> }
-    @if (connectionStatus != "Connected" && state != ChatState.Archived)
+    @if (capabilities is { Enabled: false, Reason: { } providerReason })
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">@providerReason</MudAlert>
+    }
+    @if (conversation != Guid.Empty && connectionStatus != "Connected" && state != ChatState.Archived)
     {
         <p class="ai-chat-live-status" role="status">Live updates: @connectionStatus</p>
     }
@@ -69,6 +82,12 @@ else
             }
         </MudSelect>
         @if (hasOlderHistory) { <MudButton Disabled="busy" OnClick="LoadOlderHistoryAsync">Older conversations</MudButton> }
+    }
+    @if (OrganizationId is null && InvestigationId is null && capabilities?.Profiles is { Count: > 1 } available)
+    {
+        <ChatProviderSelector Profiles="available" Label="Provider for next conversation" @bind-Value="nextProfile"
+                              Disabled="@(busy || capabilities.CanWrite == false || state != ChatState.Idle)" />
+        <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@(busy || capabilities.CanWrite == false || state != ChatState.Idle)" OnClick="NewAsync">Start new conversation</MudButton>
     }
     @if (state == ChatState.Archived)
     {
@@ -89,7 +108,7 @@ else
     @if (state is ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren)
     {
         <div role="status" data-testid="chat-observation-status" class="pa-3">
-            <strong>@(state == ChatState.AwaitingApproval ? "Waiting for your decision" : state == ChatState.WaitingForChildren ? "Waiting for delegated follow-ups" : "Awaiting NetClaw")</strong>
+            <strong>@(state == ChatState.AwaitingApproval ? "Waiting for your decision" : state == ChatState.WaitingForChildren ? "Waiting for delegated follow-ups" : $"Awaiting {ProviderName}")</strong>
             <p>@(recoveryResult ?? "RatelDesk keeps observing this request. A connection does not prove that the task is complete.")</p>
             @if (events.LastOrDefault(item => item.Type == "operator") is { } activeInput)
             {
@@ -122,17 +141,27 @@ else
             @foreach (var response in turn.Responses)
             {
                 <div class="pa-3" data-testid="ai-assistant-response">
-                    <MudText Typo="Typo.caption">Netclaw · @response.CreatedUtc.ToLocalTime().ToString("t")</MudText>
+                    <MudText Typo="Typo.caption">@ProviderName · @response.CreatedUtc.ToLocalTime().ToString("t")</MudText>
                     <AiAssistantMarkdown Text="@response.Text" />
                 </div>
             }
         </section>
     }
+    @if (artifacts.Count > 0)
+    {
+        <div class="pa-3" aria-label="Conversation artifacts">
+            @foreach (var artifact in artifacts)
+            {
+                <MudButton StartIcon="@Icons.Material.Outlined.Download" Size="Size.Small" Disabled="@(module is null)"
+                           OnClick="@(() => DownloadArtifactAsync(artifact))">@artifact.Name</MudButton>
+            }
+        </div>
+    }
     @if (draft.Length > 0) { <div class="pa-3" data-testid="ai-assistant-draft"><AiAssistantMarkdown Text="@draft" /></div> }
     </div>
     </div>
     <div class="@(Workspace ? "ai-chat-composer" : null)">
-    <AiAssistantComposer @key="conversation" @bind-Value="message" Send="SendAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" ReadOnly="@(submittedMessage is not null)" SendLabel="@(submittedMessage is null ? "Send" : "Retry message")" Identity="@Identity" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty)" />
+    <AiAssistantComposer @key="conversation" @bind-Value="message" Send="SendAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" ReadOnly="@(submittedMessage is not null)" SendLabel="@(submittedMessage is null ? "Send" : "Retry message")" Identity="@Identity" ProviderName="@ProviderName" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || capabilities?.Enabled == false || state != ChatState.Idle || conversation == Guid.Empty)" />
     </div>
 </div>
 </div>
@@ -166,6 +195,11 @@ else
     private string message = "", draft = "";
     private string? error;
     private ChatCapabilities? capabilities;
+    private ChatProviderKind provider;
+    private Guid? providerProfileId, nextProfile;
+    private IReadOnlyList<ChatProviderArtifact> artifacts = [];
+    private string ProviderName => capabilities?.Profiles?.FirstOrDefault(item => item.Id == providerProfileId)?.Name
+        ?? (provider == ChatProviderKind.OpenAiAgents ? "OpenAI Agents" : "Netclaw");
     private long cursor;
     private bool busy;
     private bool acknowledgeAbandon, hasOlderHistory;
@@ -220,7 +254,7 @@ else
             using var api = Api;
             capabilities = await api.GetFromJsonAsync<ChatCapabilities>(
                 OrganizationId is null ? $"api/v1/{TicketType}/{TicketId}/ai-assistant/chat-capabilities" : $"{Route}/capabilities", ct);
-            if (capabilities is { Enabled: false })
+            if (capabilities is { Enabled: false, CanViewHistory: false })
             {
                 await InvokeAsync(StateHasChanged);
                 return;
@@ -256,14 +290,21 @@ else
             stream = Task.CompletedTask;
             if (disposed) return;
             connectionStatus = "Connecting"; error = null;
-            events.Clear(); draft = ""; cursor = 0; acknowledgeAbandon = false;
+            events.Clear(); artifacts = []; draft = ""; cursor = 0; acknowledgeAbandon = false;
             resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null; draftScope = null; conversation = Guid.Empty;
             using var api = Api;
+            if (id == Guid.Empty && OrganizationId is null && capabilities is { Enabled: false, CanViewHistory: true })
+            {
+                var available = await api.GetFromJsonAsync<ChatConversationSummary[]>($"{Route}/history", cancellation.Token) ?? [];
+                if (available.Length == 0) return;
+                id = available[0].ConversationId;
+            }
             var snapshot = await api.GetFromJsonAsync<ChatSnapshot>(id == Guid.Empty ? Route : $"{Route}?conversationId={id}", cancellation.Token);
             if (snapshot is not null)
             {
-                conversation = snapshot.ConversationId; state = snapshot.State; recoveryAt = snapshot.RecoveryLastAttemptUtc; recoveryResult = snapshot.RecoveryResult;
+                conversation = snapshot.ConversationId; provider = snapshot.Provider; providerProfileId = snapshot.ProviderProfileId; state = snapshot.State; recoveryAt = snapshot.RecoveryLastAttemptUtc; recoveryResult = snapshot.RecoveryResult;
                 await StateChanged.InvokeAsync(state);
+                if (provider == ChatProviderKind.OpenAiAgents) await LoadArtifactsAsync();
                 events.AddRange(snapshot.Events); cursor = events.LastOrDefault()?.Sequence ?? 0;
                 if (snapshot.State != ChatState.Archived && capabilities?.CanWrite != false && draftStorage is not null)
                 {
@@ -341,7 +382,8 @@ else
                             {
                                 if (item.Sequence > cursor) { events.Add(item); cursor = item.Sequence; }
                                 if (item.Type == "operator" && submittedMessage is { } sent && item.ClientMessageId == sent.ClientMessageId) await AcknowledgeMessageAsync(sent);
-                                if (item.Type is "assistant" or "turn_completed") draft = "";
+                                if (item.Type is "assistant" or "turn_completed" or "turn_cancelled") draft = "";
+                                if (provider == ChatProviderKind.OpenAiAgents && item.Type == "file") await LoadArtifactsAsync();
                             }
                             else if (frameKind == "recovery" && JsonSerializer.Deserialize<ChatSnapshot>(frameData) is { } recovery) { recoveryAt = recovery.RecoveryLastAttemptUtc; recoveryResult = recovery.RecoveryResult; }
                             else if (frameKind == "text-delta") draft = JsonSerializer.Deserialize<ChatDelta>(frameData)?.Text ?? "";
@@ -423,7 +465,7 @@ else
         try
         {
             using var api = Commands;
-            using var response = await api.PostAsJsonAsync($"{Route}/new", new ChatNewRequest(conversation), cancellation.Token);
+            using var response = await api.PostAsJsonAsync($"{Route}/new", new ChatNewRequest(conversation, nextProfile), cancellation.Token);
             response.EnsureSuccessStatusCode();
             var snapshot = await response.Content.ReadFromJsonAsync<ChatSnapshot>(cancellation.Token);
             if (snapshot is not null)
@@ -434,6 +476,54 @@ else
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { error = "The archive response was interrupted. Reload the current conversation before trying again."; }
         finally { busy = false; }
     }
+    private Task CancelRemoteAsync() => UnresolvedMessageId is { } active
+        ? ProviderCommandAsync("cancel", new ChatCancelRequest(conversation, active), "Unable to request cancellation for this turn.")
+        : Task.CompletedTask;
+
+    private Task CleanupRemoteAsync() => ProviderCommandAsync("remote-cleanup", new ChatNewRequest(conversation),
+        "Unable to request remote cleanup for this conversation.");
+
+    private async Task ProviderCommandAsync<T>(string command, T request, string failure)
+    {
+        if (busy || conversation == Guid.Empty) return;
+        busy = true; error = null;
+        try
+        {
+            using var api = Commands;
+            using var response = await api.PostAsJsonAsync($"{Route}/{command}", request, cancellation.Token);
+            if (!response.IsSuccessStatusCode) error = failure;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { error = failure; }
+        finally { busy = false; }
+    }
+
+    private async Task LoadArtifactsAsync()
+    {
+        try
+        {
+            using var api = Api;
+            artifacts = await api.GetFromJsonAsync<ChatProviderArtifact[]>($"{Route}/artifacts?conversationId={conversation}", cancellation.Token) ?? [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            Logger.LogDebug("Conversation artifacts could not be listed: {FailureType}", ex.GetType().Name);
+        }
+    }
+
+    private async Task DownloadArtifactAsync(ChatProviderArtifact artifact)
+    {
+        if (module is null) return;
+        try
+        {
+            using var api = Api;
+            await using var bytes = await api.GetStreamAsync($"{Route}/artifacts/{artifact.Id}?conversationId={conversation}", cancellation.Token);
+            using var file = new DotNetStreamReference(bytes);
+            await module.InvokeVoidAsync("downloadArtifact", cancellation.Token, artifact.Name, file);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or JSException or OperationCanceledException)
+        { error = "This artifact could not be downloaded."; }
+    }
+
     private async Task ReconcileAsync()
     {
         busy = true; error = null;

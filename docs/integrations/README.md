@@ -4,6 +4,7 @@
 - [CLI/stdio and client profiles](cli-stdio.md)
 - [Browser-approved integration credential pairing](browser-pairing.md)
 - [NetClaw AI Assistant and MCP](netclaw.md)
+- [OpenAI Agents API](openai-agents.md)
 - [NetRatel system connections](netratel-pairing.md)
 - [NetRatel orchestrator](netratel-orchestrator.md)
 - [Mailbox ingestion and delivery](mailbox-ingestion.md)

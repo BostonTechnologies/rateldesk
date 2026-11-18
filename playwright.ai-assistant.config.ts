@@ -6,7 +6,7 @@ const newWebCommand = process.env.HELPDESK_AI_ASSISTANT_CONFIGURATION === 'Relea
   : 'dotnet run --no-build --no-launch-profile';
 
 export default defineConfig(base, {
-  testMatch: ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts', '**/ai-parity.spec.ts', '**/ai-ux-corrections.spec.ts', '**/ai-chat-keyboard.spec.ts'],
+  testMatch: ['**/ai-assistant-chat.spec.ts', '**/netclaw-presentation.spec.ts', '**/ai-parity.spec.ts', '**/ai-ux-corrections.spec.ts', '**/ai-chat-keyboard.spec.ts', '**/ai-providers.spec.ts'],
   testIgnore: [],
   // These files reset the same synthetic conversations and stream counters.
   workers: 1,

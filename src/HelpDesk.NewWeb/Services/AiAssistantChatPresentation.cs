@@ -21,11 +21,11 @@ public static class AiAssistantChatPresentation
 
             if (current is null || current.Operator.ConversationId != item.ConversationId) continue;
             if (item.Type == "assistant") current.Responses.Add(item);
-            else if (item.Type == "turn_completed")
+            else if (item.Type is "turn_completed" or "turn_cancelled")
             {
                 var completion = ReadCompletion(item.MetadataJson);
                 if (completion is not null && completion.OperatorMessageId != current.Operator.ClientMessageId) continue;
-                if (completion is not null) current.NativeTurns.Add(completion);
+                if (completion is { Version: 1 }) current.NativeTurns.Add(completion);
                 current.Completed = (completion?.PendingChildRunIds ?? completion?.OpenChildRunIds) is not { Length: > 0 } && !current.HasPendingApproval;
                 if (current.Completed) current = null;
             }
@@ -40,7 +40,7 @@ public static class AiAssistantChatPresentation
                 if (item.Type == "tool_call") operation.Call = item;
                 else operation.Result = item;
             }
-            else if (item.Type is "approval_request" or "approval_response" or "error" or "file" or "usage" or "processing_state" or "compaction" or "subagent")
+            else if (item.Type is "approval_request" or "approval_response" or "approval_closed" or "approval_executed" or "approval_denied" or "error" or "file" or "usage" or "processing_state" or "compaction" or "subagent")
                 current.Activity.Add(item);
         }
         return turns;
@@ -65,7 +65,7 @@ public sealed class ChatTurn(AiAssistantChatEvent message)
     public bool HasError => Activity.Any(x => x.Type == "error") || Operations.Any(x => x.Metadata?.Outcome == "failed")
         || NativeTurns.Any(x => x.TurnOutcome == "failed");
     public bool HasPendingApproval => Activity.Any(x => x.Type == "approval_request"
-        && !Activity.Any(answer => answer.Type == "approval_response" && answer.CallId == x.CallId));
+        && !Activity.Any(answer => answer.Type is ("approval_response" or "approval_closed") && answer.CallId == x.CallId));
     public bool InitiallyExpanded => !Completed || HasError || HasPendingApproval;
     public string Summary => $"{Operations.Count} operations"
         + (Operations.Count(x => x.Metadata?.ToolKind == "mcp") is > 0 and var mcp ? $" · {mcp} MCP" : "")

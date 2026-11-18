@@ -55,7 +55,7 @@
                 }
             </div>
             <p class="ai-list-note">@(listAvailable ? $"Latest authorized results · {investigations.Count} loaded" : busy ? "Loading recent history…" : "History is unavailable. Refresh to try again.")</p>
-            <AuthorizeView Roles="HelpdeskAdmin"><a class="ai-connection-link" href="/admin/automation/integration/netclaw"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />Netclaw connection</a></AuthorizeView>
+            <AuthorizeView Roles="HelpdeskAdmin"><a class="ai-connection-link" href="/admin/integration?tab=ai-providers"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" />AI Providers</a></AuthorizeView>
         </aside>
         <section class="ai-conversation" aria-label="Investigation workspace">
             @if (creating)
@@ -70,6 +70,8 @@
                     }
                     else
                     {
+                        <ChatProviderSelector Profiles="@(chatCapabilities?.Profiles ?? [])" @bind-Value="providerProfileId" Disabled="busy" />
+                        @if (chatCapabilities is { Enabled: false }) { <p role="status">@chatCapabilities.Reason</p> }
                         <label>Investigation title<input @bind="title" @bind:event="oninput" maxlength="200" placeholder="For example: investigate recurring email delivery failures" disabled="@busy" /></label>
                         <form class="ai-search" @onsubmit="FindTickets" @onsubmit:preventDefault>
                             <label for="investigation-ticket-search">Find tickets</label>
@@ -138,6 +140,8 @@
     private List<AiContextTicketDto> tickets = [];
     private List<AiPromptDto> prompts = [];
     private AiInvestigationDto? selected;
+    private ChatCapabilities? chatCapabilities;
+    private Guid? providerProfileId;
     private string organization = "", title = "", search = "", ticketSearch = "", statusFilter = "all";
     private string? error;
     private bool busy, creating, initialized, listAvailable;
@@ -236,13 +240,14 @@
     {
         if (busy) return;
         var current = ++generation; busy = true; error = null;
-        organization = value; investigations = []; ticketIds.Clear(); promptIds.Clear(); tickets = []; prompts = []; ticketSearch = ""; creationId = Guid.NewGuid();
+        organization = value; chatCapabilities = null; providerProfileId = null; investigations = []; ticketIds.Clear(); promptIds.Clear(); tickets = []; prompts = []; ticketSearch = ""; creationId = Guid.NewGuid();
         if (selected?.OrganizationId != value) selected = null;
         try
         {
             await LoadList(current);
             if (value.Length > 0)
             {
+                chatCapabilities = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<ChatCapabilities>($"api/v1/ai/chat/organizations/{Uri.EscapeDataString(value)}/capabilities");
                 var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(value)}") ?? [];
                 if (current != generation) return;
                 prompts = loaded.Where(x => !x.Archived).ToList();
@@ -303,12 +308,12 @@
     }
     private async Task Create()
     {
-        if (busy || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0) return;
+        if (busy || chatCapabilities?.Enabled == false || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0) return;
         var current = generation;
         busy = true; error = null;
         try
         {
-            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray()));
+            using var response = await Clients.CreateClient("SystemPairingApi").PostAsJsonAsync("api/v1/ai/ops/investigations", new CreateAiInvestigationDto(creationId, organization, title, ticketIds.ToArray(), promptIds.ToArray(), providerProfileId));
             if (current != generation) return;
             if (!response.IsSuccessStatusCode) { error = "Unable to save context. Check ticket access, prompt revisions, PostgreSQL availability and context size. Your selections are preserved."; return; }
             var savedId = creationId;

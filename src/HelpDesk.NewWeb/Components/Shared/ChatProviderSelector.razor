@@ -1,0 +1,21 @@
+@using Helpdesk.Shared.AiAssistant.Chat
+
+@if (Profiles.Count > 1)
+{
+    <MudSelect T="Guid?" Label="@Label" Value="Value" ValueChanged="ValueChanged" Margin="Margin.Dense" Dense="true"
+               Disabled="Disabled" Class="chat-provider-picker">
+        <MudSelectItem T="Guid?" Value="@((Guid?)null)">Organization default</MudSelectItem>
+        @foreach (var profile in Profiles)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)profile.Id)">@profile.Name@(profile.Model is { } model ? $" · {model}" : "")</MudSelectItem>
+        }
+    </MudSelect>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<ChatProviderProfile> Profiles { get; set; } = [];
+    [Parameter] public Guid? Value { get; set; }
+    [Parameter] public EventCallback<Guid?> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Label { get; set; } = "AI provider";
+}
