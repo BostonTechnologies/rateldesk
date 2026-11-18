@@ -11,7 +11,6 @@ namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
 internal sealed class OpenAiAgentsClient(HttpClient http, OpenAiAgentsConfiguration configuration) : IChatProviderSession
 {
-    internal const string ClientName = "OpenAiAgents";
     private const string Sessions = "agents/sessions";
     private const int MaxResponseBytes = 4 * 1024 * 1024;
     private const int MaxPages = 250;

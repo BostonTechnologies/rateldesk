@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
-internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProfiles profiles, IHttpClientFactory http,
+internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProfiles profiles, OpenAiAgentsHttpClient http,
     IChatProviderMcpAuthority authority, IChatLiveFeed feed, TimeProvider clock, ILogger<OpenAiChatRun> logger)
 {
     private DateTimeOffset Now => clock.GetUtcNow();
@@ -37,7 +37,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             var token = deadline.Token;
             var (profile, revision) = await profiles.ResolveAsync(conversation, token);
             observationMinutes = profile.ObservationMinutes;
-            using var client = http.CreateClient(OpenAiAgentsClient.ClientName);
+            var client = http.Client;
             if (dispatch.State == OpenAiDispatchState.Queued && dispatch.CancelRequestedAtUtc is not null)
             {
                 await MarkTerminalAsync(dispatch, "turn_cancelled", "The OpenAI turn was cancelled before it was submitted.", token);
@@ -294,7 +294,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             if (conversation.AiAssistantSessionId is { } session)
             {
                 var (settings, revision) = await profiles.ResolveAsync(conversation, timeout.Token);
-                using var client = http.CreateClient(OpenAiAgentsClient.ClientName);
+                var client = http.Client;
                 var adapter = new OpenAiAgentsClient(client, profiles.CreateConfiguration(settings, revision, null));
                 await adapter.DeleteAsync(session, timeout.Token);
             }

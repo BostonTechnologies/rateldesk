@@ -49,7 +49,7 @@ public static class AiProviderAdministrationEndpoints
             await profiles.SetDefaultAsync(request.ProfileId, ct);
             return Results.NoContent();
         });
-        group.MapPost("/openai/{id:guid}/verify", (Guid id, [FromServices] OpenAiChatProfiles profiles, IHttpClientFactory http, CancellationToken ct) =>
+        group.MapPost("/openai/{id:guid}/verify", (Guid id, [FromServices] OpenAiChatProfiles profiles, [FromServices] OpenAiAgentsHttpClient http, CancellationToken ct) =>
             profiles.VerifyAsync(id, http, ct));
     }
 }

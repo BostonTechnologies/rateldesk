@@ -168,8 +168,7 @@ public sealed class OpenAiChatWorkerTests(ChatPostgresFixture database) : IClass
         public async Task ProcessAsync(Guid id, Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> server)
         {
             await using var db = database.Context();
-            var http = Substitute.For<IHttpClientFactory>();
-            http.CreateClient(OpenAiAgentsClient.ClientName).Returns(_ => Client(server));
+            using var http = new OpenAiAgentsHttpClient(Client(server));
             var worker = new OpenAiChatRun(db, Profiles(db), http, Authority, new ChatLiveFeed(), TimeProvider.System,
                 NullLogger<OpenAiChatRun>.Instance);
             await worker.ProcessAsync(id, default);

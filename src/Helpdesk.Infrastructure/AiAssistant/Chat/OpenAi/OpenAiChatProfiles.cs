@@ -199,7 +199,7 @@ public sealed class OpenAiChatProfiles(HelpdeskDbContext db, IAiAssistantChatRun
         return new(key, settings.Model, settings.Instructions, settings.Project, settings.OpenAiOrganization, environment, tools.ToArray(), settings.SubagentLimit);
     }
 
-    public async Task<string> VerifyAsync(Guid id, IHttpClientFactory http, CancellationToken ct)
+    public async Task<string> VerifyAsync(Guid id, OpenAiAgentsHttpClient http, CancellationToken ct)
     {
         var profile = await db.Set<OpenAiChatProfile>().SingleOrDefaultAsync(row => row.Id == id, ct)
             ?? throw new KeyNotFoundException("Provider profile not found.");
@@ -208,8 +208,7 @@ public sealed class OpenAiChatProfiles(HelpdeskDbContext db, IAiAssistantChatRun
         var config = CreateConfiguration(settings, row, null);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
-        using var client = http.CreateClient(OpenAiAgentsClient.ClientName);
-        var adapter = new OpenAiAgentsClient(client, config);
+        var adapter = new OpenAiAgentsClient(http.Client, config);
         var result = await adapter.CheckReadAccessAsync(deadline.Token);
         profile.LastVerifiedAtUtc = clock.GetUtcNow();
         profile.LastVerification = result;
