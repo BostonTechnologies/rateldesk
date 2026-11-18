@@ -109,18 +109,17 @@ internal sealed partial class OpenAiChatRun
         if (!matching && row.State == OpenAiDecisionState.AnswerReady && row.Approved == true) return;
         var decision = row.State == OpenAiDecisionState.AnswerReady ? new ProviderDecision(row.Approved == true, row.Result)
             : await ResolveDecisionAsync(conversation, dispatch, row, action, matching, ct);
-        if (!matching && decision.Approved) return;
+        if (decision is null || (!matching && decision.Approved)) return;
         await adapter.RespondAsync(conversation.AiAssistantSessionId!, "approval-" + row.CallId, action, decision, ct);
-        await ChangeDecisionAsync(dispatch, row.CallId, current =>
-        {
-            current.State = OpenAiDecisionState.Answered;
-        }, ct);
+        await ChangeDecisionAsync(dispatch, row.CallId, OpenAiDecisionState.AnswerReady,
+            current => current.State = OpenAiDecisionState.Answered, ct);
     }
 
-    private async Task<ProviderDecision> ResolveDecisionAsync(AiAssistantChatConversation conversation, OpenAiChatDispatch dispatch,
+    private async Task<ProviderDecision?> ResolveDecisionAsync(AiAssistantChatConversation conversation, OpenAiChatDispatch dispatch,
         OpenAiChatDecision row, ProviderPendingAction action, bool exact, CancellationToken ct)
     {
         ProviderDecision result;
+        var expected = row.State;
         if (row.State == OpenAiDecisionState.Executing)
             result = new(false, "RatelDesk restarted before recording the outcome. Check the incident before taking further action.");
         else if (!exact || row.ActorId != dispatch.ActorId || row.ExpiresAtUtc <= Now || row.Approved != true)
@@ -134,9 +133,12 @@ internal sealed partial class OpenAiChatRun
                 result = new(true);
             else
             {
-                var claimed = await ChangeDecisionAsync(dispatch, row.CallId, decision => decision.State = OpenAiDecisionState.Executing, ct);
                 var note = OpenAiWorklogAction.Read(action.Arguments);
-                if (!claimed || note is null) return new(false, "The approved request changed before execution.");
+                if (note is null) return null;
+                var claimed = await ChangeDecisionAsync(dispatch, row.CallId, OpenAiDecisionState.Decided,
+                    decision => decision.State = OpenAiDecisionState.Executing, ct);
+                if (!claimed) return null;
+                expected = OpenAiDecisionState.Executing;
                 try
                 {
                     result = await authority.WriteInternalNoteAsync(conversation, credential, note.IncidentId, note.Note, ct);
@@ -149,23 +151,24 @@ internal sealed partial class OpenAiChatRun
                 }
             }
         }
-        await ChangeDecisionAsync(dispatch, row.CallId, current =>
+        var saved = await ChangeDecisionAsync(dispatch, row.CallId, expected, current =>
         {
             current.State = OpenAiDecisionState.AnswerReady;
             current.Approved = result.Approved;
             current.Result = result.Result;
         }, ct, result.Result);
-        return result;
+        return saved ? result : null;
     }
 
-    private async Task<bool> ChangeDecisionAsync(OpenAiChatDispatch dispatch, string id, Action<OpenAiChatDecision> change,
-        CancellationToken ct, string? outcome = null)
+    private async Task<bool> ChangeDecisionAsync(OpenAiChatDispatch dispatch, string id, OpenAiDecisionState expected,
+        Action<OpenAiChatDecision> change, CancellationToken ct, string? outcome = null)
     {
         db.ChangeTracker.Clear();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(dispatch.ConversationId, ct);
         if (conversation.ActiveMessageId != dispatch.MessageId || conversation.State == ChatState.Archived) return false;
         var decision = await db.Set<OpenAiChatDecision>().SingleAsync(item => item.ConversationId == conversation.Id && item.CallId == id, ct);
+        if (decision.State != expected) return false;
         change(decision);
         if (outcome is not null)
             AppendProviderEvent(conversation, dispatch, decision.Approved == true ? "approval_executed" : "approval_denied",
