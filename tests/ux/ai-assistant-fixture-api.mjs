@@ -118,7 +118,7 @@ http.createServer(async (req, res) => {
   const orgRoute = url.pathname.match(/^\/api\/v1\/ai\/chat\/organizations\/([^/]+)(.*)$/);
   if (orgRoute) {
     const [, org, suffix] = orgRoute;
-    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true, setupUrl: '/admin/automation/integration/netclaw', ...capabilityFields() });
+    if (suffix === '/capabilities') return reply({ enabled: true, canWrite: true, setupUrl: '/admin/integration?tab=ai-providers', ...capabilityFields() });
     if (suffix === '/connection') return reply(connectionStatus(org, url.searchParams.get('conversationId')));
     if (suffix.startsWith('/conversations/')) {
       const row = generalChats.get(suffix.split('/')[2]);

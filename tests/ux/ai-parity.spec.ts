@@ -100,7 +100,7 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await expect(page.getByRole('heading', { name: 'What would you like to work on?' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Conversation title', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save chat', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Netclaw connection', exact: true })).toHaveAttribute('href', '/admin/automation/integration/netclaw');
+  await expect(page.getByRole('link', { name: 'AI Providers', exact: true })).toHaveAttribute('href', '/admin/integration?tab=ai-providers');
   await page.getByRole('button', { name: 'Explore a question', exact: false }).click();
   await expect(input).toHaveValue('Help me work through an operational question. Ask me what I want to understand or achieve.');
   const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
