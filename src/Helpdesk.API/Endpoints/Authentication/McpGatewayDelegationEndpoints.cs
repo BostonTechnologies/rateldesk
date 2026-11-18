@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Helpdesk.API.Authentication;
+using Helpdesk.API.Services.AiAssistant;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Services;
@@ -27,6 +29,7 @@ public static class McpGatewayDelegationEndpoints
             RatelDeskIdentityDbContext identityDb,
             ICurrentUserAccessService accessService,
             McpExecutionTokenService executionTokens,
+            HelpdeskDbContext db,
             CancellationToken ct) =>
         {
             var resourceUri = CanonicalResourceUri(context.Request.Headers[ResourceHeader].ToString());
@@ -40,6 +43,8 @@ public static class McpGatewayDelegationEndpoints
                 .ConfigureAwait(false);
             if (credential is null || !string.Equals(credential.McpResourceUri, resourceUri, StringComparison.Ordinal))
                 return Results.Forbid();
+
+            if (!await OpenAiChatMcpAuthority.ValidateBindingAsync(db, credential, ct)) return Results.Forbid();
 
             var owner = await identityDb.Users.AsNoTracking()
                 .SingleOrDefaultAsync(user => user.Id == credential.OwnerUserId, ct)

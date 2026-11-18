@@ -56,6 +56,7 @@ public static class AiAgentOrOwnerMcpServiceCollectionExtensions
 {
     public static IServiceCollection AddAiAgentOrOwnerMcp(this IServiceCollection services)
     {
+        services.AddScoped<Helpdesk.Application.AiAssistant.Chat.IChatProviderMcpAuthority, Services.AiAssistant.OpenAiChatMcpAuthority>();
         services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, AiAgentOrOwnerMcpAuthenticationHandler>(
             AiAgentOrOwnerMcpAuthenticationHandler.SchemeName, _ => { });
         services.AddAuthorization(options => options.AddPolicy(AiAgentOrOwnerMcpAuthenticationHandler.PolicyName,

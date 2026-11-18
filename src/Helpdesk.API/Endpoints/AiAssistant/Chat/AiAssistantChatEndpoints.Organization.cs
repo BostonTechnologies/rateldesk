@@ -54,8 +54,16 @@ public static partial class AiAssistantChatEndpoints
             if (failure is not null) return failure;
             if (!ctx.HttpContext.Request.Path.Value!.EndsWith("/capabilities", StringComparison.Ordinal)
                 && !ctx.HttpContext.Request.Path.Value!.EndsWith("/connection", StringComparison.Ordinal)
-                && (!db.Database.IsNpgsql() || !services.GetRequiredService<IAiAssistantChatRuntimeState>().Current.Enabled))
-                return Results.Problem("Organization chat requires PostgreSQL and an enabled Netclaw connection.", statusCode: 503);
+                && !db.Database.IsNpgsql())
+                return Results.Problem("Organization chat requires PostgreSQL.", statusCode: 503);
+            if (HttpMethods.IsPost(ctx.HttpContext.Request.Method) &&
+                (ctx.HttpContext.Request.Path.Value!.EndsWith("/new", StringComparison.Ordinal) ||
+                 ctx.HttpContext.Request.Path.Value.EndsWith("/start", StringComparison.Ordinal)))
+            {
+                var runtime = services.GetRequiredService<IAiAssistantChatRuntimeState>();
+                var capabilities = await ProviderCapabilitiesAsync(ctx.HttpContext, db, runtime, org, true, false, ctx.HttpContext.RequestAborted);
+                if (!capabilities.Enabled) return Results.Problem(capabilities.Reason, statusCode: 503);
+            }
             try { return await next(ctx); }
             catch (ChatConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
             catch (ArgumentException ex) { return Results.Problem(ex.Message, statusCode: 400); }
@@ -64,10 +72,8 @@ public static partial class AiAssistantChatEndpoints
         group.MapGet("/capabilities", async (string organizationId, HttpContext ctx, HelpdeskDbContext db, ICurrentUserAccessService accessService, IAiAssistantChatRuntimeState runtime, CancellationToken ct) =>
         {
             var access = await accessService.ResolveAsync(ctx.User, ct);
-            return new ChatCapabilities(db.Database.IsNpgsql() && runtime.Current.Enabled,
-                !db.Database.IsNpgsql() ? "Organization chat requires PostgreSQL. Ticket webhook assistance remains available on SQLite."
-                : !runtime.Current.Enabled ? "Connect and enable Netclaw to use organization chat." : null,
-                CanWriteOrganization(access, organizationId), access.IsHelpdeskAdmin ? "/admin/automation/integration/netclaw" : null);
+            return await ProviderCapabilitiesAsync(ctx, db, runtime, organizationId,
+                CanWriteOrganization(access, organizationId), access.IsHelpdeskAdmin, ct);
         });
         group.MapGet("/history", (string organizationId, int? skip, string? q, bool? archived, IAiAssistantChatStore store, CancellationToken ct) =>
             store.HistoryAsync(ChatScope.Organization(organizationId), skip ?? 0, q, archived ?? true, ct));
@@ -122,6 +128,7 @@ public static partial class AiAssistantChatEndpoints
             await transport.RespondAsync(request.ConversationId, callId, request.SelectedKey, ct);
             return Results.Accepted();
         });
+        MapProviderCommands(group, http => ChatScope.Organization(http.Request.RouteValues["organizationId"]!.ToString()!));
         group.MapGet("/stream", (string organizationId, Guid conversationId, long? cursor, HttpContext ctx, IChatLiveFeed feed, IServiceScopeFactory scopes, CancellationToken ct) =>
             StreamCoreAsync(ChatScope.Organization(organizationId), conversationId, cursor, ctx, feed, scopes, ct));
     }

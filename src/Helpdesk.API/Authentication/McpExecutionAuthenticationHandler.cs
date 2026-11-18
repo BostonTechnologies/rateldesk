@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.API.Services.AiAssistant;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Shared.Services;
 using Helpdesk.Shared.Auth;
@@ -104,6 +105,14 @@ public sealed class McpExecutionAuthenticationHandler(
             claims.Add(new Claim("integration_organization_id", credential.OrganizationId));
         foreach (var permission in credential.Permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             claims.Add(new Claim("integration_permission", permission));
+
+        if (credential.Purpose == IntegrationCredentialAuthenticationHandler.McpPurpose &&
+            await OpenAiChatMcpAuthority.IsSessionCredentialAsync(db, credential.Id, Context.RequestAborted) &&
+            (!HttpMethods.IsGet(Request.Method) || !await OpenAiChatMcpAuthority.ValidateBindingAsync(db, credential, Context.RequestAborted)))
+        {
+            Context.Items[PolicyOperationDeniedItem] = true;
+            return AuthenticateResult.Fail("The AI session grant does not allow this operation.");
+        }
 
         var policy = await db.Set<McpAccessPolicy>().AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.CredentialId == credential.Id, Context.RequestAborted)

@@ -129,7 +129,10 @@ public static class AiOpsEndpoints
         var actor = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? ctx.User.FindFirstValue("sub") ?? throw new UnauthorizedAccessException();
         var ids = request.TicketIds.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var promptIds = request.PromptIds.Distinct().Order().ToArray();
-        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { request.OrganizationId, request.Title, ids, promptIds, actor }))));
+        var fingerprintPayload = request.ProviderProfileId is null
+            ? JsonSerializer.Serialize(new { request.OrganizationId, request.Title, ids, promptIds, actor })
+            : JsonSerializer.Serialize(new { request.OrganizationId, request.Title, ids, promptIds, actor, request.ProviderProfileId });
+        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintPayload)));
         var access = await accessService.ResolveAsync(ctx.User, ct);
         var previous = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.Id, ct);
         if (previous is not null)
@@ -150,7 +153,14 @@ public static class AiOpsEndpoints
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({request.Id.ToString()}, 0))", ct);
         if (await db.Set<AiOpsInvestigation>().AnyAsync(x => x.Id == request.Id, ct)) return Results.Conflict();
-        db.Add(new AiAssistantChatConversation { Id = request.Id, OrganizationId = row.OrganizationId, TicketId = row.TicketId, TicketType = row.TicketType, CreatedByUserId = actor, IsInvestigation = true });
+        var conversation = new AiAssistantChatConversation { Id = request.Id, OrganizationId = row.OrganizationId,
+            TicketId = row.TicketId, TicketType = row.TicketType, CreatedByUserId = actor, IsInvestigation = true };
+        if (ctx.RequestServices.GetService<IChatProviderProfiles>() is { } profiles)
+        {
+            try { await profiles.BindNewAsync(conversation, request.ProviderProfileId, ct); }
+            catch (ChatConflictException error) { return Results.Conflict(new { message = error.Message }); }
+        }
+        db.Add(conversation);
         db.Add(row);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);

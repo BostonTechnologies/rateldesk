@@ -18,6 +18,13 @@ public interface IAiAssistantChatClient : IAsyncDisposable
     Task RespondAsync(string sessionId, string callId, string key, CancellationToken ct);
 }
 
+internal static class NetclawObservation
+{
+    public static Task<SessionEnsureResult> ConnectObservedAsync(this IAiAssistantChatClient client, string? sessionId,
+        Func<NetclawOutput, Task> output, CancellationToken ct) =>
+        client.ConnectAsync(sessionId, frame => output(new NetclawOutput(frame)), ct);
+}
+
 public interface IAiAssistantChatClientFactory
 {
     IAiAssistantChatClient Create();

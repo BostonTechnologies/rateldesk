@@ -23,7 +23,7 @@ public sealed partial class AiAssistantChatSessionManager
     }
 
     private async Task<bool> CompleteNativeTurnAsync(HelpdeskDbContext db, AiAssistantChatConversation conversation,
-        Owner owner, JsonElement output, CancellationToken ct)
+        Owner owner, NetclawOutput output, CancellationToken ct)
     {
         var completion = ObserveCompletion(conversation, owner, output);
         if (completion is null) return false;
@@ -45,10 +45,10 @@ public sealed partial class AiAssistantChatSessionManager
         return true;
     }
 
-    private ChatTurnCompletion? ObserveCompletion(AiAssistantChatConversation conversation, Owner owner, JsonElement output)
+    private ChatTurnCompletion? ObserveCompletion(AiAssistantChatConversation conversation, Owner owner, NetclawOutput output)
     {
         var previous = owner.Continuation;
-        var completion = ChatContinuationSafety.Parse(output, owner.MessageId
+        var completion = output.Complete(owner.MessageId
             ?? throw new InvalidOperationException("Native output has no admitted operator request."), previous?.ObservationExpiresAtUtc);
         // Completion ordinals are native identities, unlike text. Equal answers
         // in two different turns are legitimate and must both remain in history.
@@ -107,8 +107,8 @@ public sealed partial class AiAssistantChatSessionManager
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         var attachedIds = owners.Keys.ToArray();
         var candidates = await db.Set<AiAssistantChatConversation>().AsNoTracking()
-            .Where(x => x.State == ChatState.WaitingForChildren || x.State == ChatState.AwaitingApproval
-                || x.State == ChatState.Processing || x.State == ChatState.DeliveryUnknown && attachedIds.Contains(x.Id))
+            .Where(x => x.ProviderKind == ChatProviderKind.Netclaw && (x.State == ChatState.WaitingForChildren || x.State == ChatState.AwaitingApproval
+                || x.State == ChatState.Processing || x.State == ChatState.DeliveryUnknown && attachedIds.Contains(x.Id)))
             .Select(x => x.Id).ToListAsync(ct);
         foreach (var id in candidates)
         {

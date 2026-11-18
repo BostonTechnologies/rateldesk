@@ -91,9 +91,9 @@ public sealed class IntegrationCredentialIssuer(
 
     // Construction only: protected delivery must succeed before a pairing tracks this record.
     public (IntegrationCredential Record, IntegrationCredentialEndpoints.CreatedIntegrationCredential Delivery)
-        Create(ValidatedCredentialGrant grant, DateTimeOffset now)
+        Create(ValidatedCredentialGrant grant, DateTimeOffset now, Guid? credentialId = null)
     {
-        var id = Guid.NewGuid();
+        var id = credentialId ?? Guid.NewGuid();
         var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var record = new IntegrationCredential
         {

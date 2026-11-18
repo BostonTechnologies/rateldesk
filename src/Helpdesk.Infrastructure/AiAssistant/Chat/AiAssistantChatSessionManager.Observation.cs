@@ -30,8 +30,10 @@ public sealed partial class AiAssistantChatSessionManager
         owner.ProfileFingerprint == runtime.Current.ProfileFingerprint;
 
     internal static bool MatchesStoppedTerminal(int? previous, JsonElement output) =>
-        previous is >= 0 and < int.MaxValue && output.TryGetProperty("turnNumber", out var turn) &&
-        turn.ValueKind == JsonValueKind.Number && turn.TryGetInt32(out var ordinal) && ordinal == previous + 1;
+        MatchesStoppedTerminal(previous, new NetclawOutput(output));
+
+    private static bool MatchesStoppedTerminal(int? previous, NetclawOutput output) =>
+        previous is >= 0 and < int.MaxValue && output.TurnOrdinal == previous + 1;
 
     private static async Task<int?> LatestNativeOrdinalAsync(HelpdeskDbContext db, Guid id, CancellationToken ct)
     {
@@ -66,9 +68,9 @@ public sealed partial class AiAssistantChatSessionManager
     }
 
     private async Task CloseSavedApprovalAsync(HelpdeskDbContext db, AiAssistantChatConversation conversation,
-        Owner owner, JsonElement output, string callId, CancellationToken ct)
+        Owner owner, NetclawOutput output, string callId, CancellationToken ct)
     {
-        var kind = Value(output, "interactionCloseKind");
+        var kind = output.CloseKind;
         if (kind is not ("answered" or "withdrawn")) return;
         var active = await db.Set<AiAssistantChatEvent>().AnyAsync(x => x.ConversationId == conversation.Id &&
             x.Type == "approval_request" && x.CallId == callId &&
@@ -90,17 +92,6 @@ public sealed partial class AiAssistantChatSessionManager
 
     private static bool IsMeaningfulOutput(string? type) => type is "text" or "text_delta" or "buffer_flush" or "turn_completed" or
         "tool_call" or "tool_result" or "tool_interaction" or "tool_interaction_closed" or "error" or "subagent" or "file";
-
-    private static string NativeErrorCategory(JsonElement output) => Value(output, "errorCategory") switch
-    {
-        "ProviderFailure" => "ProviderFailure",
-        "ToolFailure" => "ToolFailure",
-        "SessionFailure" => "SessionFailure",
-        _ => "UnknownError"
-    };
-
-    private static string? NativeErrorCorrelation(JsonElement output) =>
-        Guid.TryParse(Value(output, "errorCorrelationId"), out var reference) ? reference.ToString("N") : null;
 
     private void ObserveLifecycle(string phase, AiAssistantChatConversation conversation, Owner owner, string? outcome = null, string? nativeCorrelation = null)
     {

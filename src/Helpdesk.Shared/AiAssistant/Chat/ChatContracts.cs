@@ -17,6 +17,10 @@ public sealed class AiAssistantChatConversation
     public string? TicketId { get; set; }
     public string? TicketType { get; set; }
     public string? AiAssistantSessionId { get; set; }
+    public ChatProviderKind ProviderKind { get; set; }
+    public Guid? ProviderProfileId { get; set; }
+    public int? ProviderRevision { get; set; }
+    public string? ProviderActorId { get; set; }
     public string? ProviderProfileFingerprint { get; set; }
     public ChatState State { get; set; }
     public long LastSequence { get; set; }
@@ -53,10 +57,10 @@ public sealed class AiAssistantChatInteraction
 
 public sealed record ChatMessageRequest(Guid ConversationId, Guid ClientMessageId, string Text);
 public sealed record ChatApprovalRequest(Guid ConversationId, string SelectedKey);
-public sealed record ChatNewRequest(Guid ConversationId);
+public sealed record ChatNewRequest(Guid ConversationId, Guid? ProviderProfileId = null);
 public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long LastSequence, IReadOnlyList<AiAssistantChatEvent> Events,
     DateTimeOffset? RecoveryLastAttemptUtc = null, string? RecoveryResult = null, ChatTurnCompletion? Continuation = null,
-    Guid? ActiveMessageId = null);
+    Guid? ActiveMessageId = null, ChatProviderKind Provider = ChatProviderKind.Netclaw, Guid? ProviderProfileId = null);
 // Association lives in event metadata, not ClientMessageId: that column identifies
 // an admission exactly once through its unique (conversation, message) index.
 public sealed record ChatTurnCompletion(Guid OperatorMessageId, int? TurnNumber, string? TurnOutcome,
@@ -66,7 +70,7 @@ public sealed record ChatOutputAssociation(Guid OperatorMessageId, int? AfterNat
 public sealed record ChatOption(string Key, string Label);
 public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, string? ProviderName,
     string? SkillName, long? DurationMs, string Outcome,
-    ChatTraceDetails? Details = null);
+    ChatTraceDetails? Details = null, ChatProviderEventMetadata? ProviderEvent = null);
 public sealed record ChatTraceDetails(int Version = 1, DateTimeOffset? SourceTimestampUtc = null,
     string? Arguments = null, string? Result = null, string? FailureCode = null,
     bool Redacted = false, bool Truncated = false, string? Measures = null, string? ToolName = null);
@@ -75,14 +79,14 @@ public sealed record ChatAbandonRequest(Guid ConversationId, Guid ResolutionId, 
 public sealed record ChatStopWaitingRequest(Guid ConversationId, Guid ExpectedMessageId);
 public sealed record ChatConversationSummary(Guid ConversationId, ChatState State, DateTimeOffset LastActivityUtc, string CreatedByUserId,
     string? Title = null, string? OrganizationId = null);
-public sealed record ChatCreateRequest(Guid ConversationId, string Title, Guid[] PromptIds);
-public sealed record ChatStartRequest(Guid ConversationId, Guid ClientMessageId, string Text, Guid[] PromptIds);
-public sealed record ChatOrganizationConversation(Guid ConversationId, string OrganizationId, string Title, string GuidanceSnapshot, ChatState State);
+public sealed record ChatCreateRequest(Guid ConversationId, string Title, Guid[] PromptIds, Guid? ProviderProfileId = null);
+public sealed record ChatStartRequest(Guid ConversationId, Guid ClientMessageId, string Text, Guid[] PromptIds, Guid? ProviderProfileId = null);
+public sealed record ChatOrganizationConversation(Guid ConversationId, string OrganizationId, string Title, string GuidanceSnapshot, ChatState State, ChatProviderKind Provider = ChatProviderKind.Netclaw, Guid? ProviderProfileId = null);
 
-public sealed record ChatCapabilities(bool Enabled, string? Reason, bool CanWrite = true, string? SetupUrl = null);
+public sealed record ChatCapabilities(bool Enabled, string? Reason, bool CanWrite = true, string? SetupUrl = null, IReadOnlyList<ChatProviderProfile>? Profiles = null, bool CanViewHistory = false);
 public enum ChatTransportConnectionState { Unknown, Connected, Disconnected }
 public sealed record ChatSessionConnection(Guid ConversationId, string SessionId, ChatTransportConnectionState State,
     DateTimeOffset AuthenticatedAtUtc, DateTimeOffset? LastActivityUtc);
 public sealed record ChatConnectionStatus(string OrganizationId, bool Enabled, string? Endpoint, string Source, int Revision, DateTimeOffset? LastTestedAtUtc,
     bool? LastTestSucceeded, DateTimeOffset ObservedAtUtc, bool ObservationAvailable,
-    IReadOnlyList<ChatSessionConnection> Sessions, string? SetupUrl);
+    IReadOnlyList<ChatSessionConnection> Sessions, string? SetupUrl, ChatProviderProfile? Profile = null);
