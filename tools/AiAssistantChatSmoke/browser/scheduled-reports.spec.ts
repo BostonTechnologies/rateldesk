@@ -140,8 +140,10 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     expect(nativeTerminal).toHaveLength(1);
     expect(nativeInput).toHaveLength(1);
     expect(native.some(line => line.includes(reminderId) && line.includes('origin=SignalR'))).toBe(true);
-    expect(native.some(line => line.includes('turn_received channel=signalr sender=reminder-system'))).toBe(true);
-    if (mode === 'buffered') expect(native.some(line => line.includes('turn_buffer_drain'))).toBe(true);
+    const route = mode === 'buffered' ? 'turn_buffer_drain' : 'turn_received channel=signalr sender=reminder-system';
+    const routing = native.filter(line => line.includes(route) && line.includes('[ChannelType=signalr]')
+      && line.includes(`[TurnId=${final.SourceReminderId}]`));
+    expect(routing).toHaveLength(1);
 
     await page.reload();
     await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
@@ -154,11 +156,12 @@ for (const [scope, mode] of [['organization', 'post-parent'], ['ticket', 'buffer
     await page.screenshot({ path: testInfo.outputPath('02-ready-reload.png') });
     const receipt = {
       scope, mode, appVersion, nativeVersion, organizationId, conversationId: id, sessionId, marker, reminderId,
-      operator: { id: final.OperatorMessageId, sequence: operator[0].sequence, acceptedUtc: operator[0].createdUtc },
-      parent: { nativeTurn: metadata(parent[0]).TurnNumber, sequence: parent[0].sequence, savedUtc: parent[0].createdUtc, pending: 1 },
-      dispatch, nativeFinal: nativeFinal[0], nativeTerminal: nativeTerminal[0],
-      final: { fireKey: final.SourceReminderId, replySequence: reports[0].sequence, replyUtc: reports[0].createdUtc,
-        terminalSequence: terminals[1].sequence, terminalUtc: terminals[1].createdUtc, pending: 0, state: 'Ready' },
+      operator: { id: final.OperatorMessageId, sequence: operator[0].sequence, acceptedUtc: new Date(operator[0].createdUtc).toISOString() },
+      parent: { nativeTurn: metadata(parent[0]).TurnNumber, sequence: parent[0].sequence,
+        savedUtc: new Date(parent[0].createdUtc).toISOString(), pending: 1 },
+      dispatch, routing: routing[0], nativeFinal: nativeFinal[0], nativeTerminal: nativeTerminal[0],
+      final: { fireKey: final.SourceReminderId, replySequence: reports[0].sequence, replyUtc: new Date(reports[0].createdUtc).toISOString(),
+        terminalSequence: terminals[1].sequence, terminalUtc: new Date(terminals[1].createdUtc).toISOString(), pending: 0, state: 'Ready' },
       readyAfterReload: true, composerEnabledAfterReload: true, operatorAdmissions: 1, nativeAdmissions: 1
     };
     await testInfo.attach('receipt', { body: JSON.stringify(receipt, null, 2), contentType: 'application/json' });

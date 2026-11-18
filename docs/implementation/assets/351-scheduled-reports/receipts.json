@@ -1,0 +1,98 @@
+[
+  {
+    "scope": "organization",
+    "mode": "post-parent",
+    "appVersion": "0.1.4-beta.1 (d1ca4028f2105e72e5b1bf992d84944c2e130e4c)",
+    "nativeVersion": "0.28.2 (7419d84f7317dae42783d8a9ed6e353f78f961a8)",
+    "organizationId": "01a1ef5abb6c78dda5f467afc325fb57",
+    "conversationId": "f0381285-e7e5-420e-a307-682b28717999",
+    "sessionId": "signalr/17276ae4bde448c6bf2b2d9383f4af56",
+    "marker": "72fe50cbfc01",
+    "reminderId": "rd-smoke-72fe50cbfc01",
+    "operator": {
+      "id": "9a117398-c38d-4eca-94b0-4a925c31439c",
+      "sequence": 2,
+      "acceptedUtc": "2026-11-18T16:15:06.107241Z"
+    },
+    "parent": {
+      "nativeTurn": 1,
+      "sequence": 11,
+      "savedUtc": "2026-11-18T16:15:06.619516Z",
+      "pending": 1
+    },
+    "dispatch": "16:15:36.432 [INF] akka://netclaw/user/reminder-manager/exec-rd-smoke-72fe50cbfc01-5: [INFO][11/18/2026 16:15:36.432Z][Thread 0036][akka://netclaw/user/reminder-manager/exec-rd-smoke-72fe50cbfc01-5] reminder_current_session_dispatch_acked execution_id=a99df6d0-2cb7-4d6a-af48-28b808b11911 reminder_id=rd-smoke-72fe50cbfc01 session_id=signalr/17276ae4bde448c6bf2b2d9383f4af56",
+    "nativeFinal": "[2026-11-18T16:15:36.7344015+00:00] Assistant: RD-SCHEDULED-FINAL-72fe50cbfc01",
+    "nativeTerminal": "[2026-11-18T16:15:36.7344332+00:00] Turn 2 completed",
+    "final": {
+      "fireKey": "rd-smoke-72fe50cbfc01:1795018536402",
+      "replySequence": 13,
+      "replyUtc": "2026-11-18T16:15:36.792460Z",
+      "terminalSequence": 14,
+      "terminalUtc": "2026-11-18T16:15:36.795145Z",
+      "pending": 0,
+      "state": "Ready"
+    },
+    "readyAfterReload": true,
+    "composerEnabledAfterReload": true,
+    "operatorAdmissions": 1,
+    "nativeAdmissions": 1,
+    "dispatchUtc": "2026-11-18T16:15:36.432Z",
+    "routing": "16:15:36.432 [INF] akka://netclaw/user/session-manager/signalr%2F17276ae4bde448c6bf2b2d9383f4af56: [INFO][11/18/2026 16:15:36.431Z][Thread 0039][akka://netclaw/user/session-manager/signalr%2F17276ae4bde448c6bf2b2d9383f4af56][SessionId=signalr/17276ae4bde448c6bf2b2d9383f4af56][TurnId=rd-smoke-72fe50cbfc01:1795018536402][MessageId=rd-smoke-72fe50cbfc01:1795018536402][ChannelType=signalr] turn_received channel=signalr sender=reminder-system hasMedia=False textChars=46",
+    "postgresReadback": {
+      "state": 0,
+      "lastSequence": 14,
+      "originalAdmission": "9a117398-c38d-4eca-94b0-4a925c31439c",
+      "parentOrdinal": 1,
+      "sourceReminderId": "rd-smoke-72fe50cbfc01:1795018536402",
+      "finalOrdinal": 2
+    }
+  },
+  {
+    "scope": "ticket",
+    "mode": "buffered",
+    "appVersion": "0.1.4-beta.1 (d1ca4028f2105e72e5b1bf992d84944c2e130e4c)",
+    "nativeVersion": "0.28.2 (7419d84f7317dae42783d8a9ed6e353f78f961a8)",
+    "organizationId": "01a1ef5abb6c78dda5f467afc325fb57",
+    "conversationId": "2f7f7f8f-e0eb-4a4d-b119-fb27fbf84e48",
+    "sessionId": "signalr/dbb18442f38e4a068e5e3c0aca06ad5b",
+    "marker": "b13fa5931657",
+    "reminderId": "rd-smoke-b13fa5931657",
+    "operator": {
+      "id": "72a46f03-f272-4fca-8060-171214444c6b",
+      "sequence": 2,
+      "acceptedUtc": "2026-11-18T16:18:23.968835Z"
+    },
+    "parent": {
+      "nativeTurn": 1,
+      "sequence": 11,
+      "savedUtc": "2026-11-18T16:18:56.552943Z",
+      "pending": 1
+    },
+    "dispatch": "16:18:54.463 [INF] akka://netclaw/user/reminder-manager/exec-rd-smoke-b13fa5931657-7: [INFO][11/18/2026 16:18:54.462Z][Thread 0031][akka://netclaw/user/reminder-manager/exec-rd-smoke-b13fa5931657-7] reminder_current_session_dispatch_acked execution_id=a8c6410b-3cf6-4090-a0f0-07f7aa50071f reminder_id=rd-smoke-b13fa5931657 session_id=signalr/dbb18442f38e4a068e5e3c0aca06ad5b",
+    "routing": "16:18:56.483 [INF] akka://netclaw/user/session-manager/signalr%2Fdbb18442f38e4a068e5e3c0aca06ad5b: [INFO][11/18/2026 16:18:56.482Z][Thread 0032][akka://netclaw/user/session-manager/signalr%2Fdbb18442f38e4a068e5e3c0aca06ad5b][SessionId=signalr/dbb18442f38e4a068e5e3c0aca06ad5b][TurnId=rd-smoke-b13fa5931657:1795018734444][MessageId=rd-smoke-b13fa5931657:1795018734444][ChannelType=signalr] turn_buffer_drain count=1",
+    "nativeFinal": "[2026-11-18T16:19:03.7375623+00:00] Assistant: RD-SCHEDULED-FINAL-b13fa5931657",
+    "nativeTerminal": "[2026-11-18T16:19:03.7376456+00:00] Turn 2 completed",
+    "final": {
+      "fireKey": "rd-smoke-b13fa5931657:1795018734444",
+      "replySequence": 13,
+      "replyUtc": "2026-11-18T16:19:03.812824Z",
+      "terminalSequence": 14,
+      "terminalUtc": "2026-11-18T16:19:03.818658Z",
+      "pending": 0,
+      "state": "Ready"
+    },
+    "readyAfterReload": true,
+    "composerEnabledAfterReload": true,
+    "operatorAdmissions": 1,
+    "nativeAdmissions": 1,
+    "dispatchUtc": "2026-11-18T16:18:54.462Z",
+    "postgresReadback": {
+      "state": 0,
+      "lastSequence": 14,
+      "originalAdmission": "72a46f03-f272-4fca-8060-171214444c6b",
+      "parentOrdinal": 1,
+      "sourceReminderId": "rd-smoke-b13fa5931657:1795018734444",
+      "finalOrdinal": 2
+    }
+  }
+]
