@@ -183,13 +183,15 @@ test('manual credential organization selection ignores the native status filter 
  await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeEnabled();
 });
 
-test('ordinary account cannot see host approval entry', async ({ page, request }) => {
+test('ordinary account cannot open host or client approval', async ({ page, request }) => {
  await page.goto('https://127.0.0.1:5191/auth/development');
- await open(page, 'https://127.0.0.1:5191/account/integration-credentials/approve?kind=host');
+ await page.goto('https://127.0.0.1:5191/account/integration-credentials/approve?kind=host');
+ await expect(page.getByRole('heading', { name: 'Access denied', exact: true })).toBeVisible();
  await expect(page.getByLabel('Host code', { exact: true })).toHaveCount(0);
  await expect(page.getByRole('button', { name: 'Review host', exact: true })).toHaveCount(0);
- await expect(page.getByRole('button', { name: 'Review client', exact: true })).toBeVisible();
- expect((await (await request.get(`${fixture}/state`)).json()).calls.filter((c: any) => c.path.includes('host-proposals'))).toHaveLength(0);
+ await expect(page.getByRole('button', { name: 'Review client', exact: true })).toHaveCount(0);
+ await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Integration credentials' })).toHaveCount(0);
+ expect((await (await request.get(`${fixture}/state`)).json()).calls.filter((c: any) => /\/(host-proposals|pairing)\//.test(c.path))).toHaveLength(0);
 });
 
 test('selected inactive cleanup retains only partial failures and survives a fresh list', async ({ page, request }, info) => {
