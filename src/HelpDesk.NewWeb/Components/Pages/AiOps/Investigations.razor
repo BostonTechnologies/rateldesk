@@ -72,6 +72,7 @@
                     {
                         <ChatProviderSelector Profiles="@(chatCapabilities?.Profiles ?? [])" @bind-Value="providerProfileId" Disabled="busy" />
                         @if (chatCapabilities is { Enabled: false }) { <p role="status">@chatCapabilities.Reason</p> }
+                        @if (!busy && chatCapabilities is null) { <p role="status">AI provider options are unavailable. Refresh to try again.</p> }
                         <label>Investigation title<input @bind="title" @bind:event="oninput" maxlength="200" placeholder="For example: investigate recurring email delivery failures" disabled="@busy" /></label>
                         <form class="ai-search" @onsubmit="FindTickets" @onsubmit:preventDefault>
                             <label for="investigation-ticket-search">Find tickets</label>
@@ -112,7 +113,7 @@
                             </details>
                         }
                     }
-                    <div class="ai-create-actions"><button type="button" class="ai-primary" @onclick="Create" disabled="@(busy || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0)">Save investigation context</button>
+                    <div class="ai-create-actions"><button type="button" class="ai-primary" @onclick="Create" disabled="@(!CanSaveContext)">Save investigation context</button>
                         <button type="button" @onclick="CancelCreate" disabled="@busy">Cancel</button></div>
                 </div>
             }
@@ -149,6 +150,8 @@
     private Guid creationId = Guid.NewGuid();
     private readonly HashSet<string> ticketIds = [];
     private readonly HashSet<Guid> promptIds = [];
+    private bool CanSaveContext => !busy && chatCapabilities is { Enabled: true, CanWrite: true }
+        && organization.Length > 0 && !string.IsNullOrWhiteSpace(title) && ticketIds.Count > 0;
     private IEnumerable<AiInvestigationDto> FilteredInvestigations => investigations.Where(x => statusFilter switch
     {
         "active" => x.State is ChatState.Processing or ChatState.WaitingForChildren,
@@ -224,6 +227,7 @@
                 selected = loaded;
             }
             await LoadList(current);
+            if (organization.Length > 0) await LoadChatCapabilities(current);
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
         {
@@ -247,15 +251,30 @@
             await LoadList(current);
             if (value.Length > 0)
             {
-                chatCapabilities = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<ChatCapabilities>($"api/v1/ai/chat/organizations/{Uri.EscapeDataString(value)}/capabilities");
                 var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiPromptDto>>($"api/v1/ai/ops/prompts?organizationId={Uri.EscapeDataString(value)}") ?? [];
                 if (current != generation) return;
                 prompts = loaded.Where(x => !x.Archived).ToList();
                 await LoadTickets(current);
+                await LoadChatCapabilities(current);
             }
         }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { if (current == generation) error = "Unable to load tickets and guidance for this organization. Refresh or select the organization again."; }
         finally { if (current == generation) busy = false; }
+    }
+    private async Task LoadChatCapabilities(int current)
+    {
+        if (current != generation) return;
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            var loaded = await api.GetFromJsonAsync<ChatCapabilities>($"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}/capabilities");
+            if (current == generation) chatCapabilities = loaded;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException
+            or Polly.CircuitBreaker.BrokenCircuitException or Polly.Timeout.TimeoutRejectedException)
+        {
+            if (current == generation) chatCapabilities = null;
+        }
     }
     private void StartCreate() { creating = true; error = null; }
     private void CancelCreate() { creating = false; error = null; }
@@ -308,7 +327,7 @@
     }
     private async Task Create()
     {
-        if (busy || chatCapabilities?.Enabled == false || organization.Length == 0 || string.IsNullOrWhiteSpace(title) || ticketIds.Count == 0) return;
+        if (!CanSaveContext) return;
         var current = generation;
         busy = true; error = null;
         try
