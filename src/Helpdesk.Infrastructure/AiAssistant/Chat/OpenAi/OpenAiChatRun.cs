@@ -242,6 +242,11 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         {
             await codexSession.PrepareAsync(conversation.AiAssistantSessionId!, ct);
             await codexSession.CheckMcpAsync(conversation.AiAssistantSessionId!, ct);
+            if (!await profiles.IsCurrentAsync(conversation, ct) || !await authority.IsGrantUsableAsync(conversation, credentialId, ct))
+            {
+                await MarkTerminalAsync(dispatch, "error", "The ChatGPT connection or scoped tool access changed before dispatch.", ct);
+                return false;
+            }
         }
         var outbound = await OutboundAsync(conversation, dispatch, ct);
         var claimed = await ChangeAsync(dispatch, (row, current) =>

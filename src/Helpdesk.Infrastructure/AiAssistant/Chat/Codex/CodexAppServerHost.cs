@@ -208,12 +208,14 @@ public sealed class CodexAppServerHost(IOptions<CodexAppServerOptions> options) 
         internal SemaphoreSlim Gate { get; } = new(1);
         internal CodexAppServerProcess? Server { get; set; }
         internal Guid? Conversation { get; set; }
+        internal string? OpenedThread { get; set; }
         internal CodexDeviceChallenge? Challenge { get; set; }
     }
 
     internal sealed class RuntimeUse(CodexAppServerHost host, Guid connection, Slot slot) : IAsyncDisposable
     {
         internal CodexDeviceChallenge? Challenge { get => slot.Challenge; set => slot.Challenge = value; }
+        internal string? OpenedThread { get => slot.OpenedThread; set => slot.OpenedThread = value; }
 
         internal async Task<CodexAppServerProcess> OpenAsync(CancellationToken ct, Guid? conversation = null,
             string? resource = null, string? token = null, string[]? tools = null)
@@ -231,6 +233,7 @@ public sealed class CodexAppServerHost(IOptions<CodexAppServerOptions> options) 
             if (slot.Server is not { } server) return;
             slot.Server = null;
             slot.Conversation = null;
+            slot.OpenedThread = null;
             slot.Challenge = null;
             await server.DisposeAsync();
         }

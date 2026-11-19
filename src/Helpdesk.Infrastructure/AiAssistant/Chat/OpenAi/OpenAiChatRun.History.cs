@@ -100,6 +100,10 @@ internal sealed partial class OpenAiChatRun
             var outcome = failed ? "failed" : root.Status == "interrupted" && row.CancelRequestedAtUtc is not null ? "cancelled" : root.Status;
             var label = outcome switch
             {
+                "failed" when root.FailureCode is "usageLimitExceeded" or "sessionBudgetExceeded" or "rateLimitExceeded" =>
+                    "The provider reported a usage or rate limit.",
+                "failed" when root.FailureCode == "unauthorized" => "The provider rejected the account authorization.",
+                "failed" when root.FailureCode == "modelNotFound" => "The configured model was unavailable.",
                 "failed" => "The provider reported a failed turn.",
                 "cancelled" => "The provider confirmed that the turn was cancelled.",
                 "interrupted" => "The Codex turn was interrupted. Review the saved conversation before starting another turn.",

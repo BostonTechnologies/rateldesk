@@ -9,6 +9,7 @@ internal sealed class CodexAppServerSession(ICodexAppServerRpc server, OpenAiCha
 {
     private string? openedThread;
     internal string? LastTurnId { get; set; }
+    internal void UseOpenedThread(string id) => openedThread = id;
 
     internal bool ModelWasRerouted(string session, string turn) =>
         server is CodexAppServerProcess { ModelReroute: { } notice } &&
@@ -138,7 +139,8 @@ internal sealed class CodexAppServerSession(ICodexAppServerRpc server, OpenAiCha
             "inProgress" => "in_progress",
             _ => "unknown"
         };
-        turns.Add(new(id, null, status, Date(turn, "startedAt"), Date(turn, "completedAt"), null, null));
+        var failure = turn.TryGetProperty("error", out var error) ? CodexWire.String(error, "codexErrorInfo") : null;
+        turns.Add(new(id, null, status, Date(turn, "startedAt"), Date(turn, "completedAt"), null, failure));
         foreach (var item in CodexWire.Array(turn, "items"))
         {
             var itemId = Id(item, "id");

@@ -33,25 +33,34 @@ internal sealed partial class OpenAiChatRun
             throw new ChatConflictException("The original ChatGPT account is no longer available on this runtime.");
 
         var session = new CodexAppServerSession(server, profile, dispatch.MessageId) { LastTurnId = dispatch.TurnId };
-        var openedThread = false;
-        if (conversation.AiAssistantSessionId is null)
+        var initial = dispatch.State == OpenAiDispatchState.Queued &&
+            !await db.Set<OpenAiChatDispatch>().AnyAsync(row => row.ConversationId == conversation.Id &&
+                row.DispatchedAtUtc != null, ct);
+        var previousThread = conversation.AiAssistantSessionId;
+        if (previousThread is null || initial && runtime.OpenedThread != previousThread)
         {
-            if (dispatch.State != OpenAiDispatchState.Queued)
-                throw new ChatConflictException("No Codex thread was confirmed for this dispatch.");
+            if (!initial) throw new ChatConflictException("No Codex thread was confirmed for this dispatch.");
+            // App Server does not persist a newly opened thread until its first turn.
+            // A process restart can replace an empty thread only while the outbox
+            // proves that no turn in this conversation has ever been dispatched.
             var thread = await session.OpenThreadAsync(ct);
             var saved = await ChangeAsync(dispatch, (row, current) =>
             {
                 if (row.State != OpenAiDispatchState.Queued || row.CancelRequestedAtUtc is not null ||
-                    current.AiAssistantSessionId is not null) return false;
+                    current.AiAssistantSessionId != previousThread) return false;
                 current.AiAssistantSessionId = thread;
                 return true;
             }, ct);
             if (!saved) return;
             conversation.AiAssistantSessionId = thread;
-            openedThread = true;
+            runtime.OpenedThread = thread;
+        }
+        else if (runtime.OpenedThread == previousThread)
+        {
+            session.UseOpenedThread(previousThread);
         }
 
-        await ObserveAsync(session, conversation, dispatch, profile, ct, openedThread);
+        await ObserveAsync(session, conversation, dispatch, profile, ct, initial);
     }
 
     private async Task<OpenAiChatSessionGrant> CodexGrantAsync(AiAssistantChatConversation conversation, OpenAiChatDispatch dispatch,
