@@ -7,7 +7,7 @@ namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
 internal sealed record OpenAiSkillBundle(string Sha256, AgentPlugin Plugin)
 {
-    private const int MaxArchiveBytes = 1024 * 1024;
+    internal const int MaxArchiveBytes = 1024 * 1024;
     private const long MaxExpandedBytes = 4 * 1024 * 1024;
 
     public static OpenAiSkillBundle? Load(IConfiguration configuration, string? reference)
@@ -28,10 +28,24 @@ internal sealed record OpenAiSkillBundle(string Sha256, AgentPlugin Plugin)
             var hash = Convert.ToHexString(SHA256.HashData(bytes));
             if (!string.Equals(hash, expectedHash, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("The deployed skill bundle differs from its configured hash.");
-            using var archive = new ZipArchive(new MemoryStream(bytes, writable: false), ZipArchiveMode.Read);
-            return new(hash, ReadPlugin(archive, bytes));
+            return ReadArchive(bytes);
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            throw new ArgumentException("The versioned skill bundle could not be read.");
+        }
+    }
+
+    public static OpenAiSkillBundle ReadArchive(byte[] bytes)
+    {
+        if (bytes.Length is <= 0 or > MaxArchiveBytes)
+            throw new ArgumentException("The skill bundle exceeds the compressed size limit.");
+        try
+        {
+            using var archive = new ZipArchive(new MemoryStream(bytes, writable: false), ZipArchiveMode.Read);
+            return new(Convert.ToHexString(SHA256.HashData(bytes)), ReadPlugin(archive, bytes));
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or JsonException)
         {
             throw new ArgumentException("The versioned skill bundle could not be read.");
         }

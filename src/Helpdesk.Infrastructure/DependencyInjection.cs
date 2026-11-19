@@ -86,6 +86,10 @@ public static class DependencyInjection
         if (databaseProvider is DatabaseProvider.PostgreSql)
             services.AddHostedService<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatWorker>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiAgentsHttpClient>();
+        services.AddOptions<Helpdesk.Infrastructure.AiAssistant.Chat.Codex.CodexAppServerOptions>()
+            .BindConfiguration(Helpdesk.Infrastructure.AiAssistant.Chat.Codex.CodexAppServerOptions.SectionName);
+        services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.Codex.CodexAppServerHost>();
+        services.AddScoped<Helpdesk.Infrastructure.AiAssistant.Chat.Codex.CodexConnections>();
         services.AddScoped<IIntegrationProviderSettingsService, IntegrationProviderSettingsService>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatSessionManager>();
         services.AddSingleton<Helpdesk.Infrastructure.AiAssistant.Chat.IAiAssistantChatClientFactory, Helpdesk.Infrastructure.AiAssistant.Chat.AiAssistantChatClientFactory>();

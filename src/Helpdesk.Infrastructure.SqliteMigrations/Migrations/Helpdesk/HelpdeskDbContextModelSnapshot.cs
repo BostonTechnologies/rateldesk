@@ -30,6 +30,52 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("ChatProviderPreference");
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.CodexConnection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountLabel")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Plan")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WorkspaceLabel")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerId", "OrganizationId", "State");
+
+                    b.ToTable("CodexConnection");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatArtifact", b =>
                 {
                     b.Property<Guid>("Id")
@@ -178,6 +224,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("CodexConnectionId")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
@@ -187,11 +236,20 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<DateTimeOffset?>("LastVerifiedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ProtectedWebKey")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Revision")
                         .IsConcurrencyToken()
                         .HasColumnType("INTEGER");
 
+                    b.Property<Guid?>("WebKeyId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("CodexConnectionId")
+                        .IsUnique();
 
                     b.ToTable("OpenAiChatProfile");
                 });
@@ -212,7 +270,13 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<byte[]>("SkillArchive")
+                        .HasColumnType("BLOB");
+
                     b.Property<string>("SkillBundleHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("WebKeyId")
                         .HasColumnType("TEXT");
 
                     b.HasKey("ProfileId", "Revision");
@@ -235,6 +299,9 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasColumnType("TEXT");
 
                     b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProtectedCodexToken")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTimeOffset?>("RemoteDeletedAtUtc")
@@ -5161,6 +5228,14 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasForeignKey("ConversationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfile", b =>
+                {
+                    b.HasOne("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.CodexConnection", null)
+                        .WithMany()
+                        .HasForeignKey("CodexConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi.OpenAiChatProfileRevision", b =>

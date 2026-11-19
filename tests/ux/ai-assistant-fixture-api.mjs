@@ -5,6 +5,10 @@ const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
 let events = [], state = 0, recoveryResult = null;
 let selectedProvider = 0;
+let codexConfigured = false;
+let codexConnection;
+const codexSetup = '/api/v1/admin/ai-providers/codex';
+const codexFixtureId = '33333333-3333-4333-8333-333333333333';
 const profiles = [
   { id: '90b1a190-f989-4cf8-ac56-0ce23b566840', kind: 0, name: 'Netclaw', enabled: true, isDefault: false, revision: 3, environment: 0 },
   { id: '22222222-2222-4222-8222-222222222222', kind: 1, name: 'Synthetic OpenAI', enabled: true, isDefault: true,
@@ -170,7 +174,18 @@ http.createServer(async (req, res) => {
     }
     return reply({ mode: netclawPresentationMode, pairResponseStatuses: [...netclawPairResponseStatuses] });
   }
-  if (url.pathname === '/fixture/reset') { reset(url.searchParams.get('mode'), url.searchParams.get('provider')); loseStartResponse = url.searchParams.get('loseStartResponse') === 'true'; holdStartResponse = url.searchParams.get('holdStartResponse') === 'true'; return reply({ ok: true }); }
+  if (url.pathname === '/fixture/reset') {
+    reset(url.searchParams.get('mode'), url.searchParams.get('provider'));
+    loseStartResponse = url.searchParams.get('loseStartResponse') === 'true';
+    holdStartResponse = url.searchParams.get('holdStartResponse') === 'true';
+    codexConfigured = url.searchParams.get('codex') === 'true';
+    codexConnection = undefined;
+    return reply({ ok: true });
+  }
+  if (url.pathname === '/fixture/codex-complete' && codexConnection) {
+    codexConnection = { id: codexFixtureId, state: 1, organizationId: 'org', accountLabel: 'operator@example.test', plan: 'pro' };
+    return reply({ ok: true });
+  }
   if (url.pathname === '/fixture/draft') {
     const table = url.searchParams.get('table');
     const text = table === 'partial' ? '| Host | Total | Free | Sample time (UTC) |\n| :--- | ---:' : table === 'complete' ? tableReply : 'Streaming response';
@@ -203,8 +218,32 @@ http.createServer(async (req, res) => {
     isHelpdeskAdmin: true, roleBundles: ['HelpdeskAdmin', 'Incident.User'], permissions: ['HelpdeskAdmin', 'Incident.User'],
     allowedOrganizationIds: [], managedOrganizationIds: [], scopedPermissionGrants: []
   });
+  if (url.pathname === '/api/v1/organizations' && codexConfigured)
+    return reply([{ id: 'org', name: 'Synthetic organization', isEnabled: true }]);
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
   if (url.pathname === '/api/v1/admin/ai-providers') return reply(profiles);
+  if (url.pathname === '/api/v1/admin/ai-providers/setup-options')
+    return reply({ keyReferences: ['fixture'], mcpResources: ['https://mcp.example.test/mcp'],
+      skillReferences: ['fixture-bundle-v1'], defaultManagedByDeployment: false, codexDeviceConfigured: codexConfigured });
+  if (url.pathname === `${codexSetup}/runtime`) return reply({ version: '0.170.0' });
+  if (url.pathname === `${codexSetup}/connections`) {
+    if (req.method === 'GET') return reply(codexConnection ? [codexConnection] : []);
+    codexConnection = {
+      id: codexFixtureId, state: 0, organizationId: 'org', expiresAtUtc: new Date(Date.now() + 120000).toISOString(),
+      verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'TEST-4410'
+    };
+    return reply(codexConnection);
+  }
+  if (url.pathname === `${codexSetup}/connections/${codexFixtureId}`) {
+    if (req.method === 'DELETE') {
+      codexConnection = { id: codexFixtureId, state: codexConnection.state === 0 ? 2 : 5, organizationId: 'org' };
+    }
+    return reply(codexConnection);
+  }
+  if (url.pathname === `${codexSetup}/connections/${codexFixtureId}/models`)
+    return reply({ fetchedAtUtc: new Date().toISOString(), models: [{ id: 'fixture-plan-model', name: 'Fixture plan model', reasoningEfforts: ['medium'] }] });
+  if (req.method === 'POST' && /^\/api\/v1\/admin\/ai-providers\/openai\/[^/]+\/models$/.test(url.pathname))
+    return reply({ fetchedAtUtc: new Date().toISOString(), models: [{ id: 'fixture-model', name: 'Fixture model', reasoningEfforts: [] }] });
   if (url.pathname === '/api/v1/admin/ai-providers/read-operations')
     return reply([{ key: 'helpdesk_incidents.get', name: 'Get', family: 'Incidents', effect: 'read' }]);
   if (url.pathname === `/api/v1/admin/ai-providers/openai/${profiles[1].id}`)

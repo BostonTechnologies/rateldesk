@@ -10,7 +10,7 @@ public sealed partial class AiAssistantChatStore
     private async Task AdmitProviderTurnAsync(AiAssistantChatConversation conversation, Guid messageId, string actor, CancellationToken ct)
     {
         if (profiles is not null) await profiles.EnsureAdmissionAsync(conversation, actor, ct);
-        if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents) return;
+        if (!UsesProviderWorker(conversation)) return;
         var profile = conversation.ProviderProfileId?.ToString("D")
             ?? throw new ChatConflictException("The OpenAI profile binding is missing.");
         await db.Database.ExecuteSqlInterpolatedAsync(
@@ -44,6 +44,9 @@ public sealed partial class AiAssistantChatStore
         if (dispatch is not null) dispatch.NextObservationAtUtc = null;
     }
 
+    private static bool UsesProviderWorker(AiAssistantChatConversation conversation) =>
+        conversation.ProviderKind is ChatProviderKind.OpenAiAgents or ChatProviderKind.CodexAppServer;
+
     private Task<OpenAiChatDispatch?> ActiveDispatchAsync(AiAssistantChatConversation conversation, CancellationToken ct) =>
         db.Set<OpenAiChatDispatch>().SingleOrDefaultAsync(row => row.ConversationId == conversation.Id &&
             row.MessageId == conversation.ActiveMessageId, ct);
@@ -53,8 +56,8 @@ public sealed partial class AiAssistantChatStore
         var bound = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, bound);
-        if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents || conversation.State is ChatState.Idle or ChatState.Archived ||
+        Bind(conversation, bound, actor);
+        if (!UsesProviderWorker(conversation) || conversation.State is ChatState.Idle or ChatState.Archived ||
             request.ExpectedMessageId != conversation.ActiveMessageId)
             throw new ChatConflictException("There is no matching OpenAI turn to cancel.");
         await profiles!.EnsureActorAsync(conversation, actor, ct);
@@ -76,7 +79,7 @@ public sealed partial class AiAssistantChatStore
         var bound = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(id, ct);
-        Bind(conversation, bound);
+        Bind(conversation, bound, actor);
         if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents || conversation.AiAssistantSessionId is null)
             throw new ChatConflictException("There is no OpenAI session to delete.");
         if (conversation.State is not (ChatState.Idle or ChatState.Archived))

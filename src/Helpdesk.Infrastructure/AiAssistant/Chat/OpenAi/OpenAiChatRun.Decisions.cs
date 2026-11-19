@@ -179,7 +179,7 @@ internal sealed partial class OpenAiChatRun
         return true;
     }
 
-    private async Task SendCancellationAsync(OpenAiAgentsClient adapter, AiAssistantChatConversation conversation,
+    private async Task SendCancellationAsync(IChatProviderSession adapter, AiAssistantChatConversation conversation,
         OpenAiChatDispatch dispatch, CancellationToken ct)
     {
         var requested = await db.Set<OpenAiChatDispatch>().AsNoTracking().AnyAsync(row => row.ConversationId == conversation.Id &&

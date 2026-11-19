@@ -8,9 +8,25 @@
     @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
     @if (notice is not null) { <MudAlert Severity="Severity.Info" Dense="true">@notice</MudAlert> }
     @if (loading) { <MudProgressLinear Indeterminate="true" aria-label="Loading AI provider profiles" /> }
-    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-        <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Add" OnClick="StartOpenAi" Disabled="busy">Add OpenAI profile</MudButton>
-    </MudStack>
+    <div class="ai-provider-fields">
+        <MudPaper Class="pa-3" Outlined="true">
+            <MudStack Spacing="1" AlignItems="AlignItems.Start">
+                <MudButton Variant="Variant.Text" OnClick="StartOpenAi" Disabled="busy">Use an API project</MudButton>
+                <MudText Typo="Typo.caption">Managed Agents API · API project billing</MudText>
+            </MudStack>
+        </MudPaper>
+        <MudPaper Class="pa-3" Outlined="true">
+            <MudStack Spacing="1" AlignItems="AlignItems.Start">
+                <MudButton Variant="Variant.Text" OnClick="ShowChatGpt" Disabled="busy">Use my ChatGPT plan</MudButton>
+                <MudText Typo="Typo.caption">Customer-operated Codex App Server · ChatGPT plan usage</MudText>
+            </MudStack>
+        </MudPaper>
+    </div>
+    @if (showChatGpt)
+    {
+        <CodexProviderSettings @key="editingCodexProfile" Setup="@(setupOptions ?? new([], [], false))" Organizations="Organizations"
+                               ReadCatalog="readCatalog" SavedProfileId="editingCodexProfile" Saved="RefreshAsync" Closed="CloseEditor" />
+    }
     <div class="ai-provider-list" aria-label="AI provider profiles">
         @foreach (var profile in profiles)
         {
@@ -18,10 +34,10 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
                     <div>
                         <MudText Typo="Typo.subtitle2">@profile.Name</MudText>
-                        <MudText Typo="Typo.caption">@(profile.Kind == ChatProviderKind.Netclaw ? "SignalR" : $"OpenAI Agents API · {profile.Model}") · @(profile.Enabled ? "Enabled" : "Disabled")@(profile.IsDefault ? " · Default for new work" : "") · @OrganizationLabel(profile.OrganizationId)@(profile.LastVerification is { } verification ? $" · {verification}" : "")</MudText>
+                        <MudText Typo="Typo.caption">@ProviderSummary(profile) · @(profile.Enabled ? "Enabled" : "Disabled")@(profile.IsDefault ? " · Default for new work" : "") · @OrganizationLabel(profile.OrganizationId)@(profile.LastVerification is { } verification ? $" · {verification}" : "")</MudText>
                     </div>
                     <MudStack Row="true" AlignItems="AlignItems.Center">
-                        @if (profile.Enabled && !profile.IsDefault)
+                        @if (profile.Enabled && !profile.IsDefault && setupOptions?.DefaultManagedByDeployment != true)
                         {
                             <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="busy" OnClick="@(() => SetDefaultAsync(profile.Id))">Set default</MudButton>
                         }
@@ -32,6 +48,10 @@
             </MudPaper>
         }
     </div>
+    @if (setupOptions?.DefaultManagedByDeployment == true)
+    {
+        <MudText Typo="Typo.caption">The default provider is managed by the deployment.</MudText>
+    }
     @if (showNetclaw)
     {
         <NetclawConnectivity Embedded="true" />
@@ -41,48 +61,131 @@
     {
         <MudPaper Outlined="true" Class="pa-4">
             <MudStack Spacing="2">
-                <MudText Typo="Typo.subtitle1">OpenAI Agents API (Codex harness)</MudText>
+                <MudText Typo="Typo.subtitle1">Managed Agents API profile</MudText>
                 <div class="ai-provider-fields">
                     <MudTextField Label="Profile name" @bind-Value="form.Name" MaxLength="100" Margin="Margin.Dense" />
-                    <MudSelect T="string" Label="Organization" @bind-Value="form.OrganizationId" Margin="Margin.Dense">
-                        @foreach (var organization in Organizations)
+                    <MudAutocomplete T="string" Label="Organization" @bind-Value="form.OrganizationId" @bind-Value:after="ClearCatalog"
+                                     SearchFunc="SearchOrganizations" ToStringFunc="OrganizationLabel" Dense="true"
+                                     Disabled="@(form.Revision > 0)" Margin="Margin.Dense" />
+                </div>
+                <div class="ai-provider-fields">
+                    <MudSelect T="OpenAiKeyAction" Label="Project key" @bind-Value="form.KeyAction" @bind-Value:after="OnKeyActionChanged" Margin="Margin.Dense">
+                        @if (form.KeySource != OpenAiKeySource.None)
                         {
-                            <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
+                            <MudSelectItem Value="OpenAiKeyAction.Keep">Keep saved key</MudSelectItem>
+                            <MudSelectItem Value="OpenAiKeyAction.Clear">Clear saved key and disable profile</MudSelectItem>
+                        }
+                        <MudSelectItem Value="OpenAiKeyAction.Replace">Enter an API key</MudSelectItem>
+                        <MudSelectItem Value="OpenAiKeyAction.UseDeploymentReference">Use a deployment key reference</MudSelectItem>
+                    </MudSelect>
+                    @if (form.KeyAction == OpenAiKeyAction.Replace)
+                    {
+                        <MudTextField Label="OpenAI project API key" @bind-Value="form.ApiKey" @bind-Value:after="ClearCatalog"
+                                      InputType="InputType.Password" autocomplete="off" MaxLength="2048" Margin="Margin.Dense" />
+                    }
+                    @if (form.KeyAction == OpenAiKeyAction.UseDeploymentReference)
+                    {
+                        <MudSelect T="string" Label="Server key reference" @bind-Value="form.KeyReference" @bind-Value:after="ClearCatalog" Margin="Margin.Dense">
+                            @foreach (var reference in setupOptions?.KeyReferences ?? [])
+                            {
+                                <MudSelectItem T="string" Value="@reference">@reference</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    @if (form.KeyAction == OpenAiKeyAction.Keep && form.KeySource == OpenAiKeySource.Deployment)
+                    {
+                        <MudTextField Label="Server key reference" Value="@form.KeyReference" ReadOnly="true" Margin="Margin.Dense"
+                                      HelperText="The deployment supplies this key." />
+                    }
+                </div>
+                <div class="ai-provider-fields">
+                    <MudAutocomplete T="string" Label="Model" @bind-Value="form.Model" SearchFunc="SearchModels" Dense="true"
+                                     Margin="Margin.Dense" MinCharacters="0"
+                                     HelperText="Select a model returned by the project." />
+                    <MudTextField Label="Reasoning effort" Value="@("Provider default")" ReadOnly="true" Margin="Margin.Dense"
+                                  HelperText="The project model catalog does not report compatible effort levels." />
+                </div>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(busy || form.KeyAction == OpenAiKeyAction.Clear)"
+                               OnClick="DiscoverAsync">Refresh project models</MudButton>
+                    @if (catalog is { } models)
+                    {
+                        <MudText Typo="Typo.caption">@models.Models.Length models · @(catalogStale ? "Last successful check" : "Checked") @models.FetchedAtUtc.ToString("u")</MudText>
+                    }
+                </MudStack>
+                @if (ResourceChoices(form) is { Length: > 0 } resources)
+                {
+                    <MudSelect T="string" Label="HTTP MCP gateway" @bind-Value="form.McpResource" Margin="Margin.Dense">
+                        @foreach (var resource in resources)
+                        {
+                            <MudSelectItem T="string" Value="@resource">@resource</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudTextField Label="Model" @bind-Value="form.Model" MaxLength="128" Margin="Margin.Dense" />
-                    <MudTextField Label="Server key reference" @bind-Value="form.KeyReference" MaxLength="64" Margin="Margin.Dense" HelperText="Reference under AiProviders:OpenAiKeys" />
-                    <MudTextField Label="OpenAI project (optional)" @bind-Value="form.Project" MaxLength="128" Margin="Margin.Dense" />
-                    <MudTextField Label="OpenAI organization (optional)" @bind-Value="form.OpenAiOrganization" MaxLength="128" Margin="Margin.Dense" />
+                }
+                else
+                {
                     <MudTextField Label="Canonical HTTPS MCP resource" @bind-Value="form.McpResource" MaxLength="1024" Margin="Margin.Dense" />
-                    <MudSelect T="ChatProviderEnvironment" Label="Execution profile" @bind-Value="form.Environment" Margin="Margin.Dense">
-                        <MudSelectItem T="ChatProviderEnvironment" Value="ChatProviderEnvironment.None">Chat and MCP</MudSelectItem>
-                        <MudSelectItem T="ChatProviderEnvironment" Value="ChatProviderEnvironment.OpenAiHosted">Workspace and skills</MudSelectItem>
-                    </MudSelect>
-                    @if (form.Environment == ChatProviderEnvironment.OpenAiHosted)
-                    {
-                        <MudTextField Label="Environment template ID (optional)" @bind-Value="form.Template" MaxLength="128" Margin="Margin.Dense" />
-                        <MudTextField Label="Versioned skill bundle reference (optional)" @bind-Value="form.Bundle" MaxLength="128" Margin="Margin.Dense" />
-                    }
-                    <MudNumericField T="int" Label="Concurrent conversations" @bind-Value="form.Concurrency" Min="1" Max="25" Margin="Margin.Dense" />
-                    <MudNumericField T="int" Label="Observation limit (minutes)" @bind-Value="form.ObservationMinutes" Min="1" Max="240" Margin="Margin.Dense" />
-                    <MudNumericField T="int" Label="Concurrent subagents" @bind-Value="form.SubagentLimit" Min="1" Max="12" Margin="Margin.Dense" />
-                </div>
-                <MudTextField Label="Instructions (optional)" @bind-Value="form.Instructions" Lines="3" MaxLength="12000" Margin="Margin.Dense" />
+                }
                 <MudSelect T="string" Label="Permitted MCP reads" MultiSelection="true" @bind-SelectedValues="form.Reads" Margin="Margin.Dense">
                     @foreach (var operation in readCatalog)
                     {
                         <MudSelectItem T="string" Value="@operation.Key">@operation.Family · @operation.Name</MudSelectItem>
                     }
                 </MudSelect>
-                <MudCheckBox @bind-Value="form.ApproveInternalWorklogs" Dense="true" Label="Allow approved internal incident notes from the main agent" />
-                <MudCheckBox @bind-Value="form.Enabled" Dense="true" Label="Enable for new conversations in this organization" />
+                <MudExpansionPanels Elevation="0">
+                    <MudExpansionPanel Text="Advanced settings">
+                        <div class="ai-provider-fields">
+                            <MudTextField Label="OpenAI project (optional)" @bind-Value="form.Project" @bind-Value:after="ClearCatalog" MaxLength="128" Margin="Margin.Dense" />
+                            <MudTextField Label="OpenAI organization (optional)" @bind-Value="form.OpenAiOrganization" @bind-Value:after="ClearCatalog" MaxLength="128" Margin="Margin.Dense" />
+                            <MudSelect T="ChatProviderEnvironment" Label="Execution profile" @bind-Value="form.Environment" Margin="Margin.Dense">
+                                <MudSelectItem T="ChatProviderEnvironment" Value="ChatProviderEnvironment.None">Chat and MCP</MudSelectItem>
+                                <MudSelectItem T="ChatProviderEnvironment" Value="ChatProviderEnvironment.OpenAiHosted">Workspace and skills</MudSelectItem>
+                            </MudSelect>
+                            @if (form.Environment == ChatProviderEnvironment.OpenAiHosted)
+                            {
+                                <MudTextField Label="Environment template ID (optional)" @bind-Value="form.Template" MaxLength="128" Margin="Margin.Dense" />
+                                <MudSelect T="string" Label="Versioned skill bundle reference (optional)" @bind-Value="form.Bundle" Margin="Margin.Dense">
+                                    <MudSelectItem T="string" Value="@string.Empty">None</MudSelectItem>
+                                    @foreach (var reference in SkillChoices(form))
+                                    {
+                                        <MudSelectItem T="string" Value="@reference">@reference</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            }
+                            <MudNumericField T="int" Label="Concurrent conversations" @bind-Value="form.Concurrency" Min="1" Max="25" Margin="Margin.Dense" />
+                            <MudNumericField T="int" Label="Observation limit (minutes)" @bind-Value="form.ObservationMinutes" Min="1" Max="240" Margin="Margin.Dense" />
+                            <MudNumericField T="int" Label="Concurrent subagents" @bind-Value="form.SubagentLimit" Min="1" Max="12" Margin="Margin.Dense" />
+                        </div>
+                        @if (form.Environment == ChatProviderEnvironment.OpenAiHosted)
+                        {
+                            <label>Upload versioned skill ZIP <InputFile accept=".zip,application/zip" disabled="@busy" OnChange="ReadSkillAsync" /></label>
+                            @if (form.SkillFileName is { } fileName)
+                            {
+                                <MudText Typo="Typo.caption">Ready to save @fileName</MudText>
+                            }
+                            @if (form.UploadedSkillSha256 is not null && form.SkillArchive is null)
+                            {
+                                <MudCheckBox @bind-Value="form.ClearSkillArchive" Dense="true" Label="Remove the saved skill ZIP" />
+                            }
+                        }
+                        <MudTextField Label="Instructions (optional)" @bind-Value="form.Instructions" Lines="3" MaxLength="12000" Margin="Margin.Dense" />
+                        <MudCheckBox @bind-Value="form.ApproveInternalWorklogs" Dense="true" Label="Allow approved internal incident notes from the main agent" />
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+                <MudStack Row="true" Wrap="Wrap.Wrap">
+                    <MudLink Href="https://platform.openai.com/usage" Target="_blank">API usage</MudLink>
+                    <MudLink Href="https://developers.openai.com/api/docs/guides/chatgpt-api-credits" Target="_blank">ChatGPT API-credit benefit</MudLink>
+                </MudStack>
+                <MudCheckBox @bind-Value="form.Enabled" Disabled="@(form.KeyAction == OpenAiKeyAction.Clear)" Dense="true" Label="Enable for new conversations in this organization" />
                 <MudStack Row="true" Wrap="Wrap.Wrap">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="busy" OnClick="SaveAsync">Save profile</MudButton>
-                    <MudButton Variant="Variant.Outlined" Disabled="@(busy || form.Revision == 0)" OnClick="VerifyAsync">Verify Agents read access</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@(busy || form.Revision == 0)" OnClick="VerifyAsync">Check saved project authentication</MudButton>
                     <MudButton Variant="Variant.Text" Disabled="busy" OnClick="CloseEditor">Close</MudButton>
                 </MudStack>
-                @if (form.Revision > 0) { <MudText Typo="Typo.caption">Saved revision @form.Revision. Complete a conversation to check the model and MCP connection.</MudText> }
+                @if (form.Revision > 0)
+                {
+                    <MudText Typo="Typo.caption">Check MCP and inference with a conversation against a synthetic ticket after choosing a funding source.</MudText>
+                }
             </MudStack>
         </MudPaper>
     }
@@ -95,12 +198,17 @@
     private IReadOnlyList<ChatProviderProfile> profiles = [];
     private IReadOnlyList<McpPolicyOperation> readCatalog = [];
     private ProfileForm? draft;
-    private bool loading = true, busy, showNetclaw, previousAlias;
+    private AiProviderSetupOptions? setupOptions;
+    private OpenAiModelCatalog? catalog;
+    private Guid? editingCodexProfile;
+    private bool catalogStale;
+    private int catalogGeneration;
+    private bool loading = true, busy, showNetclaw, showChatGpt, previousAlias;
     private string? error, notice;
 
     protected override void OnParametersSet()
     {
-        if (ShowNetclawInitially && !previousAlias) { showNetclaw = true; draft = null; }
+        if (ShowNetclawInitially && !previousAlias) { showNetclaw = true; showChatGpt = false; draft = null; }
         previousAlias = ShowNetclawInitially;
     }
 
@@ -115,6 +223,15 @@
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
             error = "The provider operation catalog is unavailable.";
+        }
+        try
+        {
+            using var api = Clients.CreateClient("HelpdeskApi");
+            setupOptions = await api.GetFromJsonAsync<AiProviderSetupOptions>($"{Route}/setup-options");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            error = "Deployment setup options could not be loaded.";
         }
     }
 
@@ -137,13 +254,109 @@
     private void StartOpenAi()
     {
         error = notice = null;
-        showNetclaw = false;
-        draft = new() { Id = Guid.NewGuid(), OrganizationId = Organizations.Count == 1 ? Organizations[0].Id : "" };
+        showNetclaw = showChatGpt = false;
+        ClearCatalog();
+        draft = new()
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = Organizations.Count == 1 ? Organizations[0].Id : "",
+            McpResource = setupOptions?.McpResources is [var resource] ? resource : ""
+        };
     }
+
+    private void ShowChatGpt()
+    {
+        CloseEditor();
+        showNetclaw = false;
+        showChatGpt = true;
+    }
+
+    private static string ProviderSummary(ChatProviderProfile profile) => profile.Kind switch
+    {
+        ChatProviderKind.Netclaw => "SignalR",
+        ChatProviderKind.CodexAppServer => $"Codex App Server · ChatGPT plan usage · {profile.Model}",
+        _ => $"Managed Agents API · API project billing · {profile.Model}"
+    };
+
+    private Task<IEnumerable<string>> SearchOrganizations(string text, CancellationToken _) =>
+        Task.FromResult(Organizations.Where(item => string.IsNullOrWhiteSpace(text) || item.Name.Contains(text, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.Id));
+
+    private Task<IEnumerable<string>> SearchModels(string text, CancellationToken _) =>
+        Task.FromResult((catalog?.Models ?? []).Select(item => item.Id)
+            .Where(id => string.IsNullOrWhiteSpace(text) || id.Contains(text, StringComparison.OrdinalIgnoreCase)));
+
+    private string[] ResourceChoices(ProfileForm form)
+    {
+        var resources = setupOptions?.McpResources ?? [];
+        if (resources.Length == 0 || string.IsNullOrEmpty(form.McpResource)) return resources;
+        return resources.Append(form.McpResource).Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private string[] SkillChoices(ProfileForm form) => (setupOptions?.SkillReferences ?? []).Append(form.Bundle)
+        .Where(reference => !string.IsNullOrWhiteSpace(reference)).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
+
+    private async Task ReadSkillAsync(InputFileChangeEventArgs args)
+    {
+        if (draft is not { } form || busy) return;
+        const long maximumBytes = 1024 * 1024;
+        var file = args.File;
+        if (file.Size is <= 0 or > maximumBytes)
+        {
+            error = "Choose a skill ZIP up to 1 MiB.";
+            return;
+        }
+        await RunAsync(async () =>
+        {
+            await using var source = file.OpenReadStream(maximumBytes);
+            using var contents = new MemoryStream();
+            await source.CopyToAsync(contents);
+            form.SkillArchive = contents.ToArray();
+            form.SkillFileName = file.Name;
+            form.Bundle = null;
+            form.ClearSkillArchive = false;
+        }, "The skill ZIP could not be read.");
+    }
+
+    private void ClearCatalog()
+    {
+        catalog = null;
+        catalogStale = false;
+        catalogGeneration++;
+    }
+
+    private void OnKeyActionChanged()
+    {
+        ClearCatalog();
+        if (draft is not { } form) return;
+        form.ApiKey = null;
+        if (form.KeyAction == OpenAiKeyAction.Clear) form.Enabled = false;
+    }
+
+    private Task DiscoverAsync() => RunAsync(async () =>
+    {
+        if (draft is not { } form) return;
+        var generation = catalogGeneration;
+        catalogStale = catalog is not null;
+        using var api = Clients.CreateClient("SystemPairingApi");
+        var settings = form.Settings();
+        var request = new OpenAiProjectCatalogRequest(form.Revision, form.OrganizationId, settings.Project,
+            settings.OpenAiOrganization, settings.KeyReference, form.KeyChange());
+        using var response = await api.PostAsJsonAsync($"{Route}/openai/{form.Id}/models", request);
+        if (!await ShowFailureAsync(response, "Project model discovery failed.")) return;
+        var refreshed = await response.Content.ReadFromJsonAsync<OpenAiModelCatalog>();
+        if (catalogGeneration == generation)
+        {
+            catalog = refreshed;
+            catalogStale = false;
+        }
+    }, "The project model catalog is unavailable. Retry when the API is reachable.");
 
     private Task EditAsync(ChatProviderProfile profile)
     {
         error = notice = null;
+        showChatGpt = false;
+        ClearCatalog();
         if (profile.Kind == ChatProviderKind.Netclaw)
         {
             showNetclaw = true;
@@ -151,6 +364,13 @@
             return Task.CompletedTask;
         }
         showNetclaw = false;
+        if (profile.Kind == ChatProviderKind.CodexAppServer)
+        {
+            draft = null;
+            editingCodexProfile = profile.Id;
+            showChatGpt = true;
+            return Task.CompletedTask;
+        }
         return RunAsync(async () =>
         {
             using var api = Clients.CreateClient("HelpdeskApi");
@@ -163,10 +383,19 @@
     {
         if (draft is not { } form) return;
         using var client = Clients.CreateClient("SystemPairingApi");
-        using var response = await client.PutAsJsonAsync($"{Route}/openai/{form.Id}", new OpenAiChatProfileUpdate(form.Id, form.Revision, form.Settings()));
+        using var response = await client.PutAsJsonAsync($"{Route}/openai/{form.Id}", new OpenAiChatProfileUpdate(form.Id, form.Revision, form.Settings())
+            {
+                Credential = form.KeyChange(),
+                SkillArchive = form.Environment == ChatProviderEnvironment.OpenAiHosted && string.IsNullOrEmpty(form.Bundle) ? form.SkillArchive : null,
+                ClearSkillArchive = form.ClearSkillArchive
+            });
         if (!await ShowFailureAsync(response, "The profile could not be saved.")) return;
         var saved = await response.Content.ReadFromJsonAsync<OpenAiChatProfileEditor>();
-        if (saved is not null) draft = ProfileForm.From(saved);
+        if (saved is not null)
+        {
+            draft = ProfileForm.From(saved);
+            ClearCatalog();
+        }
         await RefreshAsync();
     }, "The profile save could not be confirmed. Reload its saved revision to check.");
 
@@ -187,7 +416,14 @@
         await RefreshAsync();
     }, "OpenAI verification did not finish.");
 
-    private void CloseEditor() { draft = null; error = notice = null; }
+    private void CloseEditor()
+    {
+        draft = null;
+        showChatGpt = false;
+        editingCodexProfile = null;
+        ClearCatalog();
+        error = notice = null;
+    }
 
     private async Task RunAsync(Func<Task> action, string fallback)
     {
@@ -195,7 +431,7 @@
         busy = true;
         error = notice = null;
         try { await action(); }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException) { error = fallback; }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or IOException) { error = fallback; }
         finally { busy = false; }
     }
 
@@ -221,7 +457,10 @@
         public bool Enabled { get; set; }
         public string OrganizationId { get; set; } = "";
         public string Model { get; set; } = "";
-        public string KeyReference { get; set; } = "primary";
+        public string KeyReference { get; set; } = "";
+        public OpenAiKeySource KeySource { get; init; }
+        public OpenAiKeyAction KeyAction { get; set; } = OpenAiKeyAction.Replace;
+        public string? ApiKey { get; set; }
         public string? Project { get; set; }
         public string? OpenAiOrganization { get; set; }
         public string? Instructions { get; set; }
@@ -231,9 +470,18 @@
         public ChatProviderEnvironment Environment { get; set; }
         public string? Template { get; set; }
         public string? Bundle { get; set; }
+        public string? SkillFileName { get; set; }
+        public string? UploadedSkillSha256 { get; init; }
+        public byte[]? SkillArchive { get; set; }
+        public bool ClearSkillArchive { get; set; }
         public int Concurrency { get; set; } = 4;
         public int ObservationMinutes { get; set; } = 30;
         public int SubagentLimit { get; set; } = 4;
+        public OpenAiProjectKeyChange KeyChange() => new()
+        {
+            Action = KeyAction,
+            ApiKey = KeyAction == OpenAiKeyAction.Replace ? ApiKey?.Trim() : null
+        };
         public OpenAiChatProfileSettings Settings() => new(Name.Trim(), Enabled, OrganizationId, Model.Trim(),
             KeyReference.Trim(), Optional(Project), Optional(OpenAiOrganization), Optional(Instructions), McpResource.Trim(),
             Reads?.ToArray() ?? [], ApproveInternalWorklogs, Environment,
@@ -245,9 +493,14 @@
             var settings = source.Settings;
             return new ProfileForm { Id = source.Profile.Id, Revision = source.Profile.Revision, Name = settings.Name,
                 Enabled = settings.Enabled, OrganizationId = settings.OrganizationId, Model = settings.Model, KeyReference = settings.KeyReference,
+                KeySource = source.KeySource == OpenAiKeySource.None && !string.IsNullOrEmpty(settings.KeyReference)
+                    ? OpenAiKeySource.Deployment : source.KeySource,
+                KeyAction = source.KeySource != OpenAiKeySource.None || !string.IsNullOrEmpty(settings.KeyReference)
+                    ? OpenAiKeyAction.Keep : OpenAiKeyAction.Replace,
                 Project = settings.Project, OpenAiOrganization = settings.OpenAiOrganization, Instructions = settings.Instructions,
                 McpResource = settings.McpResource, Reads = settings.ReadOperations, ApproveInternalWorklogs = settings.ApproveInternalWorklogs,
                 Environment = settings.Environment, Template = settings.EnvironmentTemplateId, Bundle = settings.SkillBundle,
+                UploadedSkillSha256 = source.UploadedSkillSha256,
                 Concurrency = settings.ConcurrentSessions, ObservationMinutes = settings.ObservationMinutes, SubagentLimit = settings.SubagentLimit };
         }
     }

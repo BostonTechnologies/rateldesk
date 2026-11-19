@@ -64,6 +64,9 @@ internal sealed record AgentEvent(string Type, string? ItemId, string? TurnId, s
     string? Text, int ContentIndex);
 internal sealed record AgentArtifact(string Id, string Path, string TurnId, long SizeBytes);
 
+internal sealed record OpenAiProjectModelList(string? Object, OpenAiProjectModel?[]? Data);
+internal sealed record OpenAiProjectModel(string? Id, string? Object);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AgentCreateRequest))]
@@ -76,4 +79,5 @@ internal sealed record AgentArtifact(string Id, string Path, string TurnId, long
 [JsonSerializable(typeof(AgentPage<AgentSubagent>))]
 [JsonSerializable(typeof(AgentEvent))]
 [JsonSerializable(typeof(AgentPage<AgentArtifact>))]
+[JsonSerializable(typeof(OpenAiProjectModelList))]
 internal sealed partial class OpenAiAgentsJson : JsonSerializerContext;
