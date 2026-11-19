@@ -151,15 +151,44 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Automation traceability adds fifteen report, relation and internal-template operations.
         // AI Providers adds six configuration operations, one signed webhook and four
         // cancellation, cleanup and artifact operations each for organization and ticket chat.
+        // Beta.3 adds ten administrator operations for OpenAI setup, catalogs, runtime,
+        // owner-bound device connections and subscription profiles.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(519, operationCount);
+        Assert.Equal(529, operationCount);
 #else
-        Assert.Equal(518, operationCount);
+        Assert.Equal(528, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        const string providersPath = "/api/v1/admin/ai-providers";
+        var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>();
+        foreach (var (suffix, method, operationId) in new[]
+        {
+            ("/setup-options", "get", "GetAiProviderSetupOptions"),
+            ("/openai/{id}/models", "post", "DiscoverOpenAiProjectModels"),
+            ("/codex/runtime", "get", "CheckCodexAppServerRuntime"),
+            ("/codex/connections", "get", "ListCodexConnections"),
+            ("/codex/connections", "post", "StartCodexDeviceLogin"),
+            ("/codex/connections/{id}", "get", "GetCodexConnectionStatus"),
+            ("/codex/connections/{id}", "delete", "DisconnectCodexConnection"),
+            ("/codex/connections/{id}/models", "post", "DiscoverCodexModels"),
+            ("/codex/profiles/{id}", "get", "GetCodexProviderProfile"),
+            ("/codex/profiles/{id}", "put", "SaveCodexProviderProfile")
+        })
+        {
+            var path = providersPath + suffix;
+            var operation = paths.GetProperty(path).GetProperty(method);
+            Assert.Equal(operationId, operation.GetProperty("operationId").GetString());
+            Assert.Equal(["AI Providers"], operation.GetProperty("tags").EnumerateArray().Select(item => item.GetString()).ToArray());
+            var endpoint = Assert.Single(routes, item => item.RoutePattern.RawText?.TrimEnd('/') ==
+                path.Replace("{id}", "{id:guid}", StringComparison.Ordinal) &&
+                item.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains(method.ToUpperInvariant()) == true);
+            Assert.Null(endpoint.Metadata.GetMetadata<IAllowAnonymous>());
+            Assert.Contains(endpoint.Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == "HelpdeskAdmin");
+        }
         foreach (var (path, method, operationId, tag) in new[]
         {
             ("/api/v1/organizations/{id}/deletion-assessment", "get", "GetOrganizationDeletionAssessment", "Organizations"),

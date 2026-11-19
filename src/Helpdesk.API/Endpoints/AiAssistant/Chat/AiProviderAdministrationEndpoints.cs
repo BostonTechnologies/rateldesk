@@ -63,7 +63,7 @@ public static class AiProviderAdministrationEndpoints
             profiles.ListAsync(ct, Owner(context)));
         group.MapGet("/read-operations", () => OpenAiChatMcpAuthority.ReadOperations);
         group.MapGet("/setup-options", ([FromServices] OpenAiChatProfiles profiles, [FromServices] IntegrationCredentialPairingService pairing) =>
-            profiles.SetupOptions(pairing.PublicOrigin));
+            profiles.SetupOptions(pairing.PublicOrigin)).WithName("GetAiProviderSetupOptions");
         group.MapPost("/openai/{id:guid}/models", async (Guid id, OpenAiProjectCatalogRequest request,
             [FromServices] OpenAiChatProfiles profiles, [FromServices] OpenAiAgentsHttpClient http,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
@@ -72,7 +72,7 @@ public static class AiProviderAdministrationEndpoints
                 return Results.Forbid();
             context.Response.Headers.CacheControl = "no-store";
             return Results.Ok(await profiles.ModelsAsync(id, request, http, ct));
-        });
+        }).WithName("DiscoverOpenAiProjectModels");
         group.MapGet("/openai/{id:guid}", (Guid id, [FromServices] OpenAiChatProfiles profiles, CancellationToken ct) => profiles.GetAsync(id, ct));
         group.MapPut("/openai/{id:guid}", async (Guid id, OpenAiChatProfileUpdate request, [FromServices] OpenAiChatProfiles profiles,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
@@ -108,39 +108,39 @@ public static class AiProviderAdministrationEndpoints
         {
             await host.CheckAsync(ct);
             return Results.Ok(new { version = CodexAppServerHost.Version });
-        });
+        }).WithName("CheckCodexAppServerRuntime");
         codex.MapGet("/connections", async (string organizationId, [FromServices] CodexConnections connections,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
         {
             if (!await CanManageOrganizationAsync(organizationId, access, context, ct)) return Results.Forbid();
             return Results.Ok(await connections.ListAsync(Owner(context), organizationId, ct));
-        });
+        }).WithName("ListCodexConnections");
         codex.MapPost("/connections", async (CodexConnectRequest request, [FromServices] CodexConnections connections,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
         {
             if (!await CanManageOrganizationAsync(request.OrganizationId, access, context, ct)) return Results.Forbid();
             return Results.Ok(await connections.BeginAsync(Owner(context), request.OrganizationId, ct));
-        });
+        }).WithName("StartCodexDeviceLogin");
         codex.MapGet("/connections/{id:guid}", async (Guid id, string organizationId, [FromServices] CodexConnections connections,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
         {
             if (!await CanManageOrganizationAsync(organizationId, access, context, ct)) return Results.Forbid();
             return Results.Ok(await connections.StatusAsync(id, Owner(context), organizationId, ct));
-        });
+        }).WithName("GetCodexConnectionStatus");
         codex.MapDelete("/connections/{id:guid}", async (Guid id, string organizationId, [FromServices] CodexConnections connections,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
         {
             if (!await CanManageOrganizationAsync(organizationId, access, context, ct)) return Results.Forbid();
             return Results.Ok(await connections.EndAsync(id, Owner(context), organizationId, ct));
-        });
+        }).WithName("DisconnectCodexConnection");
         codex.MapPost("/connections/{id:guid}/models", async (Guid id, CodexConnectRequest request, [FromServices] CodexConnections connections,
             [FromServices] ICurrentUserAccessService access, HttpContext context, CancellationToken ct) =>
         {
             if (!await CanManageOrganizationAsync(request.OrganizationId, access, context, ct)) return Results.Forbid();
             return Results.Ok(await connections.ModelsAsync(id, Owner(context), request.OrganizationId, ct));
-        });
+        }).WithName("DiscoverCodexModels");
         codex.MapGet("/profiles/{id:guid}", (Guid id, [FromServices] OpenAiChatProfiles profiles, HttpContext context, CancellationToken ct) =>
-            profiles.GetCodexAsync(id, Owner(context), ct));
+            profiles.GetCodexAsync(id, Owner(context), ct)).WithName("GetCodexProviderProfile");
         codex.MapPut("/profiles/{id:guid}", async (Guid id, CodexProfileUpdate request, [FromServices] OpenAiChatProfiles profiles,
             [FromServices] IntegrationCredentialPairingService pairing, [FromServices] ICurrentUserAccessService access,
             HttpContext context, CancellationToken ct) =>
@@ -149,7 +149,7 @@ public static class AiProviderAdministrationEndpoints
                 return Results.BadRequest(new { message = "Select operations from the supported ticket read catalog." });
             if (!await CanManageOrganizationAsync(request.OrganizationId, access, context, ct)) return Results.Forbid();
             return Results.Ok(await profiles.SaveCodexAsync(request, Owner(context), profiles.SetupOptions(pairing.PublicOrigin).McpResources, ct));
-        });
+        }).WithName("SaveCodexProviderProfile");
     }
 
     private static bool SupportedReads(string[]? operations) => operations is not null &&
