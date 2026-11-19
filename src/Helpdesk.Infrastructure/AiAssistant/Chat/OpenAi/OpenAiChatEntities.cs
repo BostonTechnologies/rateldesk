@@ -10,6 +10,9 @@ public sealed class OpenAiChatProfile
     public bool Enabled { get; set; }
     public DateTimeOffset? LastVerifiedAtUtc { get; set; }
     public string? LastVerification { get; set; }
+    public Guid? CodexConnectionId { get; set; }
+    public Guid? WebKeyId { get; set; }
+    public string? ProtectedWebKey { get; set; }
 }
 
 public sealed class OpenAiChatProfileRevision
@@ -18,7 +21,9 @@ public sealed class OpenAiChatProfileRevision
     public int Revision { get; set; }
     public string SettingsJson { get; set; } = "";
     public string ProtectedKey { get; set; } = "";
+    public Guid? WebKeyId { get; set; }
     public string? SkillBundleHash { get; set; }
+    public byte[]? SkillArchive { get; set; }
 }
 
 public sealed class ChatProviderPreference
@@ -51,6 +56,7 @@ public sealed class OpenAiChatSessionGrant
     public DateTimeOffset? CleanupRequestedAtUtc { get; set; }
     public DateTimeOffset? CleanupNextAttemptAtUtc { get; set; }
     public DateTimeOffset? RemoteDeletedAtUtc { get; set; }
+    public string? ProtectedCodexToken { get; set; }
 }
 
 public sealed class OpenAiChatEventReceipt
@@ -89,11 +95,31 @@ public sealed class OpenAiChatArtifact
     public byte[] Contents { get; set; } = [];
 }
 
+public sealed class CodexConnection
+{
+    public Guid Id { get; set; }
+    public Guid HostId { get; set; }
+    public string OwnerId { get; set; } = "";
+    public string OrganizationId { get; set; } = "";
+    public CodexConnectionState State { get; set; }
+    public DateTimeOffset StartedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public string? AccountLabel { get; set; }
+    public string? Plan { get; set; }
+    public string? WorkspaceLabel { get; set; }
+    public string? Detail { get; set; }
+}
+
 internal static class OpenAiChatModel
 {
     internal static void Configure(ModelBuilder builder)
     {
         builder.Entity<OpenAiChatProfile>().Property(row => row.Revision).IsConcurrencyToken();
+        builder.Entity<OpenAiChatProfile>().HasIndex(row => row.CodexConnectionId).IsUnique();
+        builder.Entity<OpenAiChatProfile>().HasOne<CodexConnection>().WithMany().HasForeignKey(row => row.CodexConnectionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<CodexConnection>().HasIndex(row => new { row.OwnerId, row.OrganizationId, row.State });
+        builder.Entity<CodexConnection>().Property(row => row.State).IsConcurrencyToken();
         builder.Entity<OpenAiChatProfileRevision>().HasKey(row => new { row.ProfileId, row.Revision });
         builder.Entity<OpenAiChatProfileRevision>().HasOne<OpenAiChatProfile>().WithMany()
             .HasForeignKey(row => row.ProfileId).OnDelete(DeleteBehavior.Restrict);

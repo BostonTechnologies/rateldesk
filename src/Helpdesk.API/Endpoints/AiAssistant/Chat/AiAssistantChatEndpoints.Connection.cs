@@ -34,10 +34,13 @@ public static partial class AiAssistantChatEndpoints
         if (providerProfiles is not null && db.Database.IsNpgsql())
         {
             var pinned = selected is null ? null : await query.SingleAsync(ct);
+            if (pinned is { ProviderKind: ChatProviderKind.CodexAppServer } && pinned.CreatedByUserId != Actor(context))
+                return Results.NotFound();
             var provider = pinned is null ? (await providerProfiles.AvailableAsync(organization, ct)).SingleOrDefault(item => item.IsDefault)
                 : await providerProfiles.DescribeAsync(pinned, ct);
-            if (provider is { Kind: ChatProviderKind.OpenAiAgents })
-                return Results.Ok(new ChatConnectionStatus(organization, provider.Enabled, null, "openai-agents",
+            if (provider is { Kind: ChatProviderKind.OpenAiAgents or ChatProviderKind.CodexAppServer })
+                return Results.Ok(new ChatConnectionStatus(organization, provider.Enabled, null,
+                    provider.Kind == ChatProviderKind.CodexAppServer ? "codex-app-server" : "openai-agents",
                     provider.Revision, provider.LastVerifiedAtUtc, null, DateTimeOffset.UtcNow, false, [],
                     access.IsHelpdeskAdmin ? ProviderSetupUrl : null, provider));
         }

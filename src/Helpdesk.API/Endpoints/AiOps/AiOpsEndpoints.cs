@@ -80,8 +80,9 @@ public static class AiOpsEndpoints
             var term = (q ?? "").Trim().ToLowerInvariant();
             if (term.Length > 200) return Results.BadRequest();
             var orgs = access.AllowedOrganizationIds.ToArray();
+            var visible = VisibleInvestigations(db, ctx);
             var candidates = await db.Set<AiOpsInvestigation>().AsNoTracking()
-                .Where(x => (access.IsHelpdeskAdmin || orgs.Contains(x.OrganizationId)) && (organizationId == null || x.OrganizationId == organizationId) && (term == "" || x.Title.ToLower().Contains(term)))
+                .Where(x => visible.Any(chat => chat.Id == x.Id) && (access.IsHelpdeskAdmin || orgs.Contains(x.OrganizationId)) && (organizationId == null || x.OrganizationId == organizationId) && (term == "" || x.Title.ToLower().Contains(term)))
                 .OrderByDescending(x => x.CreatedUtc).Take(100).ToListAsync(ct);
             var candidateIds = candidates.Select(x => x.Id).ToArray();
             var states = await db.Set<AiAssistantChatConversation>().AsNoTracking().Where(x => candidateIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.State, ct);
@@ -98,7 +99,9 @@ public static class AiOpsEndpoints
         });
         group.MapGet("/investigations/{id:guid}", async (Guid id, HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, CancellationToken ct) =>
         {
-            var row = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            var visible = VisibleInvestigations(db, ctx);
+            var row = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id &&
+                visible.Any(chat => chat.Id == x.Id), ct);
             if (row is null || !await AiOpsContext.CanAccessAsync(db, await accessService.ResolveAsync(ctx.User, ct), row, ct)) return Results.NotFound();
             var state = await db.Set<AiAssistantChatConversation>().Where(x => x.Id == id).Select(x => x.State).SingleAsync(ct);
             return Results.Ok(ToDto(row) with { State = state });
@@ -106,7 +109,9 @@ public static class AiOpsEndpoints
         group.MapPost("/investigations/{id:guid}/archive", async (Guid id, HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, IAiAssistantChatTransport transport, CancellationToken ct) =>
         {
             if (!db.Database.IsNpgsql()) return Results.Conflict();
-            var row = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            var visible = VisibleInvestigations(db, ctx);
+            var row = await db.Set<AiOpsInvestigation>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id &&
+                visible.Any(chat => chat.Id == x.Id), ct);
             if (row is null || !await AiOpsContext.CanAccessAsync(db, await accessService.ResolveAsync(ctx.User, ct), row, ct)) return Results.NotFound();
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             var conversation = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
@@ -122,6 +127,13 @@ public static class AiOpsEndpoints
 
     private static bool CanUse(CurrentUserAccessProfile access, string org) => access.CanManageIncident(org) || access.CanManageRequest(org) || access.CanManageChange(org);
     private static AiInvestigationDto ToDto(AiOpsInvestigation x) => new(x.Id, x.OrganizationId, x.Title, x.TicketId, x.TicketType, x.ContextSnapshot, DateTime.SpecifyKind(x.CreatedUtc, DateTimeKind.Utc));
+    private static IQueryable<AiAssistantChatConversation> VisibleInvestigations(HelpdeskDbContext db, HttpContext context)
+    {
+        var actor = context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub");
+        return db.Set<AiAssistantChatConversation>().Where(chat => chat.ProviderKind != ChatProviderKind.CodexAppServer ||
+            chat.CreatedByUserId == actor);
+    }
+
     private static async Task<IResult> CreateAsync(CreateAiInvestigationDto request, HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, CancellationToken ct)
     {
         if (!db.Database.IsNpgsql()) return Results.Problem("Native investigations require PostgreSQL.", statusCode: 409);

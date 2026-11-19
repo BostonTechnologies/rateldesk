@@ -1,0 +1,367 @@
+@using Helpdesk.Shared.AiAssistant.Chat
+@using Helpdesk.Shared.DTOs.McpPolicies
+@using Helpdesk.Shared.DTOs.Organization
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject IHttpClientFactory Clients
+@inject IJSRuntime JS
+
+<MudPaper Outlined="true" Class="pa-4">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.subtitle1">Codex App Server profile</MudText>
+        @if (!Setup.CodexDeviceConfigured)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                Device sign-in is unavailable on this deployment. Configure a private customer-operated Codex runtime first.
+                <MudLink Href="https://github.com/BostonTechnologies/RatelDesk/blob/main/docs/integrations/openai-agents.md#use-my-chatgpt-plan" Target="_blank">Runtime setup</MudLink>
+            </MudAlert>
+        }
+        else
+        {
+            @if (error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert>
+            }
+            <MudTextField Label="Profile name" @bind-Value="name" MaxLength="100" Margin="Margin.Dense" Disabled="busy" />
+            <MudSelect T="string" Label="Organization" Value="organization" ValueChanged="OrganizationChangedAsync" Disabled="@(busy || revision > 0 || IsPending)" Margin="Margin.Dense">
+                @foreach (var item in Organizations)
+                {
+                    <MudSelectItem T="string" Value="@item.Id">@item.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <div role="status" aria-live="polite">
+                <MudText Typo="Typo.body2">@ConnectionStatus</MudText>
+                @if (connection?.Detail is { } detail)
+                {
+                    <MudText Typo="Typo.caption">@detail</MudText>
+                }
+            </div>
+            @if (IsPending && connection is { VerificationUrl: { } url, UserCode: { } code })
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <strong data-sensitive="true">@(code)</strong>
+                    <MudButton Variant="Variant.Text" OnClick="CopyCodeAsync">Copy one-time code</MudButton>
+                    <MudButton Variant="Variant.Outlined" Href="@url" Target="_blank" rel="noopener noreferrer">Open ChatGPT sign-in</MudButton>
+                </MudStack>
+                @if (copied) { <MudText Typo="Typo.caption" role="status">Code copied</MudText> }
+                <MudText Typo="Typo.caption">Use this code in ChatGPT. Expires @connection.ExpiresAtUtc?.ToString("u").</MudText>
+            }
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                @if (IsPending)
+                {
+                    <MudButton Variant="Variant.Outlined" Disabled="busy" OnClick="EndAsync">Cancel sign-in</MudButton>
+                    <MudButton Variant="Variant.Text" Disabled="busy" OnClick="CheckAccountAsync">Check sign-in status</MudButton>
+                }
+                else if (IsConnected)
+                {
+                    <MudButton Variant="Variant.Outlined" Disabled="busy" OnClick="EndAsync">Disconnect ChatGPT</MudButton>
+                    <MudButton Variant="Variant.Text" Disabled="busy" OnClick="CheckAccountAsync">Check linked account</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(busy || string.IsNullOrEmpty(organization))"
+                               OnClick="ConnectAsync">@(connection is null ? "Continue with ChatGPT" : "Retry ChatGPT sign-in")</MudButton>
+                }
+                <MudButton Variant="Variant.Text" Disabled="busy" OnClick="CheckRuntimeAsync">Check runtime</MudButton>
+                @if (runtimeStatus is not null) { <MudText Typo="Typo.caption">@runtimeStatus</MudText> }
+            </MudStack>
+
+            @if (IsConnected || revision > 0)
+            {
+                <MudAutocomplete T="string" Label="Model" Value="model" ValueChanged="ModelChanged" Disabled="@(busy || !IsConnected)"
+                                 SearchFunc="SearchModels" ToStringFunc="ModelLabel" Dense="true" MinCharacters="0" Margin="Margin.Dense" />
+                <MudSelect T="string" Label="Reasoning effort" @bind-Value="effort" Disabled="@(busy || !IsConnected || Efforts.Length == 0)" Margin="Margin.Dense">
+                    <MudSelectItem T="string" Value="@string.Empty">Provider default</MudSelectItem>
+                    @foreach (var choice in Efforts)
+                    {
+                        <MudSelectItem T="string" Value="@choice">@choice</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(busy || !IsConnected)" OnClick="RefreshModelsAsync">Refresh Codex models</MudButton>
+                    @if (catalog is not null)
+                    {
+                        <MudText Typo="Typo.caption">Runtime catalog checked @catalog.FetchedAtUtc.ToString("u")</MudText>
+                    }
+                </MudStack>
+                <MudSelect T="string" Label="HTTP MCP gateway" @bind-Value="resource" Disabled="busy" Margin="Margin.Dense">
+                    @foreach (var choice in Setup.McpResources)
+                    {
+                        <MudSelectItem T="string" Value="@choice">@choice</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (Setup.McpResources.Length == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true">Configure the canonical HTTP MCP gateway for this instance.</MudAlert>
+                }
+                <MudSelect T="string" Label="Permitted MCP reads" MultiSelection="true" @bind-SelectedValues="reads" Disabled="busy" Margin="Margin.Dense">
+                    @foreach (var operation in ReadCatalog)
+                    {
+                        <MudSelectItem T="string" Value="@operation.Key">@operation.Family · @operation.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption">Read-only MCP. Local workspaces, skills, subagents, artifacts and write approvals are unavailable.</MudText>
+                <MudExpansionPanels Elevation="0">
+                    <MudExpansionPanel Text="Advanced settings">
+                        <MudNumericField T="int" Label="Observation limit (minutes)" @bind-Value="observationMinutes" Min="1" Max="240" Margin="Margin.Dense" Disabled="busy" />
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+                <MudCheckBox @bind-Value="enabled" Dense="true" Disabled="@(busy || !IsConnected)" Label="Enable for new conversations in this organization" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(busy || !IsConnected)" OnClick="SaveAsync">Save Codex profile</MudButton>
+                @if (revision > 0)
+                {
+                    <MudText Typo="Typo.caption">Verify MCP connectivity and inference separately with a new synthetic conversation using this profile.</MudText>
+                }
+            }
+            <MudLink Href="https://chatgpt.com/codex/settings/usage" Target="_blank">ChatGPT Codex usage</MudLink>
+        }
+        <MudButton Variant="Variant.Text" OnClick="Closed" Disabled="busy">Close</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public AiProviderSetupOptions Setup { get; set; } = default!;
+    [Parameter] public IReadOnlyList<OrganizationDto> Organizations { get; set; } = [];
+    [Parameter] public IReadOnlyList<McpPolicyOperation> ReadCatalog { get; set; } = [];
+    [Parameter] public Guid? SavedProfileId { get; set; }
+    [Parameter] public EventCallback Saved { get; set; }
+    [Parameter] public EventCallback Closed { get; set; }
+
+    private const string Route = "api/v1/admin/ai-providers/codex";
+    private readonly CancellationTokenSource lifetime = new();
+    private Task? polling;
+    private Guid profileId = Guid.NewGuid();
+    private int revision;
+    private int observationMinutes = 30;
+    private string organization = "", name = "", model = "", effort = "", resource = "";
+    private IReadOnlyCollection<string>? reads = ["helpdesk_incidents.get"];
+    private bool enabled, busy, copied;
+    private string? error, runtimeStatus;
+    private CodexConnectionView? connection;
+    private OpenAiModelCatalog? catalog;
+
+    private bool IsPending => connection?.State == CodexConnectionState.Pending;
+    private bool IsConnected => connection?.State == CodexConnectionState.Connected;
+    private string[] Efforts => catalog?.Models.FirstOrDefault(item => item.Id == model)?.ReasoningEfforts ?? [];
+    private string ConnectionStatus => connection?.State switch
+    {
+        CodexConnectionState.Pending => "Waiting for sign-in in ChatGPT.",
+        CodexConnectionState.Connected => $"Linked to {connection.AccountLabel} · {connection.Plan} · Using ChatGPT plan",
+        CodexConnectionState.Cancelled => "Sign-in cancelled.",
+        CodexConnectionState.Expired => "The device sign-in expired. Start a fresh sign-in.",
+        CodexConnectionState.Failed => "ChatGPT sign-in did not complete.",
+        CodexConnectionState.Disconnected => "ChatGPT disconnected.",
+        CodexConnectionState.PlanAccessUnavailable => "The linked account did not report a supported ChatGPT plan.",
+        CodexConnectionState.ReauthenticationRequired => "ChatGPT sign-in is required again.",
+        _ => "ChatGPT account is unlinked."
+    };
+
+    protected override Task OnInitializedAsync()
+    {
+        organization = Organizations.Count == 1 ? Organizations[0].Id : "";
+        resource = Setup.McpResources is [var only] ? only : "";
+        if (!Setup.CodexDeviceConfigured) return Task.CompletedTask;
+        return RunAsync(async ct =>
+        {
+            using var api = Clients.CreateClient("SystemPairingApi");
+            if (SavedProfileId is { } id)
+            {
+                using var response = await api.GetAsync($"{Route}/profiles/{id}", ct);
+                if (await ReadAsync<OpenAiChatProfileEditor>(response, ct) is not { } saved) return;
+                Apply(saved);
+                if (saved.Settings.CodexConnectionId is { } connectionId)
+                    await ReadStatusAsync(connectionId, ct);
+            }
+            else if (organization.Length != 0)
+            {
+                await LoadConnectionAsync(ct);
+            }
+            BeginPolling();
+        });
+    }
+
+    private Task OrganizationChangedAsync(string? value)
+    {
+        organization = value ?? "";
+        connection = null;
+        catalog = null;
+        model = effort = "";
+        if (organization.Length == 0) return Task.CompletedTask;
+        return RunAsync(async ct => { await LoadConnectionAsync(ct); BeginPolling(); });
+    }
+
+    private async Task LoadConnectionAsync(CancellationToken ct)
+    {
+        using var api = Clients.CreateClient("SystemPairingApi");
+        using var response = await api.GetAsync($"{Route}/connections?organizationId={Uri.EscapeDataString(organization)}", ct);
+        var choices = await ReadAsync<CodexConnectionView[]>(response, ct);
+        var candidate = choices?.FirstOrDefault(item => item.State == CodexConnectionState.Pending)
+            ?? choices?.FirstOrDefault(item => item.State == CodexConnectionState.Connected);
+        if (candidate is not null)
+            await ReadStatusAsync(candidate.Id, ct);
+    }
+
+    private Task ConnectAsync() => RunAsync(async ct =>
+    {
+        using var api = Clients.CreateClient("SystemPairingApi");
+        using var response = await api.PostAsJsonAsync($"{Route}/connections", new CodexConnectRequest(organization), ct);
+        if (await ReadAsync<CodexConnectionView>(response, ct) is not { } started) return;
+        connection = started;
+        copied = false;
+        catalog = null;
+        model = effort = "";
+        BeginPolling();
+    });
+
+    private void BeginPolling()
+    {
+        if (IsPending && (polling is null || polling.IsCompleted))
+            polling = PollAsync(lifetime.Token);
+    }
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (!IsPending) return;
+                if (busy || connection is not { } pending) continue;
+                await InvokeAsync(async () =>
+                {
+                    await RunAsync(token => ReadStatusAsync(pending.Id, token));
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            connection = null;
+        }
+    }
+
+    private Task CheckAccountAsync() => connection is { } current
+        ? RunAsync(ct => ReadStatusAsync(current.Id, ct)) : Task.CompletedTask;
+
+    private async Task ReadStatusAsync(Guid id, CancellationToken ct)
+    {
+        using var api = Clients.CreateClient("SystemPairingApi");
+        using var response = await api.GetAsync($"{Route}/connections/{id}?organizationId={Uri.EscapeDataString(organization)}", ct);
+        if (await ReadAsync<CodexConnectionView>(response, ct) is not { } status) return;
+        connection = status;
+        if (!IsConnected) catalog = null;
+    }
+
+    private Task EndAsync() => RunAsync(async ct =>
+    {
+        if (connection is not { } current) return;
+        using var api = Clients.CreateClient("SystemPairingApi");
+        using var response = await api.DeleteAsync($"{Route}/connections/{current.Id}?organizationId={Uri.EscapeDataString(organization)}", ct);
+        if (await ReadAsync<CodexConnectionView>(response, ct) is not { } ended) return;
+        connection = ended;
+        catalog = null;
+        enabled = false;
+        await Saved.InvokeAsync();
+    });
+
+    private Task CheckRuntimeAsync() => RunAsync(async ct =>
+    {
+        runtimeStatus = null;
+        using var api = Clients.CreateClient("SystemPairingApi");
+        using var response = await api.GetAsync($"{Route}/runtime", ct);
+        if (await ReadAsync<RuntimeInfo>(response, ct) is { } runtime) runtimeStatus = $"Codex {runtime.Version} available";
+    });
+
+    private Task RefreshModelsAsync() => RunAsync(async ct =>
+    {
+        if (connection is not { State: CodexConnectionState.Connected } current) return;
+        using var api = Clients.CreateClient("SystemPairingApi");
+        using var response = await api.PostAsJsonAsync($"{Route}/connections/{current.Id}/models", new CodexConnectRequest(organization), ct);
+        catalog = await ReadAsync<OpenAiModelCatalog>(response, ct);
+    });
+
+    private Task<IEnumerable<string>> SearchModels(string text, CancellationToken _) =>
+        Task.FromResult((catalog?.Models ?? []).Where(item => string.IsNullOrWhiteSpace(text) ||
+            item.Id.Contains(text, StringComparison.OrdinalIgnoreCase) || item.Name.Contains(text, StringComparison.OrdinalIgnoreCase)).Select(item => item.Id));
+
+    private string ModelLabel(string? value) => catalog?.Models.FirstOrDefault(item => item.Id == value)?.Name ?? value ?? "";
+    private void ModelChanged(string? value) { model = value ?? ""; effort = ""; }
+
+    private Task SaveAsync() => RunAsync(async ct =>
+    {
+        if (connection is not { State: CodexConnectionState.Connected } current) return;
+        using var api = Clients.CreateClient("SystemPairingApi");
+        var update = new CodexProfileUpdate(profileId, revision, current.Id, name.Trim(), enabled, organization, model,
+            string.IsNullOrEmpty(effort) ? null : effort, resource, reads?.ToArray() ?? [], observationMinutes);
+        using var response = await api.PutAsJsonAsync($"{Route}/profiles/{profileId}", update, ct);
+        if (await ReadAsync<OpenAiChatProfileEditor>(response, ct) is not { } saved) return;
+        Apply(saved);
+        await Saved.InvokeAsync();
+    });
+
+    private void Apply(OpenAiChatProfileEditor saved)
+    {
+        profileId = saved.Profile.Id;
+        revision = saved.Profile.Revision;
+        var settings = saved.Settings;
+        organization = settings.OrganizationId;
+        name = settings.Name;
+        model = settings.Model;
+        effort = settings.ReasoningEffort ?? "";
+        resource = settings.McpResource;
+        reads = settings.ReadOperations;
+        enabled = saved.Profile.Enabled;
+        observationMinutes = settings.ObservationMinutes;
+    }
+
+    private async Task CopyCodeAsync()
+    {
+        if (connection?.UserCode is not { } code) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", lifetime.Token, code);
+            copied = true;
+        }
+        catch (JSException)
+        {
+            error = "The device code could not be copied. Select the code to copy it.";
+        }
+    }
+
+    private async Task RunAsync(Func<CancellationToken, Task> action)
+    {
+        if (busy || lifetime.IsCancellationRequested) return;
+        busy = true;
+        error = null;
+        try { await action(lifetime.Token); }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (!lifetime.IsCancellationRequested) error = "The Codex request did not finish. Check its status before retrying.";
+        }
+        finally { busy = false; }
+    }
+
+    private async Task<T?> ReadAsync<T>(HttpResponseMessage response, CancellationToken ct) where T : class
+    {
+        if (response.IsSuccessStatusCode) return await response.Content.ReadFromJsonAsync<T>(ct);
+        var fallback = $"The Codex request returned HTTP {(int)response.StatusCode}.";
+        if (response.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.Ordinal) == true)
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProviderProblem>(ct);
+            error = problem?.Message ?? problem?.Detail ?? fallback;
+        }
+        else error = fallback;
+        return null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await lifetime.CancelAsync();
+        if (polling is not null) await polling;
+        lifetime.Dispose();
+    }
+
+    private sealed record RuntimeInfo(string Version);
+    private sealed record ProviderProblem(string? Message, string? Detail);
+}

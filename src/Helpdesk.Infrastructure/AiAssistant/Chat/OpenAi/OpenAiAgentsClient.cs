@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Helpdesk.Application.AiAssistant.Chat;
+using Helpdesk.Shared.AiAssistant.Chat;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
@@ -25,6 +26,25 @@ internal sealed class OpenAiAgentsClient(HttpClient http, OpenAiAgentsConfigurat
         using var request = Request(HttpMethod.Get, Sessions + "?limit=1");
         using var response = await SendAsync(request, ct);
         return "OpenAI project authentication and Agents read permission verified.";
+    }
+
+    internal static async Task<OpenAiModelCatalog> ReadModelsAsync(HttpClient http, string key, string? project,
+        string? organization, TimeProvider clock, CancellationToken ct)
+    {
+        using var request = ProjectRequest(HttpMethod.Get, "models", key, project, organization);
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        EnsureSuccess(response);
+        using var body = await ReadBoundedAsync(response.Content, MaxResponseBytes, ct);
+        var catalog = await JsonSerializer.DeserializeAsync(body, Json.OpenAiProjectModelList, ct);
+        if (catalog is not { Object: "list", Data: not null })
+            throw new InvalidDataException("OpenAI returned an invalid project model catalog.");
+        var models = catalog.Data.Where(model => model is { Object: "model" } && OpenAiChatProfiles.Identifier(model.Id, 128))
+            .Select(model => model!.Id!)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .Select(id => new OpenAiModelChoice(id, id, []))
+            .ToArray();
+        return new(clock.GetUtcNow(), models);
     }
 
     internal Task<List<AgentArtifact>> ListArtifactsAsync(string session, CancellationToken ct) =>
@@ -225,11 +245,17 @@ internal sealed class OpenAiAgentsClient(HttpClient http, OpenAiAgentsConfigurat
 
     private HttpRequestMessage Request(HttpMethod method, string path)
     {
-        var request = new HttpRequestMessage(method, new Uri("https://api.openai.com/v1/" + path));
-        request.Headers.Authorization = new("Bearer", configuration.ApiKey);
+        var request = ProjectRequest(method, path, configuration.ApiKey, configuration.Project, configuration.Organization);
         request.Headers.Add("OpenAI-Beta", "agents=v1");
-        if (configuration.Project is { } project) request.Headers.Add("OpenAI-Project", project);
-        if (configuration.Organization is { } organization) request.Headers.Add("OpenAI-Organization", organization);
+        return request;
+    }
+
+    private static HttpRequestMessage ProjectRequest(HttpMethod method, string path, string key, string? project, string? organization)
+    {
+        var request = new HttpRequestMessage(method, new Uri("https://api.openai.com/v1/" + path));
+        request.Headers.Authorization = new("Bearer", key);
+        if (project is not null) request.Headers.Add("OpenAI-Project", project);
+        if (organization is not null) request.Headers.Add("OpenAI-Organization", organization);
         return request;
     }
 

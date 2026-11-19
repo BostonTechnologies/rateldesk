@@ -376,3 +376,13 @@ For the bundled PostgreSQL sidecar, use host `postgres`, port `5432`, and the co
 Explicit `Authentication__Mode` values remain authoritative after setup. Without an explicit mode, fresh instances use Local and adopted legacy installations use OIDC. `Branding__ApplicationName` and `Branding__ApplicationUrl` prefill deployment-managed setup fields; optional visual branding does not discard the instance name.
 
 Inbound provider configuration, tenant overrides and upgrade procedures are documented in [Inbound mailbox administration](../integrations/mailbox-ingestion.md).
+
+
+## Optional Codex App Server
+
+Installations that use a private customer-operated Codex runtime mount the pinned
+upstream Linux package on the API service and provision an encrypted local state
+volume for the runtime. Assign one API replica to that volume and use the WebUX
+for account sign-in and profile settings. See the
+[OpenAI runtime deployment and setup](../integrations/openai-agents.md#use-my-chatgpt-plan)
+for the version, mount settings and recovery steps.

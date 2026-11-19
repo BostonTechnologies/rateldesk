@@ -30,7 +30,7 @@ public interface IChatProviderObservation : IAsyncDisposable
     IAsyncEnumerable<ProviderStreamEvent> ReadAsync(CancellationToken ct);
 }
 
-public enum ProviderStreamEventKind { TextDelta, TextDone, HistoryChanged }
+public enum ProviderStreamEventKind { TextDelta, TextDone, HistoryChanged, ModelChanged }
 
 public sealed record ProviderStreamEvent(ProviderStreamEventKind Kind, string? ItemId,
     string? TurnId, string? SubagentId, string? Text, int ContentIndex = 0);

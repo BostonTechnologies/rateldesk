@@ -92,7 +92,8 @@ internal sealed class OpenAiChatMcpAuthority(IIntegrationCredentialOwnerResolver
     public async Task<ProviderDecision> WriteInternalNoteAsync(AiAssistantChatConversation conversation, Guid credentialId,
         string incidentId, string note, CancellationToken ct)
     {
-        if (!await IsGrantUsableAsync(conversation, credentialId, ct) || conversation.ProviderActorId is not { } actorId)
+        if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents ||
+            !await IsGrantUsableAsync(conversation, credentialId, ct) || conversation.ProviderActorId is not { } actorId)
             return new(false, "The session's tool authority has expired or changed.");
         var principal = await LoadAccountAsync(actorId, ct);
         var credential = await ReadCredentialAsync(credentialId, ct);
@@ -160,7 +161,11 @@ internal sealed class OpenAiChatMcpAuthority(IIntegrationCredentialOwnerResolver
             return false;
         var binding = await (from conversation in db.Set<AiAssistantChatConversation>().AsNoTracking()
                              join profile in db.Set<OpenAiChatProfile>().AsNoTracking() on conversation.ProviderProfileId equals profile.Id
-                             where conversation.Id == grant.ConversationId && conversation.ProviderKind == ChatProviderKind.OpenAiAgents &&
+                             where conversation.Id == grant.ConversationId &&
+                                   (conversation.ProviderKind == ChatProviderKind.OpenAiAgents && profile.CodexConnectionId == null ||
+                                    conversation.ProviderKind == ChatProviderKind.CodexAppServer && db.Set<CodexConnection>().Any(connection =>
+                                        connection.Id == profile.CodexConnectionId && connection.State == CodexConnectionState.Connected &&
+                                        connection.OwnerId == credential.OwnerUserId && connection.OrganizationId == credential.OrganizationId)) &&
                                    conversation.ProviderActorId == credential.OwnerUserId && conversation.OrganizationId == credential.OrganizationId &&
                                    conversation.State != ChatState.Archived && profile.Enabled && conversation.ProviderRevision == profile.Revision
                              join revision in db.Set<OpenAiChatProfileRevision>().AsNoTracking()

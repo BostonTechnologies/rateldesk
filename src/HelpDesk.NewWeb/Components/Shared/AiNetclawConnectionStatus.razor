@@ -61,7 +61,7 @@
     private string ProviderLabel => status?.Profile?.Name ?? "Netclaw";
     private string StatusText => status switch
     {
-        { Profile: { Kind: ChatProviderKind.OpenAiAgents } profile } => profile.Enabled
+        { Profile: { Kind: ChatProviderKind.OpenAiAgents or ChatProviderKind.CodexAppServer } profile } => profile.Enabled
             ? $"{profile.Name} · {profile.Model}" : $"{profile.Name} · History only",
         null => "○ Netclaw status unknown",
         { Enabled: false } => "○ Netclaw unavailable",

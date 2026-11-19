@@ -120,7 +120,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
             await using var scope = scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
             var persisted = await db.Set<AiAssistantChatConversation>().AsNoTracking().SingleAsync(x => x.Id == conversation, ct);
-            if (persisted.ProviderKind == ChatProviderKind.OpenAiAgents) return; // The durable provider outbox owns dispatch.
+            if (persisted.ProviderKind is ChatProviderKind.OpenAiAgents or ChatProviderKind.CodexAppServer) return; // The durable provider outbox owns dispatch.
             var message = await db.Set<AiAssistantChatEvent>().AsNoTracking().SingleAsync(x => x.ConversationId == conversation && x.ClientMessageId == messageId && x.Type == "operator", ct);
             if (message.Text != text) throw new InvalidOperationException("Outbound message does not match its admitted event.");
             var outbound = await ChatOutboundMessage.BuildAsync(db, persisted, message, messageId, ct);
@@ -452,7 +452,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         return await db.Set<AiAssistantChatConversation>().AnyAsync(x =>
-            x.Id == conversation && x.ProviderKind == ChatProviderKind.OpenAiAgents, ct);
+            x.Id == conversation && (x.ProviderKind == ChatProviderKind.OpenAiAgents || x.ProviderKind == ChatProviderKind.CodexAppServer), ct);
     }
 
     public async Task RetireAsync(Guid conversation, CancellationToken ct)

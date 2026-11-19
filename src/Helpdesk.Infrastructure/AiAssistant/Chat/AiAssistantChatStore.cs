@@ -11,7 +11,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat;
 
-public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPublisher domainEvents, ICorrelationContext correlation, ILogger<AiAssistantChatStore> logger, TimeProvider? timeProvider = null, OpenAi.OpenAiChatProfiles? profiles = null) : IAiAssistantChatStore
+public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEventPublisher domainEvents, ICorrelationContext correlation, ILogger<AiAssistantChatStore> logger, TimeProvider? timeProvider = null, OpenAi.OpenAiChatProfiles? profiles = null,
+    ITenantContext? tenant = null) : IAiAssistantChatStore
 {
     public Task RequestRecoveryAsync(string type, string ticketId, Guid id, string actor, CancellationToken ct) => RequestRecoveryAsync(ChatScope.Ticket(type, ticketId), id, actor, ct);
     public Task StopWaitingAsync(string type, string ticketId, ChatStopWaitingRequest request, string actor, CancellationToken ct) => StopWaitingAsync(ChatScope.Ticket(type, ticketId), request, actor, ct);
@@ -40,12 +41,12 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(id, ct);
-        Bind(conversation, ticket);
+        Bind(conversation, ticket, actor);
         if (conversation.State != ChatState.DeliveryUnknown) throw new ChatConflictException("Only unresolved delivery can be checked.");
         if (await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct) is { ScheduledWorkUnconfirmed: true })
             throw new ChatConflictException("NetClaw session history cannot restore the exact scheduled report.");
         var last = await db.Set<AiAssistantChatEvent>().Where(x => x.ConversationId == id && x.Type == "recovery_requested").OrderByDescending(x => x.Sequence).FirstOrDefaultAsync(ct);
-        if (conversation.ProviderKind == ChatProviderKind.OpenAiAgents && await ActiveDispatchAsync(conversation, ct) is { } dispatch)
+        if (UsesProviderWorker(conversation) && await ActiveDispatchAsync(conversation, ct) is { } dispatch)
             dispatch.NextObservationAtUtc = null;
         conversation.RecoveryLastAttemptUtc = Now;
         conversation.RecoveryResult = "Checking saved session. No message is resent.";
@@ -64,7 +65,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket);
+        Bind(conversation, ticket, actor);
         if (conversation.State is not (ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
             || conversation.ActiveMessageId != request.ExpectedMessageId)
             throw new ChatConflictException("The processing turn changed or already completed.");
@@ -85,7 +86,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({ticket.LockKey}, 0))", ct);
         var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket);
+        Bind(conversation, ticket, actor);
         var existing = await db.Set<AiAssistantChatEvent>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.ClientMessageId == request.ResolutionId, ct);
         if (existing is not null)
         {
@@ -99,7 +100,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         conversation.State = ChatState.Archived;
         Append(db, conversation, "archived", "Conversation archived after deliberate abandonment.", actor, atUtc: Now);
         await db.SaveChangesAsync(ct);
-        if (ticket.Kind == ChatConversationScope.Ticket && !conversation.IsInvestigation)
+        if (ticket.Kind == ChatConversationScope.Ticket && !conversation.IsInvestigation && conversation.ProviderKind != ChatProviderKind.CodexAppServer)
         {
             var next = new AiAssistantChatConversation { OrganizationId = ticket.OrganizationId, TicketId = ticket.Id, TicketType = ticket.Type, CreatedByUserId = actor };
             if (profiles is not null && (await profiles.AvailableAsync(ticket.OrganizationId, ct)).Count > 0)
@@ -131,14 +132,19 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             throw new KeyNotFoundException("Ticket not found.");
         return new(ChatConversationScope.Ticket, ticket.OrganizationId!, ticket.Id, scope.TicketType);
     }
-    private IQueryable<AiAssistantChatConversation> Query(BoundScope scope) => db.Set<AiAssistantChatConversation>()
-        .Where(x => x.Scope == scope.Kind && x.OrganizationId == scope.OrganizationId && x.TicketId == scope.Id && x.TicketType == scope.Type);
+    private IQueryable<AiAssistantChatConversation> Query(BoundScope scope, string? actor = null)
+    {
+        var user = actor ?? tenant?.UserId;
+        return db.Set<AiAssistantChatConversation>().Where(x => x.Scope == scope.Kind && x.OrganizationId == scope.OrganizationId &&
+            x.TicketId == scope.Id && x.TicketType == scope.Type &&
+            (x.ProviderKind != ChatProviderKind.CodexAppServer || x.CreatedByUserId == user));
+    }
 
     private async Task<AiAssistantChatConversation> LockAsync(Guid id, CancellationToken ct) =>
         await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("Conversation not found.");
 
-    private static void Bind(AiAssistantChatConversation conversation, BoundScope ticket)
+    private static void Bind(AiAssistantChatConversation conversation, BoundScope ticket, string actor)
     {
         if (conversation.Scope != ticket.Kind || conversation.TicketId != ticket.Id || conversation.OrganizationId != ticket.OrganizationId || conversation.TicketType != ticket.Type)
             throw new KeyNotFoundException("Conversation not found.");
@@ -174,7 +180,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
     public async Task<ChatSnapshot> LoadAsync(ChatScope scope, Guid? conversationId, long after, string actor, CancellationToken ct)
     {
         var ticket = await ResolveScopeAsync(scope, ct);
-        var query = Query(ticket);
+        var query = Query(ticket, actor);
         if (scope.Kind == ChatConversationScope.Organization && !conversationId.HasValue) throw new ArgumentException("Select or create an organization conversation.");
         var conversation = conversationId.HasValue
             ? await query.SingleOrDefaultAsync(x => x.Id == conversationId, ct)
@@ -188,6 +194,10 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             conversation = await query.SingleOrDefaultAsync(x => x.State != ChatState.Archived && !x.IsInvestigation, ct);
             if (conversation is null)
             {
+                if (await db.Set<AiAssistantChatConversation>().AnyAsync(x => x.Scope == ticket.Kind &&
+                    x.OrganizationId == ticket.OrganizationId && x.TicketId == ticket.Id && x.TicketType == ticket.Type &&
+                    x.State != ChatState.Archived && !x.IsInvestigation, ct))
+                    throw new ChatConflictException("An active private conversation is unavailable to this operator.");
                 conversation = new() { OrganizationId = ticket.OrganizationId!, TicketId = ticket.Id, TicketType = ticket.Type, Scope = ticket.Kind, CreatedByUserId = actor };
                 if (profiles is not null) await profiles.BindNewAsync(conversation, null, ct);
                 db.Add(conversation);
@@ -211,7 +221,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket);
+        Bind(conversation, ticket, actor);
         var existing = await db.Set<AiAssistantChatEvent>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.ClientMessageId == request.ClientMessageId, ct);
         if (existing is not null)
         {
@@ -238,7 +248,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket);
+        Bind(conversation, ticket, actor);
         if (conversation.State != ChatState.AwaitingApproval) throw new ChatConflictException("No approval is currently available.");
         var interaction = await db.Set<AiAssistantChatInteraction>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.CallId == callId, ct)
             ?? throw new KeyNotFoundException("Approval not found.");
@@ -270,7 +280,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             if (profiles is not null)
                 await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({ticket.LockKey}, 0))", ct);
             var old = await LockAsync(id, ct);
-            Bind(old, ticket);
+            Bind(old, ticket, actor);
             ChatRules.RequireIdle(old.State);
             old.State = ChatState.Archived;
             Append(db, old, "archived", "Conversation archived.", actor, atUtc: Now);

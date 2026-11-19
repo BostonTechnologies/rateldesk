@@ -25,7 +25,7 @@ else
         {
             <MudTooltip Text="Stop waiting"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.StopCircle" aria-label="Stop waiting" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="StopWaitingAsync" /></MudTooltip>
         }
-        @if (provider == ChatProviderKind.OpenAiAgents && state is (ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren or ChatState.DeliveryUnknown))
+        @if (provider is (ChatProviderKind.OpenAiAgents or ChatProviderKind.CodexAppServer) && state is (ChatState.Processing or ChatState.AwaitingApproval or ChatState.WaitingForChildren or ChatState.DeliveryUnknown))
         {
             <MudTooltip Text="Cancel remote turn"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.Cancel"
                 aria-label="Cancel remote turn" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="CancelRemoteAsync" /></MudTooltip>
@@ -181,6 +181,10 @@ else
     </div>
     </div>
     <div class="@(Workspace ? "ai-chat-composer" : null)">
+    @if (provider is ChatProviderKind.OpenAiAgents or ChatProviderKind.CodexAppServer)
+    {
+        <MudText Typo="Typo.caption">@(provider == ChatProviderKind.CodexAppServer ? "Using ChatGPT plan" : "API project billing")</MudText>
+    }
     <AiAssistantComposer @key="conversation" @bind-Value="message" Send="SendAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" ReadOnly="@(submittedMessage is not null)" SendLabel="@(submittedMessage is null ? "Send" : "Retry message")" Identity="@Identity" ProviderName="@ProviderName" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || capabilities?.Enabled == false || state != ChatState.Idle || conversation == Guid.Empty)" />
     </div>
 </div>
@@ -219,7 +223,12 @@ else
     private Guid? providerProfileId, nextProfile;
     private IReadOnlyList<ChatProviderArtifact> artifacts = [];
     private string ProviderName => capabilities?.Profiles?.FirstOrDefault(item => item.Id == providerProfileId)?.Name
-        ?? (provider == ChatProviderKind.OpenAiAgents ? "OpenAI Agents" : "Netclaw");
+        ?? (provider switch
+        {
+            ChatProviderKind.OpenAiAgents => "OpenAI Agents",
+            ChatProviderKind.CodexAppServer => "Codex App Server",
+            _ => "Netclaw"
+        });
     private long cursor;
     private bool busy;
     private bool acknowledgeAbandon, hasOlderHistory;

@@ -2,6 +2,7 @@ using System.Net;
 using System.Threading.Channels;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.AiAssistant.Chat.Codex;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -9,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
 internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProfiles profiles, OpenAiAgentsHttpClient http,
-    IChatProviderMcpAuthority authority, IChatLiveFeed feed, TimeProvider clock, ILogger<OpenAiChatRun> logger)
+    IChatProviderMcpAuthority authority, IChatLiveFeed feed, TimeProvider clock, ILogger<OpenAiChatRun> logger, CodexAppServerHost? codex = null)
 {
     private DateTimeOffset Now => clock.GetUtcNow();
 
@@ -43,6 +44,11 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
                 await MarkTerminalAsync(dispatch, "turn_cancelled", "The OpenAI turn was cancelled before it was submitted.", token);
                 return;
             }
+            if (conversation.ProviderKind == ChatProviderKind.CodexAppServer)
+            {
+                await ProcessCodexAsync(conversation, dispatch, profile, token);
+                return;
+            }
             if (conversation.AiAssistantSessionId is null)
             {
                 var remote = await CreateSessionAsync(client, conversation, dispatch, profile, revision, token);
@@ -50,7 +56,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
                 conversation.AiAssistantSessionId = remote;
             }
 
-            var adapter = new OpenAiAgentsClient(client, profiles.CreateConfiguration(profile, revision, null));
+            var adapter = new OpenAiAgentsClient(client, await profiles.CreateConfigurationAsync(profile, revision, null, token));
             await ObserveAsync(adapter, conversation, dispatch, profile, token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -58,7 +64,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or OperationCanceledException
-            or System.Text.Json.JsonException or ChatConflictException or KeyNotFoundException or ArgumentException or InvalidOperationException)
+            or System.Text.Json.JsonException or ChatConflictException or KeyNotFoundException or ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             await SaveObservationFailureAsync(dispatch, ex, observationMinutes, ct);
         }
@@ -98,7 +104,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         try
         {
             var grant = await authority.IssueAsync(conversation, profile, credentialId, ct);
-            var config = profiles.CreateConfiguration(profile, revision, grant.Token);
+            var config = await profiles.CreateConfigurationAsync(profile, revision, grant.Token, ct);
             var adapter = new OpenAiAgentsClient(client, config);
             var outbound = await OutboundAsync(conversation, dispatch, ct);
             if (!await authority.IsGrantUsableAsync(conversation, credentialId, ct))
@@ -126,8 +132,8 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         }
     }
 
-    private async Task ObserveAsync(OpenAiAgentsClient adapter, AiAssistantChatConversation conversation, OpenAiChatDispatch dispatch,
-        OpenAiChatProfileSettings profile, CancellationToken ct)
+    private async Task ObserveAsync(IChatProviderSession adapter, AiAssistantChatConversation conversation, OpenAiChatDispatch dispatch,
+        OpenAiChatProfileSettings profile, CancellationToken ct, bool openedNewCodexThread = false)
     {
         var sessionId = conversation.AiAssistantSessionId!;
         using var streamLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -146,7 +152,10 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         var stream = connected is null ? Task.CompletedTask : PumpAsync(connected, channel.Writer, streamLifetime.Token);
         try
         {
-            var history = await adapter.RetrieveAsync(sessionId, ct);
+            var history = adapter is CodexAppServerSession && dispatch.State == OpenAiDispatchState.Queued && dispatch.TurnId is null &&
+                openedNewCodexThread
+                ? new ProviderSessionHistory(sessionId, "idle", [], [], [], [])
+                : await adapter.RetrieveAsync(sessionId, ct);
             if (dispatch.State == OpenAiDispatchState.Queued)
             {
                 if (connected is null) return;
@@ -167,6 +176,12 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             {
                 await foreach (var next in channel.Reader.ReadAllAsync(slice.Token))
                 {
+                    if (next.Kind == ProviderStreamEventKind.ModelChanged && next.TurnId is { } changedTurn && changedTurn == dispatch.TurnId)
+                    {
+                        await MarkTerminalAsync(dispatch, "error", "Codex reported a different serving model. Review the configured model before starting another turn.", ct);
+                        await adapter.CancelAsync(sessionId, "model-changed", ct);
+                        return;
+                    }
                     if (next.Kind == ProviderStreamEventKind.HistoryChanged) break;
                     if (dispatch.TurnId is not null && next.SubagentId is null &&
                         (next.TurnId is null || next.TurnId == dispatch.TurnId) && next.ItemId is { } itemId &&
@@ -204,7 +219,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         }
     }
 
-    private async Task<bool> SubmitAsync(OpenAiAgentsClient adapter, AiAssistantChatConversation conversation,
+    private async Task<bool> SubmitAsync(IChatProviderSession adapter, AiAssistantChatConversation conversation,
         OpenAiChatDispatch dispatch, ProviderSessionHistory history, CancellationToken ct)
     {
         if (history.Status == "failed")
@@ -223,12 +238,24 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
             await MarkTerminalAsync(dispatch, "error", "The OpenAI profile or scoped tool access changed before this request was sent.", ct);
             return false;
         }
+        if (adapter is CodexAppServerSession codexSession)
+        {
+            await codexSession.PrepareAsync(conversation.AiAssistantSessionId!, ct);
+            await codexSession.CheckMcpAsync(conversation.AiAssistantSessionId!, ct);
+            if (!await profiles.IsCurrentAsync(conversation, ct) || !await authority.IsGrantUsableAsync(conversation, credentialId, ct))
+            {
+                await MarkTerminalAsync(dispatch, "error", "The ChatGPT connection or scoped tool access changed before dispatch.", ct);
+                return false;
+            }
+        }
         var outbound = await OutboundAsync(conversation, dispatch, ct);
-        var claimed = await ChangeAsync(dispatch, (row, _) =>
+        var claimed = await ChangeAsync(dispatch, (row, current) =>
         {
             if (row.CancelRequestedAtUtc is not null || row.State != OpenAiDispatchState.Queued) return false;
             row.State = OpenAiDispatchState.Dispatching;
             row.DispatchedAtUtc = Now;
+            if (adapter is CodexAppServerSession)
+                AiAssistantChatStore.Append(db, current, "provider_mcp_ready", "Codex initialized the scoped RatelDesk MCP gateway.", atUtc: Now);
             return true;
         }, ct);
         if (!claimed) return false;
@@ -237,9 +264,11 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         await ChangeAsync(dispatch, (row, current) =>
         {
             row.State = OpenAiDispatchState.Admitted;
-            AiAssistantChatStore.Append(db, current, "provider_admitted", "OpenAI accepted the message for processing.", atUtc: Now);
+            if (adapter is CodexAppServerSession codexAdapter) row.TurnId = codexAdapter.LastTurnId;
+            AiAssistantChatStore.Append(db, current, "provider_admitted", "The provider accepted the message for processing.", atUtc: Now);
         }, ct);
         dispatch.State = OpenAiDispatchState.Admitted;
+        if (adapter is CodexAppServerSession confirmed) dispatch.TurnId = confirmed.LastTurnId;
         return true;
     }
 
@@ -291,15 +320,17 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         try
         {
             await authority.RevokeAsync(grant.CredentialId, timeout.Token);
-            if (conversation.AiAssistantSessionId is { } session)
+            if (conversation.ProviderKind != ChatProviderKind.CodexAppServer && conversation.AiAssistantSessionId is { } session)
             {
                 var (settings, revision) = await profiles.ResolveAsync(conversation, timeout.Token);
                 var client = http.Client;
-                var adapter = new OpenAiAgentsClient(client, profiles.CreateConfiguration(settings, revision, null));
+                var adapter = new OpenAiAgentsClient(client, await profiles.CreateConfigurationAsync(settings, revision, null, timeout.Token));
                 await adapter.DeleteAsync(session, timeout.Token);
             }
             completed = true;
-            result = conversation.AiAssistantSessionId is null
+            result = conversation.ProviderKind == ChatProviderKind.CodexAppServer
+                ? "The local Codex tool grant expired or was revoked."
+                : conversation.AiAssistantSessionId is null
                 ? "The local tool grant was revoked. No remote session ID was confirmed."
                 : "The OpenAI session was deleted. The local transcript and saved artifacts remain available.";
         }
@@ -315,6 +346,7 @@ internal sealed partial class OpenAiChatRun(HelpdeskDbContext db, OpenAiChatProf
         if (completed)
         {
             row.RemoteDeletedAtUtc = Now;
+            row.ProtectedCodexToken = null;
             var active = await db.Set<OpenAiChatDispatch>().SingleOrDefaultAsync(x => x.ConversationId == current.Id &&
                 x.MessageId == current.ActiveMessageId && x.State != OpenAiDispatchState.Completed && x.State != OpenAiDispatchState.Rejected, ct);
             if (active is not null && current.State != ChatState.Archived)

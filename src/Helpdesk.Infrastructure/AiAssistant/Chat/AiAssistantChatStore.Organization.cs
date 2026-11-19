@@ -74,7 +74,7 @@ public sealed partial class AiAssistantChatStore
             .FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {request.ConversationId} FOR UPDATE").SingleOrDefaultAsync(ct);
         if (previous is not null)
         {
-            Bind(previous, scope);
+            Bind(previous, scope, actor);
             if (previous.CreationFingerprint != fingerprint) throw new ChatConflictException("Conversation ID already used.");
             return (previous, false);
         }
@@ -108,7 +108,7 @@ public sealed partial class AiAssistantChatStore
         var bound = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(id, ct);
-        Bind(conversation, bound);
+        Bind(conversation, bound, actor);
         if (conversation.State == ChatState.Archived) return;
         ChatRules.RequireIdle(conversation.State);
         conversation.State = ChatState.Archived;

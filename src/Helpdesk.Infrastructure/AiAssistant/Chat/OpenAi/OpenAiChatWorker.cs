@@ -1,4 +1,6 @@
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.AiAssistant.Chat.Codex;
+using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,7 +10,7 @@ using Npgsql;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
-internal sealed class OpenAiChatWorker(IServiceScopeFactory scopes, TimeProvider clock, ILogger<OpenAiChatWorker> logger) : BackgroundService
+internal sealed class OpenAiChatWorker(IServiceScopeFactory scopes, TimeProvider clock, ILogger<OpenAiChatWorker> logger, CodexAppServerHost? codex = null) : BackgroundService
 {
     private const int ConcurrencyLimit = 12;
 
@@ -55,8 +57,25 @@ internal sealed class OpenAiChatWorker(IServiceScopeFactory scopes, TimeProvider
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
         if (!db.Database.IsNpgsql()) return [];
         var now = clock.GetUtcNow();
+        Guid? codexHostId = null;
+        if (codex?.Configured == true)
+        {
+            try { codexHostId = await codex.CheckAsync(ct); }
+            catch (Exception error) when (error is IOException or ChatConflictException or UnauthorizedAccessException or
+                System.ComponentModel.Win32Exception || error is OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                logger.LogDebug("This replica does not own a usable Codex runtime.");
+            }
+        }
+        var conversations = db.Set<AiAssistantChatConversation>().AsNoTracking().Where(conversation =>
+            conversation.ProviderKind == ChatProviderKind.OpenAiAgents ||
+            conversation.ProviderKind == ChatProviderKind.CodexAppServer && codexHostId != null &&
+            (from profile in db.Set<OpenAiChatProfile>()
+             join connection in db.Set<CodexConnection>() on profile.CodexConnectionId equals connection.Id
+             where profile.Id == conversation.ProviderProfileId && connection.HostId == codexHostId
+             select connection.Id).Any());
         var due = await (from dispatch in db.Set<OpenAiChatDispatch>().AsNoTracking()
-                         join conversation in db.Set<AiAssistantChatConversation>().AsNoTracking()
+                         join conversation in conversations
                              on dispatch.ConversationId equals conversation.Id
                          where !running.Contains(conversation.Id) && conversation.State != ChatState.Archived &&
                                conversation.ActiveMessageId == dispatch.MessageId &&
@@ -67,7 +86,8 @@ internal sealed class OpenAiChatWorker(IServiceScopeFactory scopes, TimeProvider
         if (due.Length == capacity) return due;
         var cleanup = await db.Set<OpenAiChatSessionGrant>().AsNoTracking().Where(grant =>
             !running.Contains(grant.ConversationId) && !due.Contains(grant.ConversationId) &&
-            grant.RemoteDeletedAtUtc == null && (grant.CleanupRequestedAtUtc != null || grant.ExpiresAtUtc <= now) &&
+            grant.RemoteDeletedAtUtc == null && conversations.Any(row => row.Id == grant.ConversationId) &&
+            (grant.CleanupRequestedAtUtc != null || grant.ExpiresAtUtc <= now) &&
             (grant.CleanupNextAttemptAtUtc == null || grant.CleanupNextAttemptAtUtc <= now))
             .OrderBy(grant => grant.ExpiresAtUtc).Select(grant => grant.ConversationId).Take(capacity - due.Length).ToArrayAsync(ct);
         return [.. due, .. cleanup];

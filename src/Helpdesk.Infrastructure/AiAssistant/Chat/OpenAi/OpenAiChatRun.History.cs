@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.AiAssistant.Chat.Codex;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,13 +9,14 @@ namespace Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 
 internal sealed partial class OpenAiChatRun
 {
-    private async Task<bool> ReconcileAsync(OpenAiAgentsClient adapter, AiAssistantChatConversation snapshot,
+    private async Task<bool> ReconcileAsync(IChatProviderSession adapter, AiAssistantChatConversation snapshot,
         OpenAiChatDispatch dispatch, OpenAiChatProfileSettings profile, ProviderSessionHistory history, CancellationToken ct)
     {
         var marker = ChatOutboundMessage.Marker(snapshot.Id, dispatch.MessageId);
         var admissions = history.Items.Where(item => item.Kind == ProviderItemKind.UserMessage && item.SubagentId is null &&
             item.Text.StartsWith(marker, StringComparison.Ordinal) && item.TurnId is not null).Take(2).ToArray();
-        var rootId = admissions.Length == 1 ? admissions[0].TurnId : dispatch.TurnId;
+        var rootId = adapter is CodexAppServerSession && dispatch.TurnId is not null
+            ? dispatch.TurnId : admissions.Length == 1 ? admissions[0].TurnId : dispatch.TurnId;
         var root = history.Turns.FirstOrDefault(turn => turn.Id == rootId && turn.SubagentId is null);
         if (root is null)
         {
@@ -28,6 +30,16 @@ internal sealed partial class OpenAiChatRun
             return history.Status == "failed";
         }
         dispatch.TurnId = root.Id;
+        if (adapter is CodexAppServerSession codexSession)
+        {
+            codexSession.LastTurnId = root.Id;
+            if (codexSession.ModelWasRerouted(history.Id, root.Id))
+            {
+                if (IsRunning(root)) await codexSession.CancelAsync(history.Id, "model-changed", ct);
+                await MarkTerminalAsync(dispatch, "error", "Codex reported a different serving model. Review the configured model before continuing.", ct);
+                return true;
+            }
+        }
         var turns = history.Turns.Where(turn => turn.Id == root.Id ||
             root.CreatedAt.HasValue && turn.CreatedAt >= root.CreatedAt).DistinctBy(turn => turn.Id).ToArray();
         var ids = turns.Select(turn => turn.Id).ToHashSet(StringComparer.Ordinal);
@@ -37,16 +49,17 @@ internal sealed partial class OpenAiChatRun
         foreach (var child in history.Subagents.Where(child => child.Status == "active" && child.OpenedAt >= root.CreatedAt))
             if (!turns.Any(turn => turn.SubagentId == child.Id)) activeSubagents.Add(child.Id);
 
-        var rootFinished = root.Status is "completed" or "failed" or "cancelled";
+        var rootFinished = root.Status is "completed" or "failed" or "cancelled" or "interrupted";
         var pending = actions.Length != 0 || history.PendingActions.Any(action => action.Kind == ProviderActionKind.Unsupported);
         var terminal = history.Status == "failed" || rootFinished && !pending && activeSubagents.Count == 0 &&
             !turns.Any(IsRunning) && history.Status == "idle";
-        var capturedArtifacts = terminal && adapter.Features.HasFlag(ChatProviderFeatures.Artifacts)
-            ? await GetArtifactsAsync(adapter, snapshot, ids, ct) : [];
+        var capturedArtifacts = terminal && adapter is OpenAiAgentsClient managed && adapter.Features.HasFlag(ChatProviderFeatures.Artifacts)
+            ? await GetArtifactsAsync(managed, snapshot, ids, ct) : [];
         var save = await SaveHistoryAsync(snapshot, dispatch, profile, history, root, turns, ids, actions,
             activeSubagents.Count, terminal, capturedArtifacts, ct);
         if (!save || terminal) return true;
-        await RespondToPendingActionAsync(adapter, snapshot, dispatch, actions, ct);
+        if (adapter is OpenAiAgentsClient managedSession)
+            await RespondToPendingActionAsync(managedSession, snapshot, dispatch, actions, ct);
         await SendCancellationAsync(adapter, snapshot, dispatch, ct);
 
         // Keep the live stream while work is advancing. Pending decisions are
@@ -84,12 +97,21 @@ internal sealed partial class OpenAiChatRun
         if (terminal)
         {
             var failed = history.Status == "failed" || root.Status == "failed";
-            var outcome = failed ? "failed" : root.Status;
-            var label = failed ? "OpenAI reported a failed turn." : root.Status == "cancelled"
-                ? "OpenAI confirmed that the turn was cancelled." : "OpenAI finished the turn.";
+            var outcome = failed ? "failed" : root.Status == "interrupted" && row.CancelRequestedAtUtc is not null ? "cancelled" : root.Status;
+            var label = outcome switch
+            {
+                "failed" when root.FailureCode is "usageLimitExceeded" or "sessionBudgetExceeded" or "rateLimitExceeded" =>
+                    "The provider reported a usage or rate limit.",
+                "failed" when root.FailureCode == "unauthorized" => "The provider rejected the account authorization.",
+                "failed" when root.FailureCode == "modelNotFound" => "The configured model was unavailable.",
+                "failed" => "The provider reported a failed turn.",
+                "cancelled" => "The provider confirmed that the turn was cancelled.",
+                "interrupted" => "The Codex turn was interrupted. Review the saved conversation before starting another turn.",
+                _ => "The provider finished the turn."
+            };
             if (turns.Any(turn => turn.SubagentId is not null && turn.Status is "failed" or "cancelled"))
                 label += " Review the separate delegated outcomes.";
-            Complete(row, conversation, outcome switch { "failed" => "error", "cancelled" => "turn_cancelled", _ => "turn_completed" }, label);
+            Complete(row, conversation, outcome switch { "failed" or "interrupted" => "error", "cancelled" => "turn_cancelled", _ => "turn_completed" }, label);
             AttachMetadata(conversation, row, root.Id, status: outcome);
         }
         else
@@ -132,7 +154,7 @@ internal sealed partial class OpenAiChatRun
                 if (!NewReceipt(conversation, receipts, $"tool\n{item.SubagentId}\n{id}\n{item.Status}")) continue;
                 var toolName = ChatOutputSafety.Identifier(item.ToolName);
                 var status = item.Status is "completed" or "failed" or "cancelled" or "incomplete" ? item.Status : "in progress";
-                var activity = new ChatActivityMetadata(toolName, item.ToolKind ?? "tool", "OpenAI Agents",
+                var activity = new ChatActivityMetadata(toolName, item.ToolKind ?? "tool", ProviderDisplayName(conversation),
                     null, null, status, new(ToolName: toolName, Result: ProviderText(item.Text, 4096)),
                     Metadata(conversation, dispatch, item.TurnId, id, item.SubagentId, status, item.CallId, item.Operation));
                 AiAssistantChatStore.AppendActivity(db, conversation, status == "in progress" ? "tool_call" : "tool_result",
@@ -154,7 +176,7 @@ internal sealed partial class OpenAiChatRun
             var metadata = Metadata(conversation, dispatch, turn.Id, child: turn.SubagentId, status: turn.Status,
                 time: turn.CompletedAt, usage: usage);
             AiAssistantChatStore.AppendActivity(db, conversation, child is null ? "usage" : "subagent", null,
-                new(title, child is null ? "usage" : "subagent", "OpenAI Agents", null, null, turn.Status,
+                new(title, child is null ? "usage" : "subagent", ProviderDisplayName(conversation), null, null, turn.Status,
                 new(FailureCode: turn.FailureCode is null ? null : ChatOutputSafety.Identifier(turn.FailureCode),
                     Measures: usage is null ? null : $"Input {usage.InputTokens:N0}, output {usage.OutputTokens:N0}, total {usage.TotalTokens:N0} tokens"),
                 metadata), Now);
@@ -203,8 +225,11 @@ internal sealed partial class OpenAiChatRun
     private ChatProviderEventMetadata Metadata(AiAssistantChatConversation conversation, OpenAiChatDispatch row,
         string? turn = null, string? item = null, string? child = null, string? status = null,
         string? call = null, string? operation = null, DateTimeOffset? time = null, ChatProviderTurnUsage? usage = null)
-        => new(2, ChatProviderKind.OpenAiAgents, conversation.ProviderProfileId!.Value, conversation.AiAssistantSessionId!,
+        => new(2, conversation.ProviderKind, conversation.ProviderProfileId!.Value, conversation.AiAssistantSessionId!,
             row.MessageId, turn, item, child, status, call, operation, time ?? Now, usage);
+
+    private static string ProviderDisplayName(AiAssistantChatConversation conversation) =>
+        conversation.ProviderKind == ChatProviderKind.CodexAppServer ? "Codex App Server" : "OpenAI Agents";
 
     private const int MaximumArtifactSize = 5 * 1024 * 1024;
     private const int MaximumArtifacts = 10;
