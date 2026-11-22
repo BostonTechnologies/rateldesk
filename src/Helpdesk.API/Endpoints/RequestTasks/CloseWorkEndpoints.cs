@@ -39,6 +39,7 @@ internal static class CloseWorkEndpoints
                 }
             }
             return Results.Ok(results);
-        });
+        }).WithName(closeParent ? "CloseRequests" : "CloseRequestTasks")
+          .WithSummary(closeParent ? "Close selected requests and settle unfinished tasks" : "Close selected request tasks");
     }
 }
