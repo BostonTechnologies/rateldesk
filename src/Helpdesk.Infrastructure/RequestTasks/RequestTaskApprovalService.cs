@@ -457,7 +457,7 @@ public sealed partial class RequestTaskApprovalService(
             tasks.Add(task);
         }
 
-        foreach (var requestTask in tasks.Where(x => !IsTerminalTaskStatus(x.Status)))
+        foreach (var requestTask in tasks.Where(x => x.AdministrativeClosureReason == null && !IsTerminalTaskStatus(x.Status)))
         {
             // Cancelling the local graph cannot prove a recorded remote execution
             // stopped. Keep it eligible for exact-attempt outcome reconciliation.
