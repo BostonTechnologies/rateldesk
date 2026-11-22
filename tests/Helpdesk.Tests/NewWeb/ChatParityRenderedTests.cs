@@ -81,18 +81,35 @@ public sealed class ChatParityRenderedTests
     [InlineData("Incident.Write", true, true, false)]
     [InlineData("Incident.Read", true, false, false)]
     [InlineData("SelfService.User", false, false, false)]
-    public async Task AI_navigation_keeps_one_authorized_subgroup_and_deep_link_selection(string role, bool chat, bool investigations, bool prompts)
+    public async Task AI_navigation_has_one_sidebar_link_and_only_permitted_route_tabs(string role, bool chat, bool investigations, bool prompts)
     {
         await using var context = Context();
         var authorization = context.AddAuthorization();
         context.Services.RemoveAll<IAuthorizationService>(); context.Services.RemoveAll<IAuthorizationPolicyProvider>(); context.Services.AddAuthorizationCore();
         authorization.SetAuthorized("Synthetic operator"); authorization.SetRoles(role);
-        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/ai/chat?organizationId=org");
+        var activeRoute = prompts ? "/ai/prompts" : investigations ? "/ai/ops" : "/ai/chat";
+        var destination = activeRoute + "?organizationId=org";
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo(destination);
         var menu = context.Render<Menu>();
-        Assert.Equal(chat ? 1 : 0, menu.FindAll("a[href='/ai/chat']").Count);
-        Assert.Equal(investigations ? 1 : 0, menu.FindAll("a[href='/ai/ops']").Count);
-        Assert.Equal(prompts ? 1 : 0, menu.FindAll("a[href='/ai/prompts']").Count);
-        if (chat) Assert.Equal("/ai/chat", Assert.Single(menu.FindAll("a[aria-current='page']")).GetAttribute("href"));
+        var sidebarLinks = menu.FindAll("a[href^='/ai/']");
+        var shell = context.Render<NewWeb::HelpDesk.NewWeb.Components.Layout.WorkspaceLayout>();
+        var tabs = shell.FindAll("nav[aria-label='AI Ops'] a");
+        if (!chat)
+        {
+            Assert.Empty(sidebarLinks);
+            Assert.Empty(tabs);
+            return;
+        }
+
+        var link = Assert.Single(sidebarLinks);
+        Assert.Equal("AI Ops", link.TextContent.Trim());
+        Assert.Equal("/ai/chat", link.GetAttribute("href"));
+        Assert.Equal("page", link.GetAttribute("aria-current"));
+        var routes = new List<string> { "/ai/chat" };
+        if (investigations) routes.Add("/ai/ops");
+        if (prompts) routes.Add("/ai/prompts");
+        Assert.Equal(routes.Select(route => route + "?organizationId=org"), tabs.Select(tab => tab.GetAttribute("href")));
+        Assert.Equal(destination, Assert.Single(tabs, tab => tab.GetAttribute("aria-current") == "page").GetAttribute("href"));
     }
 
     private static BunitContext Context()
