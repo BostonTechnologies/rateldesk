@@ -10,6 +10,7 @@ public static class AiAssistantChatPresentation
     {
         var turns = new List<ChatTurn>();
         ChatTurn? foreground = null;
+        var childParents = new Dictionary<(Guid Conversation, string Run), ChatTurn>();
         var byMessage = new Dictionary<(Guid Conversation, Guid Message), ChatTurn>();
         foreach (var item in events.DistinctBy(x => (x.ConversationId, x.Sequence)).OrderBy(x => x.ConversationId).ThenBy(x => x.Sequence))
         {
@@ -29,7 +30,12 @@ public static class AiAssistantChatPresentation
                 ? byMessage.GetValueOrDefault((item.ConversationId, parent)) : foreground;
             if (current is null || current.Operator.ConversationId != item.ConversationId) continue;
             if (metadata?.Child is { RunId: { } run } observation)
-                current.ObserveChild(run, observation, item, metadata.Details?.ToolName == "check_agent_run");
+            {
+                var identity = (item.ConversationId, run);
+                childParents.TryAdd(identity, current);
+                var origin = childParents[identity];
+                origin.ObserveChild(run, observation, item, current == origin && metadata.Details?.ToolName == "check_agent_run");
+            }
             else if (metadata?.ProviderEvent?.SubagentId is { } child && item.Type == "subagent")
                 current.ObserveChild(child, new(child, metadata.DisplayName, metadata.ProviderEvent.Status,
                     metadata.Details?.FailureCode), item);
@@ -40,8 +46,17 @@ public static class AiAssistantChatPresentation
                 if (completion is { Version: 1 })
                 {
                     current.NativeTurns.Add(completion);
-                    foreach (var childId in completion.PendingChildRunIds ?? completion.OpenChildRunIds ?? [])
-                        current.ObserveChild(childId, new(childId, null, null), item);
+                    if ((completion.PendingChildRunIds ?? completion.OpenChildRunIds) is { } children)
+                    {
+                        foreach (var card in current.Children.Values.Where(card => card.Open && !children.Contains(card.Id)))
+                            card.Open = false;
+                        foreach (var childId in children)
+                        {
+                            childParents.TryAdd((item.ConversationId, childId), current);
+                            current.ObserveChild(childId, new(childId, null, null), item);
+                            current.Children[childId].Open = true;
+                        }
+                    }
                 }
                 current.Completed = (completion?.PendingChildRunIds ?? completion?.OpenChildRunIds) is not { Length: > 0 }
                     && completion is not { ScheduledReports.Length: > 0 } and not { ScheduledWorkUnconfirmed: true }
@@ -96,7 +111,11 @@ public sealed class ChatTurn(AiAssistantChatEvent message)
         if (!Children.TryGetValue(id, out var card))
             Children[id] = card = new(id);
         card.Name = update.Name ?? card.Name;
-        card.State = update.State ?? card.State;
+        if (update.State is { } state)
+        {
+            card.State = state;
+            card.Open = state is "active" or "accepted" or "running" or "in_progress" or "parked" or "cancelling" or "waiting" or "queued";
+        }
         card.Summary = update.Summary ?? card.Summary;
         card.DurationMs = update.DurationMs ?? card.DurationMs;
         if (item.Type == "subagent") card.Diagnostics.Add(item);
@@ -117,6 +136,7 @@ public sealed class ChatTurn(AiAssistantChatEvent message)
 public sealed class ChatChildCard(string id)
 {
     public string Id { get; } = id;
+    public bool Open { get; internal set; }
     public string? Name { get; internal set; }
     public string? State { get; internal set; }
     public string? Summary { get; internal set; }

@@ -67,6 +67,18 @@ function reset(mode = 'completed', provider = 'netclaw') {
   event('created', 'Conversation created.');
   if (mode === 'empty') return;
   event('operator', 'Investigate the Helpdesk integration and explain the result.', { CreatedByUserId: actor, ClientMessageId: crypto.randomUUID() });
+  if (mode === 'agents') {
+    for (const [id, name, lifecycle] of [['run-a', 'Review queue', 'running'], ['run-b', 'Review queue', 'failed'], ['run-c', 'Trace mail', 'completed'], ['run-a', 'Review queue', 'running']]) {
+      const callId = `poll-${events.length}`;
+      const metadata = { DisplayName: 'check_agent_run', ToolKind: 'core', Outcome: 'running',
+        Details: { Version: 2, ToolName: 'check_agent_run', Arguments: JSON.stringify({ run_id: id }) } };
+      event('tool_call', 'Check run', { CallId: callId, MetadataJson: JSON.stringify(metadata) });
+      event('tool_result', 'Result received', { CallId: callId, MetadataJson: JSON.stringify({ ...metadata, Outcome: 'completed',
+        Child: { RunId: id, Name: name, State: lifecycle, Summary: `Synthetic ${lifecycle} observation` },
+        Details: { Version: 2, ToolName: 'check_agent_run', Result: JSON.stringify({ run_id: id, state: lifecycle }) } }) });
+    }
+    return;
+  }
   for (let i = 0; i < 14; i++) {
     const metadata = { DisplayName: i === 12 ? 'terminal_execute_12_with_a_long_tool_identifier_that_must_wrap_inside_the_activity_panel'
       : `terminal_execute_${i}`, ToolKind: 'mcp', ProviderName: 'Example Provider', Outcome: 'running' };

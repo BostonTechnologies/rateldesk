@@ -22,7 +22,7 @@
     @if (Preferences.ShowSubagents && (Turn.Children.Count > 0 || Unassociated.Any()))
     {
         <details class="child-panel">
-            <summary>Agents · @Turn.Children.Count identified</summary>
+            <summary>Agents · @Turn.Children.Count identified · @Turn.Children.Values.Count(card => card.Open) reported active</summary>
             @foreach (var card in Turn.Children.Values)
             {
                 <details class="child-card" @key="card.Id">

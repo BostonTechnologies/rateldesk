@@ -178,3 +178,25 @@ test('investigation popups remain contained at native browser zoom 200 percent',
     await assertNoHorizontalOverflow(page);
   } finally { await context.close(); await rm(profile, { recursive: true, force: true }); }
 });
+
+for (const [width, height] of [[1366, 768], [390, 844], [360, 640], [360, 480]]) {
+  test(`distinct agent cards and their activity at ${width}x${height}`, async ({ page, request }, info) => {
+    await request.get(`${fixture}/fixture/reset?mode=agents`);
+    await page.setViewportSize({ width, height });
+    await open(page, routes[0]);
+    const panel = page.locator('.child-panel');
+    await panel.locator(':scope > summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(panel).toContainText('3 identified · 1 reported active');
+    const cards = panel.locator('.child-card');
+    await expect(cards).toHaveCount(3);
+    await cards.first().locator('summary').click();
+    await expect(cards.first().getByTestId('chat-tool')).toHaveCount(2);
+    await expect(cards.nth(1)).toContainText('failed');
+    await expect(cards.nth(2)).toContainText('completed');
+    await page.screenshot({ path: info.outputPath('agent-cards.png') });
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await expect(page.getByRole('dialog', { name: 'Conversation', exact: true }).locator('.child-card')).toHaveCount(3);
+    expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
+  });
+}

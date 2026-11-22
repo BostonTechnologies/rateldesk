@@ -584,8 +584,10 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                     && conversation.AiAssistantSessionId == owner.SessionId && conversation.ProviderProfileFingerprint == owner.ProfileFingerprint)
                 {
                     var bindings = await ChatScheduledObservationLedger.LoadAsync(db, conversation, stopping);
-                    if (bindings.Any(binding => binding.Parent.OperatorMessageId == owner.MessageId)
-                        || owner.BackgroundReports.Length > 0 && owner.Continuation?.OperatorMessageId == owner.MessageId)
+                    var admission = await db.Set<AiAssistantChatEvent>().AsNoTracking().Where(item =>
+                        item.ConversationId == conversation.Id && item.ClientMessageId == conversation.ActiveMessageId && item.Type == "operator")
+                        .Select(item => item.MetadataJson).SingleAsync(stopping);
+                    if (admission is not null && JsonSerializer.Deserialize<ChatReceiverHandoff>(admission)?.PreviousMessageId == owner.MessageId)
                     {
                         owner.MessageId = conversation.ActiveMessageId;
                         owner.BackgroundReports = bindings;

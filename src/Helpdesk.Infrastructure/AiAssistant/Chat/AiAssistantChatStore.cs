@@ -254,11 +254,13 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             if (existing.Text != request.Text || existing.CreatedByUserId != actor) throw new ChatConflictException("Message ID already used.");
             return false;
         }
+        Guid? previousOwner = null;
         if (conversation.State == ChatState.WaitingForScheduledReports)
         {
             var previous = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
             if (!ChatScheduledObservationLedger.AdmitsReply(previous))
                 throw new ChatConflictException("The foreground turn is still unresolved.");
+            previousOwner = conversation.ActiveMessageId;
             if (previous!.ScheduledReports?.Any(report => !report.Unconfirmed) == true)
             {
                 var bindings = await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct);
@@ -273,7 +275,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         conversation.ActiveMessageId = request.ClientMessageId;
         conversation.TurnStartedAtUtc = Now;
         conversation.LastTransportActivityAtUtc = conversation.TurnStartedAtUtc;
-        Append(db, conversation, "operator", request.Text, actor, request.ClientMessageId, atUtc: conversation.TurnStartedAtUtc);
+        Append(db, conversation, "operator", request.Text, actor, request.ClientMessageId, atUtc: conversation.TurnStartedAtUtc,
+            metadata: previousOwner is { } prior ? JsonSerializer.Serialize(new ChatReceiverHandoff(prior)) : null);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         ChatTelemetry.Record("app_message_accepted");

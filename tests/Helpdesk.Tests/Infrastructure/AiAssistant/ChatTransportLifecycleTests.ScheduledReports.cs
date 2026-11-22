@@ -96,6 +96,34 @@ public sealed partial class ChatTransportLifecycleTests
     }
 
     [Fact]
+    public async Task Stopping_an_older_report_preserves_the_current_processing_request()
+    {
+        var due = DateTimeOffset.UtcNow.AddMinutes(10);
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await RegisterAsync(run.Client, "status", due);
+        await run.Client.CompleteAsync(1, []);
+        await run.WaitForAsync(events => events.Any(item => item.Type == "turn_completed"));
+        var next = run.Request with { ClientMessageId = Guid.NewGuid(), Text = "More details" };
+        await using (var db = fixture.Context())
+            Assert.True(await fixture.Store(db).AcceptMessageAsync(run.Scope, next, "operator", default));
+        await run.Manager.SendAsync(run.Conversation, next.ClientMessageId, next.Text, default);
+        await ReplyAsync(run.Client, "Answer");
+        await using (var db = fixture.Context())
+            await fixture.Store(db).StopWaitingAsync(run.Scope, new(run.Conversation, run.Request.ClientMessageId, true), "operator", default);
+        var observed = await ReloadAsync(run);
+        Assert.Equal(ChatState.Processing, observed.State);
+        Assert.Equal(next.ClientMessageId, observed.ActiveMessageId);
+        Assert.Empty(observed.BackgroundReports!);
+        Assert.Equal(run.Request.ClientMessageId, ChatContinuationSafety.Read(
+            Assert.Single(observed.Events, item => item.Type == "scheduled_observation_ended").MetadataJson)!.OperatorMessageId);
+        await run.Client.CompleteAsync(2, []);
+        await run.WaitForAsync(events => events.Count(item => item.Type == "turn_completed") == 2);
+        Assert.Equal(ChatState.Idle, (await ReloadAsync(run)).State);
+        Assert.Equal(2, run.Client.Sent.Count);
+    }
+
+    [Fact]
     public async Task Reports_discharge_by_fire_key_without_consuming_other_reminders_children_or_approvals()
     {
         var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 18, 11, 0, 0, TimeSpan.Zero));

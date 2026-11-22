@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat;
 
+internal sealed record ChatReceiverHandoff(Guid PreviousMessageId);
+
 // The conversation row lock serializes every writer. A single durable checkpoint
 // carries older registrations independently of the currently admitted message.
 internal static class ChatScheduledObservationLedger
