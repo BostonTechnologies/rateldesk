@@ -180,15 +180,18 @@ internal sealed partial class OpenAiChatRun
             if (turn.SubagentId is null && turn.Status is not ("completed" or "failed" or "cancelled") ||
                 !NewReceipt(conversation, receipts, $"turn\n{turn.Id}\n{turn.Status}")) continue;
             var child = history.Subagents.FirstOrDefault(agent => agent.Id == turn.SubagentId);
-            var title = child is null ? "OpenAI root turn" : $"Delegated turn ({ChatOutputSafety.Identifier(child.Name)})";
+            var observation = turn.SubagentId is null ? null : new ChatChildObservation(turn.SubagentId,
+                child?.Name, turn.Status, turn.FailureCode,
+                turn.CompletedAt - turn.CreatedAt is { TotalMilliseconds: >= 0 } elapsed ? (long)elapsed.TotalMilliseconds : null);
+            var title = observation is null ? "OpenAI root turn" : $"Delegated turn ({child?.Name ?? turn.SubagentId})";
             var usage = turn.Usage is { } tokens ? new ChatProviderTurnUsage(tokens.InputTokens, tokens.OutputTokens, tokens.TotalTokens) : null;
             var metadata = Metadata(conversation, dispatch, turn.Id, child: turn.SubagentId, status: turn.Status,
                 time: turn.CompletedAt, usage: usage);
-            AiAssistantChatStore.AppendActivity(db, conversation, child is null ? "usage" : "subagent", null,
-                new(title, child is null ? "usage" : "subagent", ProviderDisplayName(conversation), null, null, turn.Status,
+            AiAssistantChatStore.AppendActivity(db, conversation, observation is null ? "usage" : "subagent", null,
+                new(title, observation is null ? "usage" : "subagent", ProviderDisplayName(conversation), null, null, turn.Status,
                 new(FailureCode: turn.FailureCode is null ? null : ChatOutputSafety.Identifier(turn.FailureCode),
                     Measures: usage is null ? null : $"Input {usage.InputTokens:N0}, output {usage.OutputTokens:N0}, total {usage.TotalTokens:N0} tokens"),
-                metadata), Now);
+                metadata, Child: observation), Now);
         }
     }
 
