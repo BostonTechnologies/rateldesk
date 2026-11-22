@@ -210,6 +210,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthenticatedRequestTaskApprovalService>(provider =>
             (RequestTaskApprovalService)provider.GetRequiredService<IRequestTaskApprovalService>());
         services.AddScoped<IRequestTaskApprovalTimeoutProcessor, RequestTaskApprovalTimeoutProcessor>();
+        services.AddScoped<IRequestTaskEscalationCommit, RequestTaskEscalationCommit>();
         services.AddScoped<ITaskEscalationProcessor, TaskEscalationProcessor>();
         services.AddScoped<IRequestTaskRetryProcessor, RequestTaskRetryProcessor>();
         services.AddScoped<IRequestTaskStateService, RequestTaskStateService>();

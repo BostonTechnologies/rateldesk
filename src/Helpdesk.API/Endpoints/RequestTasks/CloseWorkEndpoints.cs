@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.RequestTasks;
 using Helpdesk.Shared.DTOs.Request;
@@ -10,8 +12,9 @@ internal static class CloseWorkEndpoints
 {
     internal static void MapCloseWork(this RouteGroupBuilder group, bool closeParent)
     {
-        group.MapPost("/bulk/close", async (CloseRequestWorkDto body, CloseRequestWork command,
-            ClaimsPrincipal user, ITenantContext tenant, ICurrentUserAccessService accessService, CancellationToken ct) =>
+        group.MapPost("/bulk/close", async ([FromBody] CloseRequestWorkDto body, [FromServices] CloseRequestWork command,
+            ClaimsPrincipal user, [FromServices] ITenantContext tenant, [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(body.Reason) || body.Reason.Trim().Length > AdministrativeClosure.MaximumReasonLength ||
                 body.Selection is not { Count: > 0 and <= 50 } || body.Selection.Any(x => x == null ||
@@ -21,10 +24,20 @@ internal static class CloseWorkEndpoints
             var actorId = tenant.UserId;
             if (string.IsNullOrWhiteSpace(actorId))
                 return Results.Forbid();
-            var access = await accessService.ResolveAsync(user, ct);
             var results = new List<CloseWorkResult>();
             foreach (var selected in body.Selection)
-                results.Add(await command.ExecuteAsync(selected, closeParent, body.Reason.Trim(), actorId, access, ct));
+            {
+                var access = await accessService.ResolveAsync(user, ct);
+                try
+                {
+                    results.Add(await command.ExecuteAsync(selected, closeParent, body.Reason.Trim(), actorId, access, ct));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or DbUpdateException)
+                {
+                    loggerFactory.CreateLogger("CloseRequestWork").LogError(ex, "Could not confirm closure of {Id}.", selected.Id);
+                    results.Add(new(selected.Id, "not_confirmed"));
+                }
+            }
             return Results.Ok(results);
         });
     }

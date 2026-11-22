@@ -1,9 +1,11 @@
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.DTOs.Orchestration;
 
 namespace Helpdesk.Application.RequestTasks;
 
 public interface IRequestTaskStartFence
 {
+    Task<RequestTask?> TryRecordClosedAcknowledgementAsync(RequestTask task, OrchestrationIngestResult acknowledgement, CancellationToken ct);
     Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct);
 }
 

@@ -82,6 +82,7 @@ public class NotificationDomainEventPublisher(
 
         return domainEvent switch
         {
+            RequestWorkClosedEvent => NotificationSeverity.Info,
             EmailQueuedEvent => NotificationSeverity.Info,
             EmailSentEvent { Success: false } => NotificationSeverity.Error,
             _ => NotificationSeverity.Success

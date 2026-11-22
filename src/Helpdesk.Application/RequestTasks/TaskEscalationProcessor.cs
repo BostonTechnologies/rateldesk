@@ -14,7 +14,8 @@ public sealed class TaskEscalationProcessor(
     INotificationService notifications,
     IDomainEventPublisher domainEvents,
     ICorrelationContext correlationContext,
-    ILogger<TaskEscalationProcessor> logger) : ITaskEscalationProcessor
+    ILogger<TaskEscalationProcessor> logger,
+    IRequestTaskEscalationCommit? escalationCommit = null) : ITaskEscalationProcessor
 {
     private readonly IRepository<RequestTask> _requestTasks = requestTasks;
     private readonly IRepository<Request> _requests = requests;
@@ -55,56 +56,37 @@ public sealed class TaskEscalationProcessor(
 
         foreach (var task in inProgressTasks)
         {
-            var changed = false;
+            var breached = !task.SlaBreached && task.DueAt.HasValue && now >= task.DueAt.Value;
+            var escalated = !task.Escalated && task.SlaStartedAt.HasValue && task.EscalateAfterMinutes is > 0
+                && now >= task.SlaStartedAt.Value.AddMinutes(task.EscalateAfterMinutes.Value);
+            if (!breached && !escalated) continue;
+            task.SlaBreached |= breached;
+            task.Escalated |= escalated;
+            if (escalated) task.EscalatedAt = now;
+            task.UpdatedAt = now.UtcDateTime;
 
-            if (!task.SlaBreached && task.DueAt.HasValue && now >= task.DueAt.Value)
+            async Task PublishAsync()
             {
-                task.SlaBreached = true;
-                task.UpdatedAt = DateTime.UtcNow;
-                changed = true;
-                breachedCount++;
-
-                await _domainEvents.PublishAsync(
-                    new RequestTaskSlaBreachedEvent(
-                        task.Id,
-                        task.RequestId,
-                        task.DueAt,
-                        task.OrganizationId,
-                        now,
-                        correlationId),
-                    ct);
+                if (breached)
+                    await _domainEvents.PublishAsync(new RequestTaskSlaBreachedEvent(task.Id, task.RequestId,
+                        task.DueAt, task.OrganizationId, now, correlationId), ct);
+                if (escalated)
+                {
+                    await _domainEvents.PublishAsync(new RequestTaskEscalatedEvent(task.Id, task.RequestId,
+                        task.DueAt, task.OrganizationId, now, correlationId), ct);
+                    await SendEscalationNotificationsAsync(task, requestMap, allUsers, correlationId, ct);
+                }
             }
 
-            if (!task.Escalated
-                && task.SlaStartedAt.HasValue
-                && task.EscalateAfterMinutes is > 0
-                && now >= task.SlaStartedAt.Value.AddMinutes(task.EscalateAfterMinutes.Value))
+            if (escalationCommit is null)
             {
-                task.Escalated = true;
-                task.EscalatedAt = now;
-                task.UpdatedAt = DateTime.UtcNow;
-                changed = true;
-                escalatedCount++;
-
-                await _domainEvents.PublishAsync(
-                    new RequestTaskEscalatedEvent(
-                        task.Id,
-                        task.RequestId,
-                        task.DueAt,
-                        task.OrganizationId,
-                        now,
-                        correlationId),
-                    ct);
-
-                await SendEscalationNotificationsAsync(task, requestMap, allUsers, correlationId, ct);
+                await _requestTasks.UpdateAsync(task);
+                await PublishAsync();
             }
-
-            if (!changed)
-            {
+            else if (!await escalationCommit.TryCommitAsync(task, PublishAsync, ct))
                 continue;
-            }
-
-            await _requestTasks.UpdateAsync(task);
+            if (breached) breachedCount++;
+            if (escalated) escalatedCount++;
         }
 
         if (escalatedCount > 0 || breachedCount > 0)

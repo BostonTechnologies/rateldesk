@@ -15,7 +15,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Helpdesk.Infrastructure.RequestTasks;
 
 public sealed class CloseRequestWork(HelpdeskDbContext db, IIngressEffectContext effects, MailboxOutboxStore outbox,
-    ITicketSlaCompletionService sla, TimeProvider clock)
+    ITicketSlaCompletionService sla, TimeProvider clock, IDomainEventPublisher domainEvents)
 {
     public async Task<CloseWorkResult> ExecuteAsync(CloseWorkSelection selection, bool closeParent, string reason,
         string actorId, CurrentUserAccessProfile access, CancellationToken ct)
@@ -84,6 +84,8 @@ public sealed class CloseRequestWork(HelpdeskDbContext db, IIngressEffectContext
                 await sla.HandleTicketClosedAsync(id, actorId, now);
             if (settleParent)
                 await sla.HandleTicketClosedAsync(parent.Id, actorId, now);
+            await domainEvents.PublishAsync(new RequestWorkClosedEvent(parent.Id, task?.Id, task?.Title, actorId,
+                settleParent, affected.Count, remaining, parent.OrganizationId, now, effects.ReceiptId.ToString("N")), ct);
             effects.Capture(MailboxEffectKind.Timeline, TicketTimelineProjection.ToDto(entry));
             await outbox.FlushAsync(ct);
             await tx.CommitAsync(ct);
