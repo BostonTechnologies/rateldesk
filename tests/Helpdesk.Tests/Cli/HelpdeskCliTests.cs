@@ -176,6 +176,39 @@ public sealed class HelpdeskCliTests
     }
 
     [Fact]
+    public async Task Account_bound_assign_self_uses_verified_domain_id_and_rejects_email_overrides()
+    {
+        var temp = Directory.CreateTempSubdirectory("helpdesk-assign-self-");
+        try
+        {
+            var path = Path.Combine(temp.FullName, "cli.json");
+            await File.WriteAllTextAsync(path, """{"apiBaseUrl":"https://api.example","credentialMode":"integration","integrationCredential":"rdk_test","agentUserEmail":"peer@example.test"}""");
+            var calls = new List<HttpRequestMessage>();
+            var runtime = new CliRuntime(() => new RecordingHandler(request =>
+            {
+                calls.Add(CloneForAssert(request));
+                return Task.FromResult(request.RequestUri!.AbsolutePath switch
+                {
+                    "/api/v1/auth/me" => Json(HttpStatusCode.OK, """{"userId":"account","assignmentUserId":"ticket-user"}"""),
+                    "/api/v1/incidents/bulk/assign" => Json(HttpStatusCode.OK, """{"updated":1}"""),
+                    _ => Json(HttpStatusCode.NotFound, "{}")
+                });
+            })) { Out = new StringWriter(), Error = new StringWriter() };
+            string[] arguments = ["--config", path, "incidents", "assign-self", "--ids", "inc-1"];
+            Assert.Equal(CliExitCodes.Success, await HelpdeskCli.RunAsync(arguments, runtime));
+            Assert.Equal(2, calls.Count);
+            using var payload = JsonDocument.Parse(await calls[1].Content!.ReadAsStringAsync());
+            Assert.Equal("ticket-user", payload.RootElement.GetProperty("assignedToId").GetString());
+            Assert.NotEqual(CliExitCodes.Success, await HelpdeskCli.RunAsync([.. arguments, "--agent-user-email", "peer@example.test"], runtime));
+            Assert.Equal(2, calls.Count);
+        }
+        finally
+        {
+            temp.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RequestsAiAudit_UsesExpectedRoute()
     {
         var calls = 0;

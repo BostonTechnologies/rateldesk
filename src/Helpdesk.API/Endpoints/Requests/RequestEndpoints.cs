@@ -264,7 +264,7 @@ public static class RequestEndpoints
                 Priority = dto.Priority,
                 CustomerId = dto.CustomerId,
                 OrganizationId = dto.OrganizationId,
-                AssignedToId = string.IsNullOrWhiteSpace(dto.AssignedToId) ? null : dto.AssignedToId,
+                AssignedToId = string.IsNullOrWhiteSpace(dto.AssignedToId) ? null : dto.AssignedToId.Trim(),
                 TrackingId = await refs.NextReferenceAsync("REQ"),
                 DueDate = dto.DueDate,
                 LegacyCategory = dto.Category,

@@ -384,7 +384,7 @@ public static class RequestTaskEndpoints
             existing.Title = task.Title;
             existing.Description = task.Description;
             existing.Priority = task.Priority;
-            existing.AssignedToId = task.AssignedToId;
+            existing.AssignedToId = string.IsNullOrWhiteSpace(task.AssignedToId) ? null : task.AssignedToId.Trim();
             existing.LinkedAssetIds = task.LinkedAssetIds;
             existing.Attachments = task.Attachments;
             existing.DueDate = task.DueDate;
