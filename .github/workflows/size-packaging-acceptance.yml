@@ -1,111 +1,24 @@
 name: Size campaign packaging acceptance
+run-name: Published archive smoke ${{ inputs.release_tag }} @ ${{ inputs.source_sha }}
 
 on:
-  workflow_call:
   workflow_dispatch:
-  push:
-    branches:
-      - 'campaign/rd-size-packaging*'
+    inputs:
+      release_tag:
+        description: Published beta tag
+        required: true
+        type: string
+      source_sha:
+        description: Full lowercase source commit recorded by the release
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  package:
-    name: Build and validate seven candidate archives
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Check out the candidate commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up the repository SDK
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
-        with:
-          global-json-file: global.json
-
-      - name: Record source and SDK provenance
-        run: |
-          mkdir -p packaging-evidence
-          dotnet --info > packaging-evidence/dotnet-info.txt
-          python3 - <<'PY'
-          import json, os, pathlib, platform, subprocess
-          source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          assert source == os.environ['GITHUB_SHA']
-          pathlib.Path('packaging-evidence/provenance.json').write_text(json.dumps({
-              'sourceRevision': source, 'runId': os.environ['GITHUB_RUN_ID'],
-              'runnerOs': os.environ['RUNNER_OS'], 'runnerArch': os.environ['RUNNER_ARCH'],
-              'platform': platform.platform(), 'releaseEligible': False,
-          }, indent=2) + '\n')
-          PY
-
-      - name: Exercise existing finalizer and receipt fixtures with fake GitHub
-        run: |
-          set -o pipefail
-          tools/release/test-publish-release-assets.sh 2>&1 | tee packaging-evidence/manifest-fixtures.log
-
-      - name: Assemble candidate archives without publication
-        run: |
-          set -o pipefail
-          tools/release/package-assets.sh 0.0.0-size-packaging "$GITHUB_SHA" release-assets 2>&1 | tee packaging-evidence/package.log
-
-      - name: Verify exact archive set, checksums and source identity
-        run: |
-          (cd release-assets && sha256sum --check SHA256SUMS)
-          python3 - <<'PY'
-          import hashlib, json, os, pathlib
-          root = pathlib.Path('release-assets')
-          manifest = json.loads((root / 'release-manifest.json').read_text())
-          version = '0.0.0-size-packaging'
-          expected = {f'{tool}-{version}-{rid}.{extension}'
-                      for tool in ('rateldesk-cli', 'rateldesk-mcp-stdio')
-                      for rid, extension in (('linux-x64', 'tar.gz'), ('linux-arm64', 'tar.gz'), ('win-x64', 'zip'))}
-          expected.add(f'rateldesk-deployment-{version}.tar.gz')
-          actual = {p.name for p in root.iterdir() if p.name.endswith(('.tar.gz', '.zip'))}
-          assert actual == set(manifest['assets']) == expected
-          checksums = [line.split(maxsplit=1) for line in (root / 'SHA256SUMS').read_text().splitlines()]
-          assert len(checksums) == len(expected)
-          assert {name: digest for digest, name in checksums} == manifest['assets']
-          assert all(hashlib.sha256((root / name).read_bytes()).hexdigest() == digest
-                     for name, digest in manifest['assets'].items())
-          assert manifest['sourceRevision'] == os.environ['GITHUB_SHA'] and manifest['version'] == version
-          assert set(manifest['supportedRids']) == {'linux-x64', 'linux-arm64', 'win-x64'}
-          assert set(manifest['containers']) == {
-              f'ghcr.io/bostontechnologies/rateldesk-api:{version}',
-              f'ghcr.io/bostontechnologies/rateldesk-web:{version}',
-              f'ghcr.io/bostontechnologies/rateldesk-mcp-http:{version}',
-          }
-          PY
-
-      - name: Validate extracted deployment docs, helpers and Compose recipes
-        run: |
-          set -o pipefail
-          tools/ci/test-deployment-archive-compose-config.sh release-assets/rateldesk-deployment-0.0.0-size-packaging.tar.gz 2>&1 | tee packaging-evidence/deployment.log
-
-      - name: Upload the exact archives for native acceptance
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: size-packaging-archives
-          path: |
-            release-assets/*.tar.gz
-            release-assets/*.zip
-            release-assets/SHA256SUMS
-            release-assets/release-manifest.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Retain package evidence even on failure
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: size-packaging-build-evidence
-          path: packaging-evidence/
-          if-no-files-found: error
-          retention-days: 14
-
   native-archive:
-    name: Native packaging acceptance (${{ matrix.rid }})
-    needs: package
+    name: Native published archive acceptance (${{ matrix.rid }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -118,94 +31,61 @@ jobs:
             rid: linux-arm64
           - runner: windows-latest
             rid: win-x64
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_RID: ${{ matrix.rid }}
     steps:
-      - name: Check out the same acceptance scripts
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Download the validated candidate archives
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: size-packaging-archives
-          path: release-assets
-
-      - name: Verify transfer checksums
+      - name: Validate release coordinates
         shell: bash
-        run: (cd release-assets && sha256sum --check SHA256SUMS)
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
 
-      - name: Execute both native archives and validate their offline docs
+      - name: Check out the verification script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: verification
+
+      - name: Check out the published acceptance script by tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+          path: release-source
+
+      - name: Download the public release without credentials and verify each executed byte
+        shell: bash
+        run: |
+          test "$(git -C release-source rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 verification/tools/ci/check-published-archive-bytes.py
+
+      - name: Execute the native release CLI and MCP archives
         shell: bash
         env:
           RATELDESK_ARCHIVE_PTY_ACCEPTANCE: ${{ startsWith(matrix.rid, 'linux-') && 'true' || 'false' }}
         run: |
           set -o pipefail
-          mkdir -p packaging-evidence
-          tools/release/test-executable-archives.sh release-assets '${{ matrix.rid }}' --validate-docs 2>&1 | tee packaging-evidence/native.log
+          cd release-source
+          tools/release/test-executable-archives.sh ../release-assets "$RELEASE_RID" --validate-docs 2>&1 | tee ../native.log
 
-      - name: Exercise archived commands, protocol, isolation, TLS and performance fixtures
-        shell: bash
-        run: |
-          python3 -m unittest discover -s tools/size-campaign -p 'test_client_behavior.py'
-          python3 tools/size-campaign/client-behavior.py \
-            --archives release-assets --rid '${{ matrix.rid }}' --source-revision "$GITHUB_SHA" \
-            --output "$RUNNER_TEMP/client-behavior-${{ matrix.rid }}"
-
-      - name: Repeat archived behavior without an installed shared runtime
+      - name: Verify the public deployment bundle and Compose recipes
+        if: matrix.rid == 'linux-x64'
         shell: bash
         run: |
           set -o pipefail
-          python3 -m unittest discover -s tools/size-campaign -p 'test_runtime_free_clients.py'
-          python3 tools/size-campaign/runtime-free-clients.py \
-            --archives release-assets --rid '${{ matrix.rid }}' --source-revision "$GITHUB_SHA" \
-            --output "$RUNNER_TEMP/runtime-free-${{ matrix.rid }}" 2>&1 | tee packaging-evidence/runtime-free.log
+          cd release-source
+          tools/ci/test-deployment-archive-compose-config.sh "../release-assets/rateldesk-deployment-${RELEASE_TAG#v}.tar.gz" 2>&1 | tee ../deployment.log
 
-      - name: Retain runtime-free acceptance and exact executed manifests
+      - name: Retain native receipts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: size-runtime-free-${{ matrix.rid }}
+          name: published-${{ inputs.release_tag }}-${{ matrix.rid }}
           path: |
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/runtime-free.json
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/report.json
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/backend-requests.json
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/*-executed-files.json
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/*-host-resolution.log
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/cli/cases.json
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/cli/*.stdout
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/cli/*.stderr
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/stdio/cases.json
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/stdio/**/stdout.jsonl
-            ${{ runner.temp }}/runtime-free-${{ matrix.rid }}/behavior/stdio/**/stderr.log
-          if-no-files-found: error
+            verified-bytes.json
+            native.log
+            deployment.log
+          if-no-files-found: warn
           retention-days: 30
-
-      - name: Retain native acceptance evidence even on failure
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: size-packaging-${{ matrix.rid }}-evidence
-          path: packaging-evidence/
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Retain exact archived-client behavior and measurement receipts
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: size-client-behavior-${{ matrix.rid }}
-          path: |
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/report.json
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/backend-requests.json
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/*-executed-files.json
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/*-host-resolution.log
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/cli/cases.json
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/cli/*.stdout
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/cli/*.stderr
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/stdio/cases.json
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/stdio/**/stdout.jsonl
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/stdio/**/stderr.log
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/*.stdout
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/*.stderr
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/stdio/stdout.jsonl
-            ${{ runner.temp }}/client-behavior-${{ matrix.rid }}/tls/stdio/stderr.log
-          if-no-files-found: error
-          retention-days: 14
