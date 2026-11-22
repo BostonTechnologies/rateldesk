@@ -1199,9 +1199,9 @@
                 }
             }
         }
-        catch
+        catch (JsonException)
         {
-            // ignore parse errors
+            validationError = "The saved form schema could not be read. Review its fields and tasks before saving.";
         }
     }
 

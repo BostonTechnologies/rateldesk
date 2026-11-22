@@ -41,15 +41,16 @@ test('integration hub routes to Netclaw and renders desktop light and dark state
   await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Connections' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'API & MCP Credentials' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Netclaw', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'AI Providers', exact: true })).toBeVisible();
   await selectTheme(page, 'Light');
   await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', 'light');
   await assertNoHorizontalOverflow(page);
   await page.mouse.move(0, 0);
   await page.screenshot({ path: testInfo.outputPath('integration-hub-desktop-light.png'), fullPage: true });
 
-  await page.getByRole('tab', { name: 'Netclaw', exact: true }).click();
-  await expect(page).toHaveURL(/tab=netclaw/);
+  await page.getByRole('link', { name: 'AI Providers', exact: true }).click();
+  await expect(page).toHaveURL(/tab=ai-providers/);
+  await page.goto('/admin/integration?tab=netclaw');
   await expectNetclawRoute(page);
   await selectTheme(page, 'Light');
   await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', 'light');

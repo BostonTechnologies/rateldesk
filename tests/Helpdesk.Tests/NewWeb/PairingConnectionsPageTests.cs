@@ -40,7 +40,7 @@ public sealed class PairingConnectionsPageTests
         var api = new FixtureApi();
         await using var view = await RenderAsync(api);
         var html = await view.HtmlAsync();
-        Assert.Contains("System connections", html);
+        Assert.Contains(">Connections<", html);
         Assert.Contains("API &amp; MCP Credentials", html);
         Assert.Contains("Generate a Pairing Code", html);
         Assert.DoesNotContain("system-connection-finalization", html);

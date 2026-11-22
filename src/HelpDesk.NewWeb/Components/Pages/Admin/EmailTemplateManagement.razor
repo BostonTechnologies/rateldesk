@@ -7,7 +7,7 @@
 @using Helpdesk.Shared.Models
 
 <MudPaper Class="pa-4">
-    <MudText Typo="Typo.h5" GutterBottom="true">Email Template Management</MudText>
+    <MudText Typo="Typo.h5" GutterBottom="true">Templates</MudText>
 
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="LoadTemplates">Retry</MudButton></MudAlert> }
     <MudTabs Rounded="true" Border="true" PanelClass="pt-3" Class="compact-tabs">

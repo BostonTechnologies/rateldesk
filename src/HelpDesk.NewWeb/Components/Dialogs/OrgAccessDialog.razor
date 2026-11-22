@@ -4,6 +4,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
+<WorkspaceEditGuard Dirty="@(!selectedOrgIds.SetEquals(Item.AllowedOrganizationIds ?? []))" Message="Discard unsaved audience changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Manage access – @Item.Name</MudText>

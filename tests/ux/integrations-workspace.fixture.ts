@@ -1,3 +1,4 @@
+import { reviewPage, reviewOpen, reviewCapture } from './owner-review-matrix';
 import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
@@ -680,5 +681,23 @@ for (const [width, height, theme] of [
   await expect(policies).toHaveAttribute('aria-current', 'page');
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: info.outputPath(`integrations-${width}-${height}-${theme}.png`) });
+ });
+}
+
+for (const mode of [
+ { width: 1366, height: 768, theme: 'light', zoom: 2, custom: false },
+ { width: 390, height: 844, theme: 'dark', zoom: 1, custom: true },
+]) {
+ test(`route-backed hub navigation with zoom ${mode.zoom} and custom palette ${mode.custom}`, async ({ browser, baseURL }, info) => {
+  await reviewPage(browser, baseURL!, mode, async page => {
+   await reviewOpen(page, baseURL!, '/admin/operator-policies?organizationId=org-a');
+   const tabs = page.getByRole('navigation', { name: 'Integrations', exact: true });
+   await expect(tabs.getByRole('link', { name: 'MCP Policies' })).toHaveAttribute('aria-current', 'page');
+   await tabs.getByRole('link', { name: 'Connections', exact: true }).focus();
+   await page.keyboard.press('Enter');
+   await expect(tabs.getByRole('link', { name: 'Connections', exact: true })).toHaveAttribute('aria-current', 'page');
+   await assertNoHorizontalOverflow(page);
+   await reviewCapture(page, info, mode, 'integrations-workspace', []);
+  });
  });
 }

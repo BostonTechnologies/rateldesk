@@ -158,7 +158,7 @@ public class WebAuthRoutesTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
         var html = await client.GetStringAsync("/account/integration-credentials?tab=system-connections");
-        Assert.Contains("System connections", html);
+        Assert.Contains(">Connections<", html);
         Assert.Contains("API &amp; MCP Credentials", html);
         Assert.Contains("integration-system-connections", html);
         Assert.Contains("integration-account-credentials", html);

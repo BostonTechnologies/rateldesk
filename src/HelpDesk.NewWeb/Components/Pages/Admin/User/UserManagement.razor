@@ -42,7 +42,7 @@
         </MudSelect>
         <MudButton Variant="Variant.Text" Disabled="@(!HasFilters)" OnClick="ClearFilters">Clear filters</MudButton>
     </div>
-    <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? $"{total:N0} support agents" : "Support Agents unavailable")</MudText>
+    <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? total == 1 ? "1 support agent" : $"{total:N0} support agents" : "Support Agents unavailable")</MudText>
     @if (organizationError is not null) { <MudAlert Severity="Severity.Warning" role="alert">@organizationError</MudAlert> }
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="Refresh">Retry</MudButton></MudAlert> }
     <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Support Agents directory. Scroll horizontally to reach all columns and actions." tabindex="0">
