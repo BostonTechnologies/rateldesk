@@ -1,3 +1,4 @@
+using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Infrastructure.Identity;
 using Microsoft.Data.Sqlite;
@@ -20,10 +21,7 @@ public static class AssigneeQueries
             ? organization.Id : organization.ItSupportOrganizationId);
         var accounts = AccountMappings(db);
         var links = db.CustomerAuthLinks;
-        var users = db.Users.AsNoTracking().Where(user => !user.IsDeleted && !user.Id.StartsWith("service:") &&
-            !accounts.Any(account => account.DomainUserId == user.Id && (!account.IsEnabled || account.IsDeleted)) &&
-            !links.Any(link => (link.DomainUserId == user.Id || (link.DomainUserId == null && link.LocalAccountId == user.Id)) &&
-                (link.DisabledAtUtc != null || link.InviteStatus == CustomerInviteStatus.Disabled)));
+        var users = db.Users.AsNoTracking();
         var administrators = accounts.Where(account => account.IsInstanceAdministrator && account.IsEnabled && !account.IsDeleted)
             .Select(account => account.DomainUserId);
 
@@ -41,7 +39,14 @@ public static class AssigneeQueries
                 (organizations.Any() && user.Role == "Technician")),
             _ => throw new ArgumentOutOfRangeException(nameof(module))
         };
-        return candidates.Union(users.Where(user => organizations.Any() && administrators.Contains(user.Id)));
+        var regularIds = candidates.Select(user => user.Id);
+        return users.Where(user => (regularIds.Contains(user.Id) || (organizations.Any() && administrators.Contains(user.Id))) &&
+            !user.IsDeleted && !user.Id.StartsWith("service:") &&
+            !accounts.Any(account => account.DomainUserId == user.Id && (!account.IsEnabled || account.IsDeleted)) &&
+            !links.Any(link => link.DomainUserId == user.Id && link.LocalAccountId != null &&
+                !accounts.Any(account => account.AccountId == link.LocalAccountId && account.DomainUserId == user.Id)) &&
+            !links.Any(link => (link.DomainUserId == user.Id || (link.DomainUserId == null && link.LocalAccountId == user.Id)) &&
+                (link.DisabledAtUtc != null || link.InviteStatus == CustomerInviteStatus.Disabled)));
     }
 
     public static async Task<string?> ResolveAccountUserAsync(HelpdeskDbContext db, string accountId, CancellationToken ct)
@@ -63,13 +68,16 @@ public static class AssigneeQueries
         const string localMappings = """
             SELECT a."Id" AS "AccountId", COALESCE(c."DomainUserId", a."Id") AS "DomainUserId", a."IsEnabled", a."IsDeleted", a."IsInstanceAdministrator"
             FROM "AspNetUsers" a LEFT JOIN "CustomerAuthLinks" c ON c."LocalAccountId" = a."Id"
-            WHERE c."Id" IS NOT NULL OR NOT EXISTS (SELECT 1 FROM "AspNetUserLogins" l WHERE l."UserId" = a."Id")
+            WHERE c."Id" IS NOT NULL OR (NOT EXISTS (SELECT 1 FROM "AspNetUserLogins" l WHERE l."UserId" = a."Id")
+                AND NOT EXISTS (SELECT 1 FROM "CustomerAuthLinks" other WHERE other."DomainUserId" = a."Id"
+                    AND (other."LocalAccountId" IS NOT NULL OR other."OidcSubject" IS NOT NULL)))
             UNION ALL
             SELECT a."Id", c."DomainUserId", a."IsEnabled", a."IsDeleted", a."IsInstanceAdministrator"
             FROM "CustomerAuthLinks" c
             JOIN "AspNetUserLogins" l ON l."ProviderKey" = c."OidcSubject"
             JOIN "AspNetUsers" a ON a."Id" = l."UserId"
             WHERE c."LocalAccountId" IS NULL AND c."DomainUserId" IS NOT NULL AND c."OidcIssuer" IS NOT NULL
+                AND c."OidcSubject" <> '' AND c."OidcIssuer" <> '' AND c."OidcSubject" NOT LIKE 'service:%'
                 AND l."LoginProvider" =
             """;
         if (db.Database.GetDbConnection() is SqliteConnection sqlite)
@@ -102,8 +110,12 @@ public static class AssigneeQueries
 }
 
 
-public sealed class TicketSupportAccessService(HelpdeskDbContext db) : ISupportAccessService
+public sealed class TicketSupportAccessService(HelpdeskDbContext db) : ISupportAccessService, IRequestTaskAssignees
 {
     public Task<bool> CanUserSupportOrganizationAsync(string userId, string customerOrganizationId, CancellationToken ct = default) =>
         AssigneeQueries.CanAssignAsync(db, "incident", customerOrganizationId, userId, ct);
+
+    public Task<HashSet<string>> EligibleDefaultsAsync(string? organizationId, string[] defaultIds, CancellationToken ct) =>
+        AssigneeQueries.Eligible(db, "task", db.Organizations.Where(org => org.Id == organizationId))
+            .Where(user => defaultIds.Contains(user.Id)).Select(user => user.Id).ToHashSetAsync(ct);
 }

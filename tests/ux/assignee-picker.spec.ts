@@ -62,11 +62,12 @@ for (const module of ['incidents', 'requests', 'changes']) {
   });
 }
 
-test('operator assigns across organizations to self and a peer administrator', async ({ page, request }, info) => {
-  for (const [module, name, id] of [
-    ['incidents', 'Instance Operator', 'assignee-operator'],
-    ['requests', 'Peer Operator', 'peer-admin']
-  ]) {
+for (const [module, name, id] of [
+  ['incidents', 'Instance Operator', 'assignee-operator'],
+  ['requests', 'Peer Operator', 'peer-admin']
+]) {
+  test(`${module} shared picker assigns an administrator from another organization`, async ({ page, request }, info) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
     await grid(page, module);
     await trigger(page).click();
     await search(page).fill(name);
@@ -78,8 +79,8 @@ test('operator assigns across organizations to self and a peer administrator', a
     expect((await (await request.get(`${fixture}/state`)).json()).tickets[module].assignedToId).toBe(id);
     await page.reload();
     await expect(trigger(page)).toHaveAccessibleName(new RegExp(name));
-  }
-});
+  });
+}
 
 test('keyboard activation, Tab and Escape do not assign; Enter selects a duplicate by ID', async ({ page, request }) => {
   await grid(page);

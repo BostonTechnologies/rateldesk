@@ -222,10 +222,14 @@ public sealed class AssigneeSearchEndpointsTests
                 new CustomerAuthLink { CustomerId = "hybrid-contact", DomainUserId = "hybrid-domain", LocalAccountId = "hybrid-account" },
                 new CustomerAuthLink { CustomerId = "oidc-contact", DomainUserId = "oidc-domain", OidcIssuer = "https://identity.example.test", OidcSubject = "verified-sub" },
                 new CustomerAuthLink { CustomerId = "other-contact", DomainUserId = "wrong-issuer", OidcIssuer = "https://other.example.test", OidcSubject = "verified-sub" });
+            db.RequestTasks.Add(new RequestTask { Id = "admin-task", RequestId = "request", OrganizationId = "org", TrackingId = "TASK-452", Title = "Verify assignment" });
             await db.SaveChangesAsync();
             Assert.Equal("hybrid-domain", await AssigneeQueries.ResolveAccountUserAsync(db, "hybrid-account", default));
             Assert.Equal("oidc-domain", await AssigneeQueries.ResolveAccountUserAsync(db, external.Id, default));
         });
+        Assert.Contains((await h.Search("task", "duplicate@example.test")).Items, user => user.Id == "oidc-domain");
+        (await h.Client.PatchAsJsonAsync("/api/v1/request-tasks/admin-task", new { AssignedToId = "oidc-domain" })).EnsureSuccessStatusCode();
+        Assert.Equal("oidc-domain", await h.Assigned("admin-task"));
         foreach (var module in new[] { "request", "change", "incident" })
         {
             Assert.Equal(new[] { "hybrid-domain", "local", "oidc-domain" }, (await h.Search(module, "Duplicate@example.test")).Items.Select(x => x.Id));
@@ -241,6 +245,7 @@ public sealed class AssigneeSearchEndpointsTests
             oidc!.IsDeleted = true;
             await identity.SaveChangesAsync();
         });
+        Assert.Equal(HttpStatusCode.BadRequest, (await h.Client.PatchAsJsonAsync("/api/v1/request-tasks/admin-task", new { AssignedToId = "oidc-domain" })).StatusCode);
         foreach (var module in new[] { "request", "change", "incident" })
         {
             Assert.Empty((await h.Search(module, "duplicate@example.test")).Items);
