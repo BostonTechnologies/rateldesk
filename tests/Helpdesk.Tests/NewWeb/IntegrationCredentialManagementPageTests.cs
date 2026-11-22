@@ -410,7 +410,12 @@ public sealed class IntegrationCredentialManagementPageTests
             { Acknowledgements++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent)); }
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/setup")) return HandleSetupAsync(request, cancellationToken);
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/search"))
-                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(new { items = Array.Empty<object>(), totalEligible = 0, hasMore = false }) });
+            {
+                var id = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query).GetValueOrDefault("id").ToString();
+                var items = new[] { new { id = "org-a", name = "Organization A", isEnabled = true }, new { id = "org-b", name = "Organization B", isEnabled = true } };
+                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(new
+                    { items = items.Where(row => id.Length == 0 || row.id == id), totalEligible = items.Length, hasMore = false }) });
+            }
             if (request.Method == HttpMethod.Get)
                 return PendingList?.Task ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Metadata()) });
             if (request.Method == HttpMethod.Post)

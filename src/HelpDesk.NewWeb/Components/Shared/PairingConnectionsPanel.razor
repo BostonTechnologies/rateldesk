@@ -385,6 +385,8 @@
             var saved = await Api.SaveAsync(draft.Mapping(), lifetime.Token);
             if (disposed || current != selectionGeneration || Deleted(saved) || selected != connection) return;
             Upsert(saved);
+            if (saved.Mapping is { } mapping && directory is not null)
+                directories[Key(saved)] = directory.References(mapping.NetRatelTenantId, mapping.RatelDeskOrganizationId, mapping.RatelDeskCustomerId, null);
             if (Connected(saved)) { CloseSelection(); notice = "Connection configured. Test this mapping to verify current access."; }
             else { selected = saved; error = "The connection needs configuration. Review the saved mapping and retry."; }
         }
