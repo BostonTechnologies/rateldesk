@@ -707,7 +707,7 @@ test('customer contact edit survives a declined workspace navigation', async ({ 
  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
  await page.getByRole('button', { name: 'Create customer contact', exact: true }).click();
  const editor = page.getByRole('dialog');
- const name = editor.getByRole('textbox', { name: 'Name', exact: true });
+ const name = editor.getByRole('textbox', { name: /^Name\*?$/ });
  await name.fill('Synthetic draft contact');
  await name.press('Tab');
  const decision = page.waitForEvent('dialog').then(dialog => dialog.dismiss());

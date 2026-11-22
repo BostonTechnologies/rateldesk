@@ -5,10 +5,7 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-@if (busy || generated is not null)
-{
-    <NavigationLock ConfirmExternalNavigation="true" OnBeforeInternalNavigation="ProtectPairing" />
-}
+<NavigationLock ConfirmExternalNavigation="@(busy || generated is not null)" OnBeforeInternalNavigation="ProtectPairing" />
 <div class="pairing-connections" data-testid="system-connections-panel">
     <div aria-hidden="@(DialogOpen ? "true" : null)">
         <div class="pairing-toolbar">
@@ -167,6 +164,7 @@
 @code {
     private void ProtectPairing(LocationChangingContext context)
     {
+        if (!busy && generated is null) return;
         context.PreventNavigation();
         notice = busy ? "Wait for the connection operation to finish." : "Close the displayed pairing code before leaving Connections.";
         StateHasChanged();
