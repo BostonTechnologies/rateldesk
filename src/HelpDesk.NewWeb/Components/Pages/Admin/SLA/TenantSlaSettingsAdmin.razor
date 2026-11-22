@@ -12,7 +12,7 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <MudText Typo="Typo.h5" HtmlTag="h1">Tenant SLA Settings</MudText>
         <MudSpacer />
-        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" @key="tenantSelectorVersion" Label="Tenant" Value="@tenantId" ValueChanged="OnTenantChanged" Clearable="false" Disabled="@busy" />
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" @key="tenantSelectorVersion" Label="Tenant" Value="@tenantId" ValueChanged="OnTenantChanged" SelectionChanged="RememberOrganization" Clearable="false" Disabled="@busy" />
     </MudStack>
     @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
     @if (loading) { <MudProgressLinear Indeterminate="true" /> }
@@ -39,6 +39,10 @@
     private string? tenantId;
     private int tenantSelectorVersion;
     private List<TenantLookupDto> tenants = new();
+    private void RememberOrganization(OrganizationDto? organization)
+    {
+        if (organization?.Id == tenantId && organization is not null) tenants = [new TenantLookupDto { Id = organization.Id, Name = organization.Name }];
+    }
     private List<WorkingCalendarDto> calendars = new();
     private TenantSlaSettingsPanel? settingsPanel;
     private TenantSlaReportingPanel? reportingPanel;
@@ -54,7 +58,7 @@
     {
         try
         {
-            tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
+            tenants = (await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<TenantLookupDto>>("api/v1/admin/tenants/search?limit=1"))?.Items.ToList() ?? [];
             tenantId = tenants.FirstOrDefault()?.Id;
             await LoadCalendarsAsync();
         }

@@ -21,6 +21,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using MudBlazor.Extensions;
 using NSubstitute;
 using AccountPage = NewWeb::HelpDesk.NewWeb.Components.Pages.IntegrationCredentials;
 using PairingPanel = NewWeb::HelpDesk.NewWeb.Components.Shared.PairingConnectionsPanel;
@@ -550,12 +551,14 @@ public sealed class PairingConnectionsPageTests
     private sealed class ComponentCapture : IComponentActivator
     {
         public PairingPanel? Panel { get; private set; }
+        public List<MudSelect<string>> Filters { get; } = [];
         public List<MudAutocomplete<OrganizationDto>> Organizations { get; } = [];
         public List<MudAutocomplete<PairingChoice>> Customers { get; } = [];
         public IComponent CreateInstance(Type componentType)
         {
             var component = (IComponent)Activator.CreateInstance(componentType)!;
             if (component is PairingPanel panel) Panel = panel;
+            if (component is MudSelect<string> filter) Filters.Add(filter);
             if (component is MudAutocomplete<OrganizationDto> organizations) Organizations.Add(organizations);
             if (component is MudAutocomplete<PairingChoice> customers) Customers.Add(customers);
             return component;
@@ -578,21 +581,25 @@ public sealed class PairingConnectionsPageTests
             capture.Organizations.Last(component => component.Label == (testId == "connection-netratel-tenant" ? "NetRatel tenant" : "RatelDesk organization"));
 
         public string? SelectedId(string testId) => testId == "connection-rateldesk-customer"
-            ? capture.Customers.Last().Value?.Id : Organization(testId).Value?.Id;
+            ? capture.Customers.Last().GetState(x => x.Value)?.Id : Organization(testId).GetState(x => x.Value)?.Id;
 
         public Task ChangeSelectionAsync(string testId, string id) => renderer.Dispatcher.InvokeAsync(async () =>
         {
-            if (testId == "connection-rateldesk-customer")
+            if (testId == "connection-status-filter")
+            {
+                await capture.Filters.Last(field => field.Label == "Status").ValueChanged.InvokeAsync(id);
+            }
+            else if (testId == "connection-rateldesk-customer")
             {
                 var customer = capture.Customers.Last();
                 var options = await customer.SearchFunc!("", CancellationToken.None);
-                await customer.ValueChanged.InvokeAsync(options.Single(row => row.Id == id));
+                await customer.ValueChanged.InvokeAsync(options!.Single(row => row?.Id == id));
             }
             else
             {
                 var picker = Organization(testId);
                 var options = await picker.SearchFunc!("", CancellationToken.None);
-                await picker.ValueChanged.InvokeAsync(options.Single(row => row.Id == id));
+                await picker.ValueChanged.InvokeAsync(options!.Single(row => row?.Id == id));
             }
         });
         public Task SetOrganizationHintAsync(string? id) => renderer.Dispatcher.InvokeAsync(() => ((IComponent)panel).SetParametersAsync(ParameterView.FromDictionary(new Dictionary<string, object?> { ["OrganizationId"] = id })));
@@ -624,6 +631,7 @@ public sealed class PairingConnectionsPageTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/v1/admin/tenants/search") return Json(new { items = new[] { new { id = "organization-7", name = "Support team", isEnabled = true } }, totalEligible = 1, hasMore = false });
             if (path == "/api/v1/organizations") return Json(new[] { new { id = "organization-7", name = "Support team" } });
             if (path == "/api/v1/integration-credentials/") return Json(Array.Empty<object>());
             if (path == "/api/v1/admin/system-connections/")
@@ -642,7 +650,7 @@ public sealed class PairingConnectionsPageTests
                     "organization" => Choices.RatelDeskOrganizations,
                     _ => Choices.RatelDeskCustomers.Where(customer => customer.ParentId == query["organizationId"].ToString()).ToArray()
                 };
-                var selected = query["id"].ToString();
+                var selected = query.GetValueOrDefault("id").ToString();
                 return Json(new CreationLookupResult<PairingChoice>(
                     choices.Where(row => selected.Length == 0 || row.Id == selected).ToList(), choices.Length, false));
             }

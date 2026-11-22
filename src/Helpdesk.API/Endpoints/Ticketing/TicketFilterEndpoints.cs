@@ -25,44 +25,34 @@ internal static class TicketFilterEndpoints
                 return Results.BadRequest();
             var access = await accessService.ResolveAsync(user, token);
             if (module == "task" && !RequestTasks.RequestTaskEndpoints.CanReadTasks(access)) return Results.Forbid();
+            var changes = TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, "change");
             IQueryable<Ticket> tickets = module switch {
-                "incident" => TicketListQuery.Authorized(db.Incidents.AsNoTracking(), access, module),
-                "request" => TicketListQuery.Authorized(db.Requests.AsNoTracking(), access, module),
-                "change" => TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module),
-                _ => db.Requests.AsNoTracking()
+                "incident" => TicketListQuery.Authorized(db.Incidents.AsNoTracking(), access, "incident"),
+                "request" => TicketListQuery.Authorized(db.Requests.AsNoTracking(), access, "request"),
+                "change" => changes,
+                _ => RequestsWithAuthorizedTasks(db, access)
             };
-            if (module == "task")
-            {
-                var tasks = db.RequestTasks.AsNoTracking();
-                if (!access.IsHelpdeskAdmin)
-                {
-                    var allowed = RequestTasks.RequestTaskEndpoints.RequestReaderOrganizationIds(access).ToArray();
-                    tasks = tasks.Where(task => task.OrganizationId != null && allowed.Contains(task.OrganizationId));
-                }
-                tickets = tickets.Where(ticket => tasks.Any(task => task.RequestId == ticket.Id && task.OrganizationId == ticket.OrganizationId));
-            }
             var selectedOrganizations = request.Query["customerOrgId"].ToArray();
             if (selectedOrganizations.Length > 20 || selectedOrganizations.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             var selectedIds = request.Query["selectedId"].ToArray();
             if (selectedIds.Length > 20 || selectedIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             if (selectedOrganizations.Length > 0) tickets = tickets.Where(ticket => selectedOrganizations.Contains(ticket.OrganizationId));
+            if (selectedOrganizations.Length > 0) changes = changes.Where(change => selectedOrganizations.Contains(change.OrganizationId));
             var organizationIds = tickets.Select(ticket => ticket.OrganizationId).Distinct();
-            int? eligibleCount = null;
+            IQueryable<FilterOption>? eligibleOptions = null;
             IQueryable<FilterOption> options;
             if (dimension == "customer")
                 options = db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)).Select(organization => new FilterOption { Id = organization.Id, Label = organization.Name });
             else if (dimension == "for" && module != "change")
             {
-                var ids = tickets.Select(ticket => ticket.CustomerId);
-                options = db.Customers.AsNoTracking().Where(customer => ids.Contains(customer.Id)).Select(customer => new FilterOption { Id = customer.Id, Label = customer.Name + " (" + customer.Email + ")" });
+                options = db.Customers.AsNoTracking().Where(customer => tickets.Any(ticket => ticket.CustomerId == customer.Id && ticket.OrganizationId == customer.OrganizationId)).Select(customer => new FilterOption { Id = customer.Id, Label = customer.Name + " (" + customer.Email + ")" });
             }
             else
             {
                 IQueryable<User> users;
                 if (dimension == "for")
                 {
-                    var ids = TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module)
-                        .Where(change => selectedOrganizations.Length == 0 || selectedOrganizations.Contains(change.OrganizationId)).Select(change => change.RequestedForUserId);
+                    var ids = changes.Select(change => change.RequestedForUserId);
                     users = db.Users.AsNoTracking().Where(candidate => ids.Contains(candidate.Id));
                 }
                 else
@@ -75,20 +65,19 @@ internal static class TicketFilterEndpoints
                         // the assignment picker's eligibility rules.
                         var eligibleIds = users.Select(candidate => candidate.Id);
                         var assignedIds = module == "change"
-                            ? TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, module)
-                                .Where(change => selectedOrganizations.Length == 0 || selectedOrganizations.Contains(change.OrganizationId)).Select(change => change.ImplementorUserId)
+                            ? changes.Select(change => change.ImplementorUserId)
                             : tickets.Select(ticket => ticket.AssignedToId);
                         users = db.Users.AsNoTracking().Where(candidate => eligibleIds.Contains(candidate.Id) || assignedIds.Contains(candidate.Id));
                     }
                 }
                 if (selectedIds.Length > 0) users = users.Where(candidate => selectedIds.Contains(candidate.Id));
-                if (picker == true) eligibleCount = await users.CountAsync(token);
+                eligibleOptions = users.Select(candidate => new FilterOption { Id = candidate.Id, Label = candidate.Name });
                 users = AssigneeQueries.Search(db, users, q);
                 options = users.Select(candidate => new FilterOption { Id = candidate.Id, Label = candidate.Name + " (" + candidate.Email + ")" });
             }
             if (dimension == "customer" || (dimension == "for" && module != "change"))
             {
-                if (picker == true) eligibleCount = await options.CountAsync(token);
+                eligibleOptions = options;
                 var pattern = "%" + (q ?? "").Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
                 options = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
                     ? options.Where(option => EF.Functions.ILike(option.Label, pattern, "\\"))
@@ -100,8 +89,19 @@ internal static class TicketFilterEndpoints
                 .Select(option => new TicketFilterOptionDto(option.Id, option.Label)).ToListAsync(token);
             var hasMore = items.Count > limit;
             if (hasMore) items.RemoveAt(limit);
-            if (eligibleCount is int total) return Results.Ok(new CreationLookupResult<TicketFilterOptionDto>(items, total, hasMore));
+            if (picker == true) return Results.Ok(new CreationLookupResult<TicketFilterOptionDto>(items, await eligibleOptions!.CountAsync(token), hasMore));
             return Results.Ok(new TicketFilterOptionsDto(items, hasMore));
         }).WithName("SearchTicketFilterOptions");
+    }
+
+    private static IQueryable<Ticket> RequestsWithAuthorizedTasks(HelpdeskDbContext db, CurrentUserAccessProfile access)
+    {
+        var tasks = db.RequestTasks.AsNoTracking();
+        if (!access.IsHelpdeskAdmin)
+        {
+            var allowed = RequestTasks.RequestTaskEndpoints.RequestReaderOrganizationIds(access).ToArray();
+            tasks = tasks.Where(task => task.OrganizationId != null && allowed.Contains(task.OrganizationId));
+        }
+        return db.Requests.AsNoTracking().Where(ticket => tasks.Any(task => task.RequestId == ticket.Id && task.OrganizationId == ticket.OrganizationId));
     }
 }

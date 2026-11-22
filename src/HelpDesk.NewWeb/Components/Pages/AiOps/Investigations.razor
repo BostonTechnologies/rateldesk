@@ -8,7 +8,7 @@
 
 <PageTitle>AI investigations</PageTitle>
 <Microsoft.AspNetCore.Components.Sections.SectionContent SectionName="workspace-context">
-    <OrganizationSearchPicker SearchUrl="api/v1/ai/ops/organizations/search" Value="@organization" ValueChanged="@(id => ChangeOrganization(id ?? string.Empty))" Required="false" AutoSelectSingle="false" Placeholder="All organizations" Disabled="@busy" />
+    <OrganizationSearchPicker SearchUrl="api/v1/ai/ops/organizations/search" SelectionChanged="RememberOrganization" SelectedItemLoaded="RememberOrganization" Value="@organization" ValueChanged="@(id => ChangeOrganization(id ?? string.Empty))" Required="false" AutoSelectSingle="false" Placeholder="All organizations" Disabled="@busy" />
 </Microsoft.AspNetCore.Components.Sections.SectionContent>
 <main class="ai-ops" data-testid="ai-investigations">
     <header class="ai-toolbar">
@@ -161,6 +161,10 @@
     });
     private string ConnectionRoute => selected is { } current ? $"api/v1/{current.TicketType}/{current.TicketId}/ai-assistant/chat"
         : organization.Length > 0 ? $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}" : "";
+    private void RememberOrganization(OrganizationDto? item)
+    {
+        if (item is not null && !organizations.Any(row => row.Id == item.Id)) organizations.Add(new(item.Id, item.Name));
+    }
     private string OrganizationName(string id) => organizations.FirstOrDefault(x => x.Id == id)?.Name ?? id;
     private string InvestigationUrl(Guid id) => $"/ai/ops?id={id}" + (search.Length > 0 ? $"&q={Uri.EscapeDataString(search)}" : "");
     private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Investigating", ChatState.WaitingForChildren => "Waiting for delegated follow-ups", ChatState.WaitingForScheduledReports => "Waiting for scheduled reports", ChatState.AwaitingApproval => "Waiting for approval", ChatState.DeliveryUnknown => "Outcome unconfirmed", ChatState.Archived => "Archived", _ => state.ToString() };
@@ -174,7 +178,7 @@
         {
             if (!initialized)
             {
-                var loaded = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiOpsOrganizationDto>>("api/v1/ai/ops/organizations") ?? [];
+                var loaded = (await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<CreationLookupResult<AiOpsOrganizationDto>>("api/v1/ai/ops/organizations/search?limit=1"))?.Items.ToList() ?? [];
                 if (current != generation) return;
                 organizations = loaded; initialized = true;
             }
@@ -214,7 +218,7 @@
         {
             if (!initialized)
             {
-                var loadedOrganizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<AiOpsOrganizationDto>>("api/v1/ai/ops/organizations") ?? [];
+                var loadedOrganizations = (await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<CreationLookupResult<AiOpsOrganizationDto>>("api/v1/ai/ops/organizations/search?limit=1"))?.Items.ToList() ?? [];
                 if (current != generation) return;
                 organizations = loadedOrganizations; initialized = true;
             }

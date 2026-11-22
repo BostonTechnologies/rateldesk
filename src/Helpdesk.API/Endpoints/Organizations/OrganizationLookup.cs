@@ -9,7 +9,7 @@ namespace Helpdesk.API.Endpoints.Organizations;
 internal static class OrganizationLookup
 {
     internal static async Task<IResult> SearchAsync(HelpdeskDbContext db, IQueryable<Helpdesk.Shared.Models.Organization> eligible,
-        string? q, string? id, int? limit, CancellationToken ct, bool namesOnly = false)
+        string? q, string? id, int? limit, CancellationToken ct, bool namesOnly = false, bool administrativeDetails = false)
     {
         if (q?.Length > 200 || limit is < 1) return Results.BadRequest();
         var total = await eligible.CountAsync(ct);
@@ -34,7 +34,7 @@ internal static class OrganizationLookup
             return Page(names, total, take);
         }
         var items = await ordered
-            .Select(x => new OrganizationDto { Id = x.Id, Name = x.Name, DnsName = x.DnsName, State = x.State })
+            .Select(x => new OrganizationDto { Id = x.Id, Name = x.Name, DnsName = x.DnsName, State = x.State, ItSupportOrganizationId = administrativeDetails ? x.ItSupportOrganizationId : null })
             .Take(take + 1).ToListAsync(ct);
         return Page(items, total, take);
     }

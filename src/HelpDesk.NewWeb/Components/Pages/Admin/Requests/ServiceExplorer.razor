@@ -172,7 +172,6 @@
 
     private async Task LoadData()
     {
-        organizations = await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new();
 
         ParentService = null;
         ParentDepth = 0;
@@ -184,6 +183,7 @@
 
         var endpoint = string.IsNullOrWhiteSpace(ServiceId) ? "api/v1/service-items" : $"api/v1/service-items/{ServiceId}";
         serviceItems = await HelpdeskApi.GetFromJsonAsync<List<ServiceItemDto>>(endpoint) ?? new();
+        organizations = await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, serviceItems.SelectMany(item => item.AllowedOrganizationIds ?? []));
         await LoadBindingsAsync();
 
         await BuildBreadcrumbs();

@@ -48,12 +48,12 @@
     protected override Task OnInitializedAsync() => ReloadAsync();
     private async Task ReloadAsync()
     {
+        var current = ++scopeVersion;
         loading = true; loadError = null;
         try
         {
             if (selectedOrganizationId is null)
             {
-                var current = scopeVersion;
                 var first = await Api.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/tenants/search?limit=1");
                 if (scopeVersion != current) return;
                 selectedOrganizationId = first?.Items.FirstOrDefault()?.Id;
@@ -61,8 +61,8 @@
             await Load();
         }
         catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
-        { loadError = "Organizations could not be loaded. Retry the query."; }
-        finally { loading = false; }
+        { if (scopeVersion == current) loadError = "Organizations could not be loaded. Retry the query."; }
+        finally { if (scopeVersion == current) loading = false; }
     }
     private async Task OnOrganizationChanged(string? value) { if (editing || value == selectedOrganizationId) return; selectedOrganizationId = value; items.Clear(); await Load(); }
     private async Task Load()

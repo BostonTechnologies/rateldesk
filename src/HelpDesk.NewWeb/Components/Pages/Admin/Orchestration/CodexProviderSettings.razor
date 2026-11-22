@@ -23,7 +23,7 @@
                 <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert>
             }
             <MudTextField Label="Profile name" @bind-Value="name" MaxLength="100" Margin="Margin.Dense" Disabled="busy" />
-            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" Value="@organization" ValueChanged="OrganizationChangedAsync" Disabled="@(busy || revision > 0 || IsPending)" AutoSelectSingle="false" Clearable="false" />
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" Value="@organization" ValueChanged="OrganizationChangedAsync" Disabled="@(busy || revision > 0 || IsPending)" AutoSelectSingle="false" Clearable="false" />
             <div role="status" aria-live="polite">
                 <MudText Typo="Typo.body2">@ConnectionStatus</MudText>
                 @if (connection?.Detail is { } detail)

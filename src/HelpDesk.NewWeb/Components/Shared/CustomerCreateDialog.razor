@@ -22,7 +22,7 @@
             }
             else
             {
-                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" Value="@model.OrganizationId"
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" Value="@model.OrganizationId"
                                           ValueChanged="@(id => model.OrganizationId = id ?? string.Empty)" AutoSelectSingle="false" Clearable="false" />
             }
             <MudSwitch T="bool" @bind-Value="model.IsEnabled" Label="Enabled" />

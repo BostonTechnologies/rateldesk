@@ -33,7 +33,7 @@
             </div>
         }
 
-        <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" Label="Add permitted organization"
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" Label="Add permitted organization"
                                   Required="false" Disabled="@saving" AutoSelectSingle="false" ClearAfterSelection="true" ValueChanged="AddOrganization" />
         </div>
     </DialogContent>

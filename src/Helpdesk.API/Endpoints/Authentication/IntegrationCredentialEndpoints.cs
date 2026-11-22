@@ -30,7 +30,7 @@ public static class IntegrationCredentialEndpoints
         IntegrationCredentialSetupEndpoints.Map(group);
 
         group.MapGet("/", async (ClaimsPrincipal principal, IIntegrationCredentialOwnerResolver ownerResolver,
-            ICurrentUserAccessService accessService, RatelDeskIdentityDbContext identityDb, CancellationToken ct) =>
+            ICurrentUserAccessService accessService, RatelDeskIdentityDbContext identityDb, HelpdeskDbContext db, CancellationToken ct) =>
         {
             var owner = await AdministrationOwnerResolver.ResolveAsync(principal, ownerResolver, identityDb, ct);
             if (owner is null) return Results.Forbid();
@@ -48,7 +48,11 @@ public static class IntegrationCredentialEndpoints
                         ? IntegrationCredentialGrantKinds.OwnerAdministration : credential.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? "setup-verification" : "ordinary"
                 })
                 .ToListAsync(ct);
-            return Results.Ok(credentials);
+            var organizationIds = credentials.Select(row => row.OrganizationId).OfType<string>()
+                .Where(access.CanManageIntegrationCredentialsFor).Distinct().ToArray();
+            var names = await db.Organizations.AsNoTracking().Where(row => organizationIds.Contains(row.Id) && row.State == Helpdesk.Shared.Models.EntityState.Enabled)
+                .ToDictionaryAsync(row => row.Id, row => row.Name, ct);
+            return Results.Ok(credentials.Select(row => row with { OrganizationName = row.OrganizationId is null ? null : names.GetValueOrDefault(row.OrganizationId) }));
         }).RequireAuthorization(OwnerManagementPolicy).WithSummary("List integration credentials");
 
         group.MapPost("/", async (
@@ -205,6 +209,7 @@ public static class IntegrationCredentialEndpoints
 
     public sealed record IntegrationCredentialMetadata(Guid Id, string Name, string Prefix, string Purpose, string? OrganizationId, IReadOnlyList<string> Permissions, DateTimeOffset ExpiresAtUtc, DateTimeOffset CreatedAtUtc, DateTimeOffset? LastUsedAtUtc, DateTimeOffset? RevokedAtUtc)
     {
+        public string? OrganizationName { get; init; }
         public string? McpResourceUri { get; init; }
         public string GrantKind { get; init; } = IntegrationCredentialGrantKinds.Ordinary;
     }

@@ -246,7 +246,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadBaseDataAsync();
-        ApplyQueryOrganization();
+        await ApplyQueryOrganizationAsync();
         await ReloadRoutingDataAsync();
     }
 
@@ -257,7 +257,7 @@
             appliedQueryOrganizationId = QueryOrganizationId;
             if (organizations.Count > 0)
             {
-                ApplyQueryOrganization();
+                await ApplyQueryOrganizationAsync();
                 await ReloadRoutingDataAsync();
             }
         }
@@ -275,12 +275,12 @@
         loadError = null;
         try
         {
-            var organizationsTask = HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations");
+            var organizationsTask = HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/directories/organizations/search?limit=1");
             var usersTask = HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users");
             var groupsTask = SupportClient.GetGroupsAsync();
 
             organizations.Clear();
-            organizations.AddRange(await organizationsTask ?? []);
+            organizations.AddRange((await organizationsTask)?.Items ?? []);
             users.Clear();
             users.AddRange(await usersTask ?? []);
             supportGroups = (await groupsTask).ToList();
@@ -303,14 +303,19 @@
         }
     }
 
-    private void ApplyQueryOrganization()
+    private async Task ApplyQueryOrganizationAsync()
     {
         appliedQueryOrganizationId = QueryOrganizationId;
-        if (!string.IsNullOrWhiteSpace(QueryOrganizationId) &&
-            organizations.Any(x => string.Equals(x.Id, QueryOrganizationId, StringComparison.OrdinalIgnoreCase)))
+        if (!string.IsNullOrWhiteSpace(QueryOrganizationId))
         {
-            selectedOrganizationId = QueryOrganizationId;
-            return;
+            var queryId = QueryOrganizationId;
+            var current = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>($"api/v1/admin/directories/organizations/search?id={Uri.EscapeDataString(queryId)}");
+            if (queryId != QueryOrganizationId) return;
+            if (current?.Items.FirstOrDefault(row => row.Id == queryId) is { } item)
+            {
+                selectedOrganizationId = item.Id;
+                return;
+            }
         }
 
         selectedOrganizationId ??= organizations
@@ -348,6 +353,15 @@
             var subscriptionsTask = SupportClient.GetSubscriptionsAsync(organizationId);
             await Task.WhenAll(groupsTask, coverageTask, subscriptionsTask);
             if (disposed || version != routingVersion || organizationId != selectedOrganizationId) return;
+            var references = await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi,
+                groupsTask.Result.Select(group => group.OwningOrganizationId).Concat(coverageTask.Result.Select(row => row.ProviderOrganizationId))
+                    .Concat(coverageTask.Result.Select(row => row.CustomerOrganizationId)).Append(organizationId));
+            var providerId = references.FirstOrDefault(row => row.Id == organizationId)?.ItSupportOrganizationId;
+            if (providerId is not null && !references.Any(row => row.Id == providerId))
+                references.AddRange(await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, [providerId]));
+            if (disposed || version != routingVersion || organizationId != selectedOrganizationId) return;
+            organizations.Clear();
+            organizations.AddRange(references);
             supportGroups = groupsTask.Result.ToList();
             coverageRows = coverageTask.Result.ToList();
             subscriptionRows = subscriptionsTask.Result.ToList();

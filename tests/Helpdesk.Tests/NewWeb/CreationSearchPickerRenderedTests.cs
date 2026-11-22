@@ -7,6 +7,7 @@ using Helpdesk.Shared.DTOs.Organization;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
+using MudBlazor.Extensions;
 using NSubstitute;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
@@ -66,7 +67,7 @@ public sealed class CreationSearchPickerRenderedTests
         await searching;
         Assert.Equal("different", Assert.Single(suggestions!).Id);
         await picker.InvokeAsync(() => hydration.Response.SetResult(Page("late", "Saved late organization", 121)));
-        picker.WaitForAssertion(() => Assert.Equal("Saved late organization", autocomplete.Value?.Name));
+        picker.WaitForAssertion(() => Assert.Equal("Saved late organization", autocomplete.GetState(x => x.Value)?.Name));
         Assert.Empty(selections);
     }
 

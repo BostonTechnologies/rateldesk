@@ -25,7 +25,7 @@ public sealed class AiInvestigationsWorkspaceTests
         await using var context = Context(api);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
-        Assert.Contains("/api/v1/ai/ops/organizations", api.Requests);
+        Assert.Contains("/api/v1/ai/ops/organizations/search?limit=1", api.Requests);
         Assert.DoesNotContain("/api/v1/organizations", api.Requests);
         Assert.False(page.Find(".ai-toolbar .ai-primary").HasAttribute("disabled"));
     }
@@ -42,7 +42,7 @@ public sealed class AiInvestigationsWorkspaceTests
         page.FindAll(".ai-toolbar button").Single(x => x.TextContent == "Refresh").Click();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
         Assert.Empty(page.FindAll("[role='alert']"));
-        Assert.Equal(2, api.Requests.Count(x => x == "/api/v1/ai/ops/organizations"));
+        Assert.Equal(2, api.Requests.Count(x => x == "/api/v1/ai/ops/organizations/search?limit=1"));
         Assert.DoesNotContain("/api/v1/organizations", api.Requests);
     }
 
@@ -229,6 +229,7 @@ public sealed class AiInvestigationsWorkspaceTests
                 if (path is "/api/v1/ai/chat/organizations/org-a/capabilities" or "/api/v1/ai/chat/organizations/org-b/capabilities")
                     return FailCapabilities ? new(HttpStatusCode.ServiceUnavailable) : Json(new ChatCapabilities(true, null));
                 if (path == "/api/v1/organizations") return new(HttpStatusCode.Forbidden);
+                if (path == "/api/v1/ai/ops/organizations/search" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);
                 if (path == "/api/v1/ai/ops/organizations/search")
                     return Json(new CreationLookupResult<AiOpsOrganizationDto>([new("org-a", "Organization A"), new("org-b", "Organization B")], 2, false));
                 if (path == "/api/v1/ai/ops/organizations" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);

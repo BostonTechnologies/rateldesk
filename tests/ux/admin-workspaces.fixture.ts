@@ -36,15 +36,19 @@ test.beforeEach(async ({ page, request }) => {
  await page.goto('/auth/development', { waitUntil: 'domcontentloaded' });
 });
 
-test('organization search reaches late authorized records in routing, service levels and automation', async ({ page, request }, info) => {
+test('organization search reaches late authorized records in routing, service levels, email and automation', async ({ page, request }, info) => {
  await request.get(`${fixture}/fault?mode=lookup-directory`);
  for (const [route, label] of [
   ['/admin/support-routing', 'Organization'],
   ['/admin/tenant-sla-settings', 'Tenant'],
   ['/admin/ai-assistant-webhooks', 'Tenant / Organization'],
+  ['/admin/pending-emails', 'Organization'],
  ] as const) {
   await open(page, route);
+  if (route === '/admin/pending-emails') await page.getByText(/^More filters · organization/).click();
   const input = page.getByRole('combobox', { name: new RegExp(`^${label}\\*?$`) });
+  await input.click();
+  await expect(page.getByRole('listbox')).toBeVisible();
   await input.fill('organization 127');
   const option = page.getByRole('option', { name: 'Synthetic organization 127', exact: true });
   await expect(option).toBeVisible();

@@ -194,7 +194,8 @@
         var term = text ?? "";
         // Reopening an existing selection should offer the directory, rather than
         // search a composed display label that is not an individual name/email.
-        if (selected is not null && term == ItemLabel(selected)) term = "";
+        if (selected is not null && term == ItemLabel(selected))
+            term = query == term ? "" : query;
         var lookup = Fetch(term, null, token);
         latestSearch = lookup;
         var result = await lookup;

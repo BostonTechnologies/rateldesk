@@ -409,8 +409,8 @@ public sealed class IntegrationCredentialManagementPageTests
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/acknowledge"))
             { Acknowledgements++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent)); }
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/setup")) return HandleSetupAsync(request, cancellationToken);
-            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/organizations"))
-                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(Array.Empty<object>()) });
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/search"))
+                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(new { items = Array.Empty<object>(), totalEligible = 0, hasMore = false }) });
             if (request.Method == HttpMethod.Get)
                 return PendingList?.Task ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Metadata()) });
             if (request.Method == HttpMethod.Post)

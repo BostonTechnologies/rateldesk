@@ -35,7 +35,7 @@
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="12" sm="6">
-                        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" @bind-Value="newOrganizationId" Clearable="false" />
+                        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" SelectionChanged="RememberOrganization" @bind-Value="newOrganizationId" Clearable="false" />
                     </MudItem>
                 </MudGrid>
                 <MudButton OnClick="AddAssignment" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2">Add scoped role</MudButton>
@@ -103,10 +103,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        organizations = (await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new())
-            .Where(x => x.IsEnabled)
-            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var initial = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/tenants/search?limit=1");
+        organizations = initial?.Items.ToList() ?? [];
 
         model = new EditUserModel
         {
@@ -126,6 +124,7 @@
             isLocalAccount = response?.IsLocalAccount == true;
             isInstanceAdministrator = response?.IsInstanceAdministrator == true;
             newOrganizationId = organizations.FirstOrDefault()?.Id;
+            organizations.AddRange(await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, assignments.Select(row => row.OrganizationId)));
             var roleResponse = await HelpdeskApi.GetAsync("api/v1/admin/role-definitions/");
             if (roleResponse.IsSuccessStatusCode)
             {
@@ -196,6 +195,10 @@
 
     private void RemoveAssignment(LocalScopedRoleAssignment assignment) => assignments.Remove(assignment);
 
+    private void RememberOrganization(OrganizationDto? item)
+    {
+        if (item is not null && !organizations.Any(row => row.Id == item.Id)) organizations.Add(item);
+    }
     private string OrganizationLabel(string organizationId) =>
         organizations.FirstOrDefault(organization => organization.Id == organizationId)?.Name ?? organizationId;
 

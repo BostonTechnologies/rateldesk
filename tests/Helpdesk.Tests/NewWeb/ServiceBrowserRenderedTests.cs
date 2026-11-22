@@ -65,6 +65,7 @@ public sealed class ServiceBrowserRenderedTests
             var path = request.RequestUri!.AbsolutePath;
             object response = path switch
             {
+                "/api/v1/admin/directories/organizations/search" => new { items = new[] { new OrganizationDto { Id = "synthetic-org", Name = "Synthetic organization" } }, totalEligible = 1, hasMore = false },
                 "/api/v1/organizations" => new[] { new OrganizationDto { Id = "synthetic-org", Name = "Synthetic organization" } },
                 "/api/v1/services/synthetic-service" => new ServiceDto { Id = "synthetic-service", Name = "Synthetic service", Depth = 1 },
                 "/api/v1/service-items/synthetic-service" => new[] { new ServiceItemDto { Id = "synthetic-form", Name = "Synthetic request", ItemType = ServiceItemType.RequestForm } },

@@ -11,7 +11,7 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="form" Model="model" Class="mt-2">
-            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Label="Owning organization" @bind-Value="model.OwningOrganizationId" Clearable="false" />
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Owning organization" @bind-Value="model.OwningOrganizationId" Clearable="false" />
             <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
             <MudTextField @bind-Value="model.Description" Label="Description" Lines="2" />
             <MudSwitch T="bool" @bind-Value="model.IsEnabled" Label="Enabled" />

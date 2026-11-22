@@ -68,9 +68,12 @@ http.createServer(async (req, res) => {
  const token = req.headers.authorization?.split(' ')[1];
  const claims = token ? JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) : {};
  const admin = claims.roles?.includes('HelpdeskAdmin') ?? false;
+ const directory = fault === 'lookup-directory' ? [...organizations, ...Array.from({ length: 128 }, (_, index) => ({
+  id: `late-${index}`, name: `Synthetic organization ${String(index).padStart(3, '0')}`, isEnabled: true
+ }))] : organizations;
  if (path === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic Operator', email: 'operator@example.test', userId: claims.sub, primaryOrganizationId: 'org-a', customerId: null, isHelpdeskAdmin: admin, roleBundles: claims.roles ?? [], permissions: claims.roles ?? [], allowedOrganizationIds: ['org-a'], managedOrganizationIds: [] });
  if (path === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
- if (['/api/v1/admin/directories/organizations/search', '/api/v1/ai/ops/organizations/search', '/api/v1/ai/chat/organizations/search', '/api/v1/tenant-admin/organizations/search', '/api/v1/admin/tenants/search'].includes(path)) return reply(organizationLookupPage(url, admin ? organizations : organizations.slice(0, 1)));
+ if (['/api/v1/admin/directories/organizations/search', '/api/v1/ai/ops/organizations/search', '/api/v1/ai/chat/organizations/search', '/api/v1/tenant-admin/organizations/search', '/api/v1/admin/tenants/search'].includes(path)) return reply(organizationLookupPage(url, admin ? directory : organizations.slice(0, 1)));
  if (path.startsWith(systemRoot + '/') && path.endsWith('/directory/search')) {
   if (!admin) return reply({}, 403);
   const kind = url.searchParams.get('kind');
@@ -78,7 +81,7 @@ http.createServer(async (req, res) => {
    systemDirectory.ratelDeskCustomers.filter(row => row.parentId === url.searchParams.get('organizationId'));
   return reply(organizationLookupPage(url, candidates));
  }
- if (path === '/api/v1/organizations') return reply(admin ? organizations : organizations.slice(0, 1));
+ if (path === '/api/v1/organizations') return reply(admin ? directory : organizations.slice(0, 1));
  if (req.method === 'GET' && path === '/api/v1/ai/ops/organizations') {
   if (!admin && !claims.roles?.includes('Incident.Read')) return reply({}, 403);
   const available = admin ? organizations : organizations.filter(o => o.id === claims.organization_id);

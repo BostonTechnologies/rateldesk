@@ -64,7 +64,7 @@
                 <MudText Typo="Typo.subtitle1">Managed Agents API profile</MudText>
                 <div class="ai-provider-fields">
                     <MudTextField Label="Profile name" @bind-Value="form.Name" MaxLength="100" Margin="Margin.Dense" />
-                    <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" @bind-Value="form.OrganizationId" @bind-Value:after="ClearCatalog" Placeholder="Authorized organizations" Required="false" AutoSelectSingle="false" Disabled="@(form.Revision > 0)" />
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" @bind-Value="form.OrganizationId" @bind-Value:after="ClearCatalog" Placeholder="Authorized organizations" Required="false" AutoSelectSingle="false" Disabled="@(form.Revision > 0)" />
                 </div>
                 <div class="ai-provider-fields">
                     <MudSelect T="OpenAiKeyAction" Label="Project key" @bind-Value="form.KeyAction" @bind-Value:after="OnKeyActionChanged" Margin="Margin.Dense">

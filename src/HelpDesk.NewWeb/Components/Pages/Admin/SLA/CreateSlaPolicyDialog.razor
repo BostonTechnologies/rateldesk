@@ -109,11 +109,9 @@
         ResolutionTimeHours = 168
     };
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        tenants = Tenants.Count > 0
-            ? Tenants
-            : await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
+        tenants = Tenants;
         if (HasFixedTenant)
         {
             model.ScopeType = SlaScopeType.Tenant;

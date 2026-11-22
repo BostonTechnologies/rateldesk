@@ -103,11 +103,9 @@
     private SlaPolicyDto model = new();
     private bool HasFixedTenant => !string.IsNullOrWhiteSpace(TenantId);
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        tenants = Tenants.Count > 0
-            ? Tenants
-            : await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
+        tenants = Tenants;
         model = ClonePolicy(Policy);
         if (HasFixedTenant)
         {

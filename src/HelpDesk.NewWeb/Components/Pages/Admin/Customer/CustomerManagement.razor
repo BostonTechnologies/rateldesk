@@ -92,15 +92,15 @@
     private Task FilterChangedAsync(string name, string? value) { query.Set(name, value); return ResetPageAsync(); }
     private Task ClearAsync() { query.Clear(); return ResetPageAsync(); }
 
-    private async Task<List<OrganizationDto>> DialogOrganizationsAsync() => await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
+    private async Task<List<OrganizationDto>> InitialOrganizationAsync() => (await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/tenants/search?limit=1"))?.Items.ToList() ?? [];
     private async Task OpenCreateDialog()
     {
-        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("Create Customer", new DialogParameters { ["Organizations"] = await DialogOrganizationsAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("Create Customer", new DialogParameters { ["Organizations"] = await InitialOrganizationAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
     private async Task OpenEditDialog(CustomerDto customer)
     {
-        var dialog = await DialogService.ShowAsync<EditCustomerDialog>("Edit Customer", new DialogParameters { ["Customer"] = customer, ["Organizations"] = await DialogOrganizationsAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<EditCustomerDialog>("Edit Customer", new DialogParameters { ["Customer"] = customer }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
     private async Task OpenDeleteDialog(CustomerDto customer)

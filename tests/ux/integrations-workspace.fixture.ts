@@ -51,7 +51,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await assertNoHorizontalOverflow(page);
   await captureTables(page); await page.screenshot({ path: info.outputPath(`entries-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   const dialog = await reviewClient(page);
-  await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
+  await selectOrganization(page, dialog.getByRole('combobox', { name: /^Organization\*?$/ }), 'Synthetic Alpha');
   const catalog = (await (await request.get(`${fixture}/state`)).json()).permissions as string[];
   const selector = dialog.getByTestId('credential-permission-selector');
   await expect(selector.getByRole('checkbox')).toHaveCount(catalog.length);
@@ -82,7 +82,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
 test('exact filtered ordinary grants, organization changes and transient consent preserve review state', async ({ page, request }) => {
  await open(page);
  const dialog = await reviewClient(page, ' abcd test ');
- await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
+ await selectOrganization(page, dialog.getByRole('combobox', { name: /^Organization\*?$/ }), 'Synthetic Alpha');
  const selector = dialog.getByTestId('credential-permission-selector');
  await selector.getByRole('searchbox').fill('Incident.Read');
  await selector.getByRole('button', { name: 'Select 1 displayed eligible permissions', exact: true }).click();
@@ -93,7 +93,7 @@ test('exact filtered ordinary grants, organization changes and transient consent
  await selector.getByRole('button', { name: 'Clear Request', exact: true }).click();
  const consent = dialog.getByRole('checkbox', { name: 'I approve this client connection with the permissions selected above.', exact: true });
  await consent.check();
- await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Beta');
+ await selectOrganization(page, dialog.getByRole('combobox', { name: /^Organization\*?$/ }), 'Synthetic Beta');
  await expect(consent).not.toBeChecked();
  await expect(dialog.locator('input[name="permissions"]')).toHaveCount(0);
  await dialog.getByRole('checkbox', { name: /Incident\.Read$/ }).check();
@@ -118,7 +118,7 @@ test('temporary verifier has only explicit organization and short status consent
  await expect(dialog.getByTestId('credential-permission-selector')).toHaveCount(0);
  await expect(dialog.locator('[name="lifetimeDays"]')).toHaveCount(0);
  await expect(dialog).toContainText('five minutes');
- await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
+ await selectOrganization(page, dialog.getByRole('combobox', { name: /^Organization\*?$/ }), 'Synthetic Alpha');
  await dialog.getByRole('checkbox', { name: 'I approve only this temporary status verification.', exact: true }).check();
  await dialog.getByRole('button', { name: 'Approve connection', exact: true }).click();
  await expectConsentAcknowledged(page);
@@ -157,7 +157,8 @@ for (const state of ['missing', 'denied']) {
  });
 }
 
-test('manual credential organization selection ignores the native status filter and reviews only exact grants', async ({ page }) => {
+test('manual credential organization selection ignores the native status filter and reviews only exact grants', async ({ page, request }, info) => {
+ await request.get(`${fixture}/fault?mode=lookup-directory`);
  await open(page);
  await expect(page.getByRole('combobox', { name: 'Status', exact: true }).getByRole('option', { name: 'All (25)', exact: true })).toHaveCount(1);
  await page.getByTestId('integration-credential-create').click();
@@ -167,15 +168,16 @@ test('manual credential organization selection ignores the native status filter 
  await integration.getByRole('button', { name: 'Next', exact: true }).click();
  await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
  await integration.getByRole('button', { name: 'Next', exact: true }).click();
- const organization = integration.getByRole('combobox', { name: 'Organization', exact: true });
- await selectOrganization(page, organization, 'Synthetic Beta');
- await expect(organization).toHaveValue('Synthetic Beta');
+ const organization = integration.getByRole('combobox', { name: /^Organization\*?$/ });
+ await selectOrganization(page, organization, 'Synthetic organization 127');
+ await expect(organization).toHaveValue('Synthetic organization 127');
+ await page.screenshot({ path: info.outputPath('lookup-integration-credential.png') });
  const permissions = page.getByTestId('credential-permission-selector');
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);
  await permissions.getByRole('checkbox', { name: /Incident\.User$/ }).check();
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(1);
  await integration.getByRole('button', { name: 'Next', exact: true }).click();
- await expect(integration.getByRole('heading', { name: 'Synthetic Beta', exact: true })).toBeVisible();
+ await expect(integration.getByRole('heading', { name: 'Synthetic organization 127', exact: true })).toBeVisible();
  await expect(integration.getByText('No server access', { exact: true })).toBeVisible();
  await integration.getByText('Selected permissions', { exact: true }).click();
  await expect(integration.locator('.setup-permission-list li')).toHaveText(['Use incidents']);
@@ -470,7 +472,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
   await history.getByRole('combobox', { name: 'Status', exact: true }).selectOption('approval');
   await expect(history.locator('.ai-investigation')).toHaveCount(1);
   await expect(history).toContainText('Review proposed remediation');
-  await selectOrganization(page, page.getByRole('combobox', { name: 'Organization', exact: true }), 'Synthetic Alpha');
+  await selectOrganization(page, page.getByRole('combobox', { name: /^Organization\*?$/ }), 'Synthetic Alpha');
   await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: /INC-1.*Synthetic incident/ })).toBeVisible();
   await assertNoHorizontalOverflow(page);
@@ -579,7 +581,7 @@ test('AI prompts and multi-ticket investigation save preserve selected context w
  await page.getByTestId('prompt-save').click();
  await expect(page.getByTestId('prompt-item').filter({ hasText: 'Synthetic triage guidance' })).toContainText('Revision 1');
  await openWorkspace(page, '/ai/ops', 'ai-investigations');
- await selectOrganization(page, page.getByRole('combobox', { name: 'Organization', exact: true }), 'Synthetic Alpha');
+ await selectOrganization(page, page.getByRole('combobox', { name: /^Organization\*?$/ }), 'Synthetic Alpha');
  await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
  await expect(page.getByText('Always included:', { exact: false })).toContainText('Synthetic triage guidance');
  await page.getByLabel('Investigation title', { exact: true }).fill('Synthetic incident and task investigation');

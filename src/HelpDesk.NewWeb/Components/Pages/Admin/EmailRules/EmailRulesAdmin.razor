@@ -285,9 +285,9 @@
         {
             mailboxes = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<EmailInboxSettingsDto>>("api/v1/email-settings") ?? [];
 
-            await LoadTenantsAsync();
             rules.Clear();
             rules.AddRange(await RulesClient.GetRulesAsync());
+            await LoadTenantsAsync();
             await LoadAuditAsync();
         }
         catch (Exception ex)
@@ -305,7 +305,7 @@
     {
         try
         {
-            var tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? [];
+            var tenants = await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, rules.Select(rule => rule.TenantId));
             tenantNames.Clear();
             foreach (var tenant in tenants)
             {

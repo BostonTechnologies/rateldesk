@@ -77,6 +77,9 @@ public static class TenantAdministrationEndpoints
                 var ids = allowed.ToArray();
                 eligible = eligible.Where(x => ids.Contains(x.Id));
             }
+            var references = context.Request.Query["ids"].ToArray();
+            if (references.Length > 50) return Results.BadRequest();
+            if (references.Length > 0) eligible = eligible.Where(row => references.Contains(row.Id));
             return await OrganizationLookup.SearchAsync(db, eligible, q, id, limit, ct, namesOnly: true);
         }).RequireAuthorization().WithTags("Tenant administration");
 
