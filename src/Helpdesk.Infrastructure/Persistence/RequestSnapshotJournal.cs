@@ -2,17 +2,16 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Helpdesk.Application.Events;
-using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Entities;
 using Helpdesk.Shared.DTOs.Notification;
 using Microsoft.EntityFrameworkCore;
 
-namespace Helpdesk.API.Endpoints.Requests;
+namespace Helpdesk.Infrastructure.Persistence;
 
 /// <summary>Stages private stream invalidations in the request mutation's transaction.</summary>
-internal static class RequestSnapshotJournal
+public static class RequestSnapshotJournal
 {
-    internal const string Category = "Internal.RequestSnapshot";
+    public const string Category = "Internal.RequestSnapshot";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static async Task StageAsync(HelpdeskDbContext db, IEnumerable<RequestSnapshotChangedEvent> changes,

@@ -1,6 +1,7 @@
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.RequestTasks;
@@ -8,6 +9,42 @@ namespace Helpdesk.Infrastructure.RequestTasks;
 /// <summary>Linearizes a start intent with every committed parent/uncertainty hold.</summary>
 public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskStartFence
 {
+    public async Task<RequestTask?> TryRecordClosedAcknowledgementAsync(RequestTask task, OrchestrationIngestResult acknowledgement, CancellationToken ct)
+    {
+        // A closing operator can win while the provider is accepting a durable
+        // start. Only that exact bound attempt may supply its remote identifiers.
+        var current = await db.RequestTasks.AsNoTracking().SingleOrDefaultAsync(row => row.Id == task.Id
+            && row.RequestId == task.RequestId && row.OrganizationId == task.OrganizationId
+            && row.AutomationAttemptCorrelationId == task.AutomationAttemptCorrelationId
+            && row.OrchestrationLinkId == task.OrchestrationLinkId && row.OrchestrationLinkRevision == task.OrchestrationLinkRevision
+            && row.OrchestrationPeerInstanceId == task.OrchestrationPeerInstanceId && row.AdministrativeClosureReason != null, ct);
+        if (current == null) return null;
+        db.Entry(task).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+        db.RequestTasks.Attach(current);
+        current.OrchestrationExternalRequestId ??= acknowledgement.RequestId;
+        current.OrchestrationExternalRunId ??= acknowledgement.RunId;
+        if (!string.IsNullOrWhiteSpace(acknowledgement.ExecutionId))
+            current.OrchestratorExecutionId ??= acknowledgement.ExecutionId;
+        if (current.Status == RequestTaskStatus.InProgress)
+        {
+            if (!string.IsNullOrWhiteSpace(acknowledgement.Status))
+                current.LastAutomationStatus = acknowledgement.Status;
+            current.ResultJson = acknowledgement.Message ?? current.ResultJson;
+            current.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
+            if (acknowledgement.Outcome == OrchestrationExecutionOutcome.Completed)
+                current.Status = RequestTaskStatus.Completed;
+            else if (acknowledgement.Outcome is OrchestrationExecutionOutcome.Failed or OrchestrationExecutionOutcome.Cancelled)
+            {
+                current.Status = RequestTaskStatus.Failed;
+                current.FailureReason = acknowledgement.Message ?? acknowledgement.Status;
+            }
+            if (current.Status != RequestTaskStatus.InProgress)
+                current.CompletedAt = current.LastAutomationUpdatedAt;
+        }
+        await db.SaveChangesAsync(ct);
+        return current;
+    }
+
     public Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct)
         => PersistAsync(task, intent.StartedAt, _ => intent.Apply(task), approval: false, ct);
 
@@ -25,7 +62,7 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
                 ?? throw new KeyNotFoundException("Request not found");
             var ownsExistingApprovalHold = approval && parent.WorkflowStatus == "PendingApproval"
                 && parent.WorkflowBlockReason == $"Waiting for approval for task '{task.Name}'.";
-            if (RequestHoldPolicy.IsOperatorHeld(parent)
+            if (parent.AdministrativeClosureReason != null || RequestHoldPolicy.IsOperatorHeld(parent)
                 || RequestHoldPolicy.BlocksStart(parent) && !ownsExistingApprovalHold)
                 throw new RequestProgressionHeldException("This request is on hold. Resolve its outstanding holds before starting more work.");
             if (await db.RequestTasks.AsNoTracking().AnyAsync(sibling => sibling.RequestId == task.RequestId
@@ -34,9 +71,9 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
                     || sibling.LastAutomationStatus.ToLower() == "submituncertainmanualreconcile"), ct))
                 throw new RequestProgressionHeldException("Reconcile the unresolved automation attempt before starting more work on this request.");
             var current = await db.RequestTasks.AsNoTracking().Where(row => row.Id == task.Id)
-                .Select(row => new { row.Status, row.IsBlocked, row.AutomationStateVersion }).SingleAsync(ct);
+                .Select(row => new { row.Status, row.AdministrativeClosureReason, row.IsBlocked, row.AutomationStateVersion }).SingleAsync(ct);
             if ((current.Status != RequestTaskStatus.Pending && !(approval && current.Status == RequestTaskStatus.PendingApproval))
-                || current.IsBlocked
+                || current.AdministrativeClosureReason != null || current.IsBlocked
                 || current.AutomationStateVersion != task.AutomationStateVersion)
                 throw new DbUpdateConcurrencyException("The task changed before its start intent could be recorded.");
 

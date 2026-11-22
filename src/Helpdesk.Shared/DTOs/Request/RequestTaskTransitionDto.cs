@@ -19,6 +19,8 @@ public sealed class RequestTaskTransitionDto
     public List<string> LinkedAssetIds { get; init; } = new();
     public string? SlaPolicyId { get; init; }
     public DateTime? DueDate { get; init; }
+    public string? AdministrativeClosureReason { get; init; }
+    public long StateVersion { get; init; }
     public DateTimeOffset? ClosedAt { get; init; }
     public TicketEmailExclusionReason EmailExclusionReason { get; init; } = TicketEmailExclusionReason.None;
     public List<string> Attachments { get; init; } = new();

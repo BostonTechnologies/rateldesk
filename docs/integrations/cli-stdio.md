@@ -312,3 +312,23 @@ included in the existing archives and HTTP image; see
 [Termina license](../../licenses/Termina-Apache-2.0.txt) and
 [R3 license](../../licenses/R3-MIT.txt). Product release versions remain governed
 by [release engineering](../releases/README.md).
+
+### Close abandoned request work
+
+Use `requests bulk-close` or `request-tasks bulk-close` with `--body-file` and a
+JSON body like the example below. The same body goes to
+`POST /api/v1/requests/bulk/close` or `POST /api/v1/request-tasks/bulk/close`.
+Both MCP transports expose `bulk_close` on `helpdesk_requests` and
+`helpdesk_request_tasks`. Review the affected IDs in the preview and send
+`confirm: true` to apply the closure.
+
+```json
+{"reason":"Retired synthetic test","selection":[{"id":"synthetic-request-id","stateVersion":7}]}
+```
+
+Use the current state version from the request or task list. Each selected
+record requires request write or management access in its organization. The
+response reports each record's disposition and unfinished task count. Refresh a
+changed record before submitting a new selection. Closing a parent also closes
+its unfinished children and withdraws their pending approvals. Provider status
+and identifiers stay available in history, including an unconfirmed outcome.

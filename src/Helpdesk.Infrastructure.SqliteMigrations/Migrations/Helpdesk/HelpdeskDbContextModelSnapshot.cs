@@ -4289,6 +4289,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AdministrativeClosureReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AdministrativelyClosedBy")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AssignedToId")
                         .HasColumnType("TEXT");
 

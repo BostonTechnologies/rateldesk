@@ -1,10 +1,11 @@
 import { captureTables } from './table-evidence';
+import { reviewPage } from './owner-review-matrix';
 import { expect, test, Page } from '@playwright/test';
 
-const fixture = 'http://127.0.0.1:18600/fixture';
+const fixture = process.env.HELPDESK_DETAILS_FIXTURE_URL ?? 'http://127.0.0.1:18600/fixture';
 const selected = (page: Page) => page.locator('.selected-categories');
 const categorySearch = (page: Page) => page.getByRole('combobox', { name: 'Add service category' });
-async function open(page: Page, module = 'incidents', origin = 'https://127.0.0.1:5190') {
+async function open(page: Page, module = 'incidents', origin = process.env.HELPDESK_DETAILS_WEB_URL ?? 'https://127.0.0.1:5190') {
   await page.goto(`${origin}/auth/development`);
   await page.goto(`${origin}/${module}/${module}-1`);
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
@@ -424,3 +425,56 @@ test('request execution empty and uncertain presentation retain truthful actions
 
 // Opt-in geometry and synthetic screenshots for the owner table inventory.
 test.afterEach(async ({ page }) => { await captureTables(page); });
+
+for (const [width, height] of [[1366, 768], [360, 640], [390, 844], [360, 480]]) {
+  test(`administrative closure confirms a reason and shows provider history at ${width}x${height}`, async ({ page, request }, info) => {
+    await request.post(`${fixture}/request-tasks`, { data: { count: 2, state: 'unknown' } });
+    await page.setViewportSize({ width, height });
+    await open(page, 'requests');
+    const close = page.getByRole('button', { name: 'Close request', exact: true });
+    await close.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('2 unfinished tasks');
+    await expect(dialog.getByRole('button', { name: 'Confirm closure' })).toBeDisabled();
+    await dialog.getByRole('textbox', { name: 'Reason' }).fill('Retired synthetic test');
+    const confirm = dialog.getByRole('button', { name: 'Confirm closure' });
+    await confirm.focus();
+    await expect(confirm).toBeInViewport();
+    await page.screenshot({ path: info.outputPath(`closure-confirm-${width}x${height}.png`) });
+    await page.keyboard.press('Enter');
+    await expect(dialog).toContainText('2 tasks settled, 0 unfinished');
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByText('Closed · Retired synthetic test')).toBeVisible();
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+    await expect(page.locator('.request-task-state').first()).toContainText('Closed · Needs reconciliation');
+    await page.screenshot({ path: info.outputPath(`closure-history-${width}x${height}.png`) });
+    expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(1);
+  });
+}
+
+for (const mode of [
+  { theme: 'dark', width: 1366, height: 768, zoom: 2, custom: false },
+  { theme: 'light', width: 390, height: 844, zoom: 1, custom: true }
+]) {
+  test(`administrative closure remains reachable with ${mode.custom ? 'custom palette' : 'dark native 200% zoom'}`, async ({ browser, request }, info) => {
+    const origin = process.env.HELPDESK_DETAILS_WEB_URL ?? 'https://127.0.0.1:5190';
+    await request.post(`${fixture}/request-tasks`, { data: { count: 2, state: 'unknown' } });
+    await reviewPage(browser, origin, mode, async page => {
+      await page.goto(`${origin}/requests/requests-1`);
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+      if (mode.custom)
+        await page.addStyleTag({ content: ':root { --mud-palette-primary: #6868aa; --mud-palette-divider: #9381aa; }' });
+      await page.getByRole('button', { name: 'Close request', exact: true }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', mode.theme);
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('textbox', { name: 'Reason' }).fill('Retired fixture');
+      const confirm = dialog.getByRole('button', { name: 'Confirm closure' });
+      await confirm.focus();
+      await expect(confirm).toBeInViewport();
+      await page.screenshot({ path: info.outputPath(`closure-${mode.custom ? 'custom' : 'dark-native-200'}.png`) });
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
+    });
+  });
+}

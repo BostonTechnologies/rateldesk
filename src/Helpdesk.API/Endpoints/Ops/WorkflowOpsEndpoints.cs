@@ -281,7 +281,7 @@ public static class WorkflowOpsEndpoints
                 return Results.Forbid();
             }
 
-            var tenantFilter = ApplyAllowedOrganizationFilter(db.RequestTasks.AsNoTracking(), access);
+            var tenantFilter = ApplyAllowedOrganizationFilter(db.RequestTasks.AsNoTracking().Where(task => task.AdministrativeClosureReason == null), access);
             var notificationFilter = ApplyAllowedNotificationFilter(db.Notifications.AsNoTracking(), access);
 
             var inProgressCount = await tenantFilter.CountAsync(t => t.Status == RequestTaskStatus.InProgress, ct);
@@ -368,7 +368,7 @@ public static class WorkflowOpsEndpoints
         var safePageSize = Math.Clamp(pageSize ?? 25, 1, 200);
         var skip = (safePage - 1) * safePageSize;
 
-        var tasksQuery = ApplyAllowedOrganizationFilter(db.RequestTasks.AsNoTracking(), access);
+        var tasksQuery = ApplyAllowedOrganizationFilter(db.RequestTasks.AsNoTracking().Where(task => task.AdministrativeClosureReason == null), access);
         var isSqlite = db.Database.IsSqlite();
         tasksQuery = filter(tasksQuery);
         if (isSqlite)

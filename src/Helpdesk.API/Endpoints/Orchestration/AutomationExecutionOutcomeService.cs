@@ -40,6 +40,9 @@ public sealed class AutomationExecutionOutcomeService(
         var reconcile = task.Status == RequestTaskStatus.Failed
             && AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus);
         var terminal = incomingStatus is "succeeded" or "failed" or "cancelled";
+        var closed = task.AdministrativeClosureReason != null;
+        if (closed && !terminal)
+            return true;
         var recordUnconfirmedDeadline = reconcile && incomingStatus == "unknown" && deadlineExpired
             && task.AutomationTimedOutAt is null;
         if (task.Status != RequestTaskStatus.InProgress && !(reconcile && terminal) && !recordUnconfirmedDeadline)
@@ -119,6 +122,12 @@ public sealed class AutomationExecutionOutcomeService(
                         throw new InvalidOperationException("Unsupported automation execution outcome.");
                 }
 
+                if (closed)
+                {
+                    task.State = TicketState.Resolved;
+                    task.AutomationContinuationPending = false;
+                }
+
                 // The optimistic version check makes callback/watchdog/replica races
                 // lose before any audit, policy, mail or stream effect can commit.
                 await db.SaveChangesAsync(ct);
@@ -133,6 +142,13 @@ public sealed class AutomationExecutionOutcomeService(
 
                 if (incomingStatus != "running" || dto.ExpectedRuntimeExceeded == true)
                     await AppendAutomationWorklogAsync(task, dto, incomingStatus, callerClientId, ct);
+
+                if (closed)
+                {
+                    await outbox.FlushAsync(ct);
+                    await transaction.CommitAsync(ct);
+                    return true;
+                }
 
                 if (incomingStatus == "succeeded")
                 {
@@ -192,7 +208,7 @@ public sealed class AutomationExecutionOutcomeService(
     {
         var now = clock.GetUtcNow();
         var lease = Guid.NewGuid().ToString("N");
-        var claimed = await db.RequestTasks.Where(task => task.Id == taskId
+        var claimed = await db.RequestTasks.Where(task => task.Id == taskId && task.AdministrativeClosureReason == null
             && task.AutomationAttemptCorrelationId == attempt && task.AutomationContinuationPending
             && (task.AutomationReconciliationLeaseUntilUtcTicks == null || task.AutomationReconciliationLeaseUntilUtcTicks <= now.UtcTicks))
             .ExecuteUpdateAsync(updates => updates

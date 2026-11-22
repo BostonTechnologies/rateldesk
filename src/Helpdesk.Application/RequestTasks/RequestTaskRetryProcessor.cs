@@ -27,7 +27,7 @@ public sealed class RequestTaskRetryProcessor(
         var correlationId = GetCorrelationId();
 
         var dueRetries = (await _requestTasks.GetAllAsync())
-            .Where(task => task.Type == RequestTaskType.Automation
+            .Where(task => task.AdministrativeClosureReason == null && task.Type == RequestTaskType.Automation
                 && task.Status == RequestTaskStatus.Failed
                 && !AutomationTaskStatuses.RequiresOperatorAction(task.LastAutomationStatus)
                 && task.NextRetryAt.HasValue

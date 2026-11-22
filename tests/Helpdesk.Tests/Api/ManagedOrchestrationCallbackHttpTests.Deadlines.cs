@@ -416,6 +416,64 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         Assert.Equal(0, probe.Submissions);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Administrative_closure_survives_restart_and_late_exact_attempt_callbacks(bool postgres)
+    {
+        var clock = new DeadlineClock();
+        var probe = new DeadlineProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureDeadlines(services, clock, probe, connectivity);
+                services.AddAuthorization(options =>
+                {
+                    options.AddPolicy("RequestAccess", policy => policy.RequireAuthenticatedUser());
+                    options.AddPolicy("RequestManager", policy => policy.RequireAuthenticatedUser());
+                });
+            }, configureApp: app => app.MapRequestEndpoints());
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedDeadlineAsync(h, client, clock, connectivity);
+        clock.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(1, await SweepAsync(h));
+        using var resolution = await SetOperatorStateAsync(h, task.RequestId, "bulk", TicketState.Resolved);
+        Assert.Equal(HttpStatusCode.OK, resolution.StatusCode);
+        using var disposition = JsonDocument.Parse(await resolution.Content.ReadAsStringAsync());
+        Assert.Equal(0, disposition.RootElement.GetProperty("updated").GetInt32());
+        var blocked = Assert.Single(disposition.RootElement.GetProperty("blocked").EnumerateArray());
+        Assert.Equal(task.RequestId, blocked.GetProperty("id").GetString());
+        var version = blocked.GetProperty("stateVersion").GetInt64();
+        using var close = await h.AdminAsync(HttpMethod.Post, "/api/v1/requests/bulk/close", new
+        {
+            reason = "Test retired", selection = new[] { new { id = task.RequestId, stateVersion = version } }
+        });
+        Assert.Equal(HttpStatusCode.OK, close.StatusCode);
+        Assert.Contains("\"closed\"", await close.Content.ReadAsStringAsync());
+        await h.RestartAsync();
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var late = await SendCorrelatedAsync(h, token, Callback(task), "deadline-attempt");
+        Assert.Equal(HttpStatusCode.NoContent, late.StatusCode);
+        using var repeated = await SendCorrelatedAsync(h, token, Callback(task), "deadline-attempt");
+        Assert.Equal(HttpStatusCode.NoContent, repeated.StatusCode);
+        Assert.Equal(0, await SweepAsync(h));
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            var child = await db.RequestTasks.SingleAsync();
+            Assert.Equal(TicketState.Resolved, parent.State);
+            Assert.Equal("Test retired", parent.AdministrativeClosureReason);
+            Assert.Equal("Test retired", child.AdministrativeClosureReason);
+            Assert.Equal("succeeded", child.LastAutomationStatus);
+            Assert.Equal(TicketState.Resolved, child.State);
+            Assert.False(child.AutomationContinuationPending);
+            Assert.Equal(0, await db.Incidents.CountAsync());
+            Assert.Equal(2, await db.WorkLogs.CountAsync());
+        });
+        Assert.Equal(0, probe.Submissions);
+    }
+
     private static Task<HttpResponseMessage> SetOperatorStateAsync(IncidentReceiverTests.Harness h, string requestId, string route, TicketState state)
         => route switch
         {
@@ -669,6 +727,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+            builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativeClosureReason);
+            builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativelyClosedBy);
             builder.Entity<Request>().Ignore(request => request.OperatorHold);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationOriginJson);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationDispatchPayloadJson);

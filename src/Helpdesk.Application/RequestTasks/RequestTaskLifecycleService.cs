@@ -134,6 +134,7 @@ public sealed class RequestTaskLifecycleService(
                 payloadResult.PreDispatchFailure);
         }
 
+        OrchestrationIngestResult? received = null;
         try
         {
             _logger.LogInformation(
@@ -170,6 +171,9 @@ public sealed class RequestTaskLifecycleService(
                     ingestResult,
                     hasStatus: !string.IsNullOrWhiteSpace(ingestResult.Status));
             }
+            received = ingestResult;
+            if (startFence != null && await startFence.TryRecordClosedAcknowledgementAsync(task, ingestResult, ct) is { } closed)
+                return closed;
             ApplyRemoteAcknowledgement(task, payloadResult, ingestResult);
 
             if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Unknown)
@@ -277,6 +281,9 @@ public sealed class RequestTaskLifecycleService(
         }
         catch (Exception ex)
         {
+            if (received != null && startFence != null &&
+                await startFence.TryRecordClosedAcknowledgementAsync(task, received, DurablePersistenceToken(ct)) is { } closed)
+                return closed;
             _logger.LogWarning(
                 "External orchestration automation submit failed and requires manual retry. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId} ExceptionType={ExceptionType}",
                 task.RequestId,
@@ -737,6 +744,8 @@ public sealed class RequestTaskLifecycleService(
             ? throw new KeyNotFoundException("Task not found")
             : taskId.Trim();
         var task = await _requestTasks.GetAsync(normalizedTaskId);
+        if (task?.AdministrativeClosureReason is not null)
+            throw new InvalidOperationException("This task was closed by an operator.");
         return task ?? throw new KeyNotFoundException("Task not found");
     }
 

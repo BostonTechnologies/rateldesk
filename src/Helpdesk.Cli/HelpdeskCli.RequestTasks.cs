@@ -30,6 +30,7 @@ internal static partial class HelpdeskCli
         var q = new Option<string?>("--query") { Description = "Search query." };
         var historicOnly = new Option<bool?>("--historic-only") { Description = "Return completed/skipped/cancelled tasks." };
         var includeTotal = new Option<bool?>("--include-total") { Description = "Include total count." };
+        tasks.AddCommand(BodyCommand(runtime, globals, "bulk-close", HttpMethod.Post, "/api/v1/request-tasks/bulk/close", ("--selection", "selection"), ("--reason", "reason")));
         tasks.AddCommand(GetProjectedListCommand(runtime, globals, "list", "request-tasks", "/api/v1/request-tasks/", null, (page, "page"), (pageSize, "pageSize"), (limit, "pageSize"), (take, "pageSize"), (assignedToMe, "assignedToMe"), (assignedToId, "assignedToId"), (status, "status"), (type, "type"), (requestId, "requestId"), (serviceId, "serviceId"), (q, "q"), (historicOnly, "historicOnly"), (includeTotal, "includeTotal")));
         tasks.AddCommand(GetProjectedByIdCommand(runtime, globals, "get", "/api/v1/request-tasks/{id}", "request-task"));
         tasks.AddCommand(BodyCommand(runtime, globals, "create", HttpMethod.Post, "/api/v1/request-tasks/", RequestTaskBodyFields));
@@ -105,6 +106,8 @@ internal static partial class HelpdeskCli
         {
             ["id"] = CloneNode(source["id"]),
             ["requestId"] = CloneNode(source["requestId"]),
+            ["stateVersion"] = CloneNode(source["stateVersion"] ?? source["automationStateVersion"]),
+            ["administrativeClosureReason"] = CloneNode(source["administrativeClosureReason"]),
             ["trackingId"] = CloneNode(source["trackingId"] ?? source["requestTrackingId"]),
             ["assignedToId"] = CloneNode(source["assignedToId"]),
             ["assignedToName"] = CloneNode(source["assignedToName"] ?? source["assignedToDisplayName"]),

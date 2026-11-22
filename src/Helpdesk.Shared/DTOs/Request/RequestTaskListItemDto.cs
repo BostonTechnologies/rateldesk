@@ -4,6 +4,8 @@ namespace Helpdesk.Shared.DTOs.Request;
 
 public sealed class RequestTaskListItemDto
 {
+    public string? AdministrativeClosureReason { get; set; }
+    public long StateVersion { get; set; }
     public string Id { get; set; } = string.Empty;
     public string RequestId { get; set; } = string.Empty;
     public string? OrganizationId { get; set; }

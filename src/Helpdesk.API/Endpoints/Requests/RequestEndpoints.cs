@@ -1,4 +1,5 @@
 using Helpdesk.API.Endpoints.Ticketing;
+using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
@@ -38,6 +39,7 @@ public static class RequestEndpoints
             .WithTags("Requests")
             .RequireAuthorization("RequestManager");
 
+        staffGroup.MapCloseWork(closeParent: true);
         group.MapGet("/", GetRequests);
 
         group.MapGet("/{id}", async (
@@ -119,6 +121,8 @@ public static class RequestEndpoints
                 SourceTicketId = entity.SourceTicketId,
                 SourceTicketTrackingId = sourceTicketTrackingId,
                 SourceAutomationBindingId = entity.SourceAutomationBindingId,
+                AdministrativeClosureReason = entity.AdministrativeClosureReason,
+                StateVersion = entity.WorkflowStateVersion,
                 WorkflowStatus = entity.WorkflowStatus,
                 WorkflowBlockReason = entity.WorkflowBlockReason,
                 WorkflowUpdatedAt = entity.WorkflowUpdatedAt,
@@ -167,6 +171,8 @@ public static class RequestEndpoints
                     Name = t.Name,
                     Description = t.Description,
                     Type = t.Type,
+                    AdministrativeClosureReason = t.AdministrativeClosureReason,
+                    StateVersion = t.AutomationStateVersion,
                     Status = t.Status,
                     AssignedToId = t.AssignedToId,
                     Order = t.Order,
@@ -287,9 +293,9 @@ public static class RequestEndpoints
             {
                 await ticketSlaInitializer.InitializeAsync(created);
             }
-            catch (Exception error) when (error is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                loggerFactory.CreateLogger("RequestCreation").LogWarning(error, "SLA initialization failed for request {RequestId}", created.Id);
+                loggerFactory.CreateLogger("RequestCreation").LogWarning(ex, "Request SLA initialization failed. RequestId={RequestId}", created.Id);
             }
 
             if (categoryIds.Count > 0)
@@ -306,9 +312,9 @@ public static class RequestEndpoints
             {
                 await requestTaskGenerationService.GenerateForRequestAsync(created, token);
             }
-            catch (Exception error) when (error is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                loggerFactory.CreateLogger("RequestCreation").LogWarning(error, "Task generation failed for request {RequestId}", created.Id);
+                loggerFactory.CreateLogger("RequestCreation").LogWarning(ex, "Request task generation failed. RequestId={RequestId}", created.Id);
             }
 
             await tx.CommitAsync(token);
@@ -348,6 +354,8 @@ public static class RequestEndpoints
                 PayloadJson = created.PayloadJson,
                 SourceTicketId = created.SourceTicketId,
                 SourceAutomationBindingId = created.SourceAutomationBindingId,
+                AdministrativeClosureReason = created.AdministrativeClosureReason,
+                StateVersion = created.WorkflowStateVersion,
                 WorkflowStatus = created.WorkflowStatus,
                 WorkflowBlockReason = created.WorkflowBlockReason,
                 WorkflowUpdatedAt = created.WorkflowUpdatedAt
@@ -477,6 +485,8 @@ public static class RequestEndpoints
                 PayloadJson = updated.PayloadJson,
                 SourceTicketId = updated.SourceTicketId,
                 SourceAutomationBindingId = updated.SourceAutomationBindingId,
+                AdministrativeClosureReason = updated.AdministrativeClosureReason,
+                StateVersion = updated.WorkflowStateVersion,
                 WorkflowStatus = updated.WorkflowStatus,
                 WorkflowBlockReason = updated.WorkflowBlockReason,
                 WorkflowUpdatedAt = updated.WorkflowUpdatedAt,
@@ -542,7 +552,9 @@ public static class RequestEndpoints
                 await SendResolvedNotificationAsync(request, ticketNotificationService, token);
             }
 
-            return Results.Ok(new { updated = requests.Count });
+            var blocked = requests.Where(request => request.State != req.NewState)
+                .Select(request => new CloseWorkSelection(request.Id, request.WorkflowStateVersion)).ToList();
+            return Results.Ok(new BulkRequestStateResult(requests.Count - blocked.Count, blocked));
         })
         .RequireAuthorization("RequestManager")
         .WithName("BulkUpdateRequestState")
@@ -624,7 +636,7 @@ public static class RequestEndpoints
             if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid ticket state.");
             if (request.State == req.NewState && (req.NewState == TicketState.OnHold
                     ? request.OperatorHold == true : !RequestHoldPolicy.IsOperatorHeld(request)))
-                return Results.Ok(new { request.Id, State = request.State });
+                return Results.Ok(new { request.Id, State = request.State, StateVersion = request.WorkflowStateVersion });
             var previousState = request.State;
             await using var transaction = db.Database.IsRelational()
                 ? await db.Database.BeginTransactionAsync(token) : null;
@@ -653,7 +665,7 @@ public static class RequestEndpoints
                 await SendResolvedNotificationAsync(request, ticketNotificationService, token);
             }
 
-            return Results.Ok(new { request.Id, State = request.State });
+            return Results.Ok(new { request.Id, State = request.State, StateVersion = request.WorkflowStateVersion });
         })
         .WithName("QuickUpdateRequestState")
         .WithSummary("Quick update request state")
@@ -925,6 +937,8 @@ public static class RequestEndpoints
                 x.Request.PayloadJson,
                 x.Request.SourceTicketId,
                 x.Request.SourceAutomationBindingId,
+                x.Request.AdministrativeClosureReason,
+                x.Request.WorkflowStateVersion,
                 x.Request.WorkflowStatus,
                 x.Request.WorkflowBlockReason,
                 x.Request.WorkflowUpdatedAt
@@ -963,6 +977,8 @@ public static class RequestEndpoints
                 PayloadJson = i.PayloadJson,
                 SourceTicketId = i.SourceTicketId,
                 SourceAutomationBindingId = i.SourceAutomationBindingId,
+                AdministrativeClosureReason = i.AdministrativeClosureReason,
+                StateVersion = i.WorkflowStateVersion,
                 WorkflowStatus = i.WorkflowStatus,
                 WorkflowBlockReason = i.WorkflowBlockReason,
                 WorkflowUpdatedAt = i.WorkflowUpdatedAt
@@ -1021,6 +1037,8 @@ public static class RequestEndpoints
                 ? trackingId
                 : null,
             SourceAutomationBindingId = i.SourceAutomationBindingId,
+            AdministrativeClosureReason = i.AdministrativeClosureReason,
+            StateVersion = i.WorkflowStateVersion,
             WorkflowStatus = i.WorkflowStatus,
             WorkflowBlockReason = i.WorkflowBlockReason,
             WorkflowUpdatedAt = i.WorkflowUpdatedAt
@@ -1048,6 +1066,9 @@ public static class RequestEndpoints
 
     private static async Task ApplyActorStateAsync(Request request, TicketState requestedState, HelpdeskDbContext db, CancellationToken ct)
     {
+        if (request.AdministrativeClosureReason != null)
+            return;
+
         var wasOperatorHeld = RequestHoldPolicy.IsOperatorHeld(request);
         request.OperatorHold = requestedState == TicketState.OnHold;
         var unknown = await db.RequestTasks.AnyAsync(task => task.RequestId == request.Id

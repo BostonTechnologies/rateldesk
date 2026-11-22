@@ -111,7 +111,7 @@ public sealed partial class HelpdeskTools(
 
     [McpServerTool(UseStructuredContent = true), Description("Manage incidents, listeners and duplicate/related incident links. Read operations include list, get, peek, timeline, relations and counts. List request.query and request.q map to the API q parameter; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty aliases fail validation. Confirmed mutations include create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, close, create_relation, delete_relation, bulk_delete and bulk_marketing_spam. The discovery schema specifies each operation's exact request shape. assign_self uses the authenticated caller in caller-bound mode. close requires incidentId and closureNote, writes an internal note by default and resolves the incident. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_incidents(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_incidents", "/api/v1/incidents", "incidentId", operation, request, confirm, cancellationToken);
-    [McpServerTool(UseStructuredContent = true), Description("Manage service requests. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage service requests. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, bulk_close. bulk_close takes reason and selection of id/stateVersion pairs and settles unfinished dependents. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_requests(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_requests", "/api/v1/requests", "requestId", operation, request, confirm, cancellationToken);
     [McpServerTool(UseStructuredContent = true), Description("Manage changes and the authenticated caller's designated approval reviews. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads include list, get, timeline, worklogs, counts and my_approval. Confirmed mutations include create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle and review_approval. The API preserves lifecycle prerequisites and designated-approver identity. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_changes(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_changes", "/api/v1/changes", "changeId", operation, request, confirm, cancellationToken);
@@ -130,7 +130,7 @@ public sealed partial class HelpdeskTools(
         return await Mutation("report", [update.TicketId], true, HttpMethod.Post, $"/api/v1/ai-assistant/investigations/{update.InvocationId}/worklog", JsonSerializer.SerializeToNode(dto), cancellationToken).ConfigureAwait(false);
     }
 
-    [McpServerTool(UseStructuredContent = true), Description("Manage request tasks. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get. Confirmed mutations: create, update, delete, start, complete, fail, retry, bulk_start, bulk_complete, bulk_retry. Single-task actions require request.taskId; bulk actions require request.ids. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage request tasks. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get. Confirmed mutations: create, update, delete, start, complete, fail, retry, bulk_start, bulk_complete, bulk_retry, bulk_close. bulk_close requires reason and selection of id/stateVersion pairs. Single-task actions require request.taskId; bulk_start, bulk_complete and bulk_retry require request.ids. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_request_tasks(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TaskOperation(operation, request, confirm, cancellationToken);
     [McpServerTool(UseStructuredContent = true), Description("Inspect organizations. Operations: list, get, tenants, tenant_lookup, change_participants. tenants and tenant_lookup are global administrative reads; remaining detail operations require organizationId.")]
     public async Task<HelpdeskToolResponse> helpdesk_organizations(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default)
@@ -388,6 +388,8 @@ public sealed partial class HelpdeskTools(
     {
         if (OperatorOperationCatalog.Find(tool, operation) is not null)
             return await OperatorOperation(tool, operation, request, confirm, ct).ConfigureAwait(false);
+        if (operation == "bulk_close" && tool == "helpdesk_requests")
+            return await CloseSelectedWork(basePath, request, confirm, ct).ConfigureAwait(false);
         if (operation == "update" && HelpdeskToolDefinitions.ValidateSupportedFields(tool, operation, request) is { } fieldError) return Validation(fieldError);
         if (operation == "update" && PriorityValidation(Object(request)) is { } priorityError) return Validation(priorityError);
         if (operation is "state" or "bulk_state" or "lifecycle")
@@ -620,9 +622,37 @@ public sealed partial class HelpdeskTools(
         }
     }
 
+    private async Task<HelpdeskToolResponse> CloseSelectedWork(string basePath, JsonElement? request, bool confirm, CancellationToken ct)
+    {
+        var payload = Object(request);
+        if (payload?["reason"] is not JsonValue reasonValue || !reasonValue.TryGetValue<string>(out var reason) ||
+            string.IsNullOrWhiteSpace(reason) || reason.Length > 1000 || payload["selection"] is not JsonArray { Count: > 0 and <= 50 } selection)
+            return Validation("Provide a reason of up to 1000 characters and 1 to 50 selected records.");
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in selection)
+        {
+            if (row is not JsonObject selected || selected["id"] is not JsonValue idValue ||
+                !idValue.TryGetValue<string>(out var id) || string.IsNullOrWhiteSpace(id) || id.Length > 200 || !ids.Add(id) ||
+                selected["stateVersion"] is not JsonValue version || !version.TryGetValue<long>(out var value) || value < 0)
+                return Validation("Each selection requires a distinct id and its current integer stateVersion.");
+        }
+        var response = await Mutation("bulk_close", ids.ToArray(), confirm, HttpMethod.Post, basePath + "/bulk/close", payload, ct).ConfigureAwait(false);
+        if (!response.Success || response.Data is not JsonArray results)
+            return response;
+        var changed = results.OfType<JsonObject>().Where(item => item["outcome"]?.ToString() == "closed")
+            .Select(item => item["id"]!.ToString()).ToArray();
+        return response with
+        {
+            Status = changed.Length == 0 ? "no_op" : changed.Length == ids.Count ? "completed" : "partial",
+            Summary = $"Closed {changed.Length} of {ids.Count} selected records.",
+            AffectedIds = changed
+        };
+    }
+
     private async Task<HelpdeskToolResponse> TaskOperation(string operation, JsonElement? request, bool confirm, CancellationToken ct)
     {
         const string basePath = "/api/v1/request-tasks";
+        if (operation == "bulk_close") return await CloseSelectedWork(basePath, request, confirm, ct).ConfigureAwait(false);
         if (operation == "list") return await ListTickets("helpdesk_request_tasks", basePath, request, ct).ConfigureAwait(false);
         if (operation == "get") return await CollectionRead("helpdesk_request_tasks", basePath, "taskId", operation, request, ct).ConfigureAwait(false);
         if (operation == "create")
