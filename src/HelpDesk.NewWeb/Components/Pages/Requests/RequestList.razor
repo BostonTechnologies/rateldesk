@@ -230,7 +230,15 @@
         var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/requests/bulk/state", new { Ids = ids, NewState = selectedState, Comment = (string?)null });
         if (response.IsSuccessStatusCode)
         {
-            Snackbar.Add($"Updated {_selected.Count} request(s) to {selectedState}", Severity.Success);
+            var result = await response.Content.ReadFromJsonAsync<BulkRequestStateResult>();
+            if (result?.Updated > 0)
+                Snackbar.Add($"Updated {result.Updated} request(s) to {selectedState}", Severity.Success);
+            if (result?.Blocked is { Count: > 0 } blocked)
+            {
+                Snackbar.Add($"{blocked.Count} request(s) remain blocked by unfinished work.", Severity.Warning);
+                if (selectedState == TicketState.Resolved && blocked.Count <= 50)
+                    await CloseWorkDialog.ShowAsync(DialogService, true, blocked, $"Close {blocked.Count} blocked request(s)?");
+            }
             await Reload();
         }
         else

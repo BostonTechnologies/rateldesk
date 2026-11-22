@@ -552,7 +552,9 @@ public static class RequestEndpoints
                 await SendResolvedNotificationAsync(request, ticketNotificationService, token);
             }
 
-            return Results.Ok(new { updated = requests.Count });
+            var blocked = requests.Where(request => request.State != req.NewState)
+                .Select(request => new CloseWorkSelection(request.Id, request.WorkflowStateVersion)).ToList();
+            return Results.Ok(new BulkRequestStateResult(requests.Count - blocked.Count, blocked));
         })
         .RequireAuthorization("RequestManager")
         .WithName("BulkUpdateRequestState")
