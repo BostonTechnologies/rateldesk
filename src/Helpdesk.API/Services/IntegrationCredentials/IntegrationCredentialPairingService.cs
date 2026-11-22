@@ -71,7 +71,7 @@ public sealed class IntegrationCredentialPairingService(
         return new(device, human.Insert(4, "-"), Capabilities().VerificationUri!, expiry, PollIntervalSeconds);
     }
 
-    public async Task<IntegrationPairingReview?> ReviewAsync(string human, ClaimsPrincipal principal, string remote, CancellationToken ct)
+    public async Task<IntegrationPairingReview?> ReviewAsync(string human, ClaimsPrincipal principal, string remote, CancellationToken ct, bool selectedOrganizationOnly = false, string? organizationId = null)
     {
         var owner = await owners.ResolveAsync(principal, ct);
         if (owner is null) throw new CredentialGrantException(null);
@@ -84,8 +84,15 @@ public sealed class IntegrationCredentialPairingService(
             access.IsHelpdeskAdmin && await identity.Users.AsNoTracking().AnyAsync(account => account.Id == owner.UserId && account.IsEnabled && account.IsInstanceAdministrator, ct);
         if (pair.Purpose == IntegrationCredentialGrantKinds.OwnerAdministrationPurpose && !ownerAdministrationAvailable)
             throw new CredentialGrantException(null);
-        var organizations = await db.Organizations.AsNoTracking().Where(o => o.IsEnabled).OrderBy(o => o.Name).ToListAsync(ct);
-        var allowed = organizations.Where(o => access.CanManageIntegrationCredentialsFor(o.Id))
+        var scope = db.Organizations.AsNoTracking().Where(o => o.State == Helpdesk.Shared.Models.EntityState.Enabled);
+        if (!access.IsHelpdeskAdmin)
+        {
+            var manageable = access.OrganizationIdsFor(HelpdeskPermissions.TenantSettingsManage).ToArray();
+            scope = scope.Where(o => manageable.Contains(o.Id));
+        }
+        if (selectedOrganizationOnly) scope = scope.Where(o => o.Id == organizationId);
+        var organizations = await scope.OrderBy(o => o.Name).ThenBy(o => o.Id).Select(o => new { o.Id, o.Name }).ToListAsync(ct);
+        var allowed = organizations
             .Select(o => new IntegrationPairingOrganization(o.Id, o.Name,
                 pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? [] :
                     HelpdeskPermissions.AssignablePermissions.Where(p => access.HasPermission(p, o.Id)).ToArray())).ToArray();

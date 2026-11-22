@@ -21,7 +21,11 @@ public sealed record IntegrationPairingAckRequest(string DeviceCode, Guid Creden
 {
     public override string ToString() => $"IntegrationPairingAckRequest {{ DeviceCode = [redacted], CredentialId = {CredentialId} }}";
 }
-public sealed record IntegrationPairingReviewRequest(string HumanCode);
+public sealed record IntegrationPairingReviewRequest(string HumanCode)
+{
+    public bool SelectedOrganizationOnly { get; init; }
+    public string? OrganizationId { get; init; }
+}
 public sealed record IntegrationPairingOrganization(string Id, string Name, IReadOnlyList<string> Permissions);
 public sealed record IntegrationPairingReview(string HumanCode, string Name, string Purpose, string? McpResourceUri,
     DateTimeOffset ExpiresAtUtc, IReadOnlyList<IntegrationPairingOrganization> Organizations)

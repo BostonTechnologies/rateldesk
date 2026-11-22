@@ -74,18 +74,16 @@ public sealed class PairingConnectionsPageTests
         Assert.Contains("Systems paired", html);
         Assert.Contains("NetRatel tenant", html);
         Assert.Contains("RatelDesk organization", html);
-        var choices = ReadField<PairingSetupDirectory>(view.Panel, "directory");
-        Assert.Equal(new PairingChoice("42", "Office monitoring"), Assert.Single(choices.NetRatelTenants));
-        Assert.Equal(new PairingChoice("organization-7", "Support team"), Assert.Single(choices.RatelDeskOrganizations));
         Assert.DoesNotContain("I accept", html);
         var draft = ReadField<object>(view.Panel, "draft");
         Assert.False(Property<bool>(draft, "RunAutomation"));
-        SetProperty(draft, "NetRatelTenantId", "42");
-        SetProperty(draft, "RatelDeskOrganizationId", "organization-7");
-        SetProperty(draft, "RatelDeskCustomerId", "customer-9");
+        await view.ChangeSelectionAsync("connection-netratel-tenant", "42");
+        await view.ChangeSelectionAsync("connection-rateldesk-organization", "organization-7");
         SetProperty(draft, "Name", "  Office monitoring to support  ");
         SetProperty(draft, "CreateIncidents", incidents);
         SetProperty(draft, "RunAutomation", automation);
+        await view.InvokeAsync("OrganizationChanged", "organization-7");
+        if (incidents) await view.ChangeSelectionAsync("connection-rateldesk-customer", "customer-9");
         Assert.True(Property<bool>(view.Panel, "CanSave"));
         await view.InvokeAsync("OrganizationChanged", "organization-7");
         html = await view.HtmlAsync();
@@ -658,7 +656,8 @@ public sealed class PairingConnectionsPageTests
             {
                 if (FailDirectory) throw new HttpRequestException("Synthetic unavailable directory.");
                 if (HeldDirectory is { } held) { HeldDirectory = null; DirectoryStarted.TrySetResult(); return Json(await held.Task.WaitAsync(ct)); }
-                return Json(Choices);
+                var query = QueryHelpers.ParseQuery(request.RequestUri.Query);
+                return Json(Choices.References(query.GetValueOrDefault("tenantId"), query.GetValueOrDefault("organizationId"), query.GetValueOrDefault("customerId"), query.GetValueOrDefault("hint")));
             }
             if (path.EndsWith("/pair", StringComparison.Ordinal))
             {

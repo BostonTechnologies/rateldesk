@@ -67,7 +67,7 @@
                     <MudSelectItem T="string" Value="@("User")">User</MudSelectItem>
                     <MudSelectItem T="string" Value="@("Technician")">Technician</MudSelectItem>
                 </MudSelect>
-                <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" @bind-Value="model.OrganizationId" Required="false" Placeholder="No organization" />
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Organization" @bind-Value="model.OrganizationId" Required="false" Placeholder="No organization" />
                 <MudSwitch @bind-Value="model.IsTestUser"
                            Color="Color.Warning"
                            Label="Allow access to in-testing self-service requests"

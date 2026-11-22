@@ -222,7 +222,7 @@ http.createServer(async (req, res) => {
    }
    if (!['ABCDTEST', 'TEMPTEST'].includes(code)) return reply({}, 404);
    const verifier = code === 'TEMPTEST';
-   return reply({ humanCode: verifier ? 'TEMP-TEST' : 'ABCD-TEST', name: verifier ? 'Synthetic status verification' : 'Synthetic ordinary client', purpose: 'mcp', mcpResourceUri: 'https://127.0.0.1:5190/mcp', grantKind: verifier ? 'setup-verification' : 'ordinary', expiresAtUtc: '2030-01-01T00:00:00Z', organizations: organizations.map((o, i) => ({ ...o, permissions: verifier ? [] : i ? ['Incident.Read'] : permissions })) });
+   return reply({ humanCode: verifier ? 'TEMP-TEST' : 'ABCD-TEST', name: verifier ? 'Synthetic status verification' : 'Synthetic ordinary client', purpose: 'mcp', mcpResourceUri: 'https://127.0.0.1:5190/mcp', grantKind: verifier ? 'setup-verification' : 'ordinary', expiresAtUtc: '2030-01-01T00:00:00Z', organizations: directory.map((o, i) => ({ ...o, permissions: verifier ? [] : i ? ['Incident.Read'] : permissions })).filter(o => !payload.selectedOrganizationOnly || o.id === payload.organizationId) });
   }
   if (path.endsWith('/approve') || path.endsWith('/deny')) {
    if (fault === 'consent') { fault = ''; return reply({}, 503); }

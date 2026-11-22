@@ -206,7 +206,10 @@
                     _breadcrumbs = items; return;
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+            {
+                Logger.LogDebug("Service breadcrumb unavailable ({ExceptionType}).", failure.GetType().Name);
+            }
 
             if (ParentService is not null)
                 items.Add(new BreadcrumbItem(ParentService.Name, href: null, disabled: true));

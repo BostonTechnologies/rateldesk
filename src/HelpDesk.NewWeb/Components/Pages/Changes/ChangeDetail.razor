@@ -578,6 +578,9 @@
     private void OnOrganizationChanged(OrganizationDto? organization)
     {
         if (IsChangeLocked || change is null || organization is null || organization.Id == change.OrganizationId) return;
+        change.CustomerId = null;
+        change.CustomerName = null;
+        change.CustomerEmail = null;
         change.OrganizationId = organization.Id;
         change.OrganizationName = change.CustomerOrgName = organization.Name;
         hasChanges = true;
@@ -791,7 +794,7 @@
             State = change.State,
             LifecycleState = change.LifecycleState,
             Priority = change.Priority,
-            OrganizationId = change.OrganizationId,
+            OrganizationId = change.OrganizationId == originalChange?.OrganizationId ? null : change.OrganizationId,
             ImplementorUserId = change.ImplementorUserId,
             ImplementationStartAt = change.ImplementationStartAt,
             ImplementationEndAt = change.ImplementationEndAt,

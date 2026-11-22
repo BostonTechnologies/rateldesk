@@ -21,7 +21,7 @@ This register tracks [issue #445](https://github.com/BostonTechnologies/rateldes
 | Webhooks | The organization picker uses enabled tenant search. The editor locks scope until it is closed. A list response applies only to the scope that issued it. |
 | Provider identifiers | Microsoft Entra directory IDs and OpenAI provider organization strings identify accounts in external systems. They remain inputs for the respective provider setup contract. |
 
-The API contract for system pairing and the external orchestration catalogue supplies a full peer catalogue. The Web search endpoints filter these authorized rows before returning a bounded page. The existing pairing editor also loads the directory snapshot to validate its saved mapping and organization hint.
+The API contract for system pairing and the external orchestration catalogue supplies a full peer catalogue. The Web search endpoints filter these authorized rows before returning a bounded page. The pairing editor resolves only the saved mapping IDs and route hint. New searchable selections are validated in the current pair and the peer rechecks the mapping on save.
 
 ## Verification
 
@@ -34,3 +34,5 @@ Credential setup reads at most two eligible organizations to distinguish zero, o
 The browser runs used synthetic directories with more than 100 authorized organizations. The Chat run typed a late organization, selected it by keyboard, verified the route and checked that no conversation or turn started. The credential wizard selected a late organization and reviewed its exact grants before creation.
 
 [Chat at desktop width](assets/445-search/chat-desktop.png) · [Chat at 390px](assets/445-search/chat-phone.png) · [Credential organization selection](assets/445-search/credential-review.png)
+
+Rendered administration checks selected the 128th synthetic organization on each surface and verified that selecting a filter did not save a configuration. [Support Routing](assets/445-search/lookup-support-routing.png) · [Service Levels](assets/445-search/lookup-tenant-sla-settings.png) · [Automation Webhooks](assets/445-search/lookup-ai-assistant-webhooks.png) · [Pending Mail](assets/445-search/lookup-pending-emails.png)

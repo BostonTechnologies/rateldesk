@@ -63,7 +63,12 @@ public static class PairingEndpoints
             if (more) items.RemoveAt(take);
             return Results.Ok(new Helpdesk.Shared.DTOs.CreationLookupResult<PairingChoice>(items, eligible.Length, more));
         }));
-        admin.MapGet("/{pairId}/directory", (string pairId, HttpContext http, SystemPairingService service, CancellationToken ct) => RunAsync(http, async () => Results.Ok(await service.SetupDirectoryAsync(pairId, await OwnerAsync(http, ct), ct))));
+        admin.MapGet("/{pairId}/directory", (string pairId, bool? references, string? tenantId, string? organizationId,
+            string? customerId, string? hint, HttpContext http, SystemPairingService service, CancellationToken ct) => RunAsync(http, async () =>
+        {
+            var directory = await service.SetupDirectoryAsync(pairId, await OwnerAsync(http, ct), ct);
+            return Results.Ok(references == true ? directory.References(tenantId, organizationId, customerId, hint) : directory);
+        }));
         admin.MapPut("/{pairId}/mappings/{mappingId:guid}", (string pairId, Guid mappingId, PairingMapping request, HttpContext http, SystemPairingService service, CancellationToken ct) => RunAsync(http, async () =>
         { if (request.Id != mappingId.ToString("D")) throw new PairingFailure("wrong_mapping", "The form belongs to a different named connection."); return Results.Ok(await service.SaveAsync(pairId, request, await OwnerAsync(http, ct), ct)); }));
         admin.MapPost("/{pairId}/mappings/{mappingId:guid}/test", (string pairId, Guid mappingId, HttpContext http, SystemPairingService service, CancellationToken ct) => RunAsync(http, async () => Results.Ok(await service.TestAsync(pairId, mappingId, await OwnerAsync(http, ct), ct))));

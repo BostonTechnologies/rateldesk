@@ -12,7 +12,13 @@ public sealed class SystemConnectionApi(IHttpClientFactory clients)
     public Task<List<PairingConnectionDto>> ListAsync(CancellationToken ct) => SendAsync<List<PairingConnectionDto>>(HttpMethod.Get, Root + "/", null, ct);
     public Task<PairingCodeDto> GenerateAsync(CancellationToken ct) => SendAsync<PairingCodeDto>(HttpMethod.Post, Root + "/code", null, ct);
     public Task<PairingConnectionDto> PairAsync(PairingConnectRequest request, CancellationToken ct) => SendAsync<PairingConnectionDto>(HttpMethod.Post, Root + "/pair", request, ct);
-    public Task<PairingSetupDirectory> DirectoryAsync(string pairId, CancellationToken ct) => SendAsync<PairingSetupDirectory>(HttpMethod.Get, Root + "/" + Part(pairId) + "/directory", null, ct);
+    public Task<PairingSetupDirectory> DirectoryReferencesAsync(string pairId, PairingMapping? mapping, string? hint, CancellationToken ct)
+    {
+        var url = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(Root + "/" + Part(pairId) + "/directory",
+            new Dictionary<string, string?> { ["references"] = "true", ["tenantId"] = mapping?.NetRatelTenantId,
+                ["organizationId"] = mapping?.RatelDeskOrganizationId, ["customerId"] = mapping?.RatelDeskCustomerId, ["hint"] = hint });
+        return SendAsync<PairingSetupDirectory>(HttpMethod.Get, url, null, ct);
+    }
     public Task<PairingConnectionDto> SaveAsync(PairingMapping mapping, CancellationToken ct) => SendAsync<PairingConnectionDto>(HttpMethod.Put, MappingPath(mapping.PairId, mapping.Id), mapping, ct);
     public Task<PairingTestResult> TestAsync(PairingMapping mapping, CancellationToken ct) => SendAsync<PairingTestResult>(HttpMethod.Post, MappingPath(mapping.PairId, mapping.Id) + "/test", null, ct);
     public async Task DeleteAsync(PairingConnectionDto connection, CancellationToken ct)

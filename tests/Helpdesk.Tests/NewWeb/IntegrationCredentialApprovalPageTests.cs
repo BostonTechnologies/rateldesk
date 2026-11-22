@@ -38,7 +38,7 @@ public sealed class IntegrationCredentialApprovalPageTests
         Assert.Contains("Choose an organization", html);
         Assert.Contains("__RequestVerificationToken", html);
         Assert.DoesNotContain("name=\"permissions\"", html);
-        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "org-a" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", "org-a");
         html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.Contains("Incident.Read", html);
         Assert.DoesNotContain("name=\"permissions\"", html);
@@ -50,7 +50,7 @@ public sealed class IntegrationCredentialApprovalPageTests
         Assert.DoesNotContain("name=\"consent\" checked", html);
         Assert.DoesNotContain("rdk_", html);
         Assert.DoesNotContain("deviceCode", html);
-        Assert.Equal(1, api.Calls);
+        Assert.Equal(2, api.Calls);
     }
     [Fact]
     public async Task Unavailable_code_renders_recovery_without_consent()
@@ -93,7 +93,7 @@ public sealed class IntegrationCredentialApprovalPageTests
         var reference = new Reference();
         var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<Harness>(ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(Harness.Reference)] = reference })));
         await InvokeAsync(renderer, reference.Page!, "ReviewAsync");
-        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "org-a" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", "org-a");
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.Contains("Temporary verification client", html);
         Assert.Contains("authenticated status check only", html);
@@ -118,7 +118,7 @@ public sealed class IntegrationCredentialApprovalPageTests
         Assert.DoesNotContain("name=\"ownerAdministrationConsent\"", html);
         Assert.DoesNotContain("value=\"HelpdeskAdmin\"", html);
         await InvokeAsync(renderer, reference.Page!, "GrantKindChanged", new ChangeEventArgs { Value = "owner-administration" });
-        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "org-a" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", "org-a");
         html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.Contains("name=\"ownerAdministrationConsent\" value=\"on\"", html);
         Assert.Contains("name=\"permissions\" value=\"HelpdeskAdmin\"", html);
@@ -151,14 +151,14 @@ public sealed class IntegrationCredentialApprovalPageTests
         var reference = new Reference();
         var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<Harness>(ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(Harness.Reference)] = reference })));
         await InvokeAsync(renderer, reference.Page!, "ReviewAsync");
-        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "org-a" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", "org-a");
         await InvokeAsync(renderer, reference.Page!, "PermissionsChanged", new[] { "Incident.Read" });
         typeof(ApprovalPage).GetField("consent", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(reference.Page, true);
-        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", "");
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.DoesNotContain("name=\"permissions\"", html);
         Assert.False((bool)typeof(ApprovalPage).GetField("consent", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(reference.Page)!);
-        Assert.Equal(1, api.Calls);
+        Assert.Equal(2, api.Calls);
     }
 
     [Theory]
@@ -201,12 +201,12 @@ public sealed class IntegrationCredentialApprovalPageTests
         var reference = new Reference();
         var view = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<Harness>(ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(Harness.Reference)] = reference })));
         await InvokeAsync(renderer, reference.Page!, "ReviewAsync");
-        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", new ChangeEventArgs { Value = "org-a" });
+        await InvokeAsync(renderer, reference.Page!, "OrganizationChanged", "org-a");
         await InvokeAsync(renderer, reference.Page!, "PermissionsChanged", new[] { "Incident.Read" });
         await InvokeAsync(renderer, reference.Page!, "ReviewAsync");
         var html = await renderer.Dispatcher.InvokeAsync(view.ToHtmlString);
         Assert.Contains("name=\"permissions\" value=\"Incident.Read\"", html);
-        Assert.Contains("Connection consent", html); Assert.Equal(1, api.Calls);
+        Assert.Contains("Connection consent", html); Assert.Equal(2, api.Calls);
     }
 
     private static Task InvokeAsync(Renderer renderer, ApprovalPage page, string method, object? arg = null) =>
@@ -240,6 +240,8 @@ public sealed class IntegrationCredentialApprovalPageTests
         {
             if (timeout) throw new TaskCanceledException("Synthetic timeout.");
             if (invalidJson) return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("malformed-json") });
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/organizations/search"))
+                return Task.FromResult(new HttpResponseMessage(status) { Content = JsonContent.Create(new { items = new[] { new { id = "org-a", name = "Organization A" } }, totalEligible = 1, hasMore = false }) });
             Calls++; Assert.Equal(HttpMethod.Post, request.Method);
             if (host)
             {

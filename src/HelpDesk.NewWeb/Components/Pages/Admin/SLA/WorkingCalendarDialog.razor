@@ -20,7 +20,7 @@
                                 <MudSelectItem Value="CalendarScopeType.SystemDefault">System Default</MudSelectItem>
                                 <MudSelectItem Value="CalendarScopeType.Tenant">Tenant</MudSelectItem>
                             </MudSelect>
-                            <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Tenant" @bind-Value="Model.TenantId" Required="@(Model.ScopeType == CalendarScopeType.Tenant)" Disabled="@(Model.ScopeType == CalendarScopeType.SystemDefault)" />
+                            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Tenant" @bind-Value="Model.TenantId" Required="@(Model.ScopeType == CalendarScopeType.Tenant)" Disabled="@(Model.ScopeType == CalendarScopeType.SystemDefault)" />
                         }
                         <MudTextField @bind-Value="Model.TimeZoneId" Label="Time Zone" Dense="true" Margin="Margin.Dense" />
                         <MudCheckBox @bind-Value="Model.IsActive" Label="Active" Dense="true" />

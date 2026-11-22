@@ -15,7 +15,13 @@ public sealed record PairingExchangeRequest(string Code, string OperationId, Pai
 public sealed record PairingExchangeResponse(string PairId, PairingMetadata Peer, string InboundSecret, string Signature = "");
 public sealed record PairingChoice(string Id, string Name, string? ParentId = null);
 public sealed record PairingDirectory(PairingChoice[] Tenants, PairingChoice[] Customers);
-public sealed record PairingSetupDirectory(PairingChoice[] NetRatelTenants, PairingChoice[] RatelDeskOrganizations, PairingChoice[] RatelDeskCustomers);
+public sealed record PairingSetupDirectory(PairingChoice[] NetRatelTenants, PairingChoice[] RatelDeskOrganizations, PairingChoice[] RatelDeskCustomers)
+{
+    public PairingSetupDirectory References(string? tenantId, string? organizationId, string? customerId, string? hint) =>
+        new(NetRatelTenants.Where(row => row.Id == tenantId).Take(1).ToArray(),
+            RatelDeskOrganizations.Where(row => row.Id == organizationId || row.Id == hint).Take(2).ToArray(),
+            RatelDeskCustomers.Where(row => row.Id == customerId && row.ParentId == organizationId).Take(1).ToArray());
+}
 public sealed record PairingMapping(string Id, string PairId, string Name, string NetRatelTenantId,
     string RatelDeskOrganizationId, string? RatelDeskCustomerId, bool CreateIncidents, bool RunAutomation)
 {
