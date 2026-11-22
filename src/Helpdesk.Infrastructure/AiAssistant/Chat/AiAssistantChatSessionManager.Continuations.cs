@@ -26,9 +26,19 @@ public sealed partial class AiAssistantChatSessionManager
     private async Task<bool> CompleteNativeTurnAsync(HelpdeskDbContext db, AiAssistantChatConversation conversation,
         Owner owner, NetclawOutput output, CancellationToken ct)
     {
-        if (output.HasReminderSource && owner.BackgroundReports.Length > 0 &&
-            CompleteBackgroundReport(db, conversation, owner, output))
-            return true;
+        if (output.HasReminderSource && owner.BackgroundReports.Length > 0)
+        {
+            var matches = owner.BackgroundReports.Where(binding => binding.Parent.ObservationExpiresAtUtc > Now &&
+                MatchScheduledReport(binding.Parent, output, binding.ParentStartedAtUtc, out _) is not null).Take(2).ToArray();
+            if (matches.Length > 0)
+            {
+                if (matches.Length == 1 && MatchScheduledReport(owner.Continuation, output, conversation.TurnStartedAtUtc, out _) is null
+                    && CompleteBackgroundReport(db, conversation, owner, output, matches[0])) return true;
+                ObserveLifecycle("terminal_rejected", conversation, owner, "ambiguous_or_stale_report");
+                ResetTurnBuffers(owner);
+                return false;
+            }
+        }
         var completion = ObserveCompletion(conversation, owner, output, out var rejection);
         if (completion is null)
         {

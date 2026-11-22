@@ -166,7 +166,7 @@ else
                 <MudText Typo="Typo.caption">@ActorLabel(turn.Operator.CreatedByUserId) · @turn.Operator.CreatedUtc.ToLocalTime().ToString("g")</MudText>
                 <MudText Style="white-space: pre-wrap; overflow-wrap: anywhere">@turn.Operator.Text</MudText>
             </MudPaper>
-            @if (turn.Operations.Count > 0 || !turn.Completed || turn.HasError || turn.Activity.Any(VisibleActivity)
+            @if (turn.Operations.Count > 0 || preferences.ShowSubagents && turn.Children.Count > 0 || !turn.Completed || turn.HasError || turn.Activity.Any(VisibleActivity)
                 || turn.NativeTurns.Any(x => x.QuietEnd || x.TurnOutcome == "skipped"))
             {
                 <AiAssistantTurnActivity Turn="turn" State="state" Busy="@(busy || capabilities?.CanWrite == false)" Preferences="preferences" Approval="@(answer => ApproveAsync(answer.CallId, answer.Key))" />

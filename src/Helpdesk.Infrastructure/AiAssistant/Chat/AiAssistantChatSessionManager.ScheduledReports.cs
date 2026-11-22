@@ -61,12 +61,9 @@ public sealed partial class AiAssistantChatSessionManager
     }
 
     private bool CompleteBackgroundReport(HelpdeskDbContext db, AiAssistantChatConversation conversation,
-        Owner owner, NetclawOutput output)
+        Owner owner, NetclawOutput output, ChatScheduledBinding binding)
     {
-        var matches = owner.BackgroundReports.Where(binding => binding.Parent.ObservationExpiresAtUtc > Now &&
-            MatchScheduledReport(binding.Parent, output, binding.ParentStartedAtUtc, out _) is not null).Take(2).ToArray();
-        if (matches.Length != 1 || output.TurnOrdinal is not { } ordinal || ordinal <= owner.LastCompletedTurn) return false;
-        var binding = matches[0];
+        if (output.TurnOrdinal is not { } ordinal || ordinal <= owner.LastCompletedTurn) return false;
         var parent = binding.Parent;
         var matched = MatchScheduledReport(parent, output, binding.ParentStartedAtUtc, out var fireAt)!;
         var terminal = output.Complete(parent.OperatorMessageId, parent.ObservationExpiresAtUtc);
