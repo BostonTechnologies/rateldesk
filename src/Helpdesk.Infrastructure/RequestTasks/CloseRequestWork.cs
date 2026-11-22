@@ -20,10 +20,12 @@ public sealed class CloseRequestWork(HelpdeskDbContext db, IIngressEffectContext
     public async Task<CloseWorkResult> ExecuteAsync(CloseWorkSelection selection, bool closeParent, string reason,
         string actorId, CurrentUserAccessProfile access, CancellationToken ct)
     {
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        using var capture = effects.Begin(Guid.NewGuid());
+        if (!access.IsAuthenticated || string.IsNullOrWhiteSpace(actorId))
+            return new(selection.Id, "unavailable");
         try
         {
+            await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            using var capture = effects.Begin(Guid.NewGuid());
             var task = closeParent ? null : await db.RequestTasks.SingleOrDefaultAsync(x => x.Id == selection.Id, ct);
             var parentId = closeParent ? selection.Id : task?.RequestId;
             var parent = await db.Requests.SingleOrDefaultAsync(x => x.Id == parentId, ct);
@@ -37,7 +39,9 @@ public sealed class CloseRequestWork(HelpdeskDbContext db, IIngressEffectContext
             if (selection.StateVersion != (task?.AutomationStateVersion ?? parent.WorkflowStateVersion))
                 return new(selection.Id, "changed");
 
-            var children = await db.RequestTasks.Where(x => x.RequestId == parent.Id).ToListAsync(ct);
+            // Validate the whole parent/child relation, including malformed legacy
+            // links hidden by a tenant filter, before settling any member.
+            var children = await db.RequestTasks.IgnoreQueryFilters().Where(x => x.RequestId == parent.Id).ToListAsync(ct);
             if (children.Any(x => x.OrganizationId != parent.OrganizationId))
                 return new(selection.Id, "unavailable");
             var unfinished = children.Where(AdministrativeClosure.RequiresDisposition).ToList();
@@ -93,7 +97,6 @@ public sealed class CloseRequestWork(HelpdeskDbContext db, IIngressEffectContext
         }
         catch (Exception ex) when (IsConcurrencyConflict(ex))
         {
-            await tx.RollbackAsync(CancellationToken.None);
             return new(selection.Id, "changed");
         }
         finally
