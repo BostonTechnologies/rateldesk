@@ -701,3 +701,23 @@ for (const mode of [
   });
  });
 }
+
+test('customer contact edit survives a declined workspace navigation', async ({ page }) => {
+ await page.goto('/admin/customers');
+ await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+ await page.getByRole('button', { name: 'Create customer contact', exact: true }).click();
+ const editor = page.getByRole('dialog');
+ const name = editor.getByRole('textbox', { name: 'Name', exact: true });
+ await name.fill('Synthetic draft contact');
+ await name.press('Tab');
+ const decision = page.waitForEvent('dialog').then(dialog => dialog.dismiss());
+ await page.evaluate(() => (window as any).Blazor.navigateTo('/admin/organizations'));
+ await decision;
+ await expect(page).toHaveURL(/\/admin\/customers$/);
+ await expect(name).toHaveValue('Synthetic draft contact');
+ const discard = page.waitForEvent('dialog').then(dialog => dialog.accept());
+ await page.evaluate(() => (window as any).Blazor.navigateTo('/admin/organizations'));
+ await discard;
+ await expect(page).toHaveURL(/\/admin\/organizations$/);
+ await expect(editor).toHaveCount(0);
+});
