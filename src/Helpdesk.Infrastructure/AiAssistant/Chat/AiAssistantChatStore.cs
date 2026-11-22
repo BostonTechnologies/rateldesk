@@ -238,7 +238,8 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var events = await db.Set<AiAssistantChatEvent>().AsNoTracking().Where(x => x.ConversationId == conversation.Id && x.Sequence > after && x.Sequence <= head).OrderBy(x => x.Sequence).Take(200).ToListAsync(ct);
         var continuation = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
         return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult, continuation, conversation.ActiveMessageId, conversation.ProviderKind, conversation.ProviderProfileId,
-            await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct));
+            await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct),
+            await ChatScheduledObservationLedger.CanReplyToScheduledParentAsync(db, conversation, continuation, ct));
     }
 
     public async Task<bool> AcceptMessageAsync(ChatScope scope, ChatMessageRequest request, string actor, CancellationToken ct)
@@ -255,10 +256,10 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             return false;
         }
         Guid? previousOwner = null;
-        if (conversation.State == ChatState.WaitingForScheduledReports)
+        if (conversation.State is ChatState.WaitingForScheduledReports or ChatState.DeliveryUnknown)
         {
             var previous = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
-            if (!ChatScheduledObservationLedger.AdmitsReply(previous))
+            if (!await ChatScheduledObservationLedger.CanReplyToScheduledParentAsync(db, conversation, previous, ct))
                 throw new ChatConflictException("The foreground turn is still unresolved.");
             previousOwner = conversation.ActiveMessageId;
             if (previous!.ScheduledReports?.Any(report => !report.Unconfirmed) == true)

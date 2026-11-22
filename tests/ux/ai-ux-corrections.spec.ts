@@ -225,3 +225,15 @@ test('a scheduled ticket report survives reload beside the ready composer and th
   await expect(composer).toBeDisabled();
   expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(1);
 });
+
+test('an interrupted report keeps its confirmed ticket parent open for replies', async ({ page, request }) => {
+  await request.get(`${fixture}/fixture/reset?mode=interrupted-report`);
+  await open(page, '/incidents/ux-chat');
+  await expect(page.getByText('Scheduled report unconfirmed', { exact: true })).toBeVisible();
+  await expect(page.getByText('The parent request completed. You can send another message.')).toBeVisible();
+  const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
+  await composer.fill('Please continue.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(composer).toBeDisabled();
+  expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(1);
+});

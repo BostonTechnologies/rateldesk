@@ -100,6 +100,7 @@ else
         {
             <MudAlert Severity="Severity.Warning">
                 <strong>Scheduled report unconfirmed</strong>
+                @if (canReplyToScheduledParent) { <p>The parent request completed. You can send another message.</p> }
                 <p>@recoveryResult</p>
                 @if (continuation.ScheduledReports is { Length: > 0 } reports)
                 {
@@ -115,7 +116,7 @@ else
         }
         @if (recoveryAt is not null) { <small>Last check: @recoveryAt.Value.UtcDateTime.ToString("u") · reference @conversation</small> }
         @if (capabilities?.CanWrite != false) {
-        <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="I understand the old turn may still execute. Archive this transcript without retrying it. Remote side effects may already have occurred." />
+        <MudCheckBox T="bool" @bind-Value="acknowledgeAbandon" Disabled="busy" Label="@(canReplyToScheduledParent ? "Archive this transcript with an unconfirmed scheduled report. The remote reminder may still fire." : "I understand the old turn may still execute. Archive this transcript without retrying it. Remote side effects may already have occurred.")" />
         <MudButton Color="Color.Warning" Disabled="@(busy || !acknowledgeAbandon || UnresolvedMessageId is null)" OnClick="AbandonAsync">Abandon unresolved turn and archive</MudButton>
         }
     }
@@ -255,9 +256,9 @@ else
     private DateTimeOffset? recoveryAt;
     private ChatTurnCompletion? continuation;
     private ChatScheduledBinding[] backgroundReports = [];
-    private bool CanReply => state == ChatState.Idle || state == ChatState.WaitingForScheduledReports
-        && continuation is { TurnOutcome: "completed", ChildSnapshotKnown: true }
-        && (continuation.PendingChildRunIds ?? continuation.OpenChildRunIds) is { Length: 0 };
+    private bool canReplyToScheduledParent;
+    private bool CanReply => state == ChatState.Idle || canReplyToScheduledParent
+        && state is ChatState.WaitingForScheduledReports or ChatState.DeliveryUnknown;
     private int PendingScheduledReports => (continuation?.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0)
         + backgroundReports.Sum(binding => binding.Parent.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0);
     private string connectionStatus = "Connecting";
@@ -339,7 +340,7 @@ else
             stream = Task.CompletedTask;
             if (disposed) return;
             connectionStatus = "Connecting"; error = null;
-            backgroundReports = []; continuation = null; recoveryResult = null; recoveryAt = null;
+            canReplyToScheduledParent = false; backgroundReports = []; continuation = null; recoveryResult = null; recoveryAt = null;
             events.Clear(); artifacts = []; draft = ""; cursor = 0; acknowledgeAbandon = false;
             resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null; draftScope = null; conversation = Guid.Empty;
             using var api = Api;
@@ -408,6 +409,7 @@ else
         recoveryResult = snapshot.RecoveryResult;
         continuation = snapshot.Continuation;
         backgroundReports = snapshot.BackgroundReports ?? [];
+        canReplyToScheduledParent = snapshot.CanReplyToScheduledParent;
     }
 
     private async Task ReadAsync(CancellationToken ct)
@@ -449,7 +451,9 @@ else
                             else if (frameKind == "text-delta") draft = JsonSerializer.Deserialize<ChatDelta>(frameData)?.Text ?? "";
                             else if (frameKind == "state")
                             {
-                                state = JsonSerializer.Deserialize<ChatState>(frameData);
+                                var nextState = JsonSerializer.Deserialize<ChatState>(frameData);
+                                if (state != nextState) canReplyToScheduledParent = false;
+                                state = nextState;
                                 await StateChanged.InvokeAsync(state);
                                 if (state is ChatState.Idle or ChatState.Archived) draft = "";
                             }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant.Chat;
+using Helpdesk.Infrastructure.AiAssistant.Chat;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Microsoft.EntityFrameworkCore;
 
@@ -205,6 +206,7 @@ public sealed partial class ChatTransportLifecycleTests
         var snapshot = await ReloadAsync(run);
         Assert.Equal(ChatState.DeliveryUnknown, snapshot.State);
         Assert.True(Assert.Single(snapshot.Continuation!.ScheduledReports!).Unconfirmed);
+        Assert.True(snapshot.CanReplyToScheduledParent);
         Assert.Equal(outcome, snapshot.Continuation.TurnOutcome);
         Assert.Equal(quiet, snapshot.Continuation.QuietEnd);
         Assert.Contains("could not be confirmed", snapshot.RecoveryResult);
@@ -262,6 +264,43 @@ public sealed partial class ChatTransportLifecycleTests
         var archived = await ReloadAsync(run);
         Assert.Equal(ChatState.Archived, archived.State);
         Assert.DoesNotContain(archived.Events, item => item.Type == "assistant");
+        Assert.Single(run.Client.Sent);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Interrupted_report_observation_requires_a_confirmed_parent_without_a_later_decision(bool lateDecision)
+    {
+        var due = DateTimeOffset.UtcNow.AddMinutes(10);
+        await using var run = await Run.CreateAsync(fixture);
+        await run.SendAsync();
+        await RegisterAsync(run.Client, "future", due);
+        await run.Client.CompleteAsync(1, []);
+        await run.WaitForAsync(events => events.Any(item => item.Type == "turn_completed"));
+        await run.Client.EmitAsync(new { type = "transport_closed" });
+        await run.WaitForAsync(events => events.Any(item => item.Type == "scheduled_observation_ended"));
+        await using var db = fixture.Context();
+        if (lateDecision)
+        {
+            var row = await db.Set<AiAssistantChatConversation>().SingleAsync(item => item.Id == run.Conversation);
+            AiAssistantChatStore.Append(db, row, "approval_response", "Saved decision with uncertain delivery.", callId: "child");
+            await db.SaveChangesAsync();
+        }
+        var interrupted = await ReloadAsync(run);
+        Assert.Equal(ChatState.DeliveryUnknown, interrupted.State);
+        Assert.Equal(!lateDecision, interrupted.CanReplyToScheduledParent);
+        var next = run.Request with { ClientMessageId = Guid.NewGuid(), Text = "Follow-up" };
+        if (lateDecision)
+        {
+            await Assert.ThrowsAsync<ChatConflictException>(() => fixture.Store(db).AcceptMessageAsync(run.Scope, next, "operator", default));
+            return;
+        }
+        Assert.True(await fixture.Store(db).AcceptMessageAsync(run.Scope, next, "operator", default));
+        var current = await ReloadAsync(run);
+        Assert.Equal(ChatState.Processing, current.State);
+        Assert.False(current.CanReplyToScheduledParent);
+        Assert.Empty(current.BackgroundReports!);
         Assert.Single(run.Client.Sent);
     }
 

@@ -62,7 +62,7 @@ public sealed record ChatNewWithProfileRequest(Guid ConversationId, Guid? Provid
 public sealed record ChatSnapshot(Guid ConversationId, ChatState State, long LastSequence, IReadOnlyList<AiAssistantChatEvent> Events,
     DateTimeOffset? RecoveryLastAttemptUtc = null, string? RecoveryResult = null, ChatTurnCompletion? Continuation = null,
     Guid? ActiveMessageId = null, ChatProviderKind Provider = ChatProviderKind.Netclaw, Guid? ProviderProfileId = null,
-    ChatScheduledBinding[]? BackgroundReports = null);
+    ChatScheduledBinding[]? BackgroundReports = null, bool CanReplyToScheduledParent = false);
 // Association lives in event metadata, not ClientMessageId: that column identifies
 // an admission exactly once through its unique (conversation, message) index.
 public sealed record ChatTurnCompletion(Guid OperatorMessageId, int? TurnNumber, string? TurnOutcome,

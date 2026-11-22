@@ -365,7 +365,9 @@ after the original request. After a confirmed successful parent terminal with
 no unresolved child work or approval, the composer accepts another message
 while reports are pending. Each report retains its original request, due time
 and occurrence identity while the newer request runs. **Stop observing reports**
-ends local observation for that parent. The remote reminder keeps its schedule.
+ends local observation for that parent. The remote reminder keeps its schedule. If observation was interrupted, a saved
+successful parent terminal with no unresolved children, outstanding approval
+or later decision also permits a new message while report delivery is unconfirmed.
 
 On the uninterrupted SignalR path, NetClaw 0.28.2 carries the occurrence as
 `sourceReminderId` on `turn_completed`. Its value is the reminder definition ID
