@@ -438,6 +438,7 @@ public sealed partial class AuthenticatedChangeApprovalTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await db.Database.EnsureCreatedAsync();
+                await TicketIdentityStore.CreateAsync(db);
                 db.Organizations.Add(new Organization { Id = "org-a", Name = "Approval fixture" });
                 db.Changes.Add(new Change { Id = "change", TrackingId = "CHG-OWNER", OrganizationId = "org-a",
                     Title = "Designated owner approval", LifecycleState = ChangeLifecycleState.PendingApproval,

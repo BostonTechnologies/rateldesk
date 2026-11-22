@@ -49,7 +49,7 @@ public sealed class RequestTaskGenerationServiceTests
             requestTasks,
             new RequestFormSchemaParser(),
             domainEvents,
-            correlation);
+            correlation, Substitute.For<IRequestTaskAssignees>());
 
         var count = await service.GenerateForRequestAsync(new Request
         {
@@ -66,6 +66,26 @@ public sealed class RequestTaskGenerationServiceTests
         Assert.Equal(1800, created.ExpectedRuntimeSeconds);
         Assert.Equal(600, created.GraceSeconds);
         Assert.Equal(2400, created.HardTimeoutSeconds);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Generated_task_applies_only_a_default_eligible_for_its_actual_organization(bool eligible)
+    {
+        var forms = Substitute.For<IRepository<RequestForm>>();
+        var tasks = Substitute.For<IRepository<RequestTask>>();
+        var eligibility = Substitute.For<IRequestTaskAssignees>();
+        forms.GetAsync("form").Returns(new RequestForm { Id = "form", JsonSchema = JsonDocument.Parse("""
+            { "tasks": [{ "name": "Review", "type": "manual", "defaultAssigneeId": "operator" }] }
+            """) });
+        eligibility.EligibleDefaultsAsync("customer", Arg.Is<string[]>(ids => ids.Length == 1 && ids[0] == "operator"), Arg.Any<CancellationToken>())
+            .Returns(eligible ? new HashSet<string> { "operator" } : []);
+        var service = new RequestTaskGenerationService(forms, tasks, new RequestFormSchemaParser(),
+            Substitute.For<IDomainEventPublisher>(), Substitute.For<ICorrelationContext>(), eligibility);
+
+        Assert.Equal(1, await service.GenerateForRequestAsync(new Request { Id = "request", OrganizationId = "customer", RequestFormId = "form" }, default));
+        await tasks.Received(1).CreateAsync(Arg.Is<RequestTask>(task => task.AssignedToId == (eligible ? "operator" : null)));
     }
 
     [Fact]
@@ -108,7 +128,7 @@ public sealed class RequestTaskGenerationServiceTests
             requestTasks,
             new RequestFormSchemaParser(),
             domainEvents,
-            correlation);
+            correlation, Substitute.For<IRequestTaskAssignees>());
 
         var count = await service.GenerateForRequestAsync(new Request
         {
@@ -174,7 +194,7 @@ public sealed class RequestTaskGenerationServiceTests
             requestTasks,
             new RequestFormSchemaParser(),
             domainEvents,
-            correlation);
+            correlation, Substitute.For<IRequestTaskAssignees>());
 
         var count = await service.GenerateForRequestAsync(new Request
         {

@@ -718,6 +718,16 @@ internal static partial class HelpdeskCli
     private static async Task<string> ResolveAgentUserIdAsync(CliRuntime runtime, GlobalOptions globals, InvocationContext ctx, string? explicitEmail)
     {
         var loaded = LoadConfig(ctx, globals);
+        if (string.Equals(loaded.Resolved!.CredentialMode, "integration", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(explicitEmail)) throw new CliValidationException("assign-self uses the authenticated account. Omit --agent-user-email.");
+            var current = await SendRawAsync(runtime, loaded.Resolved, HttpMethod.Get, "/api/v1/auth/me", authenticated: true, null, ctx.GetCancellationToken()).ConfigureAwait(false);
+            if (!current.IsSuccess) throw new CliValidationException("The authenticated account could not be resolved.");
+            using var profile = JsonDocument.Parse(current.Body);
+            if (profile.RootElement.TryGetProperty("assignmentUserId", out var assignment) && assignment.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(assignment.GetString())) return assignment.GetString()!;
+            throw new CliValidationException("The authenticated account is not linked to an active ticket assignee.");
+        }
         var email = string.IsNullOrWhiteSpace(explicitEmail)
             ? loaded.Resolved!.AgentUserEmail
             : explicitEmail;

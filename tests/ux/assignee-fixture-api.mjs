@@ -3,7 +3,9 @@
 import http from 'node:http';
 const actor = 'assignee-operator';
 const users = Array.from({ length: 25 }, (_, i) => ({ id: `user-${i}`, name: `Alpha ${String(i).padStart(2, '0')}`, email: `alpha${i}@example.test`, role: 'Technician', organizationId: 'org-1' }));
-users.push({ id: 'late', name: 'Zulu Surname', email: 'late@example.test', role: 'Technician', organizationId: 'provider' },
+users.push({ id: actor, name: 'Instance Operator', email: 'operator@example.test', organizationId: 'home' },
+  { id: 'peer-admin', name: 'Peer Operator', email: 'peer@example.test', organizationId: 'home' },
+  { id: 'late', name: 'Zulu Surname', email: 'late@example.test', role: 'Technician', organizationId: 'provider' },
   { id: 'duplicate-1', name: 'Duplicate Name', email: 'one@example.test', organizationId: 'org-1' },
   { id: 'duplicate-2', name: 'Duplicate Name', email: 'two@example.test', organizationId: 'org-1' });
 const organizations = [

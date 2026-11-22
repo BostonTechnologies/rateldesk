@@ -255,7 +255,7 @@ public sealed class HelpdeskToolsMutationTests
             IntegrationCredential = "rdk_test"
         });
         client.GetAsync("/api/v1/auth/me", true, Arg.Any<CancellationToken>())
-            .Returns(new JsonObject { ["userId"] = "caller-user" });
+            .Returns(new JsonObject { ["userId"] = "sign-in-account", ["assignmentUserId"] = "caller-user" });
         JsonNode? assignedBody = null;
         client.SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(call =>
