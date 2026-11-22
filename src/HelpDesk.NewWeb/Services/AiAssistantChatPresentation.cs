@@ -80,6 +80,7 @@ public static class AiAssistantChatPresentation
             else if (item.Type is "approval_request" or "approval_response" or "approval_closed" or "approval_executed" or "approval_denied" or "error" or "file" or "usage" or "processing_state" or "compaction" or "subagent" or "scheduled_observation_ended")
                 current.Activity.Add(item);
         }
+        foreach (var turn in turns.Where(turn => turn.Children.Count > 0)) turn.AttachChildTasks();
         return turns;
     }
 
@@ -121,6 +122,25 @@ public sealed class ChatTurn(AiAssistantChatEvent message)
         if (item.Type == "subagent") card.Diagnostics.Add(item);
         if (poll) card.PollResults.Add(item.Sequence);
     }
+    internal void AttachChildTasks()
+    {
+        foreach (var operation in Operations)
+        {
+            var result = ChatOperation.Read(operation.Result?.MetadataJson);
+            if (result is not { Child.RunId: { } childId, Details.ToolName: "spawn_agent" }
+                || !Children.TryGetValue(childId, out var card)
+                || ChatOperation.Read(operation.Call?.MetadataJson)?.Details?.Arguments is not { } arguments) continue;
+            try
+            {
+                var task = JsonSerializer.Deserialize<ChildTask>(arguments, ChildTaskOptions);
+                card.Name ??= task?.Agent;
+                card.Task = task?.Task;
+            }
+            catch (JsonException) { continue; }
+        }
+    }
+    private sealed record ChildTask(string? Agent, string? Task);
+    private static readonly JsonSerializerOptions ChildTaskOptions = new() { PropertyNameCaseInsensitive = true };
     public bool Completed { get; internal set; }
     public bool HasError => Activity.Any(x => x.Type == "error") || Operations.Any(x => x.Metadata?.Outcome == "failed")
         || NativeTurns.Any(x => x.TurnOutcome == "failed");
@@ -138,6 +158,7 @@ public sealed class ChatChildCard(string id)
     public string Id { get; } = id;
     public bool Open { get; internal set; }
     public string? Name { get; internal set; }
+    public string? Task { get; internal set; }
     public string? State { get; internal set; }
     public string? Summary { get; internal set; }
     public long? DurationMs { get; internal set; }

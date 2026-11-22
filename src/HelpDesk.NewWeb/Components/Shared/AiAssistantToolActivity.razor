@@ -26,6 +26,7 @@
     @if (expanded)
     {
         <div class="tool-details">
+            @if (Operation.Call is null) { <p>Invocation start was not recorded.</p> }
             @if (Operation.CallId is { } id) { <p>Call ID: @id</p> }
             @if (Operation.Metadata?.DurationMs is { } duration) { <p>Locally observed duration: @duration ms</p> }
             @foreach (var item in new[] { Operation.Call, Operation.Result }.OfType<AiAssistantChatEvent>().Where(item => StageSequence is null || item.Sequence == StageSequence))
@@ -36,7 +37,7 @@
                 @if (details is null) { <p>Details were not recorded.</p> }
                 else
                 {
-                    @if (details.Redacted) { <p>Previously discarded data cannot be restored. This legacy record contains redactions or omissions.</p> }
+                    @if (details.Redacted) { <p>Previously discarded data cannot be restored. This record contains redactions or omissions.</p> }
                     @if (details.Truncated) { <p>This recorded payload was truncated; the missing contents are unavailable.</p> }
                     @if (details.ToolName is { } toolName) { <p>Received tool name: @toolName</p> }
                     @if (details.FailureCode is { } failure) { <p>Reported failure code: @failure</p> }

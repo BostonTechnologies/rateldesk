@@ -28,6 +28,7 @@
                 <details class="child-card" @key="card.Id">
                     <summary>@(card.Name ?? card.Id) · @(card.State ?? "State unknown")</summary>
                     <small>Run @card.Id</small>
+                    @if (card.Task is { } task) { <p>@task</p> }
                     @if (card.DurationMs is { } elapsed) { <span>@elapsed ms</span> }
                     @if (card.Summary is { } summary) { <p>@summary</p> }
                     @foreach (var poll in Turn.Operations.Where(x => x.Result is { } result && card.PollResults.Contains(result.Sequence)))
