@@ -31,7 +31,7 @@
         {
             @if (string.IsNullOrWhiteSpace(OrganizationId))
             {
-                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search?permission=membership" AutoSelectSingle="false" Label="Tenant" Value="@selectedOrganizationId" ValueChanged="@(id => SelectOrganization(id ?? string.Empty))" Clearable="false" />
+                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search?permission=membership" AutoSelectSingle="false" Label="Tenant" Value="@selectedOrganizationId" SelectionChanged="SelectOrganization" Clearable="false" />
             }
 
             @if (canInvite)
@@ -120,7 +120,6 @@
     private string? error;
     private bool loading;
     private bool inviting;
-    private bool organizationsLoaded;
     private bool hasAppliedOrganizationParameter;
     private string? appliedOrganizationId;
     private string inviteName = string.Empty;
@@ -128,55 +127,37 @@
     private TenantLocalAccountInvitation? invitation;
     private string memberSearch = string.Empty;
     private bool canAssignRoles;
-    private HashSet<string> inviteOrganizationIds = new(StringComparer.OrdinalIgnoreCase);
-    private bool canInvite => !string.IsNullOrWhiteSpace(selectedOrganizationId) && inviteOrganizationIds.Contains(selectedOrganizationId);
+    private bool canInvite;
     private IEnumerable<TenantMember> FilteredMembers => string.IsNullOrWhiteSpace(memberSearch)
         ? members
         : members.Where(member => member.Name.Contains(memberSearch, StringComparison.OrdinalIgnoreCase) || member.Email.Contains(memberSearch, StringComparison.OrdinalIgnoreCase));
 
-    protected override async Task OnInitializedAsync()
-    {
-        var rolesResponse = await HelpdeskApi.GetAsync("api/v1/tenant-admin/organizations");
-        var usersResponse = await HelpdeskApi.GetAsync("api/v1/tenant-admin/organizations?permission=Tenant.Users.Manage");
-        if (!rolesResponse.IsSuccessStatusCode && !usersResponse.IsSuccessStatusCode)
-        {
-            error = "Tenant memberships could not be loaded. Refresh the page and try again.";
-            return;
-        }
-
-        var roleOrganizations = rolesResponse.IsSuccessStatusCode
-            ? await rolesResponse.Content.ReadFromJsonAsync<List<TenantOrganization>>() ?? new()
-            : new();
-        var userOrganizations = usersResponse.IsSuccessStatusCode
-            ? await usersResponse.Content.ReadFromJsonAsync<List<TenantOrganization>>() ?? new()
-            : new();
-        organizations = roleOrganizations.Concat(userOrganizations)
-            .DistinctBy(organization => organization.Id, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(organization => organization.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        inviteOrganizationIds = roleOrganizations.Select(organization => organization.Id)
-            .Intersect(userOrganizations.Select(organization => organization.Id), StringComparer.OrdinalIgnoreCase)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        organizationsLoaded = true;
-        await ApplyOrganizationParameterAsync();
-    }
-
     protected override Task OnParametersSetAsync()
     {
-        if (!organizationsLoaded ||
-            (hasAppliedOrganizationParameter && string.Equals(appliedOrganizationId, OrganizationId, StringComparison.OrdinalIgnoreCase)))
-        {
+        if (hasAppliedOrganizationParameter && string.Equals(appliedOrganizationId, OrganizationId, StringComparison.OrdinalIgnoreCase))
             return Task.CompletedTask;
-        }
-
         return ApplyOrganizationParameterAsync();
     }
 
     private async Task ApplyOrganizationParameterAsync()
     {
+        var requested = OrganizationId;
         error = null;
         hasAppliedOrganizationParameter = true;
-        appliedOrganizationId = OrganizationId;
+        appliedOrganizationId = requested;
+        var url = "api/v1/tenant-admin/organizations/search?permission=membership&limit=1";
+        if (!string.IsNullOrWhiteSpace(requested)) url += "&id=" + Uri.EscapeDataString(requested);
+        try
+        {
+            var result = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<TenantOrganization>>(url);
+            if (requested != OrganizationId) return;
+            organizations = result?.Items.ToList() ?? [];
+        }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        {
+            if (requested == OrganizationId) error = "The authorized organization could not be loaded. Refresh the page and try again.";
+            return;
+        }
         if (!organizationSelection.ApplyRouteParameter(OrganizationId, organizations.Select(organization => organization.Id)))
         {
             members = new();
@@ -197,9 +178,11 @@
         }
     }
 
-    private async Task SelectOrganization(string organizationId)
+    private async Task SelectOrganization(OrganizationDto? item)
     {
-        organizationSelection.Select(organizationId);
+        if (item is null) return;
+        organizations = [new(item.Id, item.Name)];
+        organizationSelection.Select(item.Id);
         invitation = null;
         await LoadMembers();
     }
@@ -246,23 +229,35 @@
             return;
         }
 
+        var scope = selectedOrganizationId;
+        canInvite = canAssignRoles = false;
+        members = [];
+        availableRoles = [];
         loading = true;
         error = null;
         try
         {
             var response = await HelpdeskApi.GetAsync(organizationSelection.Path("users/"));
+            if (scope != selectedOrganizationId) return;
             if (!response.IsSuccessStatusCode)
             {
                 error = "Tenant members could not be loaded. Refresh the page and try again.";
                 return;
             }
 
-            members = await response.Content.ReadFromJsonAsync<List<TenantMember>>() ?? new();
+            var rows = await response.Content.ReadFromJsonAsync<List<TenantMember>>() ?? new();
+            if (scope != selectedOrganizationId) return;
+            members = rows;
             var rolesResponse = await HelpdeskApi.GetAsync(organizationSelection.Path("users/roles"));
+            if (scope != selectedOrganizationId) return;
             canAssignRoles = rolesResponse.IsSuccessStatusCode;
             if (canAssignRoles)
             {
-                availableRoles = await rolesResponse.Content.ReadFromJsonAsync<List<TenantDelegableRole>>() ?? new();
+                var roles = await rolesResponse.Content.ReadFromJsonAsync<List<TenantDelegableRole>>() ?? new();
+                var invite = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<TenantOrganization>>($"api/v1/tenant-admin/organizations/search?permission=Tenant.Users.Manage&id={Uri.EscapeDataString(scope)}");
+                if (scope != selectedOrganizationId) return;
+                availableRoles = roles;
+                canInvite = invite?.Items.Any(row => row.Id == scope) == true;
             }
             else
             {
@@ -271,7 +266,7 @@
         }
         finally
         {
-            loading = false;
+            if (scope == selectedOrganizationId) loading = false;
         }
     }
 

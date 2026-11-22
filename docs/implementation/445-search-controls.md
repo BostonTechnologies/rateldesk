@@ -28,3 +28,9 @@ The API contract for system pairing and the external orchestration catalogue sup
 CreationSearchPickerRenderedTests and OrganizationDirectorySelectorTests exercise stale responses, hydration, failed loads, selected identity and recovery. AiOpsAndPolicyEndpointsTests.Organizations covers permission-scoped identity disclosure and late-page search. OrganizationMappingDialogTests covers old external mappings, renamed tenants and provider failure. AiPromptsRenderedTests exercises dirty-editor guards. PairingConnectionsPageTests exercises selection in the real parent/editor flow.
 
 The PR records executed checks and rendered evidence. [Implementation and verification](https://github.com/BostonTechnologies/rateldesk/pull/461)
+
+Credential setup reads at most two eligible organizations to distinguish zero, one and multiple choices. Its list response includes labels for visible credentials within the caller's management scope. Service audience, role ownership, coverage and email rules resolve labels in batches of up to 25 IDs already referenced on screen. Route-bound settings and memberships resolve the requested ID under the feature's grant. The mailbox overview still loads its effective mailbox configuration rows for display.
+
+The browser runs used synthetic directories with more than 100 authorized organizations. The Chat run typed a late organization, selected it by keyboard, verified the route and checked that no conversation or turn started. The credential wizard selected a late organization and reviewed its exact grants before creation.
+
+[Chat at desktop width](assets/445-search/chat-desktop.png) · [Chat at 390px](assets/445-search/chat-phone.png) · [Credential organization selection](assets/445-search/credential-review.png)

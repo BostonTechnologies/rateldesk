@@ -22,20 +22,6 @@
                               Label="Description"
                               Margin="Margin.Dense" />
 
-                @*<!-- Move Organizations picker INTO DialogContent, above buttons -->
-                <MudSelect T="string"
-                           Label="Organizations"
-                           MultiSelection="true"
-                           Dense="true"
-                           SelectedValues="@selectedOrgIds"
-                           SelectedValuesChanged="@(v => selectedOrgIds = v?.ToHashSet() ?? new())">
-                    @foreach (var org in organizations)
-                    {
-                        <MudSelectItem Value="@org.Id">@org.Name</MudSelectItem>
-                    }
-                </MudSelect>
-                *@
-
             </MudStack>
         </MudForm>
     </DialogContent>
@@ -59,14 +45,11 @@
     private bool _isNew => string.IsNullOrWhiteSpace(ServiceId);
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
-    private List<OrganizationDto> organizations = new();
     private HashSet<string> selectedOrgIds { get; set; } = new();
 
 
     protected override async Task OnInitializedAsync()
     {
-        organizations = await Api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new();
-
         if (!_isNew)
         {
             var svc = await Api.GetFromJsonAsync<ServiceDto>($"api/v1/services/{ServiceId}");
