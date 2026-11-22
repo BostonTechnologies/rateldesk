@@ -236,6 +236,15 @@ public sealed class AdminDirectoryEndpointsTests
         Assert.Equal("Saved tenant", saved.Items[0].OrchestrationTenantName);
         var lookup = await h.Client.GetFromJsonAsync<List<TenantLookupDto>>("/api/v1/admin/directories/organizations/lookup");
         Assert.Equal(50, lookup!.Count);
+        const string assignable = "/api/v1/admin/directories/organizations/search?assignable=true";
+        var disabledSuggestion = await h.Client.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>(assignable + "&q=org135");
+        Assert.Empty(disabledSuggestion!.Items);
+        var current = await h.Client.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>(assignable + "&id=organization-135");
+        Assert.Equal("organization-135", Assert.Single(current!.Items).Id);
+        Assert.False(current.Items[0].IsEnabled);
+        var references = await h.Client.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>(
+            "/api/v1/admin/directories/organizations/search?ids=organization-135&ids=organization-136");
+        Assert.Equal(new[] { "organization-135", "organization-136" }, references!.Items.Select(row => row.Id));
     }
 
     [Theory]
