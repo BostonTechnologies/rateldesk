@@ -430,3 +430,25 @@ for (const [module, palette] of [['incidents', 'light'], ['requests', 'dark'], [
     await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
   });
 }
+
+test('short portrait keeps pending approval and Stop actions reachable without resolving either', async ({ page, request }, info) => {
+  await page.setViewportSize({ width: 360, height: 480 });
+  await page.goto('/auth/development');
+  for (const [mode, label] of [['approval', 'Allow once'], ['processing', 'Stop waiting']]) {
+    await request.get(`${fixture}/fixture/reset?mode=${mode}`);
+    await page.goto(routes[0]);
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+    const action = page.getByRole('button', { name: label, exact: true });
+    await expect(action).toBeEnabled();
+    await action.focus();
+    await expect(action).toBeFocused();
+    await expect(action).toBeInViewport();
+    await page.screenshot({ path: info.outputPath(`${mode}-action.png`) });
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await action.focus();
+    await expect(action).toBeInViewport();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Maximise conversation' })).toBeFocused();
+    expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
+  }
+});
