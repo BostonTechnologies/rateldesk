@@ -194,9 +194,34 @@ for (const [width, height] of [[1366, 768], [390, 844], [360, 640], [360, 480]])
     await expect(cards.first().getByTestId('chat-tool')).toHaveCount(2);
     await expect(cards.nth(1)).toContainText('failed');
     await expect(cards.nth(2)).toContainText('completed');
+    await cards.first().locator('summary').click();
+    await panel.evaluate(element => element.scrollIntoView({ block: 'center' }));
     await page.screenshot({ path: info.outputPath('agent-cards.png') });
     await page.getByRole('button', { name: 'Maximise conversation' }).click();
-    await expect(page.getByRole('dialog', { name: 'Conversation', exact: true }).locator('.child-card')).toHaveCount(3);
+    const fullscreenCards = page.getByRole('dialog', { name: 'Conversation', exact: true }).locator('.child-card');
+    await expect(fullscreenCards).toHaveCount(3);
+    await fullscreenCards.first().locator('summary').click();
+    await fullscreenCards.first().evaluate(element => element.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: info.outputPath('agent-detail-fullscreen.png') });
     expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
   });
 }
+
+test('a scheduled ticket report survives reload beside the ready composer and the next request', async ({ page, request }) => {
+  await request.get(`${fixture}/fixture/reset?mode=scheduled`);
+  await open(page, '/incidents/ux-chat');
+  const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
+  await expect(page.getByText(/Scheduled report stability/)).toBeVisible();
+  await page.reload();
+  await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+  await expect(composer).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Stop observing reports' })).toBeVisible();
+  await composer.fill('Please send details.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(composer).toBeDisabled();
+  await page.reload();
+  await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+  await expect(page.getByText(/Scheduled report stability/)).toBeVisible();
+  await expect(composer).toBeDisabled();
+  expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(1);
+});

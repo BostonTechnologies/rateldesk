@@ -28,5 +28,6 @@ internal static class ChatScheduledObservationLedger
             atUtc: now, metadata: JsonSerializer.Serialize(bindings));
 
     public static bool AdmitsReply(ChatTurnCompletion? completion) =>
-        completion is { TurnOutcome: "completed" } && (completion.PendingChildRunIds ?? completion.OpenChildRunIds) is not { Length: > 0 };
+        completion is { TurnOutcome: "completed", ChildSnapshotKnown: true }
+        && (completion.PendingChildRunIds ?? completion.OpenChildRunIds) is { Length: 0 };
 }

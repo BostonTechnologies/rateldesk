@@ -256,7 +256,8 @@ else
     private ChatTurnCompletion? continuation;
     private ChatScheduledBinding[] backgroundReports = [];
     private bool CanReply => state == ChatState.Idle || state == ChatState.WaitingForScheduledReports
-        && continuation is { TurnOutcome: "completed" } && (continuation.PendingChildRunIds ?? continuation.OpenChildRunIds) is not { Length: > 0 };
+        && continuation is { TurnOutcome: "completed", ChildSnapshotKnown: true }
+        && (continuation.PendingChildRunIds ?? continuation.OpenChildRunIds) is { Length: 0 };
     private int PendingScheduledReports => (continuation?.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0)
         + backgroundReports.Sum(binding => binding.Parent.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0);
     private string connectionStatus = "Connecting";

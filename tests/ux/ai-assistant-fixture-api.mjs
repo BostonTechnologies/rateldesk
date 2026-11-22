@@ -3,7 +3,7 @@
 import http from 'node:http';
 const conversation = '11111111-1111-4111-8111-111111111111';
 const actor = 'c0c48409df3ca07e12725a961d4152790fd135c2384a3e3a522282e2bd847178';
-let events = [], state = 0, recoveryResult = null;
+let events = [], state = 0, recoveryResult = null, continuation = null, backgroundReports = [];
 let selectedProvider = 0;
 let codexConfigured = false;
 let codexConnection;
@@ -63,10 +63,19 @@ function reset(mode = 'completed', provider = 'netclaw') {
   activeConversation = conversation; starts = startAttempts = 0; loseStartResponse = false; startRequests.clear(); connectionMode = 'verified';
   generalChats.clear(); generalChats.set(conversation, generalRow()); streamOpens = sends = recoveries = 0;
   events = []; state = ['processing', 'quiet'].includes(mode) ? 1 : mode === 'approval' ? 2 : mode === 'archived' ? 4 : mode === 'recovery' ? 3 : 0;
-  recoveryResult = null;
+  recoveryResult = null; continuation = null; backgroundReports = [];
   event('created', 'Conversation created.');
   if (mode === 'empty') return;
   event('operator', 'Investigate the Helpdesk integration and explain the result.', { CreatedByUserId: actor, ClientMessageId: crypto.randomUUID() });
+  if (mode === 'scheduled') {
+    const message = events.at(-1).ClientMessageId;
+    continuation = { OperatorMessageId: message, TurnNumber: 1, TurnOutcome: 'completed', QuietEnd: false,
+      OpenChildRunIds: [], ScheduledReports: [{ Id: 'stability', Recurring: false, DueAtUtc: '2026-11-25T10:45:00Z' }] };
+    event('assistant', 'Would you like details?');
+    event('turn_completed', 'Native turn completed.', { MetadataJson: JSON.stringify(continuation) });
+    state = 6;
+    return;
+  }
   if (mode === 'agents') {
     for (const [id, name, lifecycle] of [['run-a', 'Review queue', 'running'], ['run-b', 'Review queue', 'failed'], ['run-c', 'Trace mail', 'completed'], ['run-a', 'Review queue', 'running']]) {
       const callId = `poll-${events.length}`;
@@ -166,7 +175,7 @@ http.createServer(async (req, res) => {
     }
     if (suffix === '/archive' || suffix === '/abandon') { state = 4; event('archived', 'Archived synthetic conversation.'); for (const stream of streams) stream.write('event: state\ndata: 4\n\n'); return reply({}); }
     chatPath = `/chat${suffix}`;
-    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events, recoveryResult, ...providerFields() });
+    if (suffix === '') return reply({ conversationId: url.searchParams.get('conversationId'), state, lastSequence: events.length, events, recoveryResult, continuation, backgroundReports, ...providerFields() });
   }
   if (chatPath.endsWith('/chat/reconcile')) {
     recoveries++;
@@ -337,12 +346,15 @@ http.createServer(async (req, res) => {
     sends++;
     let body = ''; for await (const part of req) body += part;
     const message = JSON.parse(body);
-    if (state !== 0) { res.statusCode = 409; return reply({ error: 'busy' }); }
+    if (state === 6 && continuation?.TurnOutcome === 'completed') {
+      backgroundReports = [{ ParentStartedAtUtc: null, Parent: continuation }];
+      continuation = null;
+    } else if (state !== 0) { res.statusCode = 409; return reply({ error: 'busy' }); }
     state = 1; event('operator', message.text, { ClientMessageId: message.clientMessageId, CreatedByUserId: actor });
     for (const stream of streams) stream.write('event: state\ndata: 1\n\n');
     return reply({ accepted: true });
   }
-  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events, recoveryResult, ...providerFields() });
+  if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events, recoveryResult, continuation, backgroundReports, ...providerFields() });
   if (url.pathname === '/api/v1/incidents/ux-chat') return reply({ id: 'ux-chat', subject: 'AiAssistant UX fixture', trackingId: 'UX-799', state: 0, priority: 1, categoryIds: [] });
   if (url.pathname.endsWith('/count')) return reply(0);
   if (url.pathname.includes('summary')) return reply({});
