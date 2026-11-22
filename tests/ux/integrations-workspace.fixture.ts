@@ -677,6 +677,8 @@ for (const [width, height, theme] of [
   await page.goBack();
   await expect(nav.getByRole('link', { name: 'Connections', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.goForward();
+  await expect(policies).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('mcp-policy-management')).toBeVisible();
   await page.reload();
   await expect(policies).toHaveAttribute('aria-current', 'page');
   await assertNoHorizontalOverflow(page);
