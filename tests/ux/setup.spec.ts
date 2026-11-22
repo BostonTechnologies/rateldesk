@@ -168,9 +168,9 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   // through a local-account-only administration page.
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
-  await expect(page.getByRole('heading', { name: 'Integration', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
-  await expect(page.getByRole('tab', { name: 'API & MCP credentials', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'API & MCP Credentials', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'API & MCP Credentials', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByTestId('integration-credential-create')).toBeEnabled();
   await page.getByTestId('integration-credential-create').click();
   const integration = page.getByRole('dialog', { name: 'Create integration', exact: true });

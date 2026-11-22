@@ -21,7 +21,7 @@ for (const mode of modes) {
         }
       };
       await open('/admin/integration?tab=ai-providers');
-      await expect(page.getByRole('tab', { name: 'AI Providers' })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('link', { name: 'AI Providers' })).toHaveAttribute('aria-current', 'page');
       await page.getByRole('button', { name: `Edit ${provider}` }).click();
       await page.getByText('Advanced settings', { exact: true }).click();
       await expect(page.getByRole('combobox', { name: 'Versioned skill bundle reference (optional)' })).toHaveText('fixture-bundle-v1');
@@ -36,7 +36,7 @@ for (const mode of modes) {
       await page.screenshot({ path: info.outputPath('ai-providers.png'), fullPage: mode.zoom !== 2 });
 
       await open('/admin/integration?tab=netclaw');
-      await expect(page.getByRole('tab', { name: 'AI Providers' })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('link', { name: 'AI Providers' })).toHaveAttribute('aria-current', 'page');
       await expect(page.getByText('Netclaw address', { exact: true })).toBeVisible();
 
       const routes = [

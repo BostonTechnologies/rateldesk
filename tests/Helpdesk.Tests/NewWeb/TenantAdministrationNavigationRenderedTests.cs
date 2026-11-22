@@ -16,10 +16,10 @@ public sealed class TenantAdministrationNavigationRenderedTests
 {
     [Theory]
     [InlineData("Tenant.Users.Manage", "/admin/users")]
-    [InlineData("Tenant.Roles.Assign", "/admin/organizations,/admin/roles,/admin/users")]
+    [InlineData("Tenant.Roles.Assign", "/admin/roles,/admin/users")]
     [InlineData("Tenant.Settings.Manage", "/admin/organizations")]
-    [InlineData("Tenant.Users.Manage,Tenant.Settings.Manage", "/admin/organizations,/admin/users")]
-    [InlineData("Tenant.Users.Manage,Tenant.Roles.Assign", "/admin/organizations,/admin/roles,/admin/users")]
+    [InlineData("Tenant.Users.Manage,Tenant.Settings.Manage", "/admin/users")]
+    [InlineData("Tenant.Users.Manage,Tenant.Roles.Assign", "/admin/roles,/admin/users")]
     [InlineData("Incident.Read", "")]
     [InlineData("HelpdeskAdmin,Tenant.Users.Manage", "")]
     [InlineData("", "")]
@@ -29,7 +29,7 @@ public sealed class TenantAdministrationNavigationRenderedTests
         var menu = context.Render<DelegatedNavigation>();
 
         Assert.Equal(expectedRoutes.Split(',', StringSplitOptions.RemoveEmptyEntries), Hrefs(menu));
-        Assert.Equal(string.IsNullOrEmpty(expectedRoutes) ? 0 : 2, menu.FindComponents<MudNavGroup>().Count);
+        Assert.Equal(string.IsNullOrEmpty(expectedRoutes) ? 0 : 1, menu.FindComponents<MudNavGroup>().Count);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class TenantAdministrationNavigationRenderedTests
         var team = Assert.Single(menu.FindAll("a[aria-current='page']"));
         Assert.Equal("/admin/users", team.GetAttribute("href"));
         Assert.Equal("0", team.GetAttribute("tabindex"));
-        Assert.Equal("Team", team.TextContent.Trim());
+        Assert.Equal("People & Organizations", team.TextContent.Trim());
         Assert.All(menu.FindComponents<MudNavGroup>(), group =>
             Assert.Equal("true", group.Find("button").GetAttribute("aria-expanded")));
 

@@ -37,8 +37,8 @@ cannot delegate tenant-management, data-management, or instance permissions.
 
 ## Tenant membership delegation
 
-The tenant Team workflow is available at **Administration → Accounts & Orgs →
-Team** (`/admin/users`) when the API resolves at least one tenant with
+The tenant member directory is available at **Administration → People & Organizations →
+Support Agents** (`/admin/users`) when the API resolves at least one tenant with
 `Tenant.Users.Manage` or `Tenant.Roles.Assign`. It lists only members of the
 selected authorized tenant. Role editing requires `Tenant.Roles.Assign`; local
 invitations require both `Tenant.Users.Manage` and `Tenant.Roles.Assign` for

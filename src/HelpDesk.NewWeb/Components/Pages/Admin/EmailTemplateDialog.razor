@@ -6,6 +6,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
+<WorkspaceEditGuard Dirty="@((model.Name, model.Subject, model.LayoutId, model.HtmlContent) != (Model.Name, Model.Subject, Model.LayoutId, Model.HtmlContent))" Message="Discard unsaved email template changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">

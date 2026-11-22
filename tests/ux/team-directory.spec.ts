@@ -52,7 +52,7 @@ test.describe('Team bounded queries and explicit lifecycle actions', () => {
     await expect(page.locator('tbody tr')).toHaveCount(25);
     await page.getByRole('textbox', { name: 'Search name or email', exact: true }).fill('person136');
     await expect(page.getByText('Synthetic person 136', { exact: true })).toBeVisible();
-    await expect(page.getByText('1 team members', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 support agent', { exact: true })).toBeVisible();
     const state = await (await request.get(`${fixture}/state`)).json();
     expect(state.requests.some((entry: { path: string }) => entry.path.endsWith('/status'))).toBe(false);
     await page.getByRole('button', { name: 'Clear filters', exact: true }).click();

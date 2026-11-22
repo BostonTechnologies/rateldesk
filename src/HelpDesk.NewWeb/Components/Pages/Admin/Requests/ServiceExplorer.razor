@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/requests/services"
 @page "/admin/requests/services/{ServiceId}"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
@@ -16,7 +17,7 @@
 @inject ISnackbar Snackbar
 @inject ILogger<ServiceExplorer> Logger
 
-<PageTitle>@(ParentService is not null ? $"Service: {ParentService!.Name}" : "Service Explorer")</PageTitle>
+<PageTitle>@(ParentService is not null ? $"Service: {ParentService!.Name}" : "Service Catalog")</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="helpdesk-page service-explorer-page">
     <div class="service-explorer-layout">
@@ -30,7 +31,7 @@
 
         <div class="helpdesk-page-header">
             <div>
-                <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">@(ParentService?.Name ?? "Service Explorer")</MudText>
+                <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">@(ParentService?.Name ?? "Service Catalog")</MudText>
                 <MudText Typo="Typo.body2" Class="helpdesk-page-description">Manage service folders, request forms, access, and automation bindings.</MudText>
             </div>
             <MudStack Row="true" Spacing="1" Class="service-explorer-actions">
@@ -51,7 +52,7 @@
 
         @if (loadError is not null)
         {
-            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3" role="alert">@loadError <MudButton Size="Size.Small" OnClick="RetryLoadAsync">Retry Service Explorer</MudButton></MudAlert>
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3" role="alert">@loadError <MudButton Size="Size.Small" OnClick="RetryLoadAsync">Retry Service Catalog</MudButton></MudAlert>
         }
         @if (loadError is null && !serviceItems.Any())
         {
@@ -163,8 +164,8 @@
         try { await LoadData(); }
         catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or IOException or OperationCanceledException)
         {
-            Logger.LogWarning("Service Explorer could not be loaded ({ExceptionType}).", exception.GetType().Name);
-            loadError = "Service Explorer could not be loaded. Check your access and retry; no service or assignment has changed.";
+            Logger.LogWarning("Service Catalog could not be loaded ({ExceptionType}).", exception.GetType().Name);
+            loadError = "Service Catalog could not be loaded. Check your access and retry; no service or assignment has changed.";
         }
         finally { loading = false; }
     }
@@ -206,7 +207,10 @@
                     _breadcrumbs = items; return;
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+            {
+                Logger.LogDebug("Service breadcrumb unavailable ({ExceptionType}). Showing the current service.", exception.GetType().Name);
+            }
 
             if (ParentService is not null)
                 items.Add(new BreadcrumbItem(ParentService.Name, href: null, disabled: true));

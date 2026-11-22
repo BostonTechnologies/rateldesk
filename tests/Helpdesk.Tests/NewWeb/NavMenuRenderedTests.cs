@@ -20,9 +20,8 @@ public sealed class NavMenuRenderedTests
     private static readonly string[] Account = ["home", "auth", "notifications", "/logout"];
     private static readonly string[] GlobalAdministration =
     [
-        "/admin/users", "/admin/customers", "/admin/organizations", "/admin/support-routing", "/admin/tenant-sla-settings",
-        "/admin/roles", "/admin/email-settings", "/admin/pending-emails", "/admin/email-rules", "/admin/templates", "/admin/layouts",
-        "/admin/integration", "/admin/operator-policies", "/admin/automation", "/admin/requests/services", "/admin/ai-assistant-webhooks", "/admin/categories", "/admin/branding"
+        "/admin/users", "/admin/roles", "/admin/email-settings", "/admin/integration",
+        "/admin/automation", "/admin/categories", "/admin/branding"
     ];
 
     [Fact]
@@ -32,7 +31,7 @@ public sealed class NavMenuRenderedTests
         var menu = context.Render<NavMenu>();
         var expected = Account.Concat(GlobalAdministration).Concat([
             "self-service", "incidents", "requests", "tasks", "changes",
-            "/ops", "/ai/chat", "/ai/ops", "/ai/prompts", "assets", "/admin/resources/data-management"
+            "/ops", "/ai/chat", "assets", "/admin/resources/data-management"
         ]).OrderBy(route => route).ToArray();
 
         Assert.Equal(expected, Hrefs(menu));
@@ -70,16 +69,16 @@ public sealed class NavMenuRenderedTests
 
     [Theory]
     [InlineData("SelfService.User", "self-service", "")]
-    [InlineData("Incident.Read", "incidents,/ai/chat", "Workspace,AI Ops")]
-    [InlineData("Incident.Manager", "incidents,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
+    [InlineData("Incident.Read", "incidents,/ai/chat", "Workspace")]
+    [InlineData("Incident.Manager", "incidents,/ops,/ai/chat", "Workspace,Operations")]
     [InlineData("Request.User", "requests", "Workspace")]
-    [InlineData("Request.Read", "requests,tasks,/ops,/ai/chat", "Workspace,Operations,AI Ops")]
-    [InlineData("Request.Manager", "requests,tasks,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
-    [InlineData("Change.Read", "changes,/ai/chat", "Workspace,AI Ops")]
-    [InlineData("Change.Manager", "changes,/ops,/ai/chat,/ai/ops", "Workspace,Operations,AI Ops")]
+    [InlineData("Request.Read", "requests,tasks,/ops,/ai/chat", "Workspace,Operations")]
+    [InlineData("Request.Manager", "requests,tasks,/ops,/ai/chat", "Workspace,Operations")]
+    [InlineData("Change.Read", "changes,/ai/chat", "Workspace")]
+    [InlineData("Change.Manager", "changes,/ops,/ai/chat", "Workspace,Operations")]
     [InlineData("DataManagement.Admin", "/admin/resources/data-management", "Resources")]
-    [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/organizations,/admin/roles", "Administration,Accounts & Orgs")]
-    [InlineData("Tenant.Settings.Manage", "/admin/organizations,/account/integration-credentials", "Administration,Accounts & Orgs")]
+    [InlineData("Tenant.Roles.Assign", "/admin/users,/admin/roles", "Administration")]
+    [InlineData("Tenant.Settings.Manage", "/admin/organizations,/account/integration-credentials", "Administration")]
     public async Task Scoped_roles_keep_exact_leaf_visibility_and_hide_empty_groups(string role, string routes, string groups)
     {
         await using var context = Context(role);
@@ -89,6 +88,36 @@ public sealed class NavMenuRenderedTests
         Assert.Equal(groups.Split(',', StringSplitOptions.RemoveEmptyEntries).Append("Operations").Distinct().OrderBy(title => title), menu.FindComponents<MudNavGroup>().Select(group => group.Instance.Title).OrderBy(title => title));
         if (!groups.Contains("Administration", StringComparison.Ordinal))
             Assert.DoesNotContain("Administration", menu.FindAll(".nav-section-heading").Select(element => element.TextContent));
+    }
+
+    [Theory]
+    [InlineData("Incident.Read", "/ai/chat", "Chat", "Chat")]
+    [InlineData("Request.Write", "/ai/ops", "Chat,Investigations", "Investigations")]
+    [InlineData("HelpdeskAdmin", "/ai/prompts", "Chat,Investigations,Prompts", "Prompts")]
+    [InlineData("Tenant.Users.Manage", "/admin/users", "Support Agents", "Support Agents")]
+    [InlineData("Tenant.Settings.Manage", "/tenant-settings", "Organizations", "Organizations")]
+    [InlineData("Tenant.Roles.Assign", "/admin/organizations", "Support Agents,Organizations", "Organizations")]
+    [InlineData("HelpdeskAdmin", "/admin/requests/services/example", "Rules,Service Catalog,Webhooks", "Service Catalog")]
+    public async Task Hub_tabs_filter_by_role_and_highlight_the_active_route(string role, string route, string labels, string current)
+    {
+        await using var context = Context(role);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo(route);
+        var layout = context.Render<NewWeb::HelpDesk.NewWeb.Components.Layout.WorkspaceLayout>();
+        Assert.Equal(labels.Split(','), layout.FindAll("nav a").Select(link => link.TextContent.Trim()));
+        Assert.Equal(current, Assert.Single(layout.FindAll("nav a[aria-current='page']")).TextContent.Trim());
+    }
+
+    [Fact]
+    public async Task Chat_destination_restores_only_the_conversation_of_the_current_organization()
+    {
+        await using var context = Context("HelpdeskAdmin");
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("/ai/chat?organizationId=alpha&conversationId=first");
+        var layout = context.Render<NewWeb::HelpDesk.NewWeb.Components.Layout.WorkspaceLayout>();
+        await layout.InvokeAsync(() => navigation.NavigateTo("/ai/ops?organizationId=beta"));
+        Assert.Equal("/ai/chat?organizationId=beta", layout.Find("a").GetAttribute("href"));
+        await layout.InvokeAsync(() => navigation.NavigateTo("/ai/prompts?organizationId=alpha"));
+        Assert.Equal("/ai/chat?organizationId=alpha&conversationId=first", layout.Find("a").GetAttribute("href"));
     }
 
     [Theory]
@@ -104,16 +133,16 @@ public sealed class NavMenuRenderedTests
     [InlineData("/admin/integrations?section=all", "/admin/integration")]
     [InlineData("/settings/connectivity", "/admin/integration")]
     [InlineData("/admin/orchestration/orchestration", "/admin/integration")]
-    [InlineData("/tenant-settings?organizationId=example", "/admin/organizations")]
+    [InlineData("/tenant-settings?organizationId=example", "/admin/users")]
     [InlineData("/incidents/detail/example", "incidents")]
     [InlineData("/requests/create", "requests")]
     [InlineData("/tasks/edit/example", "tasks")]
     [InlineData("/changes/example", "changes")]
     [InlineData("/ops/slas/details/example", "/ops")]
     [InlineData("/ai/chat?organizationId=org", "/ai/chat")]
-    [InlineData("/ai/ops?id=example", "/ai/ops")]
-    [InlineData("/ai/prompts", "/ai/prompts")]
-    [InlineData("/admin/email-rules/edit/example", "/admin/email-rules")]
+    [InlineData("/ai/ops?id=example", "/ai/chat")]
+    [InlineData("/ai/prompts", "/ai/chat")]
+    [InlineData("/admin/email-rules/edit/example", "/admin/email-settings")]
     [InlineData("/account/integration-credentials/approve?code=SAFE-CODE", "/admin/integration")]
     [InlineData("/account/authenticator", "auth")]
     [InlineData("/account/change-password", "auth")]
@@ -146,14 +175,14 @@ public sealed class NavMenuRenderedTests
     [InlineData("/incidents/detail/example", "Workspace")]
     [InlineData("/ops/slas", "Operations")]
     [InlineData("/admin/resources/data-management", "Resources")]
-    [InlineData("/admin/users", "Administration,Accounts & Orgs")]
-    [InlineData("/admin/email-rules", "Administration,Email Settings")]
+    [InlineData("/admin/users", "Administration")]
+    [InlineData("/admin/email-rules", "Administration")]
     [InlineData("/settings/connectivity", "Administration")]
     [InlineData("/admin/integration", "Administration")]
     [InlineData("/admin/operator-policies", "Administration")]
-    [InlineData("/ai/chat?organizationId=org", "Operations,AI Ops")]
-    [InlineData("/ai/ops", "Operations,AI Ops")]
-    [InlineData("/ai/prompts", "Operations,AI Ops")]
+    [InlineData("/ai/chat?organizationId=org", "Operations")]
+    [InlineData("/ai/ops", "Operations")]
+    [InlineData("/ai/prompts", "Operations")]
     public async Task Deep_links_expand_required_parent_groups(string route, string expandedTitles)
     {
         await using var context = Context("HelpdeskAdmin");
@@ -170,22 +199,22 @@ public sealed class NavMenuRenderedTests
         var navigation = context.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("/admin/email-rules");
         var menu = context.Render<NavMenu>();
-        var email = Group(menu, "Email Settings");
+        var email = Group(menu, "Administration");
         email.Find("button").Click();
         menu.Render();
         await menu.InvokeAsync(() => navigation.NavigateTo("/admin/email-rules?search=a#rule"));
-        menu.WaitForAssertion(() => Assert.Equal("false", Group(menu, "Email Settings").Find("button").GetAttribute("aria-expanded")));
-        Assert.Equal("-1", menu.Find("a[href='/admin/email-rules']").GetAttribute("tabindex"));
-        AssertCurrent(menu, "/admin/email-rules");
+        menu.WaitForAssertion(() => Assert.Equal("false", Group(menu, "Administration").Find("button").GetAttribute("aria-expanded")));
+        Assert.Equal("-1", menu.Find("a[href='/admin/email-settings']").GetAttribute("tabindex"));
+        AssertCurrent(menu, "/admin/email-settings");
 
         Group(menu, "Workspace").Find("button").Click();
         await menu.InvokeAsync(() => navigation.NavigateTo("/incidents"));
         await menu.InvokeAsync(() => navigation.NavigateTo("/admin/email-rules"));
         menu.WaitForAssertion(() =>
         {
-            Assert.Equal("true", Group(menu, "Email Settings").Find("button").GetAttribute("aria-expanded"));
+            Assert.Equal("true", Group(menu, "Administration").Find("button").GetAttribute("aria-expanded"));
             Assert.Equal("true", Group(menu, "Workspace").Find("button").GetAttribute("aria-expanded"));
-            AssertCurrent(menu, "/admin/email-rules");
+            AssertCurrent(menu, "/admin/email-settings");
         });
         var authorization = context.Authorization;
         authorization.SetAuthorized("A very long account name for the customer support team");
@@ -205,9 +234,9 @@ public sealed class NavMenuRenderedTests
         await using var context = Context("Tenant.Roles.Assign");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/tenant-administration?organizationId=example");
         var menu = context.Render<NavMenu>();
-        AssertCurrent(menu, "/admin/organizations");
+        AssertCurrent(menu, "/admin/users");
         Assert.Equal("true", Group(menu, "Administration").Find("button").GetAttribute("aria-expanded"));
-        Assert.Equal("true", Group(menu, "Accounts & Orgs").Find("button").GetAttribute("aria-expanded"));
+        Assert.Equal("People & Organizations", menu.Find("a.active").TextContent.Trim());
         Assert.DoesNotContain("/admin/customers", Hrefs(menu));
         Assert.DoesNotContain("/admin/tenant-sla-settings", Hrefs(menu));
     }

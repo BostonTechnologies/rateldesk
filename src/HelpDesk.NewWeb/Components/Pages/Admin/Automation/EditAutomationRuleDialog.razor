@@ -1,6 +1,7 @@
 @using System.ComponentModel.DataAnnotations
 @inject IHttpClientFactory HttpClientFactory
 
+<WorkspaceEditGuard Dirty="@((model.Name, model.Trigger, model.Conditions, model.Actions) != (Rule.Name, Rule.Trigger, Rule.Conditions, Rule.Actions))" Message="Discard unsaved automation rule changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">

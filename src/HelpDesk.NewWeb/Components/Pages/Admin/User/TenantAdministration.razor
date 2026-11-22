@@ -1,4 +1,6 @@
+@layout WorkspaceLayout
 @page "/tenant-administration"
+@inject AuthenticationStateProvider Authentication
 @attribute [Authorize(Roles = "Tenant.Users.Manage,Tenant.Roles.Assign,HelpdeskAdmin")]
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
@@ -141,6 +143,15 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!IsCanonical)
+        {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (user.IsInRole("Tenant.Users.Manage") && !user.IsInRole("Tenant.Roles.Assign") && !user.IsInRole("Tenant.Settings.Manage") && !user.IsInRole("HelpdeskAdmin"))
+            {
+                NavigationManager.NavigateTo("/admin/users" + new Uri(NavigationManager.Uri).Query, replace: true);
+                return;
+            }
+        }
         var rolesResponse = await HelpdeskApi.GetAsync("api/v1/tenant-admin/organizations");
         var usersResponse = await HelpdeskApi.GetAsync("api/v1/tenant-admin/organizations?permission=Tenant.Users.Manage");
         if (!rolesResponse.IsSuccessStatusCode && !usersResponse.IsSuccessStatusCode)

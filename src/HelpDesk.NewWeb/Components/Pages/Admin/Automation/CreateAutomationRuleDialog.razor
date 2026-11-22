@@ -1,5 +1,6 @@
 
 @inject IHttpClientFactory HttpClientFactory
+<WorkspaceEditGuard Dirty="@((model.Name.Length > 0 || model.Trigger.Length > 0 || !string.IsNullOrEmpty(model.Conditions) || !string.IsNullOrEmpty(model.Actions)))" Message="Discard unsaved automation rule changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">

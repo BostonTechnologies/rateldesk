@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
 test('Email Settings opens as a standalone page from the expanded administration navigation', async ({ page }, testInfo) => {
   await page.goto('/admin/email-settings');
 
-  await expect(page.getByRole('heading', { name: 'Email Settings / Mailbox Configuration' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mailboxes' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Inbound provider' })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Selected mailbox status' })).toBeVisible();
   await expect(page.getByTestId('mailbox-command-bar')).toBeVisible();
@@ -38,8 +38,8 @@ test('Email Settings opens as a standalone page from the expanded administration
   await expect(page.locator('.mud-dialog')).toHaveCount(0);
 
   const drawer = page.getByTestId('app-navigation-drawer');
-  await expect(drawer.getByRole('link', { name: 'Mailbox Configuration' })).toBeVisible();
-  await expect(drawer.getByRole('link', { name: 'Pending Emails' })).toBeVisible();
+  await expect(drawer.getByRole('link', { name: 'Email', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Email', exact: true }).getByRole('link', {name: 'Pending Mail'})).toBeVisible();
   await expect(drawer.getByText('Email Design', { exact: true })).toHaveCount(0);
   await expect(drawer.getByText('Connectivity', { exact: true })).toHaveCount(0);
   await assertNoHorizontalOverflow(page);
@@ -51,13 +51,13 @@ test('Administration exposes the consolidated Integration destination', async ({
   await page.goto('/admin/email-settings');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
 
-  const integrationHub = drawer.getByRole('link', { name: 'Integration', exact: true });
+  const integrationHub = drawer.getByRole('link', { name: 'Integrations', exact: true });
   await expect(integrationHub).toBeVisible();
   await integrationHub.click();
 
   await expect(page).toHaveURL(/\/admin\/integration$/);
-  await expect(page.getByRole('heading', { name: 'Integration', exact: true })).toBeVisible();
-  await expect(page.getByText('Manage system connections, account credentials and Netclaw.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'MCP Policies', exact: true })).toBeVisible();
 });
 
 test('Email Settings is usable from the phone drawer without horizontal overflow', async ({ page }, testInfo) => {
@@ -68,11 +68,10 @@ test('Email Settings is usable from the phone drawer without horizontal overflow
   const drawer = page.locator('[data-testid="app-navigation-drawer"]:visible');
   await expect(drawer.getByRole('link', { name: 'Home' })).toBeInViewport();
   await drawer.getByRole('button', { name: 'Toggle Administration' }).click();
-  await drawer.getByText('Email Settings', { exact: true }).click();
-  await drawer.getByRole('link', { name: 'Mailbox Configuration' }).click();
+  await drawer.getByRole('link', { name: 'Email', exact: true }).click();
 
   await expect(page).toHaveURL(/\/admin\/email-settings$/);
-  await expect(page.getByRole('heading', { name: 'Email Settings / Mailbox Configuration' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mailboxes' })).toBeVisible();
   await expectDrawerFullyClosed(page);
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('email-settings-mobile.png'), fullPage: true });

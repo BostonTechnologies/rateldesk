@@ -33,8 +33,8 @@ public sealed class GlobalSearchService : IGlobalSearchService
         new("changes", "Changes", Icons.Material.Filled.ChangeCircle, "/changes", SearchAudience.Workspace),
         new("tasks", "Tasks", Icons.Material.Filled.TaskAlt, "/tasks", SearchAudience.Workspace),
         new("investigations", "AI investigations", Icons.Material.Filled.Psychology, "/ai/ops", SearchAudience.Workspace),
-        new("team", "Team", Icons.Material.Filled.Group, "/admin/users", SearchAudience.Admin),
-        new("customers", "Customers", Icons.Material.Filled.People, "/admin/customers", SearchAudience.Admin),
+        new("team", "Support Agents", Icons.Material.Filled.Group, "/admin/users", SearchAudience.Admin),
+        new("customers", "Customer Contacts", Icons.Material.Filled.People, "/admin/customers", SearchAudience.Admin),
         new("organizations", "Organizations", Icons.Material.Filled.Apartment, "/admin/organizations", SearchAudience.Admin)
     ];
 
@@ -432,7 +432,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         Icons.Material.Filled.TaskAlt);
 
     private static GlobalSearchResult ToUserResult(UserDto user) => new(
-        "Team",
+        "Support Agents",
         user.Name,
         user.Email,
         user.Role,
@@ -440,7 +440,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         Icons.Material.Filled.Group);
 
     private static GlobalSearchResult ToCustomerResult(CustomerDto customer) => new(
-        "Customers",
+        "Customer Contacts",
         customer.Name,
         customer.Email,
         customer.OrganizationName,

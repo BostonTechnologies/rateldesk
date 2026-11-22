@@ -29,7 +29,7 @@ public sealed class UserLifecycleDialogTests
         using var api = new DirectoryApi();
         await using var context = DirectoryContext(api, mode);
         var page = context.Render<TeamPage>();
-        page.WaitForAssertion(() => Assert.Contains("1 team members", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("1 support agent", page.Markup));
         Assert.Single(page.FindAll("button[aria-label='Delete user']"));
         Assert.Equal(localActions ? 1 : 0, page.FindAll("button[aria-label='Manage local account']").Count);
         Assert.Equal(localActions ? 1 : 0, page.FindAll("button[aria-label='Disable sign-in']").Count);
@@ -47,13 +47,13 @@ public sealed class UserLifecycleDialogTests
         await using var context = DirectoryContext(api, "Hybrid");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/users?search=kept%20query");
         var page = context.Render<TeamPage>();
-        page.WaitForAssertion(() => Assert.Contains("Team members could not be loaded. Retry the query.", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("Support agents could not be loaded. Retry the query.", page.Markup));
         Assert.Contains("query is retained", page.Find("[role=alert]").TextContent);
         Assert.DoesNotContain("private technical detail", page.Markup);
         Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "kept query");
         api.Failure = null;
         page.FindAll("button").Single(button => button.TextContent == "Retry").Click();
-        page.WaitForAssertion(() => Assert.Contains("1 team members", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("1 support agent", page.Markup));
         Assert.Empty(page.FindAll("[role=alert]"));
     }
 

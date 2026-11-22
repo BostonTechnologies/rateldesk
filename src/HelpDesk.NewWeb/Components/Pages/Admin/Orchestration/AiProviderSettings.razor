@@ -4,6 +4,7 @@
 @using System.Text.Json
 @inject IHttpClientFactory Clients
 
+<WorkspaceEditGuard Dirty="@(draft is not null)" Saving="@busy" Message="Discard the open AI provider edit and leave?" />
 <MudStack Spacing="2">
     @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
     @if (notice is not null) { <MudAlert Severity="Severity.Info" Dense="true">@notice</MudAlert> }
