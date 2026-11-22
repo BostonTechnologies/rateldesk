@@ -1,7 +1,7 @@
 {
-  "schemaHash": "93d18c5da7d3c91d62facf8166ccd0226b72431074ac1a0e8d5cb7a9136db75e",
+  "schemaHash": "357ddb1595834a167499471cdbe60e4d95d2b6a74b6f4e7ebebc2004c7631785",
   "catalogRevision": "2026-11-22.request-closure-v34",
-  "catalogHash": "cc367626358c6f35c1a3a7affa8413b1564ba87b16148e6e56e48c902e077162",
+  "catalogHash": "fbb4e81625ecee04a8da819bd9c16a5d4561a3572549cb948e83b47e3042c423",
   "operationCount": 393,
   "operations": [
     {
@@ -30749,6 +30749,9 @@
                 "not": {
                   "const": "00000000-0000-0000-0000-000000000000"
                 }
+              },
+              "scheduledOnly": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -48498,6 +48501,9 @@
                         "not": {
                           "const": "00000000-0000-0000-0000-000000000000"
                         }
+                      },
+                      "scheduledOnly": {
+                        "type": "boolean"
                       }
                     },
                     "required": [

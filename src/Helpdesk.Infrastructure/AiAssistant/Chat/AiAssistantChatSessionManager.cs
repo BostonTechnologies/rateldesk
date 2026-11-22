@@ -58,10 +58,12 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
         public bool FirstReplyObserved;
         public bool FirstMeaningfulObserved;
         public bool CreatedSession { get; set; }
+        public bool RetainRepliesUntilTerminal { get; set; }
         public HashSet<string> ReminderCalls { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, ChatScheduledReport> ReminderRegistrations { get; } = new(StringComparer.Ordinal);
         public bool UnconfirmedReminderRegistration { get; set; }
         public ChatTurnCompletion? Continuation { get; set; }
+        public ChatScheduledBinding[] BackgroundReports { get; set; } = [];
         public Channel<NetclawOutput> Outputs { get; } = Channel.CreateBounded<NetclawOutput>(256);
         public StringBuilder Draft { get; } = new();
         public List<string> StagedReplies { get; } = [];
@@ -79,7 +81,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 observed = previous;
             }
         }
-        public Dictionary<string, long> ToolStarts { get; } = new();
+        public Dictionary<(int? Turn, string Call), long> ToolStarts { get; } = new();
         public TaskCompletionSource Joined { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Consumer { get; set; } = Task.CompletedTask;
         public int Uses;
@@ -335,7 +337,9 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 if (!string.Equals(existing.ProfileFingerprint, snapshot.ProfileFingerprint, StringComparison.Ordinal))
                     throw new ChatConflictException("The Netclaw transport was reconfigured; retry after the conversation is reloaded.");
                 if (forceReconnect && Volatile.Read(ref existing.Uses) != 0) throw new ChatConflictException("A transport operation is still completing. Reconcile again after it finishes.");
-                if (!forceReconnect && existing.Client.IsConnected && !existing.Consumer.IsCompleted && !existing.Overflowed && !existing.Retired) { Interlocked.Increment(ref existing.Uses); return existing; }
+                var canReuse = existing.MessageId == conversation.ActiveMessageId ||
+                    (await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct)).Length > 0;
+                if (canReuse && !forceReconnect && existing.Client.IsConnected && !existing.Consumer.IsCompleted && !existing.Overflowed && !existing.Retired) { Interlocked.Increment(ref existing.Uses); return existing; }
                 owners.TryRemove(id, out _);
                 await RetireAsync(existing);
             }
@@ -380,6 +384,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 owner.CreatedSession = ensured.Created;
                 owner.MessageId = conversation.ActiveMessageId;
                 owner.Continuation = await LatestCompletionAsync(db, conversation, ct);
+                owner.BackgroundReports = await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct);
                 owner.LastCompletedTurn = owner.Continuation?.TurnNumber;
                 owner.BaselineTurn = ensured.Created ? 0 : await LatestNativeOrdinalAsync(db, conversation.Id, ct);
                 owner.AuthenticatedAtUtc = Now;
@@ -417,6 +422,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
         var changed = false;
         if (messageId is null || conversation.ActiveMessageId == messageId)
         {
+            changed = await EndBackgroundObserversAsync(db, conversation, reason, expiredOnly: false, stopping);
             var previous = await LatestCompletionAsync(db, conversation, stopping);
             if (HasPendingReports(previous) && conversation.State != ChatState.Archived)
             {
@@ -564,7 +570,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                     if (owner.Draft.Length < 128000) owner.Draft.Append(Bounded(output.Text, 128000 - owner.Draft.Length));
                     if (owner.ShouldCheckpoint(Now, runtime.Current.ActivityHeartbeatInterval))
                         await CheckpointTransportActivityAsync(id, owner, stopping);
-                    if (owner.CreatedSession && !HasScheduledWork(owner.Continuation) && !owner.ObservingStoppedTurn)
+                    if (owner.CreatedSession && !owner.RetainRepliesUntilTerminal && !HasScheduledWork(owner.Continuation) && owner.BackgroundReports.Length == 0 && !owner.ObservingStoppedTurn)
                         feed.Publish(new(id, owner.Draft.ToString(), owner.DurableSequence, owner.MessageId));
                     continue;
                 }
@@ -573,6 +579,24 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await using var tx = await db.Database.BeginTransactionAsync(stopping);
                 var conversation = await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(stopping);
+                if (conversation.ActiveMessageId != owner.MessageId && owner.MessageId.HasValue && conversation.State == ChatState.Processing
+                    && owners.TryGetValue(id, out var bound) && ReferenceEquals(bound, owner)
+                    && conversation.AiAssistantSessionId == owner.SessionId && conversation.ProviderProfileFingerprint == owner.ProfileFingerprint)
+                {
+                    var bindings = await ChatScheduledObservationLedger.LoadAsync(db, conversation, stopping);
+                    var admission = await db.Set<AiAssistantChatEvent>().AsNoTracking().Where(item =>
+                        item.ConversationId == conversation.Id && item.ClientMessageId == conversation.ActiveMessageId && item.Type == "operator")
+                        .Select(item => item.MetadataJson).SingleAsync(stopping);
+                    if (admission is not null && JsonSerializer.Deserialize<ChatReceiverHandoff>(admission)?.PreviousMessageId == owner.MessageId)
+                    {
+                        owner.MessageId = conversation.ActiveMessageId;
+                        owner.BackgroundReports = bindings;
+                        owner.RetainRepliesUntilTerminal = true;
+                        owner.Continuation = null;
+                        owner.FirstMeaningfulObserved = owner.FirstReplyObserved = false;
+                        owner.ObservingStoppedTurn = false;
+                    }
+                }
                 if (owner.Retired || !owners.TryGetValue(id, out var activeOwner) || !ReferenceEquals(owner, activeOwner)
                     || conversation.AiAssistantSessionId != owner.SessionId
                     || conversation.ActiveMessageId != owner.MessageId
@@ -586,6 +610,11 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 {
                     if (type == "session_joined") owner.Joined.TrySetResult();
                     continue;
+                }
+                if (type == "turn_completed" && (owner.BackgroundReports.Length > 0 || HasPendingReports(owner.Continuation)))
+                {
+                    owner.BackgroundReports = await ChatScheduledObservationLedger.LoadAsync(db, conversation, stopping);
+                    owner.Continuation = await LatestCompletionAsync(db, conversation, stopping);
                 }
                 if (HasPendingWork(owner.Continuation) && owner.Continuation!.ObservationExpiresAtUtc <= Now)
                     throw new InvalidOperationException("Follow-up observation limit expired.");
@@ -624,7 +653,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 if (type is "text" or "buffer_flush")
                 {
                     var text = output.Text ?? owner.Draft.ToString();
-                    var stage = !owner.CreatedSession || owner.Continuation is not null || stoppedObservation;
+                    var stage = !owner.CreatedSession || owner.RetainRepliesUntilTerminal || owner.Continuation is not null || owner.BackgroundReports.Length > 0 || stoppedObservation;
                     if (!string.IsNullOrWhiteSpace(text))
                     {
                         if (stage) StageReply(owner, text, canonical: type == "text");
@@ -669,11 +698,15 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                     long? duration = null;
                     if (toolCallId is not null)
                     {
-                        if (type == "tool_call" && owner.ToolStarts.Count < 1024) owner.ToolStarts.TryAdd(toolCallId, Stopwatch.GetTimestamp());
-                        else if (type == "tool_result" && owner.ToolStarts.Remove(toolCallId, out var started))
+                        if (type == "tool_call" && owner.ToolStarts.Count < 1024) owner.ToolStarts.TryAdd((output.TurnOrdinal ?? owner.LastCompletedTurn, toolCallId), Stopwatch.GetTimestamp());
+                        else if (type == "tool_result" && owner.ToolStarts.Remove((output.TurnOrdinal ?? owner.LastCompletedTurn, toolCallId), out var started))
                             duration = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                     }
-                    var metadata = output.Activity(duration);
+                    var metadata = output.Activity(duration) with
+                    {
+                        Association = new(owner.MessageId!.Value, owner.LastCompletedTurn, output.TurnOrdinal),
+                        Child = output.ChildObservation()
+                    };
                     AiAssistantChatStore.AppendActivity(db, conversation, type, toolCallId, metadata, Now);
                 }
                 else if (type is "usage" or "processing_state" or "compaction" or "subagent")
@@ -681,7 +714,9 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                     var details = output.Trace;
                     AiAssistantChatStore.AppendActivity(db, conversation, type, null,
                         new ChatActivityMetadata(type == "subagent" ? output.AgentName : type,
-                            type, null, null, null, "observed", details), Now);
+                            type, null, null, null, "observed", details,
+                            Association: new(owner.MessageId!.Value, owner.LastCompletedTurn, output.TurnOrdinal),
+                            Child: output.ChildObservation()), Now);
                 }
                 else if (type == "file")
                     AiAssistantChatStore.Append(db, conversation, "file", $"Artifact produced: {output.FileName} ({output.MimeType}).", atUtc: Now);
@@ -859,6 +894,8 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
             .ToListAsync(ct);
         foreach (var conversation in interrupted)
         {
+            await EndBackgroundObserversAsync(db, conversation, "The API restarted and lost the original observation.", expiredOnly: false, ct);
+            if (conversation.State == ChatState.Idle) continue;
             var previous = await LatestCompletionAsync(db, conversation, ct);
             if (HasPendingReports(previous))
             {

@@ -66,6 +66,31 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var conversation = await LockAsync(request.ConversationId, ct);
         Bind(conversation, ticket, actor);
+        if (request.ScheduledOnly)
+        {
+            if (conversation.State == ChatState.Archived) throw new ChatConflictException("The conversation was archived.");
+            var bindings = await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct);
+            var binding = bindings.SingleOrDefault(item => item.Parent.OperatorMessageId == request.ExpectedMessageId);
+            var parent = binding?.Parent ?? await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
+            if (parent?.OperatorMessageId != request.ExpectedMessageId || parent.ScheduledReports?.Any(report => !report.Unconfirmed) != true)
+                throw new ChatConflictException("The scheduled observation already ended.");
+            var remaining = bindings.Where(item => item != binding).ToArray();
+            if (binding is not null) ChatScheduledObservationLedger.Save(db, conversation, remaining, Now);
+            var ended = parent with { ScheduledWorkUnconfirmed = true,
+                ScheduledReports = parent.ScheduledReports.Select(report => report with { Unconfirmed = true }).ToArray() };
+            Append(db, conversation, "scheduled_observation_ended", "The operator stopped observing these reports. Remote reminders may still fire.",
+                actor, callId: binding is null ? null : "background", atUtc: Now, metadata: JsonSerializer.Serialize(ended));
+            if (conversation.State == ChatState.WaitingForScheduledReports && remaining.Length == 0)
+            {
+                var foreground = binding is null ? ended : await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
+                if (ChatScheduledObservationLedger.AdmitsReply(foreground) && foreground!.ScheduledReports?.Any(report => !report.Unconfirmed) != true)
+                    conversation.State = ChatState.Idle;
+            }
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            await PublishAsync(conversation, "ScheduledObservationStopped", ct);
+            return;
+        }
         if (conversation.State is not (ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
             || conversation.ActiveMessageId != request.ExpectedMessageId)
             throw new ChatConflictException("The processing turn changed or already completed.");
@@ -212,7 +237,9 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var head = conversation.LastSequence;
         var events = await db.Set<AiAssistantChatEvent>().AsNoTracking().Where(x => x.ConversationId == conversation.Id && x.Sequence > after && x.Sequence <= head).OrderBy(x => x.Sequence).Take(200).ToListAsync(ct);
         var continuation = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
-        return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult, continuation, conversation.ActiveMessageId, conversation.ProviderKind, conversation.ProviderProfileId);
+        return new(conversation.Id, conversation.State, conversation.LastSequence, events, conversation.RecoveryLastAttemptUtc, conversation.RecoveryResult, continuation, conversation.ActiveMessageId, conversation.ProviderKind, conversation.ProviderProfileId,
+            await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct),
+            await ChatScheduledObservationLedger.CanReplyToScheduledParentAsync(db, conversation, continuation, ct));
     }
 
     public async Task<bool> AcceptMessageAsync(ChatScope scope, ChatMessageRequest request, string actor, CancellationToken ct)
@@ -228,14 +255,29 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             if (existing.Text != request.Text || existing.CreatedByUserId != actor) throw new ChatConflictException("Message ID already used.");
             return false;
         }
-        ChatRules.RequireIdle(conversation.State);
+        Guid? previousOwner = null;
+        if (conversation.State is ChatState.WaitingForScheduledReports or ChatState.DeliveryUnknown)
+        {
+            var previous = await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct);
+            if (!await ChatScheduledObservationLedger.CanReplyToScheduledParentAsync(db, conversation, previous, ct))
+                throw new ChatConflictException("The foreground turn is still unresolved.");
+            previousOwner = conversation.ActiveMessageId;
+            if (previous!.ScheduledReports?.Any(report => !report.Unconfirmed) == true)
+            {
+                var bindings = await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct);
+                ChatScheduledObservationLedger.Save(db, conversation,
+                    bindings.Append(new(conversation.TurnStartedAtUtc, previous)), Now);
+            }
+        }
+        else ChatRules.RequireIdle(conversation.State);
         await AdmitProviderTurnAsync(conversation, request.ClientMessageId, actor, ct);
         if (conversation.Scope == ChatConversationScope.Organization) AiOpsContext.ValidatePayload(OrganizationChatContext.Outbound(conversation, request.ClientMessageId, request.Text, actor));
         conversation.State = ChatState.Processing;
         conversation.ActiveMessageId = request.ClientMessageId;
         conversation.TurnStartedAtUtc = Now;
         conversation.LastTransportActivityAtUtc = conversation.TurnStartedAtUtc;
-        Append(db, conversation, "operator", request.Text, actor, request.ClientMessageId, atUtc: conversation.TurnStartedAtUtc);
+        Append(db, conversation, "operator", request.Text, actor, request.ClientMessageId, atUtc: conversation.TurnStartedAtUtc,
+            metadata: previousOwner is { } prior ? JsonSerializer.Serialize(new ChatReceiverHandoff(prior)) : null);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         ChatTelemetry.Record("app_message_accepted");
