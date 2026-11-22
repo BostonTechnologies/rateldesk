@@ -175,9 +175,16 @@ internal sealed class OpenAiAgentsClient(HttpClient http, OpenAiAgentsConfigurat
                     "function_call" => "function",
                     "command_execution" => "command",
                     _ => "subagent"
-                });
+                }, Payload(item.Arguments), Payload(item.Output));
         return null;
     }
+
+    internal static string? Payload(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Undefined or JsonValueKind.Null => null,
+        JsonValueKind.String => element.GetString(),
+        _ => element.GetRawText()
+    };
 
     private static string? ReadOperation(JsonElement arguments)
     {

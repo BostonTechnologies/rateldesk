@@ -19,12 +19,44 @@
             <span>@(State == ChatState.WaitingForChildren ? "Waiting for delegated follow-ups…" : "Working…")</span>
         }
     </button>
-    @foreach (var operation in Turn.Operations)
+    @if (Preferences.ShowSubagents && (Turn.Children.Count > 0 || Unassociated.Any()))
     {
-        <AiAssistantToolActivity @key="operation.Sequence" Operation="operation" Preferences="Preferences" />
+        <details class="child-panel">
+            <summary>Agents · @Turn.Children.Count identified · @Turn.Children.Values.Count(card => card.Open) reported active</summary>
+            @foreach (var card in Turn.Children.Values)
+            {
+                <details class="child-card" @key="card.Id">
+                    <summary>@(card.Name ?? card.Id) · @(card.State ?? "State unknown")</summary>
+                    <small>Run @card.Id</small>
+                    @if (card.Task is { } task) { <p>@task</p> }
+                    @if (card.DurationMs is { } elapsed) { <span>@elapsed ms</span> }
+                    @if (card.Summary is { } summary) { <p>@summary</p> }
+                    @foreach (var poll in Turn.Operations.Where(x => x.Result is { } result && card.PollResults.Contains(result.Sequence)))
+                    {
+                        <AiAssistantToolActivity @key="poll.Sequence" Operation="poll" Preferences="Preferences" TurnEnded="Turn.Completed" />
+                    }
+                    @foreach (var diagnostic in card.Diagnostics)
+                    {
+                        <AiAssistantCode Text="@(diagnostic.MetadataJson ?? diagnostic.Text)" Label="Observation details" />
+                    }
+                </details>
+            }
+            @foreach (var observation in Unassociated)
+            {
+                var trace = ChatOperation.Read(observation.MetadataJson);
+                <details class="child-card">
+                    <summary>@(trace?.Child?.Name ?? trace?.DisplayName ?? "Agent") · @(trace?.Child?.State ?? "State unknown") · Run ID unavailable</summary>
+                    <AiAssistantCode Text="@(observation.MetadataJson ?? observation.Text)" Label="Observation details" />
+                </details>
+            }
+        </details>
     }
     @if (expanded || HasPendingApproval || Turn.HasError)
     {
+        @foreach (var notice in Turn.Activity.Where(item => item.Type == "scheduled_observation_ended"))
+        {
+            <p role="status">@notice.Text</p>
+        }
         @foreach (var completion in Turn.NativeTurns.Where(x => x.QuietEnd || x.TurnOutcome is "failed" or "skipped"))
         {
             <div class="activity-interaction" role="status" data-testid="ai-assistant-turn-outcome">
@@ -32,10 +64,18 @@
                     : completion.QuietEnd ? "Assistant deliberately ended this turn without a reply." : "Assistant skipped this turn.")</MudText>
             </div>
         }
-        @foreach (var item in Turn.Activity)
+    }
+    @foreach (var row in Timeline())
+    {
+        if (row.Operation is { } operation)
         {
-            if (item.Type == "usage" && !Preferences.ShowUsage || item.Type == "processing_state" && !Preferences.ShowProcessing
-                || item.Type == "compaction" && !Preferences.ShowCompaction || item.Type == "subagent" && !Preferences.ShowSubagents) { continue; }
+            <AiAssistantToolActivity @key="row.Sequence" Operation="operation" StageSequence="row.Stage" Preferences="Preferences" TurnEnded="Turn.Completed"
+                                     AwaitingApproval="@Turn.Activity.Any(item => item.CallId == operation.CallId && IsPendingApproval(item))" />
+        }
+        else if ((expanded || HasPendingApproval || Turn.HasError) && row.Event is { } item)
+        {
+            if (item.Type == "scheduled_observation_ended" || item.Type == "usage" && !Preferences.ShowUsage || item.Type == "processing_state" && !Preferences.ShowProcessing
+                || item.Type == "compaction" && !Preferences.ShowCompaction || item.Type == "subagent") { continue; }
             var isPendingApproval = IsPendingApproval(item);
             <div class="@(isPendingApproval ? "activity-interaction approval-callout" : "activity-interaction")"
                  data-testid="@(isPendingApproval ? "ai-assistant-approval" : null)">
@@ -74,6 +114,27 @@
     [Parameter] public ChatState State { get; set; }
     [Parameter] public bool Busy { get; set; }
     [Parameter] public EventCallback<(string CallId, string Key)> Approval { get; set; }
+    private IEnumerable<AiAssistantChatEvent> Unassociated => Turn.Activity.Where(item => item.Type == "subagent"
+        && ChatOperation.Read(item.MetadataJson)?.ProviderEvent?.SubagentId is null
+        && ChatOperation.Read(item.MetadataJson)?.Child?.RunId is null);
+    private sealed record ActivityRow(long Sequence, ChatOperation? Operation, long? Stage = null, AiAssistantChatEvent? Event = null);
+    private IEnumerable<ActivityRow> Timeline()
+    {
+        var rows = Turn.Activity.Select(item => new ActivityRow(item.Sequence, null, Event: item)).ToList();
+        foreach (var operation in Turn.Operations.Where(ShowOperation))
+        {
+            if (operation.Call is { } call && operation.Result is { } result && result.Sequence != call.Sequence + 1)
+            {
+                rows.Add(new(call.Sequence, operation, call.Sequence));
+                rows.Add(new(result.Sequence, operation, result.Sequence));
+            }
+            else rows.Add(new(operation.Sequence, operation));
+        }
+        return rows.OrderBy(row => row.Sequence);
+    }
+    private bool ShowOperation(ChatOperation operation) => !Preferences.ShowSubagents || operation.Result is null
+        || operation.Metadata?.Outcome == "failed"
+        || !Turn.Children.Values.Any(card => card.PollResults.Contains(operation.Result.Sequence));
     private bool expanded, initialized, completed;
     protected override void OnParametersSet()
     {

@@ -97,7 +97,7 @@ public sealed class OpenAiAgentsProtocolTests
                     """,
                 "/v1/agents/sessions/sess_fixture/subagents?order=asc&limit=100&after=child_1" => """{"data":[],"has_more":false}""",
                 "/v1/agents/sessions/sess_fixture/subagents/child_1/items?order=asc&limit=100" => """
-                    {"data":[{"id":"child_call","turn_id":"child_turn","type":"mcp_call","name":"helpdesk_incidents","status":"failed","arguments":{"operation":"get"}}],"has_more":false}
+                    {"data":[{"id":"child_call","turn_id":"child_turn","type":"mcp_call","name":"helpdesk_incidents","status":"failed","arguments":{"operation":"get","_rationale":"isolate"},"output":{"notes":"**sample**"}}],"has_more":false}
                     """,
                 "/v1/agents/sessions/sess_fixture/subagents/child_1/turns?order=asc&limit=100" => """
                     {"data":[{"id":"child_turn","status":"failed","error":{"code":"authentication_error"}}],"has_more":false}
@@ -113,6 +113,8 @@ public sealed class OpenAiAgentsProtocolTests
         var call = Assert.Single(saved.Items, item => item.Kind == ProviderItemKind.ToolCall);
         Assert.Equal("child_1", call.SubagentId);
         Assert.Equal("get", call.Operation);
+        Assert.Equal("""{"operation":"get","_rationale":"isolate"}""", call.Arguments);
+        Assert.Equal("""{"notes":"**sample**"}""", call.Output);
         Assert.Equal("authentication_error", Assert.Single(saved.Turns, turn => turn.SubagentId == "child_1").FailureCode);
         Assert.Equal(18, Assert.Single(saved.Turns, turn => turn.SubagentId is null).Usage?.TotalTokens);
         var pending = Assert.Single(saved.PendingActions);

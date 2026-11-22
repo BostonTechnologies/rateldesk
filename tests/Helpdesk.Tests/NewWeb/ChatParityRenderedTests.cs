@@ -56,12 +56,35 @@ public sealed class ChatParityRenderedTests
         var rendered = context.Render<Activity>(p => p.Add(x => x.Turn, turn));
         Assert.Equal("false", rendered.Find(".activity-heading").GetAttribute("aria-expanded"));
         Assert.Equal(2, rendered.FindAll(".tool-summary").Count);
-        Assert.Contains("provider/lookup: result received", rendered.FindAll(".tool-summary")[1].TextContent);
+        var stages = rendered.FindAll(".tool-summary")[1].QuerySelectorAll(".tool-stage");
+        Assert.Collection(stages,
+            start => Assert.Contains("provider/lookup: started", start.TextContent),
+            result => Assert.Contains("provider/lookup: result received", result.TextContent));
+        Assert.Contains("Outcome not recorded", rendered.FindAll(".tool-summary")[0].TextContent);
         rendered.FindAll(".tool-summary")[1].Click();
         Assert.Empty(rendered.FindAll("script"));
         Assert.Contains("<script>private()</script>", rendered.Find("pre code").TextContent);
         Assert.Contains("Native source time", rendered.Markup);
         Assert.Contains("Locally observed duration", rendered.Markup);
+    }
+
+    [Fact]
+    public async Task Overlapping_calls_remain_in_receipt_order_around_approvals()
+    {
+        await using var context = Context();
+        var events = new[] { E(1, "operator"), E(2, "tool_call", "a"), E(3, "tool_call", "b"),
+            E(4, "approval_request", "b"), E(5, "tool_result", "b"), E(6, "tool_result", "a") };
+        foreach (var item in events.Where(item => item.Type.StartsWith("tool_")))
+            item.MetadataJson = JsonSerializer.Serialize(new ChatActivityMetadata(item.CallId!, "core", null, null, null, "completed"));
+        var turn = Assert.Single(AiAssistantChatPresentation.Build(events));
+        var rendered = context.Render<Activity>(p => p.Add(x => x.Turn, turn).Add(x => x.State, ChatState.AwaitingApproval));
+        var rows = rendered.FindAll(".tool-summary,.approval-callout");
+        Assert.Collection(rows,
+            start => Assert.Contains("a: started", start.TextContent),
+            start => Assert.Contains("b: started", start.TextContent),
+            approval => Assert.Contains("Approval required", approval.TextContent),
+            result => Assert.Contains("b: result received", result.TextContent),
+            result => Assert.Contains("a: result received", result.TextContent));
     }
 
     [Fact]

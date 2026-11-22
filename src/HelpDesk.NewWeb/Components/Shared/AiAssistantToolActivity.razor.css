@@ -7,3 +7,5 @@
 .tool-details { padding: .5rem 1rem; border-left: 2px solid var(--mud-palette-divider); font-size: .8rem; overflow-wrap: anywhere; }
 .tool-details p { margin: .3rem 0; }
 .tool-summary:focus-visible { outline: 2px solid var(--mud-palette-primary); }
+.tool-stages { display: grid; gap: .15rem; }
+.tool-stage { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }

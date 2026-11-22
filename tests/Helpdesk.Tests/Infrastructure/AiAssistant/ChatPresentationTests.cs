@@ -68,6 +68,33 @@ public sealed class ChatPresentationTests
         Assert.True(turn.InitiallyExpanded);
     }
 
+    [Fact]
+    public void Bound_child_receipts_update_original_cards_during_a_newer_operator_turn()
+    {
+        var first = E(1, "operator");
+        first.ClientMessageId = Guid.NewGuid();
+        var next = E(4, "operator");
+        next.ClientMessageId = Guid.NewGuid();
+        AiAssistantChatEvent Receipt(long sequence, string run, string state, int turn)
+        {
+            var receipt = E(sequence, "tool_result", "reused");
+            receipt.MetadataJson = JsonSerializer.Serialize(new ChatActivityMetadata("check_agent_run", "core", null, null,
+                null, "completed", new(ToolName: "check_agent_run"),
+                Association: new(first.ClientMessageId.Value, null, turn), Child: new(run, "same name", state)));
+            return receipt;
+        }
+        var events = new[] { first, Receipt(2, "alpha", "accepted", 1), Completion(3, first, 1, ["alpha", "beta"]),
+            next, Receipt(5, "beta", "failed", 2), Receipt(6, "alpha", "completed", 3) };
+        var turns = AiAssistantChatPresentation.Build(events.Reverse().Concat(events));
+        Assert.Equal(2, turns.Count);
+        Assert.Equal("completed", turns[0].Children["alpha"].State);
+        Assert.Equal("failed", turns[0].Children["beta"].State);
+        Assert.Equal(2, turns[0].Children.Count);
+        Assert.Equal(3, turns[0].Operations.Count);
+        Assert.Empty(turns[1].Children);
+        Assert.Empty(turns[1].Operations);
+    }
+
     private static AiAssistantChatEvent Completion(long sequence, AiAssistantChatEvent input, int ordinal, string[] children,
         string outcome = "completed", ChatScheduledReport[]? reports = null)
     {
