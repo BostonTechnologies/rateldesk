@@ -1,7 +1,7 @@
 {
-  "schemaHash": "181f3e14cc22e63f917734f54e80a60c450b6afaeca557ff717f2558fc884c50",
+  "schemaHash": "f95043942970670d88fd8c2ba015f0025ca285a7ad17fd666f3879a722120a84",
   "catalogRevision": "2026-11-17.ticket-relations-v33",
-  "catalogHash": "2eb6fc17428b7750d3595fa46fa37efcf7760e7f5ed4650dbd9bbd4ca2c698d6",
+  "catalogHash": "6be1fe17478a3dc431868dad3fcc76b4ce36364d7f7e26f2fa2af5df7190461a",
   "operationCount": 391,
   "operations": [
     {
@@ -30587,6 +30587,9 @@
                 "not": {
                   "const": "00000000-0000-0000-0000-000000000000"
                 }
+              },
+              "scheduledOnly": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -48244,6 +48247,9 @@
                         "not": {
                           "const": "00000000-0000-0000-0000-000000000000"
                         }
+                      },
+                      "scheduledOnly": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
