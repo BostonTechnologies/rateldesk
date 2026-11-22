@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Ticketing;
 using System.ComponentModel.DataAnnotations;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
@@ -74,7 +75,6 @@ public static class RequestTaskEndpoints
             var effectivePage = Math.Max(page ?? 1, 1);
             var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
             var shouldFilterAssignedToMe = assignedToMe ?? false;
-            var currentUserId = tenant.UserId;
 
             var query =
                 from task in db.RequestTasks.AsNoTracking()
@@ -109,6 +109,7 @@ public static class RequestTaskEndpoints
 
             if (shouldFilterAssignedToMe)
             {
+                var currentUserId = await AssigneeQueries.ResolveCallerUserAsync(db, user, token);
                 if (string.IsNullOrWhiteSpace(currentUserId))
                 {
                     return Results.Ok(new PagedResponse<RequestTaskListItemDto>
@@ -335,8 +336,18 @@ public static class RequestTaskEndpoints
                 dto.DueDate);
             // Advancing this version serializes insertion of a new child with parent closure.
             db.Entry(parent).Property(x => x.WorkflowStateVersion).IsModified = true;
+            try
+            {
+                await db.SaveChangesAsync(token);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict("The parent request changed. Refresh and try again.");
+            }
+            // Keep the returned task in its standalone representation. The parent
+            // write remains in the same transaction as the child insert.
+            db.Entry(parent).State = EntityState.Detached;
             var created = await sender.Send(command);
-            await db.SaveChangesAsync(token);
             if (transaction != null) await transaction.CommitAsync(token);
             return Results.Created($"/api/v1/request-tasks/{created.Id}", created);
         });
@@ -346,7 +357,6 @@ public static class RequestTaskEndpoints
             [FromBody] RequestTask task,
             [FromServices] HelpdeskDbContext db,
             [FromServices] IRepository<RequestTask> repo,
-            [FromServices] IRepository<User> users,
             [FromServices] ICurrentUserAccessService accessService,
             ClaimsPrincipal user,
             CancellationToken token) =>
@@ -382,7 +392,7 @@ public static class RequestTaskEndpoints
                 return Results.BadRequest("Request-task organization, customer, and parent request cannot be changed.");
             }
 
-            var assignmentValidation = await ValidateAssigneeAsync(users, existing.OrganizationId, task.AssignedToId);
+            var assignmentValidation = await TicketAssigneeValidation.RequestAsync(db, existing.OrganizationId, task.AssignedToId, token);
             if (assignmentValidation is not null)
             {
                 return assignmentValidation;
@@ -393,7 +403,7 @@ public static class RequestTaskEndpoints
             existing.Title = task.Title;
             existing.Description = task.Description;
             existing.Priority = task.Priority;
-            existing.AssignedToId = task.AssignedToId;
+            existing.AssignedToId = string.IsNullOrWhiteSpace(task.AssignedToId) ? null : task.AssignedToId.Trim();
             existing.LinkedAssetIds = task.LinkedAssetIds;
             existing.Attachments = task.Attachments;
             existing.DueDate = task.DueDate;
@@ -408,7 +418,7 @@ public static class RequestTaskEndpoints
             [FromRoute] string id,
             [FromBody] UpdateRequestTaskDto dto,
             [FromServices] IRepository<RequestTask> repo,
-            [FromServices] IRepository<User> users,
+            [FromServices] HelpdeskDbContext db,
             [FromServices] ICurrentUserAccessService accessService,
             ClaimsPrincipal user,
             CancellationToken token) =>
@@ -452,7 +462,7 @@ public static class RequestTaskEndpoints
 
             if (!string.IsNullOrWhiteSpace(dto.AssignedToId))
             {
-                var assignmentValidation = await ValidateAssigneeAsync(users, existing.OrganizationId, dto.AssignedToId);
+                var assignmentValidation = await TicketAssigneeValidation.RequestAsync(db, existing.OrganizationId, dto.AssignedToId, token);
                 if (assignmentValidation is not null)
                 {
                     return assignmentValidation;
@@ -972,7 +982,7 @@ public static class RequestTaskEndpoints
     internal static bool CanReadTasks(CurrentUserAccessProfile access) =>
         CanManageTasks(access) || access.HasPermission(HelpdeskPermissions.RequestRead);
 
-    private static bool CanReadOrganization(CurrentUserAccessProfile access, string? organizationId) =>
+    internal static bool CanReadOrganization(CurrentUserAccessProfile access, string? organizationId) =>
         access.IsHelpdeskAdmin || organizationId is not null && RequestReaderOrganizationIds(access).Contains(organizationId);
 
     internal static IReadOnlySet<string> RequestReaderOrganizationIds(CurrentUserAccessProfile access) =>
@@ -984,25 +994,6 @@ public static class RequestTaskEndpoints
     private static bool CanAccessOrganization(CurrentUserAccessProfile access, string? organizationId) =>
         access.IsHelpdeskAdmin
         || (!string.IsNullOrWhiteSpace(organizationId) && RequestManagerOrganizationIds(access).Contains(organizationId));
-
-    private static async Task<IResult?> ValidateAssigneeAsync(
-        IRepository<User> users,
-        string? organizationId,
-        string? assignedToId)
-    {
-        if (string.IsNullOrWhiteSpace(assignedToId))
-        {
-            return null;
-        }
-
-        var assignee = await users.GetAsync(assignedToId);
-        if (assignee is null || !string.Equals(assignee.OrganizationId, organizationId, StringComparison.OrdinalIgnoreCase))
-        {
-            return Results.BadRequest("Assigned user must belong to the request-task organization.");
-        }
-
-        return null;
-    }
 
     private static IReadOnlySet<string> RequestManagerOrganizationIds(CurrentUserAccessProfile access) =>
         access.OrganizationIdsForAny(HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager);

@@ -244,12 +244,22 @@
                                             <MudDivider Class="my-2" />
                                             <MudText Typo="Typo.subtitle2">Manual Configuration</MudText>
 
-                                            <MudSelect T="string" @bind-Value="selectedTask.DefaultAssigneeId" Label="Default Assignee" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true">
-                                                @foreach (var user in users)
-                                                {
-                                                    <MudSelectItem Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            @if (!string.IsNullOrWhiteSpace(model.OrganizationId))
+                                            {
+                                                <AssigneeSelector Module="task" OrganizationId="@model.OrganizationId" ContextKey="@selectedTask.Id.ToString()"
+                                                    Value="@selectedTask.DefaultAssigneeId" Label="Default assignee"
+                                                    SelectedName="@users.FirstOrDefault(user => user.Id == selectedTask.DefaultAssigneeId)?.Name"
+                                                    SelectionChanged="user => selectedTask.DefaultAssigneeId = user?.Id" />
+                                            }
+                                            else
+                                            {
+                                                <MudSelect T="string" @bind-Value="selectedTask.DefaultAssigneeId" Label="Default Assignee" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true">
+                                                    @foreach (var user in users)
+                                                    {
+                                                        <MudSelectItem Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                            }
 
                                             <MudTextField @bind-Value="selectedTask.TeamOrRole" Label="Team/Role (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
                                         }
@@ -1198,9 +1208,9 @@
                 }
             }
         }
-        catch
+        catch (JsonException)
         {
-            // ignore parse errors
+            validationError = "Unable to read the form schema. Check the JSON before saving.";
         }
     }
 

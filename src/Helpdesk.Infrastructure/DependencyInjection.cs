@@ -129,7 +129,8 @@ public static class DependencyInjection
 
         services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
         services.AddScoped<ITicketNotificationService, TicketNotificationService>();
-        services.AddScoped<ISupportAccessService, SupportAccessService>();
+        services.AddScoped<ISupportAccessService, TicketSupportAccessService>();
+        services.AddScoped<IRequestTaskAssignees, TicketSupportAccessService>();
         services.AddScoped<ISupportNotificationRecipientResolver, SupportNotificationRecipientResolver>();
         services.AddScoped<ISupportNotificationService, SupportNotificationService>();
         services.AddScoped<ISupportNotificationBootstrapper, SupportNotificationBootstrapper>();

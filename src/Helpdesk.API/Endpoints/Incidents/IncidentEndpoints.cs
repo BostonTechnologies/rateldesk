@@ -377,7 +377,8 @@ public static class IncidentEndpoints
 
             var customer = customerValidation.Customer!;
             var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanCreateIncident(dto.OrganizationId, customer.Id, customer.Email))
+            if (!access.CanCreateIncident(dto.OrganizationId, customer.Id, customer.Email) ||
+                (!string.IsNullOrWhiteSpace(dto.AssignedToId) && !access.CanManageIncident(dto.OrganizationId)))
             {
                 return Results.Forbid();
             }

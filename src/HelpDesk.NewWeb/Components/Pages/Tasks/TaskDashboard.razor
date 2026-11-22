@@ -128,7 +128,9 @@
                     </MudTooltip>
                 }
             </MudTd>
-            <MudTd DataLabel="Assignee"><MudTooltip Text="@GetAssigneeDisplay(context)"><span class="workspace-primary">@GetAssigneeDisplay(context)</span></MudTooltip></MudTd>
+            <MudTd DataLabel="Assignee"><TicketAssigneePicker TicketType="request-tasks" OrganizationId="@context.OrganizationId" TicketId="@context.Id"
+                    AssignedToId="@context.AssignedToId" SelectedName="@context.AssignedToDisplayName"
+                    ReadOnly="@(profile?.CanManageRequest(context.OrganizationId) != true)" AssignmentChanged="async _ => await Reload()" /></MudTd>
             <MudTd DataLabel="Created"><span>@context.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</span><span class="workspace-secondary">@context.CreatedAt.LocalDateTime.ToString("HH:mm")</span></MudTd>
             <MudTd DataLabel="Actions">
                 <div class="workspace-actions" @onclick:stopPropagation="true">
@@ -396,15 +398,6 @@
                 && string.Equals(c.Value, "HelpdeskAdmin", StringComparison.OrdinalIgnoreCase));
     }
 
-    private string GetAssigneeDisplay(RequestTaskListItemDto item)
-    {
-        if (!string.IsNullOrWhiteSpace(item.AssignedToDisplayName))
-        {
-            return item.AssignedToDisplayName;
-        }
-
-        return string.IsNullOrWhiteSpace(item.AssignedToId) ? "-" : item.AssignedToId;
-    }
 
     private bool HasAutomationRecoveryContext(RequestTaskListItemDto task)
         => !string.IsNullOrWhiteSpace(GetAutomationRecoverySearch(task));

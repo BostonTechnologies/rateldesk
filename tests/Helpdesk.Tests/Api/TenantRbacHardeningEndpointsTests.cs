@@ -261,6 +261,7 @@ public sealed class TenantRbacHardeningEndpointsTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await db.Database.EnsureCreatedAsync();
+                await TicketIdentityStore.CreateAsync(db);
                 await SeedAsync(db);
             }
 
