@@ -336,7 +336,6 @@ for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]])
   for (const area of ['chat', 'investigation']) {
     test(`${area} list and conversation navigation at ${width}x${height}`, async ({ page, request }, info) => {
       const chat = area === 'chat';
-      const id = '11111111-1111-4111-8111-111111111111';
       const fixture = 'http://127.0.0.1:18299/fixture';
       await request.get(`${fixture}/reset?mode=completed`);
       await page.setViewportSize({ width, height });
@@ -344,7 +343,8 @@ for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]])
       await page.goto(chat ? `/ai/chat?organizationId=org&conversationId=${id}` : `/ai/ops?id=${id}`);
       const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
       const history = page.getByRole('complementary', { name: chat ? 'Chat history' : 'Recent investigations' });
-      await expect(composer).toBeEnabled();
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+      await expect(composer).toBeEnabled({ timeout: 15_000 });
       const draft = 'First unsent line\nSecond unsent line';
       await composer.fill(draft);
       const before = await (await request.get(`${fixture}/chat-counts`)).json();
@@ -362,6 +362,9 @@ for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]])
         await page.screenshot({ path: info.outputPath('list.png') });
         await page.getByRole('button', { name: chat ? 'Back to chat' : 'Back to investigation' }).click();
         await expect(composer).toHaveValue(draft);
+        const returned = await (await request.get(`${fixture}/chat-counts`)).json();
+        expect(returned.streamOpens).toBe(before.streamOpens);
+        expect(returned.sends).toBe(before.sends);
         await toggle.click();
         await expect(search).toHaveValue('Synthetic');
         await history.getByRole('link', { name: /Synthetic/ }).first().click();
@@ -370,7 +373,11 @@ for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]])
       }
       await expect(composer).toHaveValue(draft);
       const send = page.getByRole('button', { name: 'Send', exact: true });
-      await expect(send).toBeInViewport({ ratio: 1 });
+      const bounds = await page.locator('.helpdesk-main-content, .chat-workspace, .ai-workspace, .conversation-header, .ai-chat-content, .ai-chat-scroll, .ai-chat-composer, .composer-send').evaluateAll(elements => elements.map(el => ({
+        class: el.className, top: el.getBoundingClientRect().top, height: el.clientHeight, scrollHeight: el.scrollHeight
+      })));
+      await info.attach('viewport-geometry', { body: JSON.stringify(bounds), contentType: 'application/json' });
+      await expect(send, JSON.stringify(bounds)).toBeInViewport({ ratio: 1 });
       await assertNoHorizontalOverflow(page);
       await page.screenshot({ path: info.outputPath('conversation.png') });
       await page.reload();
@@ -381,4 +388,45 @@ for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]])
       await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
     });
   }
+}
+
+for (const [module, palette] of [['incidents', 'light'], ['requests', 'dark'], ['changes', 'custom']]) {
+  test(`${module} assistant retains its multiline draft through reduced-height fullscreen`, async ({ page, request }, info) => {
+    await request.get(`${fixture}/fixture/reset?mode=tables`);
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.addInitScript(theme => localStorage.setItem('helpdesk.theme.preference', theme), palette === 'dark' ? 'dark' : 'light');
+    await page.goto('/auth/development');
+    await page.goto(`/${module}/ux-chat`);
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+    if (palette === 'custom') {
+      await page.addStyleTag({ content: ':root { --mud-palette-primary: #6868aa; --mud-palette-secondary: #547f80; --mud-palette-divider: #9381aa; }' });
+    }
+    await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+    const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
+    await expect(composer).toBeEnabled();
+    await composer.fill('Unsent first line');
+    await composer.press('Alt+Enter');
+    await composer.press('End');
+    await composer.pressSequentially('second line');
+    const draft = 'Unsent first line\nsecond line';
+    await expect(composer).toHaveValue(draft);
+    const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await page.setViewportSize({ width: 360, height: 480 });
+    const dialog = page.getByRole('dialog', { name: 'Conversation', exact: true });
+    await expect(dialog.getByRole('button', { name: 'Restore conversation' })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole('table').first()).toBeAttached();
+    await page.screenshot({ path: info.outputPath(`${palette}-reduced-height.png`) });
+    await assertNoHorizontalOverflow(page);
+    await page.setViewportSize({ width: 640, height: 360 });
+    await expect(composer).toHaveValue(draft);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(composer).toHaveValue(draft);
+    const after = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+    expect(after.sends).toBe(0);
+    expect(after.streamOpens).toBe(before.streamOpens);
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  });
 }

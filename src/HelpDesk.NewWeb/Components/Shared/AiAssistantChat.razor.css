@@ -54,3 +54,9 @@
     .ai-conversation-surface .ai-chat-content { overflow: auto; }
     .ai-chat-scroll { min-height: 3rem; max-height: 55dvh; }
 }
+@media (max-width: 760px) and (max-height: 650px) {
+    .conversation-header { flex-wrap: nowrap; }
+    .conversation-identity { flex: 1; }
+    .conversation-avatar { display: none; }
+    .conversation-actions { flex: 0 1 auto; max-width: 60%; }
+}
