@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant.Chat;
+using Helpdesk.Infrastructure.AiAssistant.Chat.OpenAi;
 using Helpdesk.Shared.AiAssistant.Chat;
 
 namespace Helpdesk.Infrastructure.AiAssistant.Chat.Codex;
@@ -163,7 +164,8 @@ internal sealed class CodexAppServerSession(ICodexAppServerRpc server, OpenAiCha
                         _ => "in_progress"
                     };
                     items.Add(new(itemId, id, null, ProviderItemKind.ToolCall, outcome, "", CodexWire.String(item, "tool"),
-                        itemId, operation, "mcp"));
+                        itemId, operation, "mcp", OpenAiAgentsClient.Payload(args),
+                        item.TryGetProperty("result", out var result) ? OpenAiAgentsClient.Payload(result) : null));
                     break;
             }
         }

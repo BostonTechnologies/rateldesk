@@ -22,7 +22,7 @@ public static class AiAssistantChatPresentation
             }
 
             var metadata = item.Type is "tool_call" or "tool_result" or "subagent" ? ChatOperation.Read(item.MetadataJson) : null;
-            var completion = item.Type is "turn_completed" or "turn_cancelled" ? ReadCompletion(item.MetadataJson) : null;
+            var completion = item.Type is "turn_completed" or "turn_cancelled" or "scheduled_observation_ended" ? ReadCompletion(item.MetadataJson) : null;
             var associated = metadata?.Association?.OperatorMessageId ?? metadata?.ProviderEvent?.OperatorMessageId
                 ?? completion?.OperatorMessageId ?? (item.Type == "assistant" ? ReadReplyMessage(item.MetadataJson) : null);
             var current = associated is { } parent && parent != Guid.Empty
@@ -62,7 +62,7 @@ public static class AiAssistantChatPresentation
                 if (item.Type == "tool_call") operation.Call ??= item;
                 else operation.Result ??= item;
             }
-            else if (item.Type is "approval_request" or "approval_response" or "approval_closed" or "approval_executed" or "approval_denied" or "error" or "file" or "usage" or "processing_state" or "compaction" or "subagent")
+            else if (item.Type is "approval_request" or "approval_response" or "approval_closed" or "approval_executed" or "approval_denied" or "error" or "file" or "usage" or "processing_state" or "compaction" or "subagent" or "scheduled_observation_ended")
                 current.Activity.Add(item);
         }
         return turns;

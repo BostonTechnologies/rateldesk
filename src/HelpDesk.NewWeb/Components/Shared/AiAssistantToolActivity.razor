@@ -5,20 +5,20 @@
     <button type="button" class="tool-summary" aria-expanded="@expanded.ToString().ToLowerInvariant()" @onclick="@(() => expanded = !expanded)">
         <span aria-hidden="true">@(expanded ? "▾" : "▸")</span>
         <span class="tool-stages">
-            @if (Operation.Call is { } call)
+            @if (Operation.Call is { } call && (StageSequence is null || StageSequence == call.Sequence))
             {
                 <span class="tool-stage">@Name: started
                     @if (Preferences.ShowTimestamps) { <time title="@TimeLabel(call)">@Time(call).UtcDateTime.ToString("HH:mm:ss'Z'")</time> }
                 </span>
             }
-            @if (Operation.Result is { } resultEvent)
+            @if (Operation.Result is { } resultEvent && (StageSequence is null || StageSequence == resultEvent.Sequence))
             {
                 <span class="tool-stage">@Name: @(Operation.Metadata?.Outcome == "failed" ? "reported failure" : "result received")
                     @if (Preferences.ShowTimestamps) { <time title="@TimeLabel(resultEvent)">@Time(resultEvent).UtcDateTime.ToString("HH:mm:ss'Z'")</time> }
                 </span>
             }
-            else if (AwaitingApproval) { <small>Awaiting approval</small> }
-            else if (TurnEnded) { <small>Outcome not recorded</small> }
+            else if (Operation.Result is null && AwaitingApproval) { <small>Awaiting approval</small> }
+            else if (Operation.Result is null && TurnEnded) { <small>Outcome not recorded</small> }
         </span>
         @if (Operation.Metadata?.ToolKind is "mcp" or "skill" or "discovery") { <small>@Operation.Metadata.ToolKind.ToUpperInvariant()</small> }
     </button>
@@ -28,7 +28,7 @@
         <div class="tool-details">
             @if (Operation.CallId is { } id) { <p>Call ID: @id</p> }
             @if (Operation.Metadata?.DurationMs is { } duration) { <p>Locally observed duration: @duration ms</p> }
-            @foreach (var item in new[] { Operation.Call, Operation.Result }.OfType<AiAssistantChatEvent>())
+            @foreach (var item in new[] { Operation.Call, Operation.Result }.OfType<AiAssistantChatEvent>().Where(item => StageSequence is null || item.Sequence == StageSequence))
             {
                 var details = ChatOperation.Read(item.MetadataJson)?.Details;
                 <p>@item.Type · received @item.CreatedUtc.UtcDateTime.ToString("u")</p>
@@ -53,6 +53,7 @@
     [Parameter, EditorRequired] public ChatOperation Operation { get; set; } = null!;
     [Parameter] public ChatDisplayPreferences Preferences { get; set; } = new();
     private bool expanded, initialized, autoExpand;
+    [Parameter] public long? StageSequence { get; set; }
     [Parameter] public bool TurnEnded { get; set; }
     [Parameter] public bool AwaitingApproval { get; set; }
     private string Name => Operation.Metadata is { } m ? $"{(m.ProviderName is null ? "" : m.ProviderName + "/")}{m.DisplayName}" : "Tool activity (legacy record)";

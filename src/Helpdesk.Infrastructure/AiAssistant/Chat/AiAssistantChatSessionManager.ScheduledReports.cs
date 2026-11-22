@@ -60,6 +60,43 @@ public sealed partial class AiAssistantChatSessionManager
         return report.Recurring || report.DueAtUtc?.ToUnixTimeSeconds() == fireAt / 1000 ? report : null;
     }
 
+    private bool CompleteBackgroundReport(HelpdeskDbContext db, AiAssistantChatConversation conversation,
+        Owner owner, NetclawOutput output)
+    {
+        var matches = owner.BackgroundReports.Where(binding => binding.Parent.ObservationExpiresAtUtc > Now &&
+            MatchScheduledReport(binding.Parent, output, binding.ParentStartedAtUtc, out _) is not null).Take(2).ToArray();
+        if (matches.Length != 1 || output.TurnOrdinal is not { } ordinal || ordinal <= owner.LastCompletedTurn) return false;
+        var binding = matches[0];
+        var parent = binding.Parent;
+        var matched = MatchScheduledReport(parent, output, binding.ParentStartedAtUtc, out var fireAt)!;
+        var terminal = output.Complete(parent.OperatorMessageId, parent.ObservationExpiresAtUtc);
+        var hasReply = terminal.TurnOutcome == "completed" && !terminal.QuietEnd && owner.HasFinalText;
+        var reports = parent.ScheduledReports!.Where(report => report != matched).ToList();
+        if (matched.Recurring || !hasReply)
+            reports.Add(matched with { LastFireAtUnixMs = fireAt, Unconfirmed = !matched.Recurring && !hasReply });
+        terminal = terminal with { SourceReminderId = output.ReminderFireKey, ScheduledReports = reports.ToArray(),
+            ScheduledWorkUnconfirmed = parent.ScheduledWorkUnconfirmed || !hasReply };
+        if (hasReply)
+        {
+            var association = new ChatOutputAssociation(parent.OperatorMessageId, parent.TurnNumber, ordinal, output.ReminderFireKey);
+            AiAssistantChatStore.Append(db, conversation, "assistant", owner.StagedReplies[^1],
+                atUtc: Now, metadata: JsonSerializer.Serialize(association));
+        }
+        AiAssistantChatStore.Append(db, conversation, "turn_completed", CompletionDescription(terminal),
+            callId: output.ReminderFireKey, atUtc: Now, metadata: JsonSerializer.Serialize(terminal));
+        owner.BackgroundReports = owner.BackgroundReports.Where(item => item != binding)
+            .Concat(HasPendingReports(terminal) ? [binding with { Parent = terminal }] : []).ToArray();
+        ChatScheduledObservationLedger.Save(db, conversation, owner.BackgroundReports, Now);
+        owner.LastCompletedTurn = ordinal;
+        if (conversation.State == ChatState.WaitingForScheduledReports && owner.BackgroundReports.Length == 0
+            && !HasPendingWork(owner.Continuation))
+        {
+            conversation.State = ChatState.Idle;
+            owner.Retired = true;
+        }
+        return true;
+    }
+
     private static ChatTurnCompletion CompleteScheduledWork(Owner owner, ChatTurnCompletion completion,
         ChatScheduledReport? matched, long fireAt, string? fireKey, DateTimeOffset deadline)
     {
@@ -91,6 +128,26 @@ public sealed partial class AiAssistantChatSessionManager
             ScheduledWorkUnconfirmed = unconfirmed || unresolved.Any(report => report.Unconfirmed),
             SourceReminderId = matched is null ? null : fireKey
         };
+    }
+
+    private async Task<bool> EndBackgroundObserversAsync(HelpdeskDbContext db, AiAssistantChatConversation conversation,
+        string reason, bool expiredOnly, CancellationToken ct)
+    {
+        var bindings = await ChatScheduledObservationLedger.LoadAsync(db, conversation, ct);
+        var ended = bindings.Where(binding => !expiredOnly || binding.Parent.ObservationExpiresAtUtc <= Now).ToArray();
+        if (ended.Length == 0) return false;
+        var remaining = bindings.Except(ended).ToArray();
+        foreach (var binding in ended)
+            AiAssistantChatStore.Append(db, conversation, ScheduledObservationEnded, $"{reason} {ScheduledResultUnknown}",
+                callId: "background", atUtc: Now, metadata: JsonSerializer.Serialize(EndScheduledObservation(binding.Parent)));
+        ChatScheduledObservationLedger.Save(db, conversation, remaining, Now);
+        if (conversation.State == ChatState.WaitingForScheduledReports && remaining.Length == 0)
+        {
+            var foreground = await LatestCompletionAsync(db, conversation, ct);
+            if (ChatScheduledObservationLedger.AdmitsReply(foreground) && !HasPendingWork(foreground))
+                conversation.State = ChatState.Idle;
+        }
+        return true;
     }
 
     private static ChatTurnCompletion EndScheduledObservation(ChatTurnCompletion completion) => completion with

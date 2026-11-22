@@ -21,7 +21,7 @@ else
 <header class="conversation-header">
     <div class="conversation-identity"><span class="conversation-avatar"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /></span><div><h2>@Title</h2><small>@(string.IsNullOrWhiteSpace(Identity) ? StateLabel(state) : $"{Identity} · {StateLabel(state)}")</small></div></div>
     <div class="conversation-actions">
-        @if (state is ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports)
+        @if (state is ChatState.Processing or ChatState.WaitingForChildren || state == ChatState.WaitingForScheduledReports && !CanReply)
         {
             <MudTooltip Text="Stop waiting"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.StopCircle" aria-label="Stop waiting" Disabled="@(busy || capabilities?.CanWrite == false || UnresolvedMessageId is null)" OnClick="StopWaitingAsync" /></MudTooltip>
         }
@@ -140,6 +140,19 @@ else
             }
         </div>
     }
+    @foreach (var registration in backgroundReports.Select(binding => binding.Parent).Append(continuation).OfType<ChatTurnCompletion>())
+    {
+        @if (registration.ScheduledReports?.Any(report => !report.Unconfirmed) == true)
+        {
+            <div class="ai-chat-live-status">
+                @foreach (var report in registration.ScheduledReports.Where(report => !report.Unconfirmed))
+                {
+                    <span>Scheduled report @report.Id · @(report.DueAtUtc?.UtcDateTime.ToString("u") ?? "Due time unknown")</span>
+                }
+                <button type="button" disabled="@(busy || capabilities?.CanWrite == false)" @onclick="() => StopScheduledAsync(registration.OperatorMessageId)">Stop observing reports</button>
+            </div>
+        }
+    }
     @if (error is not null) { <MudAlert Severity="Severity.Warning">@error</MudAlert> }
     <div class="@(Workspace ? "ai-chat-transcript" : null)" role="@(Workspace ? "log" : null)" aria-label="@(Workspace ? "Saved conversation" : null)">
     @if (Workspace && events.All(x => x.Type != "operator") && conversation != Guid.Empty && state == ChatState.Idle)
@@ -185,7 +198,7 @@ else
     {
         <MudText Typo="Typo.caption">@(provider == ChatProviderKind.CodexAppServer ? "Using ChatGPT plan" : "API project billing")</MudText>
     }
-    <AiAssistantComposer @key="conversation" @bind-Value="message" Send="SendAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" ReadOnly="@(submittedMessage is not null)" SendLabel="@(submittedMessage is null ? "Send" : "Retry message")" Identity="@Identity" ProviderName="@ProviderName" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || capabilities?.Enabled == false || state != ChatState.Idle || conversation == Guid.Empty)" />
+    <AiAssistantComposer @key="conversation" @bind-Value="message" Send="SendAsync" DraftScope="@draftScope" Discard="DiscardDraftAsync" ReadOnly="@(submittedMessage is not null)" SendLabel="@(submittedMessage is null ? "Send" : "Retry message")" Identity="@Identity" ProviderName="@ProviderName" ShowAttachmentNotice="@(OrganizationId is null)" Disabled="@(busy || capabilities?.CanWrite == false || capabilities?.Enabled == false || !CanReply || conversation == Guid.Empty)" />
     </div>
 </div>
 </div>
@@ -241,7 +254,11 @@ else
     private string? recoveryResult;
     private DateTimeOffset? recoveryAt;
     private ChatTurnCompletion? continuation;
-    private int PendingScheduledReports => continuation?.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0;
+    private ChatScheduledBinding[] backgroundReports = [];
+    private bool CanReply => state == ChatState.Idle || state == ChatState.WaitingForScheduledReports
+        && continuation is { TurnOutcome: "completed" } && (continuation.PendingChildRunIds ?? continuation.OpenChildRunIds) is not { Length: > 0 };
+    private int PendingScheduledReports => (continuation?.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0)
+        + backgroundReports.Sum(binding => binding.Parent.ScheduledReports?.Count(report => !report.Unconfirmed) ?? 0);
     private string connectionStatus = "Connecting";
     private string? currentActor, draftScope;
     private ChatDraftStorage? draftStorage;
@@ -321,7 +338,7 @@ else
             stream = Task.CompletedTask;
             if (disposed) return;
             connectionStatus = "Connecting"; error = null;
-            continuation = null; recoveryResult = null; recoveryAt = null;
+            backgroundReports = []; continuation = null; recoveryResult = null; recoveryAt = null;
             events.Clear(); artifacts = []; draft = ""; cursor = 0; acknowledgeAbandon = false;
             resolutionId = Guid.NewGuid(); messageId = Guid.NewGuid(); message = ""; submittedMessage = null; draftScope = null; conversation = Guid.Empty;
             using var api = Api;
@@ -389,6 +406,7 @@ else
         recoveryAt = snapshot.RecoveryLastAttemptUtc;
         recoveryResult = snapshot.RecoveryResult;
         continuation = snapshot.Continuation;
+        backgroundReports = snapshot.BackgroundReports ?? [];
     }
 
     private async Task ReadAsync(CancellationToken ct)
@@ -453,7 +471,7 @@ else
 
     private async Task SendAsync()
     {
-        if (busy || capabilities?.CanWrite == false || state != ChatState.Idle || conversation == Guid.Empty || string.IsNullOrWhiteSpace(message)) return;
+        if (busy || capabilities?.CanWrite == false || !CanReply || conversation == Guid.Empty || string.IsNullOrWhiteSpace(message)) return;
         busy = true; error = null;
         var submitted = submittedMessage ??= new ChatMessageRequest(conversation, messageId, message);
         try
@@ -575,6 +593,20 @@ else
             if (!response.IsSuccessStatusCode) error = "The session check was not accepted. Refresh the conversation state.";
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { error = "The session check was interrupted. No message was resent."; }
+        finally { busy = false; }
+    }
+
+    private async Task StopScheduledAsync(Guid parent)
+    {
+        busy = true;
+        try
+        {
+            using var api = Commands;
+            using var response = await api.PostAsJsonAsync($"{Route}/stop-waiting",
+                new ChatStopWaitingRequest(conversation, parent, ScheduledOnly: true), cancellation.Token);
+            if (!response.IsSuccessStatusCode) error = "Scheduled observation changed. Refresh the conversation.";
+        }
+        catch (HttpRequestException) { error = "Unable to stop scheduled observation. Refresh the conversation."; }
         finally { busy = false; }
     }
 

@@ -28,9 +28,7 @@ public sealed partial class ChatTransportLifecycleTests
             Assert.Equal("one-shot", Assert.Single(pending.Continuation!.ScheduledReports!).Id);
             Assert.Single(pending.Events, x => x.Type == "assistant");
             Assert.False(run.Client.Disposed);
-            await using var db = fixture.Context();
-            await Assert.ThrowsAsync<ChatConflictException>(() => fixture.Store(db).AcceptMessageAsync(run.Scope,
-                run.Request with { ClientMessageId = Guid.NewGuid() }, "operator", default));
+            Assert.Empty(pending.BackgroundReports!);
         }
         clock.Advance(TimeSpan.FromSeconds(31));
         await ReplyAsync(run.Client, "The same valid text.");
@@ -56,6 +54,45 @@ public sealed partial class ChatTransportLifecycleTests
         Assert.Equal(run.Request.ClientMessageId, finalAssociation.OperatorMessageId);
         Assert.Single(reloaded.Events, item => item.Type == "operator");
         Assert.Single(run.Client.Sent);
+    }
+
+    [Fact]
+    public async Task Scheduled_report_during_new_foreground_turn_retains_parent_and_fire_key()
+    {
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 11, 18, 10, 30, 0, TimeSpan.Zero));
+        var due = clock.GetUtcNow().AddMinutes(10);
+        await using var run = await Run.CreateAsync(fixture, clock);
+        await run.SendAsync();
+        await RegisterAsync(run.Client, "status", due);
+        await ReplyAsync(run.Client, "Would you like details?");
+        await run.Client.CompleteAsync(1, []);
+        await run.WaitForAsync(events => events.Any(item => item.Type == "turn_completed"));
+        var next = run.Request with { ClientMessageId = Guid.NewGuid(), Text = "Yes, please." };
+        await using (var db = fixture.Context())
+            Assert.True(await fixture.Store(db).AcceptMessageAsync(run.Scope, next, "operator", default));
+        await run.Manager.SendAsync(run.Conversation, next.ClientMessageId, next.Text, default);
+        var running = await ReloadAsync(run);
+        Assert.Equal(ChatState.Processing, running.State);
+        Assert.Equal(run.Request.ClientMessageId, Assert.Single(running.BackgroundReports!).Parent.OperatorMessageId);
+        clock.Advance(TimeSpan.FromMinutes(10));
+        await ReplyAsync(run.Client, "Stability report");
+        await ReportTerminalAsync(run.Client, 2, "status", due);
+        await ReplyAsync(run.Client, "Duplicate report");
+        await ReportTerminalAsync(run.Client, 2, "status", due);
+        await ReplyAsync(run.Client, "Here are the details");
+        await run.Client.CompleteAsync(3, []);
+        await run.WaitForAsync(events => events.Count(item => item.Type == "turn_completed") == 3);
+        var final = await ReloadAsync(run);
+        Assert.Equal(ChatState.Idle, final.State);
+        Assert.Empty(final.BackgroundReports!);
+        var report = Assert.Single(final.Events, item => item.Type == "assistant" && item.Text == "Stability report");
+        var association = JsonSerializer.Deserialize<ChatOutputAssociation>(report.MetadataJson!)!;
+        Assert.Equal(run.Request.ClientMessageId, association.OperatorMessageId);
+        Assert.Equal(FireKey("status", due), association.SourceReminderId);
+        var answer = Assert.Single(final.Events, item => item.Type == "assistant" && item.Text == "Here are the details");
+        Assert.Equal(next.ClientMessageId, JsonSerializer.Deserialize<ChatOutputAssociation>(answer.MetadataJson!)!.OperatorMessageId);
+        Assert.DoesNotContain(final.Events, item => item.Text == "Duplicate report");
+        Assert.Equal(2, run.Client.Sent.Count);
     }
 
     [Fact]

@@ -16,7 +16,7 @@ public sealed partial class AiAssistantChatSessionManager
         HelpdeskDbContext db, AiAssistantChatConversation conversation, CancellationToken ct)
     {
         var json = await db.Set<AiAssistantChatEvent>().AsNoTracking()
-            .Where(x => x.ConversationId == conversation.Id && (x.Type == "turn_completed" || x.Type == ScheduledObservationEnded)
+            .Where(x => x.ConversationId == conversation.Id && x.CallId == null && (x.Type == "turn_completed" || x.Type == ScheduledObservationEnded)
                 && x.Sequence <= conversation.LastSequence)
             .OrderByDescending(x => x.Sequence).Select(x => x.MetadataJson).FirstOrDefaultAsync(ct);
         var completion = ChatContinuationSafety.Read(json);
@@ -26,6 +26,9 @@ public sealed partial class AiAssistantChatSessionManager
     private async Task<bool> CompleteNativeTurnAsync(HelpdeskDbContext db, AiAssistantChatConversation conversation,
         Owner owner, NetclawOutput output, CancellationToken ct)
     {
+        if (output.HasReminderSource && owner.BackgroundReports.Length > 0 &&
+            CompleteBackgroundReport(db, conversation, owner, output))
+            return true;
         var completion = ObserveCompletion(conversation, owner, output, out var rejection);
         if (completion is null)
         {
@@ -48,6 +51,8 @@ public sealed partial class AiAssistantChatSessionManager
         var approvals = await db.Set<AiAssistantChatInteraction>()
             .AnyAsync(x => x.ConversationId == conversation.Id && x.SelectedKey == null, ct);
         conversation.State = approvals ? ChatState.AwaitingApproval : StateAfterCompletion(completion);
+        if (conversation.State == ChatState.Idle && owner.BackgroundReports.Length > 0)
+            conversation.State = ChatState.WaitingForScheduledReports;
         AiAssistantChatStore.Append(db, conversation, "turn_completed", CompletionDescription(completion),
             atUtc: Now, metadata: JsonSerializer.Serialize(completion));
         owner.Continuation = completion;
@@ -162,12 +167,24 @@ public sealed partial class AiAssistantChatSessionManager
             {
                 var current = await db.Set<AiAssistantChatConversation>()
                     .FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleAsync(ct);
+                owners.TryGetValue(id, out var owner);
+                if (owner?.BackgroundReports.Length > 0 || current.State == ChatState.WaitingForScheduledReports)
+                {
+                    var attached = IsObserving(owner);
+                    if (await EndBackgroundObserversAsync(db, current, attached ? "The observation deadline expired."
+                        : "The original observation was interrupted.", expiredOnly: attached, ct))
+                    {
+                        await db.SaveChangesAsync(ct);
+                        await tx.CommitAsync(ct);
+                        feed.Publish(new(id, null));
+                        continue;
+                    }
+                }
                 var pending = await LatestCompletionAsync(db, current, ct);
                 if (current.State is not (ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports or ChatState.AwaitingApproval
                     or ChatState.Processing or ChatState.DeliveryUnknown) || !HasPendingWork(pending))
                     continue;
                 var expired = pending!.ObservationExpiresAtUtc <= Now;
-                owners.TryGetValue(id, out var owner);
                 // An inconclusive reattachment still consumes an owner. Its
                 // original deadline applies even though ordinary outputs remain
                 // fenced by DeliveryUnknown. Avoid repeated uncertainty events
