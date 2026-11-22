@@ -74,7 +74,6 @@ public static class RequestTaskEndpoints
             var effectivePage = Math.Max(page ?? 1, 1);
             var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
             var shouldFilterAssignedToMe = assignedToMe ?? false;
-            var currentUserId = tenant.UserId;
 
             var query =
                 from task in db.RequestTasks.AsNoTracking()
@@ -109,6 +108,7 @@ public static class RequestTaskEndpoints
 
             if (shouldFilterAssignedToMe)
             {
+                var currentUserId = await AssigneeQueries.ResolveCallerUserAsync(db, user, token);
                 if (string.IsNullOrWhiteSpace(currentUserId))
                 {
                     return Results.Ok(new PagedResponse<RequestTaskListItemDto>

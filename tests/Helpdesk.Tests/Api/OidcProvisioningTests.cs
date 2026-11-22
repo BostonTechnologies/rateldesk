@@ -82,7 +82,12 @@ public sealed class OidcProvisioningTests
         Assert.True(account.IsInstanceAdministrator);
         Assert.NotEqual("subject", account.Id);
         Assert.Equal("subject", login.ProviderKey);
-        Assert.Empty(scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().CustomerAuthLinks);
+        var domain = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        Assert.Empty(domain.CustomerAuthLinks);
+        var profile = Assert.Single(domain.Users.Where(user => user.Id == account.Id));
+        Assert.Equal(account.Id, profile.Id);
+        Assert.Null(profile.OrganizationId);
+        Assert.Equal(account.DisplayName, profile.Name);
     }
 
     [Theory]

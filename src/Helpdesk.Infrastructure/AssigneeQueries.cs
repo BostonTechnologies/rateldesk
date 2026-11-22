@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Infrastructure.Identity;
@@ -47,6 +48,31 @@ public static class AssigneeQueries
                 !accounts.Any(account => account.AccountId == link.LocalAccountId && account.DomainUserId == user.Id)) &&
             !links.Any(link => (link.DomainUserId == user.Id || (link.DomainUserId == null && link.LocalAccountId == user.Id)) &&
                 (link.DisabledAtUtc != null || link.InviteStatus == CustomerInviteStatus.Disabled)));
+    }
+
+    public static async Task<string?> ResolveCallerUserAsync(HelpdeskDbContext db, ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var mode = principal.FindFirstValue("auth_mode");
+        if (principal.Identity?.IsAuthenticated != true || mode is "service" or "machine" or "ai_agent" ||
+            principal.HasClaim("token_use", "rateldesk_service")) return null;
+        var accountId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (mode is "local" or "integration")
+            return accountId is null ? null : await ResolveAccountUserAsync(db, accountId, ct);
+
+        var issuer = principal.FindFirstValue("iss")?.TrimEnd('/');
+        var subject = principal.FindFirstValue("sub");
+        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject)) return null;
+        var linkedUser = await (from link in db.CustomerAuthLinks.AsNoTracking()
+                                join user in db.Users.AsNoTracking() on (link.DomainUserId ?? link.LocalAccountId) equals user.Id
+                                where link.OidcIssuer == issuer && link.OidcSubject == subject && link.DisabledAtUtc == null &&
+                                    link.InviteStatus != CustomerInviteStatus.Disabled && !user.IsDeleted
+                                select user.Id).SingleOrDefaultAsync(ct);
+        if (linkedUser is not null) return linkedUser;
+        var provider = OidcApplicationAccount.Provider(issuer);
+        accountId = await db.Database.SqlQuery<string>(
+            $"""SELECT "UserId" AS "Value" FROM "AspNetUserLogins" WHERE "LoginProvider" = {provider} AND "ProviderKey" = {subject}""")
+            .SingleOrDefaultAsync(ct);
+        return accountId is null ? null : await ResolveAccountUserAsync(db, accountId, ct);
     }
 
     public static async Task<string?> ResolveAccountUserAsync(HelpdeskDbContext db, string accountId, CancellationToken ct)

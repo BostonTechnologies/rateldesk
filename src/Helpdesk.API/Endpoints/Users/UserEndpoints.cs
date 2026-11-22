@@ -100,13 +100,13 @@ public static class UserEndpoints
                 var unlinkedAccess = await accessService.ResolveAsync(principal);
                 if (!unlinkedAccess.IsHelpdeskAdmin) return Results.Forbid();
                 if (principal.HasClaim("auth_mode", "local")) return Results.Ok(ToAccessDto(unlinkedAccess));
-                if (principal.FindFirstValue("auth_mode") is "integration" or "mcp" or "gateway" or "service" or "machine" or "ai_agent" ||
-                    principal.HasClaim("token_use", "rateldesk_service") ||
-                    string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
+                if (!IsInteractiveExternal(principal) || string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
                     return Results.Forbid();
                 var account = await Helpdesk.Infrastructure.Identity.OidcApplicationAccount.ProvisionAdministratorAsync(
                     identityDb, issuer, subject, principal.Identity?.Name ?? email, ct);
-                return account.IsEnabled ? Results.Ok(ToAccessDto(unlinkedAccess)) : Results.Forbid();
+                if (!account.IsEnabled || account.IsDeleted || !await EnsureAdministratorProfileAsync(db, account, email, ct))
+                    return Results.Forbid();
+                return Results.Ok(ToAccessDto(unlinkedAccess));
             }
 
             var linkedCustomer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(customer => customer.Id == link.CustomerId);
@@ -143,7 +143,14 @@ public static class UserEndpoints
 
             UpdateCustomerLogin(link, issuer, subject, authentikUserId, preferredUsername, email);
             await db.SaveChangesAsync();
-            return Results.Ok(ToAccessDto(await accessService.ResolveAsync(principal)));
+            var linkedAccess = await accessService.ResolveAsync(principal, ct);
+            if (linkedAccess.IsHelpdeskAdmin && link.LocalAccountId is null && IsInteractiveExternal(principal) &&
+                !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject) &&
+                link.OidcIssuer == issuer && link.OidcSubject == subject)
+            {
+                await OidcApplicationAccount.ProvisionAdministratorAsync(identityDb, issuer, subject, principal.Identity?.Name ?? email, ct);
+            }
+            return Results.Ok(ToAccessDto(linkedAccess));
         })
         .RequireAuthorization()
         .WithTags("Users");
@@ -233,6 +240,32 @@ public static class UserEndpoints
         }
 
         return null;
+    }
+
+    private static bool IsInteractiveExternal(ClaimsPrincipal principal) =>
+        principal.FindFirstValue("auth_mode") is not ("local" or "integration" or "mcp" or "gateway" or "service" or "machine" or "ai_agent") &&
+        !principal.HasClaim("token_use", "rateldesk_service");
+
+    private static async Task<bool> EnsureAdministratorProfileAsync(HelpdeskDbContext db, ApplicationUser account, string email, CancellationToken ct)
+    {
+        var existing = await db.Users.AsNoTracking().SingleOrDefaultAsync(user => user.Id == account.Id, ct);
+        if (existing is not null) return !existing.IsDeleted;
+        // Verified external login owns the same stable ID in the ticket directory.
+        // The home organization may be absent for an instance administrator.
+        var profile = new User { Id = account.Id, Name = account.DisplayName, Email = email };
+        db.Users.Add(profile);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            db.Entry(profile).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+            var concurrent = await db.Users.AsNoTracking().SingleOrDefaultAsync(user => user.Id == account.Id, ct);
+            if (concurrent is null) throw;
+            return !concurrent.IsDeleted;
+        }
     }
 
     private static async Task<CustomerAuthLink?> FindCustomerLoginAsync(
