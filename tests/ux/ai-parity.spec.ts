@@ -100,7 +100,9 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await expect(page.getByRole('heading', { name: 'What would you like to work on?' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Conversation title', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save chat', exact: true })).toHaveCount(0);
+  if (width < 760) await page.getByRole('button', { name: 'Conversations', exact: true }).click();
   await expect(page.getByRole('link', { name: 'AI Providers', exact: true })).toHaveAttribute('href', '/admin/integration?tab=ai-providers');
+  if (width < 760) await page.getByRole('button', { name: 'Back to chat', exact: true }).click();
   await page.getByRole('button', { name: 'Explore a question', exact: false }).click();
   await expect(input).toHaveValue('Help me work through an operational question. Ask me what I want to understand or achieve.');
   const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
@@ -329,3 +331,54 @@ test(`connection popover ${width}px distinguishes saved verification, live nativ
 
 // Opt-in geometry and synthetic screenshots for the owner table inventory.
 test.afterEach(async ({ page }) => { await captureTables(page); });
+
+for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]]) {
+  for (const area of ['chat', 'investigation']) {
+    test(`${area} list and conversation navigation at ${width}x${height}`, async ({ page, request }, info) => {
+      const chat = area === 'chat';
+      const id = '11111111-1111-4111-8111-111111111111';
+      const fixture = 'http://127.0.0.1:18299/fixture';
+      await request.get(`${fixture}/reset?mode=completed`);
+      await page.setViewportSize({ width, height });
+      await page.goto('/auth/development');
+      await page.goto(chat ? `/ai/chat?organizationId=org&conversationId=${id}` : `/ai/ops?id=${id}`);
+      const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
+      const history = page.getByRole('complementary', { name: chat ? 'Chat history' : 'Recent investigations' });
+      await expect(composer).toBeEnabled();
+      const draft = 'First unsent line\nSecond unsent line';
+      await composer.fill(draft);
+      const before = await (await request.get(`${fixture}/chat-counts`)).json();
+      if (width < 760) {
+        await expect(history).toBeHidden();
+        const toggle = page.getByRole('button', { name: chat ? 'Conversations' : 'Back to results', exact: true });
+        await toggle.focus();
+        await page.keyboard.press('Enter');
+        await expect(history).toBeVisible();
+        await expect(composer).toBeHidden();
+        const search = history.getByRole('textbox');
+        await search.fill('Synthetic');
+        await search.press('Enter');
+        await expect(history.getByRole('link', { name: /Synthetic/ }).first()).toBeVisible();
+        await page.screenshot({ path: info.outputPath('list.png') });
+        await page.getByRole('button', { name: chat ? 'Back to chat' : 'Back to investigation' }).click();
+        await expect(composer).toHaveValue(draft);
+        await toggle.click();
+        await expect(search).toHaveValue('Synthetic');
+        await history.getByRole('link', { name: /Synthetic/ }).first().click();
+      } else {
+        await expect(history).toBeVisible();
+      }
+      await expect(composer).toHaveValue(draft);
+      const send = page.getByRole('button', { name: 'Send', exact: true });
+      await expect(send).toBeInViewport({ ratio: 1 });
+      await assertNoHorizontalOverflow(page);
+      await page.screenshot({ path: info.outputPath('conversation.png') });
+      await page.reload();
+      await expect(composer).toHaveValue(draft);
+      const after = await (await request.get(`${fixture}/chat-counts`)).json();
+      expect(after.sends).toBe(before.sends);
+      expect(after.starts).toBe(before.starts);
+      await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+    });
+  }
+}
