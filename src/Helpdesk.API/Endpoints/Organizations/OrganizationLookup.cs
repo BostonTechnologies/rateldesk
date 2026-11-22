@@ -21,10 +21,10 @@ internal static class OrganizationLookup
             {
                 SqliteUnicodeSearch.RegisterConnection(db);
                 eligible = eligible.Where(x => SqliteUnicodeSearch.Fold(x.Name)!.Contains(term) ||
-                    !namesOnly && x.DnsName != null && SqliteUnicodeSearch.Fold(x.DnsName)!.Contains(term));
+                    !namesOnly && (x.Id == q || x.DnsName != null && SqliteUnicodeSearch.Fold(x.DnsName)!.Contains(term)));
             }
             else eligible = eligible.Where(x => x.Name.ToUpper().Contains(term) ||
-                !namesOnly && x.DnsName != null && x.DnsName.ToUpper().Contains(term));
+                !namesOnly && (x.Id == q || x.DnsName != null && x.DnsName.ToUpper().Contains(term)));
         }
         var take = Math.Min(limit ?? 20, 50);
         var ordered = eligible.OrderBy(x => x.Name.ToLower()).ThenBy(x => x.Id);

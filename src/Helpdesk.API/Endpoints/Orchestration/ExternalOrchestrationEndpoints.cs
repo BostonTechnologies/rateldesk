@@ -86,13 +86,23 @@ public static class ExternalOrchestrationEndpoints
         group.MapGet("/catalog/tenants", async (
             [FromQuery] string? organizationId,
             [FromQuery] Guid? connectionId,
+            bool? picker, string? q, string? id, int? limit,
             IOrchestrationCatalogService catalog,
             CancellationToken ct) =>
         {
             try
             {
+                if (picker == true && (q?.Length > 200 || limit is < 1)) return Results.BadRequest();
                 var results = await catalog.ListTenantsAsync(organizationId, connectionId, ct);
-                return Results.Ok(results);
+                if (picker != true) return Results.Ok(results);
+                var take = Math.Min(limit ?? 20, 50);
+                var rows = results.Where(row => !string.IsNullOrWhiteSpace(id)
+                    ? row.TenantId.ToString(System.Globalization.CultureInfo.InvariantCulture) == id
+                    : row.Name.Contains(q?.Trim() ?? "", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.TenantId)
+                    .Take(take + 1).ToList();
+                return Results.Ok(new Helpdesk.Shared.DTOs.CreationLookupResult<OrchestrationCatalogTenantDto>(
+                    rows.Take(take).ToList(), results.Count, rows.Count > take));
             }
             catch (InvalidOperationException ex)
             {

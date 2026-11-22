@@ -2,7 +2,7 @@
 
 <CreationSearchPicker TItem="OrganizationDto" LookupUrl="@(SearchUrl ?? TicketSearchUrl)" Value="@Value"
                       ItemId="@(item => item.Id)" ItemLabel="Format"
-                      Label="@Label" Kind="organizations" Placeholder="@Placeholder" Clearable="@Clearable" ClearAfterSelection="@ClearAfterSelection"
+                      Label="@Label" Kind="organizations" Placeholder="@Placeholder" Clearable="@Clearable" LoadOnOpen="@(SearchUrl is not null && !AutoSelectSingle)" ClearAfterSelection="@ClearAfterSelection"
                       Required="@Required" Disabled="@Disabled" Margin="@Margin"
                       AutoSelectSingle="@AutoSelectSingle" LockWhenSingle="@LockWhenSingle"
                       SelectionChanged="OnSelectionChanged" SelectedItemLoaded="SelectedItemLoaded">

@@ -400,7 +400,7 @@
                 NavigationManager.Uri,
                 Activity.Current?.TraceId.ToString());
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex)
         {
             if (!IsCurrent(lifetime) || token.IsCancellationRequested) return;

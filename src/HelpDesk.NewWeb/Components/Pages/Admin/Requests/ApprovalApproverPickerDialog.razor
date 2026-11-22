@@ -8,55 +8,22 @@
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudTextField T="string"
-                          Value="searchText"
-                          ValueChanged="OnSearchChanged"
-                          Placeholder="Search users and customers"
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.Search"
-                          Immediate="true" />
+            <CreationSearchPicker TItem="RequestTaskApprovalApproverModel" LookupUrl="@LookupUrl" Label="Add approver"
+                                  Kind="approvers" Placeholder="Search users and customers" ClearAfterSelection="true"
+                                  ItemId="row => row.Source + row.Id" ItemLabel="row => Format(row)" SelectionChanged="Add">
+                <ItemTemplate Context="row">@Format(row)<small class="d-block">@row.OrganizationName · @row.Source</small></ItemTemplate>
+            </CreationSearchPicker>
 
-            @if (selected.Count > 0)
-            {
-                <MudStack Row="true" Spacing="1" Class="flex-wrap">
-                    @foreach (var approver in selected)
-                    {
-                        <MudChip T="string"
-                                 Size="Size.Small"
-                                 Color="Color.Info"
-                                 Variant="Variant.Outlined"
-                                 OnClose="@(() => Toggle(approver))">
-                            @($"{approver.Name} ({approver.Email})")
-                        </MudChip>
-                    }
-                </MudStack>
-            }
-
-            <MudTable T="RequestTaskApprovalApproverModel" Items="results" Dense="true" Hover="true" Loading="loading" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-requests-approvalapproverpickerdialog-1">
-                <HeaderContent>
-                    <MudTh>Select</MudTh>
-                    <MudTh>Name</MudTh>
-                    <MudTh>Email</MudTh>
-                    <MudTh>Organization</MudTh>
-                    <MudTh>Source</MudTh>
-                </HeaderContent>
+            <MudTable T="RequestTaskApprovalApproverModel" Items="selected" Dense="true" Hover="true" RowsPerPage="25"
+                      Height="min(36dvh, 22rem)" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-requests-approvalapproverpickerdialog-1">
+                <HeaderContent><MudTh>Name</MudTh><MudTh>Email</MudTh><MudTh>Organization</MudTh><MudTh>Source</MudTh><MudTh>Remove</MudTh></HeaderContent>
                 <RowTemplate>
-                    <MudTd>
-                        <MudCheckBox T="bool"
-                                     Value="@IsSelected(context)"
-                                     ValueChanged="@(_ => Toggle(context))"
-                                     Dense="true" />
-                    </MudTd>
-                    <MudTd DataLabel="Name">@context.Name</MudTd>
-                    <MudTd DataLabel="Email">@context.Email</MudTd>
-                    <MudTd DataLabel="Organization">@context.OrganizationName</MudTd>
-                    <MudTd DataLabel="Source">@context.Source</MudTd>
+                    <MudTd DataLabel="Name">@context.Name</MudTd><MudTd DataLabel="Email">@context.Email</MudTd>
+                    <MudTd DataLabel="Organization">@context.OrganizationName</MudTd><MudTd DataLabel="Source">@context.Source</MudTd>
+                    <MudTd DataLabel="Remove"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" aria-label="@($"Remove {context.Name}")" OnClick="@(() => selected.Remove(context))" /></MudTd>
                 </RowTemplate>
-                <NoRecordsContent>
-                    <MudText Typo="Typo.body2">No approvers found.</MudText>
-                </NoRecordsContent>
+                <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+                <NoRecordsContent><MudText Class="pa-2">No approvers selected.</MudText></NoRecordsContent>
             </MudTable>
         </MudStack>
     </DialogContent>
@@ -71,65 +38,26 @@
     [Parameter] public string? OrganizationId { get; set; }
     [Parameter] public List<RequestTaskApprovalApproverModel> SelectedApprovers { get; set; } = new();
 
-    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
-    private string searchText = string.Empty;
-    private bool loading;
-    private List<RequestTaskApprovalApproverModel> results = new();
+    private string LookupUrl => "api/v1/request-task-approvers/search" + (string.IsNullOrWhiteSpace(OrganizationId)
+        ? "" : $"?organizationId={Uri.EscapeDataString(OrganizationId)}");
+    private static string Format(RequestTaskApprovalApproverModel row) => $"{row.Name} ({row.Email})";
     private List<RequestTaskApprovalApproverModel> selected = new();
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         selected = SelectedApprovers
             .Where(x => !string.IsNullOrWhiteSpace(x.Email))
             .DistinctBy(x => x.Email, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        await SearchAsync();
     }
 
-    private async Task OnSearchChanged(string value)
+    private void Add(RequestTaskApprovalApproverModel? row)
     {
-        searchText = value;
-        await SearchAsync();
-    }
-
-    private async Task SearchAsync()
-    {
-        loading = true;
-        try
-        {
-            var query = new List<string> { "pageSize=75" };
-            if (!string.IsNullOrWhiteSpace(OrganizationId))
-            {
-                query.Add($"organizationId={Uri.EscapeDataString(OrganizationId)}");
-            }
-            if (!string.IsNullOrWhiteSpace(searchText))
-            {
-                query.Add($"q={Uri.EscapeDataString(searchText)}");
-            }
-
-            results = await Api.GetFromJsonAsync<List<RequestTaskApprovalApproverModel>>(
-                $"api/v1/request-task-approvers?{string.Join("&", query)}") ?? new();
-        }
-        finally
-        {
-            loading = false;
-        }
+        if (row is not null && !IsSelected(row)) selected.Add(row);
     }
 
     private bool IsSelected(RequestTaskApprovalApproverModel approver)
         => selected.Any(x => string.Equals(x.Email, approver.Email, StringComparison.OrdinalIgnoreCase));
-
-    private void Toggle(RequestTaskApprovalApproverModel approver)
-    {
-        var existing = selected.FirstOrDefault(x => string.Equals(x.Email, approver.Email, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-        {
-            selected.Remove(existing);
-            return;
-        }
-
-        selected.Add(approver);
-    }
 
     private void Save() => MudDialog.Close(DialogResult.Ok(selected));
 

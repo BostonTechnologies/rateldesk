@@ -342,7 +342,7 @@
             nearNinetyCount = nearNinety.Total;
             lastRefreshed = DateTimeOffset.UtcNow;
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (current == refresh) loadError = "SLA data is unavailable."; }
         finally
         {

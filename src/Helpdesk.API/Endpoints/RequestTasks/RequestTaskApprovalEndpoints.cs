@@ -19,6 +19,9 @@ public static class RequestTaskApprovalEndpoints
             .RequireAuthorization("HelpdeskAdmin")
             .WithSummary("Search approval task approver candidates.");
 
+        app.MapGet("/api/v1/request-task-approvers/search", SearchApproverPage)
+            .WithTags("Request Tasks").RequireAuthorization("HelpdeskAdmin");
+
         var publicGroup = app.MapGroup("/api/v1/request-approvals/public")
             .WithTags("Request Approvals")
             .AllowAnonymous();
@@ -26,6 +29,40 @@ public static class RequestTaskApprovalEndpoints
         publicGroup.MapGet("/{trackingId}/{taskId}", GetPublicApproval);
         publicGroup.MapPost("/{trackingId}/{taskId}/approve", ApprovePublicApproval);
         publicGroup.MapPost("/{trackingId}/{taskId}/reject", RejectPublicApproval);
+    }
+
+    private static async Task<IResult> SearchApproverPage(HelpdeskDbContext db, string? organizationId, string? q, int? limit, CancellationToken ct)
+    {
+        if (q?.Length > 200 || limit is < 1) return Results.BadRequest();
+        var users = db.Users.AsNoTracking().Where(x => !string.IsNullOrWhiteSpace(x.Email) &&
+            (organizationId == null || x.OrganizationId == organizationId))
+            .Select(x => new { x.Id, x.Name, x.Email, x.OrganizationId, Source = "User" });
+        var customers = db.Customers.AsNoTracking().Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled &&
+            !string.IsNullOrWhiteSpace(x.Email) && (organizationId == null || x.OrganizationId == organizationId))
+            .Select(x => new { x.Id, x.Name, x.Email, OrganizationId = (string?)x.OrganizationId, Source = "Customer" });
+        var eligible = users.Concat(customers);
+        var total = await eligible.CountAsync(ct);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var term = q.Trim().ToUpperInvariant();
+            if (db.Database.IsSqlite())
+            {
+                SqliteUnicodeSearch.RegisterConnection(db);
+                eligible = eligible.Where(x => SqliteUnicodeSearch.Fold(x.Name)!.Contains(term) || SqliteUnicodeSearch.Fold(x.Email)!.Contains(term));
+            }
+            else eligible = eligible.Where(x => x.Name.ToUpper().Contains(term) || x.Email.ToUpper().Contains(term));
+        }
+        var take = Math.Min(limit ?? 20, 50);
+        var rows = await (from person in eligible
+            join org in db.Organizations.AsNoTracking() on person.OrganizationId equals org.Id into matching
+            from org in matching.DefaultIfEmpty()
+            orderby person.Name, person.Email, person.Source, person.Id
+            select new RequestTaskApprovalApproverModel { Id = person.Id, Name = person.Name, Email = person.Email,
+                OrganizationId = person.OrganizationId, OrganizationName = org == null ? null : org.Name, Source = person.Source })
+            .Take(take + 1).ToListAsync(ct);
+        var more = rows.Count > take;
+        if (more) rows.RemoveAt(take);
+        return Results.Ok(new Helpdesk.Shared.DTOs.CreationLookupResult<RequestTaskApprovalApproverModel>(rows, total, more));
     }
 
     private static async Task<IResult> SearchApprovers(

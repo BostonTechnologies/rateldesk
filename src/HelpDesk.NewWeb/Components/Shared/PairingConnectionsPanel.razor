@@ -240,7 +240,7 @@
             await Task.WhenAll(loaded.Select(c => c.PairId).Distinct().Select(async pairId =>
             {
                 try { var choices = await Api.DirectoryAsync(pairId, lifetime.Token); if (Current(current)) directories[pairId] = choices; }
-                catch (Exception exception) when (Expected(exception)) { }
+                catch (Exception exception) when (Expected(exception)) { if (Current(current)) directories.Remove(pairId); }
             }));
             // Durable incomplete rows expose Continue setup. Refresh never opens or resets a review.
         }

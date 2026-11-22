@@ -1,0 +1,9 @@
+.creation-search-picker {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.creation-search-picker ::deep .mud-input-control {
+    min-width: 0;
+    width: 100%;
+}

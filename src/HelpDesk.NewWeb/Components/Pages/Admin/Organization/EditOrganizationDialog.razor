@@ -21,16 +21,8 @@
                     <MudSwitch T="bool" @bind-Value="model.Enabled" Label="Enable organization" />
                 </MudTabPanel>
                 <MudTabPanel Text="External orchestration Tenant">
-                    @if (!string.IsNullOrWhiteSpace(orchestrationTenantsError))
-                    {
-                        <MudAlert Severity="Severity.Warning">@orchestrationTenantsError</MudAlert>
-                    }
-                    <MudSelect T="int?" @bind-Value="model.OrchestrationTenantId" Label="External orchestration Tenant" Clearable="true" Disabled="orchestrationTenantsLoading">
-                        @foreach (var tenant in OrchestrationTenantOptions)
-                        {
-                            <MudSelectItem T="int?" Value="@tenant.TenantId">@tenant.Name (@tenant.TenantId)</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <OrchestrationTenantPicker Value="@model.OrchestrationTenantId" SavedName="@selectedTenantName"
+                                               SelectionChanged="SelectExternalTenant" />
                 </MudTabPanel>
                 <MudTabPanel Text="Members &amp; access">
                     <TenantAdministration IsCanonical="true" OrganizationId="@Organization.Id" />
@@ -52,18 +44,14 @@
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private MudForm form = default!;
     private EditOrganizationModel model = new();
-    private List<OrchestrationCatalogTenantDto> orchestrationTenants = new();
-    private bool orchestrationTenantsLoading;
-    private string? orchestrationTenantsError;
-    // A display-only fallback preserves the saved choice without persisting a
-    // placeholder as if it were a name returned by the remote tenant catalog.
-    private IEnumerable<OrchestrationCatalogTenantDto> OrchestrationTenantOptions => Organization.OrchestrationTenantId is { } savedId &&
-        !orchestrationTenants.Any(tenant => tenant.TenantId == savedId)
-        ? orchestrationTenants.Append(new OrchestrationCatalogTenantDto
-            { TenantId = savedId, Name = Organization.OrchestrationTenantName ?? "Saved tenant (name unavailable)" })
-        : orchestrationTenants;
+    private string? selectedTenantName;
+    private void SelectExternalTenant(OrchestrationCatalogTenantDto? tenant)
+    {
+        model.OrchestrationTenantId = tenant?.TenantId;
+        selectedTenantName = tenant?.Name;
+    }
 
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
     {
         model = new EditOrganizationModel
         {
@@ -72,7 +60,7 @@
             State = Organization.State,
             Enabled = Organization.State == EntityState.Enabled
         };
-        await LoadOrchestrationTenantsAsync();
+        selectedTenantName = Organization.OrchestrationTenantName;
     }
 
     private async Task Submit()
@@ -85,30 +73,12 @@
             model.Name, model.DnsName, model.ContactInfo,
             ItSupportOrganizationId = string.IsNullOrWhiteSpace(model.ItSupportOrganizationId) ? null : model.ItSupportOrganizationId,
             model.State, model.OrchestrationTenantId,
-            OrchestrationTenantName = orchestrationTenants.FirstOrDefault(x => x.TenantId == model.OrchestrationTenantId)?.Name
-                ?? (model.OrchestrationTenantId == Organization.OrchestrationTenantId ? Organization.OrchestrationTenantName : null),
+            OrchestrationTenantName = selectedTenantName,
             OrchestrationTenantLinkedAtUtc = !model.OrchestrationTenantId.HasValue ? (DateTimeOffset?)null
                 : model.OrchestrationTenantId == Organization.OrchestrationTenantId ? Organization.OrchestrationTenantLinkedAtUtc : DateTimeOffset.UtcNow
         });
         if (response.IsSuccessStatusCode) { Dialog.Close(DialogResult.Ok(true)); return; }
         Snackbar.Add($"Organization could not be saved (HTTP {(int)response.StatusCode}). Your changes are retained; review them and retry.", Severity.Error);
-    }
-
-    private async Task LoadOrchestrationTenantsAsync()
-    {
-        orchestrationTenantsLoading = true;
-        orchestrationTenants = [];
-        try
-        {
-            orchestrationTenantsError = null;
-            orchestrationTenants = await Api.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>("api/v1/admin/orchestration/catalog/tenants") ?? new();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException or
-            Polly.CircuitBreaker.BrokenCircuitException or Polly.Timeout.TimeoutRejectedException)
-        {
-            orchestrationTenantsError = "The external tenant catalog is unavailable. Your saved mapping is retained.";
-        }
-        finally { orchestrationTenantsLoading = false; }
     }
 
     private sealed class EditOrganizationModel

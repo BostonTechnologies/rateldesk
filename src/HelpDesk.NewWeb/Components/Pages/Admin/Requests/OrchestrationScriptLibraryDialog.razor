@@ -40,15 +40,6 @@
                                   Adornment="Adornment.Start"
                                   AdornmentIcon="@Icons.Material.Filled.Search" />
                 </MudItem>
-                <MudItem xs="12" sm="4" md="3">
-                    <MudSelect T="string" @bind-Value="tenantFilter" Label="Customer" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
-                        <MudSelectItem T="string" Value="@AllFilterValue">All customers</MudSelectItem>
-                        @foreach (var tenant in TenantOptions)
-                        {
-                            <MudSelectItem T="string" Value="@tenant">@tenant</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
                 <MudItem xs="12" sm="4" md="2">
                     <MudSelect T="string" @bind-Value="scriptTypeFilter" Label="Script Type" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
                         <MudSelectItem T="string" Value="@AllFilterValue">All types</MudSelectItem>
@@ -200,7 +191,6 @@
     [Parameter] public bool TenantMetadataUnavailable { get; set; }
 
     private string? searchText;
-    private string tenantFilter = AllFilterValue;
     private string scriptTypeFilter = AllFilterValue;
     private string clientFilter = AllFilterValue;
     private string? selectedId;
@@ -208,13 +198,6 @@
     private string DialogSubtitle => string.IsNullOrWhiteSpace(OrganizationDisplayName)
         ? "Search and filter available NetRatel jobs."
         : $"Search and filter available NetRatel jobs for {OrganizationDisplayName}.";
-
-    private IReadOnlyList<string> TenantOptions => Definitions
-        .Select(GetTenantLabel)
-        .Where(x => !string.Equals(x, "Unassigned", StringComparison.OrdinalIgnoreCase))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-        .ToList();
 
     private IReadOnlyList<string> ScriptTypeOptions => Definitions
         .Select(GetScriptType)
@@ -248,11 +231,6 @@
 
     private bool MatchesFilters(OrchestrationCatalogRequestDefinitionDto definition)
     {
-        if (!IsAll(tenantFilter) && !string.Equals(GetTenantLabel(definition), tenantFilter, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         if (!IsAll(scriptTypeFilter) && !string.Equals(GetScriptType(definition), scriptTypeFilter, StringComparison.OrdinalIgnoreCase))
         {
             return false;

@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Bunit;
 using Bunit.TestDoubles;
+using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Organization;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.Extensions.DependencyInjection;
@@ -116,8 +117,8 @@ public sealed class OrganizationMappingDialogTests
                     "http" => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("private upstream failure") },
                     "circuit" => throw new BrokenCircuitException("private upstream circuit"),
                     "timeout" => throw new TimeoutRejectedException("private upstream timeout"),
-                    _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Mode == "renamed"
-                        ? new[] { new OrchestrationCatalogTenantDto { TenantId = 132, Name = "Current catalog tenant" } } : []) }
+                    _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new CreationLookupResult<OrchestrationCatalogTenantDto>(Mode == "renamed"
+                        ? [new() { TenantId = 132, Name = "Current catalog tenant" }] : [], Mode == "renamed" ? 1 : 0, false)) }
                 };
             if (request.Method == HttpMethod.Put && request.RequestUri!.AbsolutePath == "/api/v1/organizations/synthetic-organization")
             {

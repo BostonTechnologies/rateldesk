@@ -1186,9 +1186,9 @@
                 }
             }
         }
-        catch
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
         {
-            // ignore parse errors
+            Snackbar.Add("The saved form schema could not be read completely.", Severity.Warning);
         }
     }
 

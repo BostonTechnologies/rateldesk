@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Synthetic browser-only fixture. Real API authorization is tested in the owning API suites.
 import http from 'node:http';
 let requests = [], mutations = [], fault = '', enabled = true, premium = false, manyDiagnostics = false, receipts = new Set();
@@ -45,6 +46,8 @@ http.createServer(async (req, res) => {
     { id: 'access', name: 'Access request', description: 'Synthetic permissions request', itemType: 1 }
   ]);
   if (url.pathname.endsWith('/breadcrumb')) return reply([{ id: 'hardware', name: 'Hardware' }]);
+  if (['/api/v1/admin/tenants/search', '/api/v1/admin/directories/organizations/search'].includes(url.pathname))
+    return reply(organizationLookupPage(url, [{ id: 'org-synthetic', name: 'Synthetic tenant' }]));
   if (url.pathname === '/api/v1/admin/tenants/lookup') return reply([{ id: 'org-synthetic', name: 'Synthetic tenant' }]);
   if (url.pathname.startsWith('/api/v1/reports/sla')) {
     requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), roles });
@@ -81,7 +84,7 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/v1/ticketing/filter-options') {
       const term = (url.searchParams.get('q') ?? '').toLowerCase();
       const options = [{ id: 'org-synthetic', label: 'Synthetic tenant' }, { id: 'org-other', label: 'Other synthetic tenant' }];
-      return reply({ items: options.filter(x => x.label.toLowerCase().includes(term)), hasMore: false });
+      return reply({ totalEligible: options.length, items: options.filter(x => x.label.toLowerCase().includes(term)), hasMore: false });
     }
     const body = async () => { let text = ''; for await (const part of req) text += part; return text ? JSON.parse(text) : {}; };
     if (url.pathname === '/api/v1/request-tasks') {

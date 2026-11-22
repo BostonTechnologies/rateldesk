@@ -192,8 +192,9 @@
                 await Task.Delay(350, token);
                 await InvokeAsync(RefreshPreviewAsync);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
+                return;
             }
         }, token);
 

@@ -132,12 +132,11 @@
             </div>
             <details class="mb-2"><summary>More filters · organization, rule, exact IDs and dates</summary>
                 <div class="workspace-toolbar">
-                <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" Placeholder="All organizations" @bind-Value="auditTenantId" Required="false" />
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Label="Organization" Placeholder="All organizations" @bind-Value="auditTenantId" Required="false" />
                 <MudSelect T="string" @bind-Value="auditRuleId" Label="Rule" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                     @foreach (var rule in rules) { <MudSelectItem Value="@rule.Id">@rule.Name</MudSelectItem> }
                 </MudSelect>
 
-                    <MudTextField T="string" Label="Organization ID" @bind-Value="auditTenantId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Rule ID" @bind-Value="auditRuleId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Message ID" @bind-Value="auditMessageId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Ticket ID" @bind-Value="auditTicketId" Variant="Variant.Outlined" Margin="Margin.Dense" />

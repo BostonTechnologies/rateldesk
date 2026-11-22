@@ -13,7 +13,7 @@
                      Disabled="@(Disabled || string.IsNullOrWhiteSpace(LookupUrl) || (LockWhenSingle && totalEligible == 1 && selected is not null))"
                      ReadOnly="choosing"
                      Clearable="@(Clearable && (!LockWhenSingle || totalEligible != 1))" ResetValueOnEmptyText="true"
-                     CoerceValue="false" DebounceInterval="250" MinCharacters="0" MaxItems="50"
+                     CoerceValue="false" DebounceInterval="250" PopoverClass="compact-filter-options" MaxHeight="280" MinCharacters="0" MaxItems="50" MaxLength="200"
                      Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" ShowProgressIndicator="true"
                      TextChanged="OnTextChanged">
         <ItemTemplate Context="item">
@@ -33,7 +33,7 @@
         @if (loading) { <MudText Typo="Typo.caption">Loading @Kind…</MudText> }
         @if (failed || hydrationFailed)
         {
-            <MudText Typo="Typo.caption" Color="Color.Error">@(hydrationFailed ? HydrationFailureMessage ?? $"Could not load {Kind}." : SearchFailureMessage ?? $"Could not load {Kind}.")</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Error">@(denied ? $"Access to {Kind} is unavailable." : hydrationFailed ? HydrationFailureMessage ?? $"Could not load {Kind}." : SearchFailureMessage ?? $"Could not load {Kind}.")</MudText>
             <MudButton Size="Size.Small" OnClick="Retry">Retry @Label.ToLowerInvariant()</MudButton>
         }
         else if (!loading && totalEligible == 0) { <MudText Typo="Typo.caption">No eligible @Kind.</MudText> }
@@ -72,7 +72,7 @@
     private string query = "";
     private TItem? selected;
     private int? totalEligible;
-    private bool loading, failed, hydrationFailed, hasMore, disposed, initialized;
+    private bool loading, failed, hydrationFailed, denied, hasMore, disposed, initialized;
     private long hydrationVersion;
     private string? appliedValue;
     private long searchVersion;
@@ -101,7 +101,7 @@
             selected = null;
             labels.Clear();
             appliedValue = null;
-            hydrationFailed = false;
+            hydrationFailed = denied = false;
             totalEligible = null;
             loading = failed = hasMore = false;
             query = "";
@@ -151,6 +151,7 @@
         var version = id is null ? ++fetchVersion : hydrationVersion;
         bool IsCurrent() => version == (id is null ? fetchVersion : hydrationVersion);
         if (id is null) { loading = true; failed = false; }
+        denied = false;
         try
         {
             var result = await Api.GetFromJsonAsync<CreationLookupResult<TItem>>(
@@ -176,7 +177,11 @@
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
-            if (!disposed && !ct.IsCancellationRequested && scope == expectedScope && id is null && IsCurrent()) failed = true;
+            if (!disposed && !ct.IsCancellationRequested && scope == expectedScope && IsCurrent())
+            {
+                if (id is null) failed = true;
+                denied = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized };
+            }
             return null;
         }
         finally { if (!disposed && scope == expectedScope && id is null && IsCurrent()) loading = false; }
@@ -261,7 +266,7 @@
             await OnParametersSetAsync();
         }
         else await Fetch(query, null, scopeCancellation.Token);
-        if (autocomplete is not null && !failed) await autocomplete.OpenMenuAsync();
+        if (autocomplete is not null && !failed && !hydrationFailed) await autocomplete.OpenMenuAsync();
     }
     public void Dispose()
     {

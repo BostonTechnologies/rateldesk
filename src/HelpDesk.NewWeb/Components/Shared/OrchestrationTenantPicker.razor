@@ -1,0 +1,25 @@
+@using Helpdesk.Shared.DTOs.Orchestration
+@using System.Globalization
+
+<CreationSearchPicker TItem="OrchestrationCatalogTenantDto" LookupUrl="api/v1/admin/orchestration/catalog/tenants?picker=true"
+                      Value="@Value?.ToString(CultureInfo.InvariantCulture)" ItemId="row => row.TenantId.ToString(CultureInfo.InvariantCulture)"
+                      ItemLabel="Format" Label="External orchestration Tenant" Kind="external tenants"
+                      Placeholder="No external tenant" LoadOnOpen="true" UnavailableSelection="SavedChoice"
+                      SelectionChanged="SelectionChanged" SelectedItemLoaded="Loaded" />
+
+@code {
+    [Parameter] public int? Value { get; set; }
+    [Parameter] public string? SavedName { get; set; }
+    [Parameter] public EventCallback<OrchestrationCatalogTenantDto?> SelectionChanged { get; set; }
+
+    private static string Format(OrchestrationCatalogTenantDto row) => $"{row.Name} ({row.TenantId})";
+
+    private OrchestrationCatalogTenantDto SavedChoice(string id) => new()
+    {
+        TenantId = int.Parse(id, CultureInfo.InvariantCulture),
+        Name = SavedName ?? "Saved tenant (name unavailable)"
+    };
+
+    private Task Loaded(OrchestrationCatalogTenantDto? tenant) =>
+        tenant is null ? Task.CompletedTask : SelectionChanged.InvokeAsync(tenant);
+}
