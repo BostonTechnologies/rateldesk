@@ -346,7 +346,7 @@ public static class RequestTaskEndpoints
             }
             // Keep the returned task in its standalone representation. The parent
             // write remains in the same transaction as the child insert.
-            db.Entry(parent).State = EntityState.Detached;
+            db.Entry(parent).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
             var created = await sender.Send(command);
             if (transaction != null) await transaction.CommitAsync(token);
             return Results.Created($"/api/v1/request-tasks/{created.Id}", created);
