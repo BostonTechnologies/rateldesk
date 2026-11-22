@@ -5,7 +5,7 @@
 <MudStack Spacing="2">
     @if (error is not null) { <MudAlert Dense="true" Severity="Severity.Error" role="alert">@error</MudAlert> }
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
-        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" Value="@organization" ValueChanged="@(id => OrganizationChanged(id ?? string.Empty))" Clearable="false" />
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" Value="@organization" ValueChanged="@(id => OrganizationChanged(id ?? string.Empty))" Clearable="false" Disabled="@(busy || editing)" />
         <MudSelect T="string" Label="System default to clone" @bind-Value="defaultId" Dense="true" Style="min-width:12rem">
             @foreach (var item in defaults) { <MudSelectItem Value="@item.Id">@item.Name</MudSelectItem> }
         </MudSelect>
@@ -57,7 +57,7 @@
 
 @code {
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
-    private List<Choice> organizations = [];
+    private int loadGeneration;
     private List<LayoutChoice> layouts = [];
     private IReadOnlyList<IncidentTemplateCatalogueItem> defaults = [];
     private IReadOnlyList<InternalIncidentTemplateDraft> items = [];
@@ -75,10 +75,10 @@
     {
         try
         {
-            organizations = await Api.GetFromJsonAsync<List<Choice>>("api/v1/admin/tenants/lookup") ?? [];
+            var first = await Api.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/tenants/search?limit=1");
             layouts = await Api.GetFromJsonAsync<List<LayoutChoice>>("api/v1/email-layouts/choices") ?? [];
             defaults = await Api.GetFromJsonAsync<List<IncidentTemplateCatalogueItem>>("api/v1/internal-incident-templates/defaults") ?? [];
-            organization = organizations.FirstOrDefault()?.Id ?? "";
+            organization = first?.Items.FirstOrDefault()?.Id ?? "";
             await LoadAsync();
         }
         catch (HttpRequestException) { error = "Internal templates could not be loaded. Reopen the NetRatel tab to retry."; }
@@ -86,8 +86,9 @@
     private async Task OrganizationChanged(string value) { organization = value; editing = false; page = 1; await LoadAsync(); }
     private async Task LoadAsync()
     {
+        var generation = ++loadGeneration;
         var result = await Api.GetFromJsonAsync<TemplatePage>($"api/v1/internal-incident-templates/?organizationId={Uri.EscapeDataString(organization)}&page={page}&pageSize={pageSize}");
-        items = result?.Items ?? []; total = result?.TotalCount ?? 0;
+        if (generation == loadGeneration) { items = result?.Items ?? []; total = result?.TotalCount ?? 0; }
     }
     private async Task NewAsync()
     {
@@ -139,7 +140,6 @@
     private async Task PreviousAsync() { page--; await LoadAsync(); }
     private async Task NextAsync() { page++; await LoadAsync(); }
     private async Task SizeChanged(int value) { pageSize = value; page = 1; await LoadAsync(); }
-    private sealed record Choice(string Id, string Name);
     private sealed record LayoutChoice(int Id, string Name);
     private sealed record TemplatePage(IReadOnlyList<InternalIncidentTemplateDraft> Items, int TotalCount);
 }

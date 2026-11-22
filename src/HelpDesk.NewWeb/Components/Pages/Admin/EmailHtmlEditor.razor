@@ -85,14 +85,12 @@
     [Parameter] public Helpdesk.Shared.DTOs.Orchestration.InternalIncidentTemplateDraft? InternalIncidentDraft { get; set; }
 
     private readonly string editorId = $"email-html-editor-{Guid.NewGuid():N}";
-    private readonly List<TenantLookupDto> tenants = new();
     private StandaloneCodeEditor? editor;
     private string currentValue = string.Empty;
     private string selectedTenantId = string.Empty;
     private string previewSubject = string.Empty;
     private string previewHtml = string.Empty;
     private bool isPreviewLoading;
-    private bool hasLoadedTenants;
     private bool monacoAssetsReady;
     private bool usePlainTextFallback;
     private CancellationTokenSource? previewDebounce;
@@ -101,13 +99,6 @@
     protected override async Task OnInitializedAsync()
     {
         currentValue = Value ?? string.Empty;
-        if (ShowTenantSelector)
-        {
-            var loadedTenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-            tenants.AddRange(loadedTenants);
-            hasLoadedTenants = true;
-        }
-
         await RefreshPreviewAsync();
     }
 
@@ -203,9 +194,6 @@
 
     private async Task RefreshPreviewAsync()
     {
-        if (ShowTenantSelector && !hasLoadedTenants)
-            return;
-
         isPreviewLoading = true;
         StateHasChanged();
 

@@ -43,7 +43,6 @@
     [Parameter] public PreviewSampleContext? SampleContext { get; set; }
     [Parameter] public string RenderedHtml { get; set; } = string.Empty;
 
-    private readonly List<TenantLookupDto> tenants = new();
     private string selectedTenantId = SystemDefaultsTenantValue;
     private string previewSubject = string.Empty;
     private string previewHtml = string.Empty;
@@ -63,8 +62,6 @@
         }
 
         selectedTenantId = string.IsNullOrWhiteSpace(TenantId) ? SystemDefaultsTenantValue : TenantId;
-        var loadedTenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-        tenants.AddRange(loadedTenants);
         await RefreshPreviewAsync();
     }
 

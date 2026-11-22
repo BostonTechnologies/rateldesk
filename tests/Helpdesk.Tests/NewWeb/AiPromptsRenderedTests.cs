@@ -62,7 +62,7 @@ public sealed class AiPromptsRenderedTests
         Assert.Equal("Retain this draft", page.Find("[data-testid=prompt-name]").GetAttribute("value"));
         Assert.Equal("Unsaved organization A guidance", page.FindComponent<Editor>().Instance.Value);
 
-        await SelectOrganizationBAsync(outlet);
+        await WorkspaceOrganizationSelection.SelectAsync(outlet, "Organization B", "org-b");
         Assert.Single(api.LoadedOrganizations);
         Assert.Equal("Retain this draft", page.Find("[data-testid=prompt-name]").GetAttribute("value"));
         Button(page, "Discard changes").Click();
@@ -113,7 +113,7 @@ public sealed class AiPromptsRenderedTests
         page.Find("[data-testid=prompt-edit]").Click();
         // The browser has accepted typing but its change callback has not reached the page yet.
         context.JSInterop.Setup<string>("blazorMonaco.editor.getValue", _ => true).SetResult("Latest browser draft");
-        await SelectOrganizationBAsync(outlet);
+        await WorkspaceOrganizationSelection.SelectAsync(outlet, "Organization B", "org-b");
         page.WaitForAssertion(() => Assert.Contains("Discard unsaved prompt changes?", page.Markup));
         Assert.Single(api.LoadedOrganizations);
         Assert.Equal("Latest browser draft", page.FindComponent<Editor>().Instance.Value);
@@ -172,16 +172,6 @@ public sealed class AiPromptsRenderedTests
         Assert.False(api.Saves[0].Request.Archived);
     }
 
-    private static async Task SelectOrganizationBAsync(IRenderedComponent<SectionOutlet> outlet)
-    {
-        var picker = outlet.FindComponent<MudAutocomplete<OrganizationDto>>();
-        await picker.InvokeAsync(async () =>
-        {
-            var matches = await picker.Instance.SearchFunc!("Organization B", CancellationToken.None);
-            await picker.Instance.ValueChanged.InvokeAsync(matches.Single(row => row.Id == "org-b"));
-        });
-    }
-
     private static BunitContext Context(Api api) => Context(api, out _);
 
     private static BunitContext Context(Api api, out IRenderedComponent<SectionOutlet> outlet)
@@ -191,8 +181,7 @@ public sealed class AiPromptsRenderedTests
         context.Services.AddSingleton<IHttpClientFactory>(api);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.JSInterop.SetupModule("./js/helpdesk-monaco-text.js").Mode = JSRuntimeMode.Loose;
-        context.Render<MudPopoverProvider>();
-        outlet = context.Render<SectionOutlet>(p => p.Add(x => x.SectionName, "workspace-context"));
+        outlet = WorkspaceOrganizationSelection.RenderHeader(context);
         return context;
     }
 

@@ -391,7 +391,8 @@ public sealed partial class AutomationConnectionSelectionRenderedTests
             var path = request.RequestUri!.AbsolutePath;
             Paths.Add(request.RequestUri.PathAndQuery);
             object body;
-            if (path == "/api/v1/organizations") body = new[] { Organization };
+            if (path == "/api/v1/admin/directories/organizations/search") body = new Helpdesk.Shared.DTOs.CreationLookupResult<OrganizationDto>([Organization], 1, false);
+            else if (path == "/api/v1/organizations") body = new[] { Organization };
             else if (path == "/api/v1/users") body = Array.Empty<UserDto>();
             else if (path == "/api/v1/request-forms" && request.Method == HttpMethod.Post)
             {

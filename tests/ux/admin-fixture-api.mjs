@@ -50,7 +50,9 @@ http.createServer(async (req, res) => {
  const token = req.headers.authorization?.split(' ')[1];
  const permissions = token ? JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).roles : [];
  const admin = permissions.includes('HelpdeskAdmin');
- const scopedOrganizations = admin ? organizations : organizations.slice(0, 1);
+ const directory = fault === 'lookup-directory' ? [...organizations, ...Array.from({ length: 128 }, (_, i) => ({
+  id: `lookup-${i}`, name: `Synthetic organization ${String(i).padStart(3, '0')}` }))] : organizations;
+ const scopedOrganizations = admin ? directory : directory.slice(0, 1);
  if (path === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic Administrator', email: 'admin@example.test', customerId: null, userId: 'synthetic-admin', primaryOrganizationId: 'org-1', primaryOrganizationName: 'Atlas Tenant', isHelpdeskAdmin: admin, roleBundles: permissions, permissions, allowedOrganizationIds: ['org-1'], managedOrganizationIds: admin ? [] : ['org-1'] });
  if (path === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
  if (path === '/api/v1/ticketing/organizations/search') {
@@ -150,7 +152,7 @@ http.createServer(async (req, res) => {
  if (path === '/api/v1/slas') return reply([{ id: 'policy-1', name: 'Atlas priority response', tenantId: 'org-1', appliesTo: 0, responseTimeHours: 2, resolutionTimeHours: 8, escalations: [] }]);
  if (path === '/api/v1/sla-report-subscriptions') return reply(subscriptions);
  if (path.startsWith('/api/v1/tenant-sla-settings/')) {
-  const tenant = path.split('/').pop(); if (fault === 'slow-tenant' && tenant === 'org-1') await new Promise(resolve => setTimeout(resolve, 1000)); return reply(settings[tenant]);
+  const tenant = path.split('/').pop(); if (fault === 'slow-tenant' && tenant === 'org-1') await new Promise(resolve => setTimeout(resolve, 1000)); return reply(settings[tenant] ?? {tenantId: tenant, useBusinessHours: false});
  }
   const creation=path.match(/^\/api\/v1\/resources\/datasets\/create-requests\/([^/]+)$/);
  if(creation){const result=createResults.get(`${url.searchParams.get('organizationId')}:${creation[1]}`);return reply(result??{},result?200:404);}

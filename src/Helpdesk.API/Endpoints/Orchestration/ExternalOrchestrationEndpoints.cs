@@ -1,3 +1,4 @@
+using System.Globalization;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Infrastructure.Persistence;
@@ -97,7 +98,7 @@ public static class ExternalOrchestrationEndpoints
                 if (picker != true) return Results.Ok(results);
                 var take = Math.Min(limit ?? 20, 50);
                 var rows = results.Where(row => !string.IsNullOrWhiteSpace(id)
-                    ? row.TenantId.ToString(System.Globalization.CultureInfo.InvariantCulture) == id
+                    ? row.TenantId.ToString(CultureInfo.InvariantCulture) == id
                     : row.Name.Contains(q?.Trim() ?? "", StringComparison.OrdinalIgnoreCase))
                     .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ThenBy(row => row.TenantId)
                     .Take(take + 1).ToList();

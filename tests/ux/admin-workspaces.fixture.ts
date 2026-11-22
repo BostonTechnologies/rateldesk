@@ -36,6 +36,25 @@ test.beforeEach(async ({ page, request }) => {
  await page.goto('/auth/development', { waitUntil: 'domcontentloaded' });
 });
 
+test('organization search reaches late authorized records in routing, service levels and automation', async ({ page, request }, info) => {
+ await request.get(`${fixture}/fault?mode=lookup-directory`);
+ for (const [route, label] of [
+  ['/admin/support-routing', 'Organization'],
+  ['/admin/tenant-sla-settings', 'Tenant'],
+  ['/admin/ai-assistant-webhooks', 'Tenant / Organization'],
+ ] as const) {
+  await open(page, route);
+  const input = page.getByRole('combobox', { name: new RegExp(`^${label}\\*?$`) });
+  await input.fill('organization 127');
+  const option = page.getByRole('option', { name: 'Synthetic organization 127', exact: true });
+  await expect(option).toBeVisible();
+  await option.click();
+  await expect(input).toHaveValue('Synthetic organization 127');
+  await page.screenshot({ path: info.outputPath(`lookup-${route.split('/').pop()}.png`) });
+ }
+ expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
+});
+
 test('synthetic before and after workspace evidence', async ({ page }, info) => {
  test.setTimeout(240_000);
  for (const theme of ['light', 'dark']) {

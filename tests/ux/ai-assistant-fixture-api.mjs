@@ -116,7 +116,8 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/fixture/connection') { connectionMode = url.searchParams.get('mode') || 'verified'; return reply({ mode: connectionMode }); }
   if (url.pathname.endsWith('/chat/connection')) return reply(connectionStatus('org', url.searchParams.get('conversationId')));
   if (['/api/v1/ai/chat/organizations/search', '/api/v1/ai/ops/organizations/search', '/api/v1/admin/directories/organizations/search'].includes(url.pathname)) {
-    return reply(organizationLookupPage(url, [{ id: 'org', name: 'Synthetic organization' }, { id: 'org-b', name: 'Other synthetic organization' }]));
+    return reply(organizationLookupPage(url, [{ id: 'org', name: 'Synthetic organization' }, { id: 'org-b', name: 'Other synthetic organization' },
+      ...Array.from({length: 105}, (_, i) => ({id: `late-${i}`, name: `Zulu synthetic ${String(i).padStart(3, '0')}`}))]));
   }
   if (url.pathname === '/api/v1/ai/chat/organizations' || url.pathname === '/api/v1/ai/ops/organizations') return reply([{ id: 'org', name: 'Synthetic organization' }, { id: 'org-b', name: 'Other synthetic organization' }]);
   if (url.pathname === '/api/v1/ai/ops/prompts') return reply([]);

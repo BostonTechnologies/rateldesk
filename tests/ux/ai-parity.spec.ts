@@ -8,6 +8,22 @@ const id = '11111111-1111-4111-8111-111111111111';
 const fixture = 'http://127.0.0.1:18299';
 const routes = [`/ai/chat?organizationId=org&conversationId=${id}`, `/ai/ops?id=${id}`];
 
+test('chat header searches beyond the opening directory and supports keyboard selection', async ({ page, request }, info) => {
+  await request.get(`${fixture}/fixture/reset?mode=empty`);
+  await page.goto('/auth/development');
+  await page.goto('/ai/chat?organizationId=org');
+  const input = page.getByRole('combobox', { name: /^Organization\*?$/ });
+  await input.fill('Zulu synthetic 104');
+  await expect(page.getByRole('option', { name: 'Zulu synthetic 104', exact: true })).toBeVisible();
+  await page.screenshot({path: info.outputPath('late-chat-organization.png')});
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/organizationId=late-104/);
+  const counts = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+  expect(counts.sends).toBe(0);
+  expect(counts.starts).toBe(0);
+});
+
 for (const route of routes) {
   for (const [theme, width] of [['light', 1440], ['dark', 1440], ['light', 390], ['dark', 390]] as const) {
     test(`${route.split('?')[0]} ${theme} ${width}px retains one mounted interactive conversation`, async ({ page, request }, info) => {
