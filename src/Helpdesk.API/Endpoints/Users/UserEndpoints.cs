@@ -39,11 +39,23 @@ public static class UserEndpoints
                 ? Results.Ok(ToDto(user))
                 : Results.Problem("User not found", statusCode: 404));
 
-        group.MapGet("/by-email/{email}", async ([FromRoute] string email, [FromServices] IRepository<User> repo) =>
+        group.MapGet("/by-email/{email}", async ([FromRoute] string email, [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
         {
-            var all = await repo.GetAllAsync();
-            var user = all.FirstOrDefault(u => !u.IsDeleted && string.Equals(u.Email, email, StringComparison.OrdinalIgnoreCase));
-            return user is null ? Results.Problem("User not found", statusCode: 404) : Results.Ok(ToDto(user));
+            var active = db.Users.AsNoTracking().Where(user => !user.IsDeleted);
+            var normalizedEmail = email.ToUpperInvariant();
+            if (db.Database.IsSqlite())
+            {
+                SqliteUnicodeSearch.RegisterConnection(db);
+                active = active.Where(user => SqliteUnicodeSearch.Fold(user.Email) == normalizedEmail);
+            }
+            else active = active.Where(user => user.Email.ToUpper() == normalizedEmail);
+            var matches = await active.Take(2).ToListAsync(ct);
+            return matches.Count switch
+            {
+                0 => Results.Problem("User not found", statusCode: 404),
+                1 => Results.Ok(ToDto(matches[0])),
+                _ => Results.Conflict("More than one active user has this email. Assign using the verified user ID.")
+            };
         });
 
         group.MapPost("/", async ([FromBody] CreateUserRequest request, [FromServices] IRepository<User> repo) =>
@@ -146,7 +158,7 @@ public static class UserEndpoints
             var linkedAccess = await accessService.ResolveAsync(principal, ct);
             if (linkedAccess.IsHelpdeskAdmin && link.LocalAccountId is null && IsInteractiveExternal(principal) &&
                 !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject) &&
-                link.OidcIssuer == issuer && link.OidcSubject == subject)
+                link.OidcIssuer?.TrimEnd('/') == issuer && link.OidcSubject == subject)
             {
                 await OidcApplicationAccount.ProvisionAdministratorAsync(identityDb, issuer, subject, principal.Identity?.Name ?? email, ct);
             }

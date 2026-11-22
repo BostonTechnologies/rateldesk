@@ -88,6 +88,9 @@ public sealed class OidcProvisioningTests
         Assert.Equal(account.Id, profile.Id);
         Assert.Null(profile.OrganizationId);
         Assert.Equal(account.DisplayName, profile.Name);
+        domain.Users.Add(new User { Id = "same-email", Name = profile.Name, Email = profile.Email });
+        await domain.SaveChangesAsync();
+        Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync("/api/v1/users/by-email/" + Uri.EscapeDataString(profile.Email))).StatusCode);
     }
 
     [Theory]
