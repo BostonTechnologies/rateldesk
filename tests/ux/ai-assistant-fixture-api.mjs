@@ -336,7 +336,7 @@ http.createServer(async (req, res) => {
     return reply({ accepted: true });
   }
   if (chatPath.endsWith('/chat')) return reply({ conversationId: conversation, state, lastSequence: events.length, events, recoveryResult, ...providerFields() });
-  if (url.pathname === '/api/v1/incidents/ux-chat') return reply({ id: 'ux-chat', subject: 'AiAssistant UX fixture', trackingId: 'UX-799', state: 0, priority: 1, categoryIds: [] });
+  if (/^\/api\/v1\/(incidents|requests|changes)\/ux-chat$/.test(url.pathname)) return reply({ id: 'ux-chat', subject: 'AiAssistant UX fixture', title: 'Synthetic assistant review', trackingId: 'UX-799', state: 0, priority: 1, categoryIds: [] });
   if (url.pathname.endsWith('/count')) return reply(0);
   if (url.pathname.includes('summary')) return reply({});
   if (url.pathname.includes('/stream')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); return res.end(); }

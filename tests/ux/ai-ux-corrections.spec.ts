@@ -141,11 +141,11 @@ test('investigation popups remain contained at native browser zoom 200 percent',
   const extension = path.resolve('tests/ux/native-zoom-extension');
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium', headless: true, ignoreHTTPSErrors: true, viewport: { width: 1912, height: 914 },
+    ignoreDefaultArgs: ['--disable-extensions'],
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
   });
   try {
-    await expect.poll(() => context.serviceWorkers().length).toBeGreaterThan(0);
-    const worker = context.serviceWorkers()[0];
+    const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
     const page = await context.newPage();
     await page.goto(`${baseURL}/auth/development`); await page.goto(`${baseURL}${routes[1]}`);
     const zoom = await worker.evaluate(async origin => {

@@ -118,7 +118,9 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await expect(page.getByRole('heading', { name: 'What would you like to work on?' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Conversation title', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save chat', exact: true })).toHaveCount(0);
+  if (width < 760) await page.getByRole('button', { name: 'Conversations', exact: true }).click();
   await expect(page.getByRole('link', { name: 'AI Providers', exact: true })).toHaveAttribute('href', '/admin/integration?tab=ai-providers');
+  if (width < 760) await page.getByRole('button', { name: 'Back to chat', exact: true }).click();
   await page.getByRole('button', { name: 'Explore a question', exact: false }).click();
   await expect(input).toHaveValue('Help me work through an operational question. Ask me what I want to understand or achieve.');
   const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
@@ -347,3 +349,124 @@ test(`connection popover ${width}px distinguishes saved verification, live nativ
 
 // Opt-in geometry and synthetic screenshots for the owner table inventory.
 test.afterEach(async ({ page }) => { await captureTables(page); });
+
+for (const [width, height] of [[360, 480], [360, 640], [390, 844], [1366, 768]]) {
+  for (const area of ['chat', 'investigation']) {
+    test(`${area} list and conversation navigation at ${width}x${height}`, async ({ page, request }, info) => {
+      const chat = area === 'chat';
+      const fixture = 'http://127.0.0.1:18299/fixture';
+      await request.get(`${fixture}/reset?mode=completed`);
+      await page.setViewportSize({ width, height });
+      await page.goto('/auth/development');
+      await page.goto(chat ? `/ai/chat?organizationId=org&conversationId=${id}` : `/ai/ops?id=${id}`);
+      const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
+      const history = page.getByRole('complementary', { name: chat ? 'Chat history' : 'Recent investigations' });
+      await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+      await expect(composer).toBeEnabled({ timeout: 15_000 });
+      const draft = 'First unsent line\nSecond unsent line';
+      await composer.fill(draft);
+      const before = await (await request.get(`${fixture}/chat-counts`)).json();
+      if (width < 760) {
+        await expect(history).toBeHidden();
+        const toggle = page.getByRole('button', { name: chat ? 'Conversations' : 'Back to results', exact: true });
+        await toggle.focus();
+        await page.keyboard.press('Enter');
+        await expect(history).toBeVisible();
+        await expect(composer).toBeHidden();
+        const search = history.getByRole('textbox');
+        await search.fill('Synthetic');
+        await search.press('Enter');
+        await expect(history.getByRole('link', { name: /Synthetic/ }).first()).toBeVisible();
+        await page.screenshot({ path: info.outputPath('list.png') });
+        await page.getByRole('button', { name: chat ? 'Back to chat' : 'Back to investigation' }).click();
+        await expect(composer).toHaveValue(draft);
+        const returned = await (await request.get(`${fixture}/chat-counts`)).json();
+        expect(returned.streamOpens).toBe(before.streamOpens);
+        expect(returned.sends).toBe(before.sends);
+        await toggle.click();
+        await expect(search).toHaveValue('Synthetic');
+        await history.getByRole('link', { name: /Synthetic/ }).first().click();
+      } else {
+        await expect(history).toBeVisible();
+      }
+      await expect(composer).toHaveValue(draft);
+      const send = page.getByRole('button', { name: 'Send', exact: true });
+      const bounds = await page.locator('.helpdesk-main-content, .chat-workspace, .ai-workspace, .conversation-header, .ai-chat-content, .ai-chat-scroll, .ai-chat-composer, .composer-send').evaluateAll(elements => elements.map(el => ({
+        class: el.className, top: el.getBoundingClientRect().top, height: el.clientHeight, scrollHeight: el.scrollHeight
+      })));
+      await info.attach('viewport-geometry', { body: JSON.stringify(bounds), contentType: 'application/json' });
+      await expect(send, JSON.stringify(bounds)).toBeInViewport({ ratio: 1 });
+      await assertNoHorizontalOverflow(page);
+      await page.screenshot({ path: info.outputPath('conversation.png') });
+      await page.reload();
+      await expect(composer).toHaveValue(draft);
+      const after = await (await request.get(`${fixture}/chat-counts`)).json();
+      expect(after.sends).toBe(before.sends);
+      expect(after.starts).toBe(before.starts);
+      await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+    });
+  }
+}
+
+for (const [module, palette] of [['incidents', 'light'], ['requests', 'dark'], ['changes', 'custom']]) {
+  test(`${module} assistant retains its multiline draft through reduced-height fullscreen`, async ({ page, request }, info) => {
+    await request.get(`${fixture}/fixture/reset?mode=tables`);
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.addInitScript(theme => localStorage.setItem('helpdesk.theme.preference', theme), palette === 'dark' ? 'dark' : 'light');
+    await page.goto('/auth/development');
+    await page.goto(`/${module}/ux-chat`);
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+    if (palette === 'custom') {
+      await page.addStyleTag({ content: ':root { --mud-palette-primary: #6868aa; --mud-palette-secondary: #547f80; --mud-palette-divider: #9381aa; }' });
+    }
+    await page.getByRole('tab', { name: 'AI Assistant', exact: true }).click();
+    const composer = page.getByRole('textbox', { name: 'Message Netclaw' });
+    await expect(composer).toBeEnabled();
+    await composer.fill('Unsent first line');
+    await composer.press('Alt+Enter');
+    await composer.press('End');
+    await composer.pressSequentially('second line');
+    const draft = 'Unsent first line\nsecond line';
+    await expect(composer).toHaveValue(draft);
+    const before = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await page.setViewportSize({ width: 360, height: 480 });
+    const dialog = page.getByRole('dialog', { name: 'Conversation', exact: true });
+    await expect(dialog.getByRole('button', { name: 'Restore conversation' })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole('table').first()).toBeAttached();
+    await page.screenshot({ path: info.outputPath(`${palette}-reduced-height.png`) });
+    await assertNoHorizontalOverflow(page);
+    await page.setViewportSize({ width: 640, height: 360 });
+    await expect(composer).toHaveValue(draft);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(composer).toHaveValue(draft);
+    const after = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+    expect(after.sends).toBe(0);
+    expect(after.streamOpens).toBe(before.streamOpens);
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+  });
+}
+
+test('short portrait keeps pending approval and Stop actions reachable without resolving either', async ({ page, request }, info) => {
+  await page.setViewportSize({ width: 360, height: 480 });
+  await page.goto('/auth/development');
+  for (const [mode, label] of [['approval', 'Allow once'], ['processing', 'Stop waiting']]) {
+    await request.get(`${fixture}/fixture/reset?mode=${mode}`);
+    await page.goto(routes[0]);
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 20_000 });
+    const action = page.getByRole('button', { name: label, exact: true });
+    await expect(action).toBeEnabled();
+    await action.focus();
+    await expect(action).toBeFocused();
+    await expect(action).toBeInViewport();
+    await page.screenshot({ path: info.outputPath(`${mode}-action.png`) });
+    await page.getByRole('button', { name: 'Maximise conversation' }).click();
+    await action.focus();
+    await expect(action).toBeInViewport();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Maximise conversation' })).toBeFocused();
+    expect((await (await request.get(`${fixture}/fixture/chat-counts`)).json()).sends).toBe(0);
+  }
+});

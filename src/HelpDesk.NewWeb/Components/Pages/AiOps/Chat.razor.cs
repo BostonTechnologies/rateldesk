@@ -30,7 +30,7 @@ public partial class Chat
     private AiAssistantComposer? composer;
     private (string? Organization, Guid? Conversation)? loadedRoute;
     private string organization = "", search = "", message = "";
-    private bool loading = true, busy, includeArchived, hasMore, disposed;
+    private bool loading = true, busy, includeArchived, hasMore, disposed, showHistory;
     private ChatIdentitySnapshot? identity;
     private ChatDraftStorage? draftStorage;
     private string? actor, draftScope;
@@ -74,9 +74,17 @@ public partial class Chat
         var current = ++generation;
         var previous = cancellation; cancellation = new();
         var ct = cancellation.Token;
+        var retainHistory = loadedRoute is not null && loadedRoute.Value.Organization == Organization && organization == Organization;
+        var previousCount = retainHistory ? history.Count : 0;
+        history = []; hasMore = false;
+        if (!retainHistory)
+        {
+            search = ""; includeArchived = false;
+        }
+        showHistory = false;
         loadedRoute = (Organization, Conversation);
-        organization = Organization ?? ""; selected = null; capabilities = null; history = []; prompts = []; promptIds.Clear();
-        message = ""; pendingStart = null; draftScope = null; draftRestored = false; loading = true; busy = false; error = null; hasMore = false; search = "";
+        organization = Organization ?? ""; selected = null; capabilities = null; prompts = []; promptIds.Clear();
+        message = ""; pendingStart = null; draftScope = null; draftRestored = false; loading = true; busy = false; error = null;
         await previous.CancelAsync(); previous.Dispose();
         try
         {
@@ -102,6 +110,12 @@ public partial class Chat
             capabilities = caps;
             if (caps is null || !caps.Enabled && !caps.CanViewHistory) return;
             await ReadHistoryAsync();
+            while (Current(current) && error is null && hasMore && history.Count < previousCount)
+            {
+                var count = history.Count;
+                await ReadHistoryAsync(true);
+                if (history.Count == count) break;
+            }
             if (!Current(current)) return;
             if (caps.Enabled && caps.CanWrite)
             {
@@ -131,6 +145,7 @@ public partial class Chat
     private void StartNew()
     {
         if (!CanStart || busy) return;
+        showHistory = false;
         if (selected is not null) Navigation.NavigateTo(Url(organization));
     }
     private async Task UseStarterAsync(string prompt)

@@ -29,8 +29,12 @@
     }
     else
     {
-        <div class="chat-workspace">
-            <aside class="chat-history" aria-label="Chat history">
+        <button type="button" class="chat-pane-switch chat-secondary-button" aria-controls="organization-chat-history"
+                aria-expanded="@(showHistory ? "true" : "false")" @onclick="() => showHistory = !showHistory">
+            @(showHistory ? "Back to chat" : "Conversations")
+        </button>
+        <div class="chat-workspace @(showHistory ? "show-history" : "show-chat")">
+            <aside id="organization-chat-history" class="chat-history" aria-label="Chat history">
                 <button type="button" class="chat-new-button" @onclick="StartNew" disabled="@(busy || !CanStart)"><MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" /><span>New chat</span></button>
                 <form class="chat-history-search" @onsubmit="SearchAsync" @onsubmit:preventDefault>
                     <label class="chat-visually-hidden" for="organization-chat-search">Search recent chats</label><MudIcon Icon="@Icons.Material.Outlined.Search" Size="Size.Small" />
@@ -41,7 +45,7 @@
                     @if (history.Count == 0) { <p class="chat-history-empty">@(search.Length > 0 ? "No matching chats." : "Organization conversations will appear here.")</p> }
                     @foreach (var chat in history)
                     {
-                        <a @key="chat.ConversationId" class="chat-history-item @(selected?.ConversationId == chat.ConversationId ? "selected" : "")" href="@Url(organization, chat.ConversationId)" aria-current="@(selected?.ConversationId == chat.ConversationId ? "page" : null)">
+                        <a @key="chat.ConversationId" @onclick="() => showHistory = false" class="chat-history-item @(selected?.ConversationId == chat.ConversationId ? "selected" : "")" href="@Url(organization, chat.ConversationId)" aria-current="@(selected?.ConversationId == chat.ConversationId ? "page" : null)">
                             <MudIcon Icon="@Icons.Material.Outlined.ChatBubbleOutline" Size="Size.Small" />
                             <span><strong>@chat.Title</strong><small><span class="chat-state-dot @StateClass(chat.State)"></span>@StateLabel(chat.State)<span class="chat-history-time" title="@chat.LastActivityUtc.ToLocalTime().ToString("g")">@chat.LastActivityUtc.ToLocalTime().ToString("dd MMM")</span></small></span>
                         </a>

@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="light dark" />
     <base href="/" />  
     <style id="helpdesk-prepaint-theme">@((MarkupString)RatelDeskPrepaintTheme.Css)</style>
@@ -103,6 +103,24 @@
     <script src="js/global-search-hotkeys.js"></script>
     <script src="js/navigation-drawer.js"></script>
     <script>
+        // Safari keeps its layout viewport when a software keyboard opens.
+        const viewport = window.visualViewport;
+        if (viewport) {
+            const fitConversation = () => {
+                const style = document.documentElement.style;
+                if (viewport.scale === 1) {
+                    style.setProperty('--chat-visible-height', viewport.height + 'px');
+                    style.setProperty('--chat-viewport-top', viewport.offsetTop + 'px');
+                } else {
+                    style.removeProperty('--chat-visible-height');
+                    style.removeProperty('--chat-viewport-top');
+                }
+            };
+            viewport.addEventListener('resize', fitConversation);
+            viewport.addEventListener('scroll', fitConversation);
+            fitConversation();
+        }
+
         window.scrollToNotificationRow = function (id) {
             setTimeout(function () {
                 const row = document.querySelector(`[data-notification-id='${id}']`);
