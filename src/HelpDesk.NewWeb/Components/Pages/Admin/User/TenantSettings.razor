@@ -10,6 +10,7 @@
 
 <PageTitle>Tenant settings</PageTitle>
 <div class="helpdesk-page">
+    <WorkspaceEditGuard Dirty="@(settings is not null && (settings.Name, settings.ContactInfo) != savedFields)" Message="Discard unsaved organization settings and leave?" />
     <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
         <MudText Typo="Typo.h4" HtmlTag="h1">Tenant settings</MudText>
         @if (error is not null) { <MudAlert Severity="Severity.Error" Class="my-3">@error</MudAlert> }
@@ -41,6 +42,7 @@
     private string? organizationId => organizationSelection.SelectedOrganizationId;
     private string? error;
     private bool busy;
+    private (string? Name, string? ContactInfo) savedFields;
     private bool organizationsLoaded;
     private bool hasAppliedOrganizationParameter;
     private string? appliedOrganizationId;
@@ -107,7 +109,11 @@
         error = null;
         if (string.IsNullOrWhiteSpace(organizationId)) return;
         busy = true;
-        try { settings = await Api.GetFromJsonAsync<TenantSettingsModel>(organizationSelection.Path("settings")); }
+        try
+        {
+            settings = await Api.GetFromJsonAsync<TenantSettingsModel>(organizationSelection.Path("settings"));
+            savedFields = (settings?.Name, settings?.ContactInfo);
+        }
         catch (HttpRequestException) { error = "The tenant settings could not be loaded."; }
         finally { busy = false; }
     }
@@ -120,6 +126,7 @@
         {
             using var response = await Api.PutAsJsonAsync(organizationSelection.Path("settings"), settings);
             if (!response.IsSuccessStatusCode) { error = "The tenant settings could not be saved. Check your access and the entered values."; return; }
+            savedFields = (settings.Name, settings.ContactInfo);
             Snackbar.Add("Tenant settings saved.", Severity.Success);
             var index = organizations.FindIndex(organization => organization.Id == organizationId);
             if (index >= 0) organizations[index] = organizations[index] with { Name = settings.Name.Trim() };

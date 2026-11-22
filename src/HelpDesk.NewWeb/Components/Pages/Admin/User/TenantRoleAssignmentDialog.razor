@@ -1,5 +1,6 @@
 @inject IHttpClientFactory HttpClientFactory
 
+<WorkspaceEditGuard Dirty="@IsChanged" Saving="@saving" Message="Discard unsaved role assignments and leave?" />
 <MudDialog MaxWidth="MaxWidth.Medium" FullWidth="true">
     <TitleContent>
         <MudStack Spacing="0">
