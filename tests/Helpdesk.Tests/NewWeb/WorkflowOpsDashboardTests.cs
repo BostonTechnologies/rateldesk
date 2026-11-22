@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Json;
 using Bunit;
 using Bunit.TestDoubles;
+using Helpdesk.Shared.DTOs.Organization;
+using MudBlazor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Components;
 using MudBlazor.Services;
@@ -77,23 +79,30 @@ public sealed class WorkflowOpsDashboardTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Sla_tenant_lookup_failure_stays_visible_and_refresh_retries(bool malformedJson)
+    public async Task Sla_tenant_search_reports_failures_and_retries_without_losing_the_summary(bool malformedJson)
     {
         await using var context = Context("HelpdeskAdmin", out var handler);
         var lookups = 0;
         handler.Response = (request, _) =>
         {
-            if (request.RequestUri!.AbsolutePath.Contains("lookup") && ++lookups == 1)
+            if (request.RequestUri!.AbsolutePath == "/api/v1/admin/tenants/search" && ++lookups == 1)
                 return Task.FromResult(new HttpResponseMessage(malformedJson ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
                     { Content = new StringContent("not-json") });
             return Task.FromResult(SlaResponse(request.RequestUri.AbsolutePath));
         };
+        context.Render<MudPopoverProvider>();
         var page = context.Render<SlaDashboard>();
         page.WaitForAssertion(() => Assert.Contains("6 / 8", page.Markup));
-        Assert.Contains("Tenant lookup is unavailable.", page.Markup);
-        page.FindAll("button").Single(button => button.TextContent == "Refresh").Click();
-        page.WaitForAssertion(() => Assert.DoesNotContain("Tenant lookup is unavailable.", page.Markup));
-        Assert.Equal(2, lookups);
+        Assert.Equal(0, lookups);
+        var picker = page.FindComponent<MudAutocomplete<OrganizationDto>>();
+        await picker.InvokeAsync(() => picker.Instance.OpenMenuAsync());
+        page.WaitForAssertion(() => Assert.Contains("Could not load organizations.", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent == "Retry tenant").Click();
+        page.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("Could not load organizations.", page.Markup);
+            Assert.True(lookups >= 2);
+        });
         Assert.Contains("6 / 8", page.Markup);
     }
 
@@ -133,7 +142,7 @@ public sealed class WorkflowOpsDashboardTests
 
     private static HttpResponseMessage SlaResponse(string path, int total = 8, int within = 6) => new(HttpStatusCode.OK)
     {
-        Content = path.Contains("lookup") ? JsonContent.Create(Array.Empty<object>()) : path.Contains("compliance")
+        Content = path.EndsWith("/tenants/search") ? JsonContent.Create(new { items = Array.Empty<object>(), totalEligible = 0, hasMore = false }) : path.Contains("compliance")
             ? JsonContent.Create(new { completedTotal = total, completedWithinResolutionSla = within })
             : JsonContent.Create(new { items = Array.Empty<object>(), total = 0 })
     };

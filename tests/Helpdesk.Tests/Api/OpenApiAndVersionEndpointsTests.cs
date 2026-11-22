@@ -153,15 +153,31 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // cancellation, cleanup and artifact operations each for organization and ticket chat.
         // Beta.3 adds ten administrator operations for OpenAI setup, catalogs, runtime,
         // owner-bound device connections and subscription profiles.
+        // Scoped organization, contact, approver and peer searches add nine operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(529, operationCount);
+        Assert.Equal(538, operationCount);
 #else
-        Assert.Equal(528, operationCount);
+        Assert.Equal(537, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
+        foreach (var lookupPath in new[]
+        {
+            "/api/v1/ai/chat/organizations/search",
+            "/api/v1/ai/ops/organizations/search",
+            "/api/v1/email-settings/available-organizations/search",
+            "/api/v1/admin/directories/organizations/search",
+            "/api/v1/admin/tenants/{organizationId}/report-recipients/search",
+            "/api/v1/admin/tenants/search",
+            "/api/v1/admin/system-connections/{pairId}/directory/search",
+            "/api/v1/request-task-approvers/search",
+            "/api/v1/tenant-admin/organizations/search"
+        })
+        {
+            Assert.True(paths.GetProperty(lookupPath).TryGetProperty("get", out _), lookupPath);
+        }
         const string providersPath = "/api/v1/admin/ai-providers";
         var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>();

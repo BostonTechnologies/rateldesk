@@ -157,7 +157,7 @@
             var result = await Api.GetFromJsonAsync<CreationLookupResult<TItem>>(
                 $"{LookupUrl}{(LookupUrl.Contains('?') ? "&" : "?")}q={Uri.EscapeDataString(text)}&limit=20{(id is null ? "" : "&id=" + Uri.EscapeDataString(id))}", ct);
             if (disposed || ct.IsCancellationRequested || scope != expectedScope || !IsCurrent()) return null;
-            if (result is null) throw new JsonException("The lookup response was empty.");
+            if (result?.Items is null) throw new JsonException("The lookup response did not contain an item list.");
             var items = new List<TItem>(result.Items.Count);
             foreach (var item in result.Items)
             {
