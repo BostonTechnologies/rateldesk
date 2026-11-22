@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/pending-emails"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @implements IDisposable
@@ -14,7 +15,7 @@
 @inject NavigationManager Navigation
 
 <MudPaper Class="pa-3 pending-mail premium-workspace">
-    <MudText Typo="Typo.h6" HtmlTag="h1">Pending emails</MudText>
+    <MudText Typo="Typo.h6" HtmlTag="h1">Pending Mail</MudText>
     <MudText Typo="Typo.body2">Search queued and failed deliveries. Removing a queue entry preserves ticket history.</MudText>
     <div class="pending-mail-filters">
         <MudTextField T="string" Label="Search ticket or recipient" @bind-Value="search" Variant="Variant.Outlined" Margin="Margin.Dense" />

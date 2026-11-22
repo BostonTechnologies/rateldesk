@@ -12,7 +12,7 @@ test.afterEach(async ({ page }) => {
 test('System connections keeps the two-field pairing form compact in desktop and narrow light/dark views', async ({ page }, testInfo) => {
   await page.goto('/account/integration-credentials');
   await expect(page.getByTestId('integration-credentials-page')).toHaveAttribute('data-interactive', 'true');
-  await expect(page.getByRole('tab', { name: 'System connections', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('link', { name: 'Connections', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByTestId('generate-pairing-code')).toBeVisible();
   await page.getByTestId('create-system-connection').click();
   const form = page.getByTestId('system-pairing-form');
@@ -51,7 +51,7 @@ test('System connections keeps the two-field pairing form compact in desktop and
       await expect(opener).toBeFocused();
     }
   }
-  await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+  await page.getByRole('link', { name: 'API & MCP Credentials', exact: true }).click();
   await expect(page.getByTestId('integration-credential-create')).toBeVisible();
   await expect(page.getByTestId('system-connections-panel')).not.toBeVisible();
   const stored = await page.evaluate(() => Object.keys(localStorage).concat(Object.keys(sessionStorage)));

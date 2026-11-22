@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
+<WorkspaceEditGuard Dirty="@(IsDirty)" Saving="@saving" Message="Discard unsaved request form changes and leave?" />
 <MudDialog Class="request-form-builder-dialog">
     <TitleContent>
         <div class="request-form-builder-title">
@@ -232,12 +233,22 @@
                                             <MudDivider Class="my-2" />
                                             <MudText Typo="Typo.subtitle2">Manual Configuration</MudText>
 
-                                            <MudSelect T="string" @bind-Value="selectedTask.DefaultAssigneeId" Label="Default Assignee" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true">
-                                                @foreach (var user in users)
-                                                {
-                                                    <MudSelectItem Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
-                                                }
-                                            </MudSelect>
+                                            @if (!string.IsNullOrWhiteSpace(model.OrganizationId))
+                                            {
+                                                <AssigneeSelector Module="task" OrganizationId="@model.OrganizationId" ContextKey="@selectedTask.Id.ToString()"
+                                                    Value="@selectedTask.DefaultAssigneeId" Label="Default assignee"
+                                                    SelectedName="@users.FirstOrDefault(user => user.Id == selectedTask.DefaultAssigneeId)?.Name"
+                                                    SelectionChanged="user => selectedTask.DefaultAssigneeId = user?.Id" />
+                                            }
+                                            else
+                                            {
+                                                <MudSelect T="string" @bind-Value="selectedTask.DefaultAssigneeId" Label="Default Assignee" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Clearable="true">
+                                                    @foreach (var user in users)
+                                                    {
+                                                        <MudSelectItem Value="@user.Id">@user.Name (@user.Email)</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                            }
 
                                             <MudTextField @bind-Value="selectedTask.TeamOrRole" Label="Team/Role (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" />
                                         }
@@ -1187,7 +1198,7 @@
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
         {
-            Snackbar.Add("The saved form schema could not be read completely.", Severity.Warning);
+            validationError = "Unable to read the form schema. Check the JSON before saving.";
         }
     }
 

@@ -1,0 +1,15 @@
+@inject IJSRuntime JS
+
+<NavigationLock ConfirmExternalNavigation="@(Dirty || Saving)" OnBeforeInternalNavigation="ConfirmAsync" />
+
+@code {
+    [Parameter] public bool Dirty { get; set; }
+    [Parameter] public bool Saving { get; set; }
+    [Parameter, EditorRequired] public string Message { get; set; } = string.Empty;
+
+    private async Task ConfirmAsync(LocationChangingContext context)
+    {
+        if (Saving || Dirty && !await JS.InvokeAsync<bool>("confirm", Message))
+            context.PreventNavigation();
+    }
+}

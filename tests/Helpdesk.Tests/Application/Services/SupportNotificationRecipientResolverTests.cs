@@ -164,15 +164,16 @@ public sealed class SupportNotificationRecipientResolverTests
     [Fact]
     public async Task SupportAccess_RequiresCoveringGroupMembership()
     {
-        var fixture = new ResolverFixture();
-        await fixture.Users.CreateAsync(new User { Id = "provider-user", Name = "Provider", Email = "provider@example.test", OrganizationId = "provider-1" });
-        var access = fixture.CreateAccessService();
-
-        Assert.False(await access.CanUserSupportOrganizationAsync("provider-user", "customer-1"));
-
-        await fixture.SeedRouteAsync("customer-1", "provider-1", "group-1", "provider-user");
-
-        Assert.True(await access.CanUserSupportOrganizationAsync("provider-user", "customer-1"));
+        await using var harness = await Helpdesk.Tests.Api.AssigneeSearchEndpointsTests.Harness.Create();
+        await harness.WithDb(async db =>
+        {
+            var access = new Helpdesk.Infrastructure.Persistence.TicketSupportAccessService(db);
+            Assert.True(await access.CanUserSupportOrganizationAsync("external", "org"));
+            var membership = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleAsync(db.SupportGroupMembers);
+            membership.IsEnabled = false;
+            await db.SaveChangesAsync();
+            Assert.False(await access.CanUserSupportOrganizationAsync("external", "org"));
+        });
     }
 
     private sealed class ResolverFixture
@@ -192,12 +193,6 @@ public sealed class SupportNotificationRecipientResolverTests
             Subscriptions,
             Preferences,
             NullLogger<SupportNotificationRecipientResolver>.Instance);
-
-        public SupportAccessService CreateAccessService() => new(
-            Users,
-            SupportGroups,
-            SupportGroupMembers,
-            Coverages);
 
         public async Task SeedRouteAsync(string customerOrgId, string providerOrgId, string groupId, string userId)
         {

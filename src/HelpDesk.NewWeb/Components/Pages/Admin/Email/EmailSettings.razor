@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/email-settings"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using System.Net.Http.Json
@@ -8,13 +9,13 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
-<PageTitle>Email Settings / Mailbox Configuration</PageTitle>
+<PageTitle>Mailboxes</PageTitle>
 <NavigationLock ConfirmExternalNavigation="@(isDirty || outgoingDirty)" OnBeforeInternalNavigation="ConfirmInternalNavigationAsync" />
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="helpdesk-page" data-testid="mailbox-settings" data-interactive="@interactive.ToString().ToLowerInvariant()">
     <div class="helpdesk-page-header">
         <div>
-            <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Email Settings / Mailbox Configuration</MudText>
+            <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Mailboxes</MudText>
             <MudText Typo="Typo.body2" Class="helpdesk-page-description">Configure the mailbox connection and control background ingestion.</MudText>
         </div>
     </div>

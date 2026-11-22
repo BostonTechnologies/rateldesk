@@ -5,6 +5,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
+<WorkspaceEditGuard Dirty="@IsDirty" Saving="saving" Message="Discard unsaved service changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">@(_isNew ? "New Service" : "Edit Service")</MudText>
@@ -42,6 +43,9 @@
     private MudForm form = default!;
     private readonly ServiceModel model = new();
     private bool saving;
+    private (string? Name, string? Description) savedFields;
+    private HashSet<string> savedAudience = [];
+    private bool IsDirty => (model.Name, model.Description) != savedFields || !savedAudience.SetEquals(selectedOrgIds);
     private bool _isNew => string.IsNullOrWhiteSpace(ServiceId);
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -60,6 +64,8 @@
                 selectedOrgIds = new HashSet<string>(svc.AllowedOrganizationIds ?? new());
             }
         }
+        savedFields = (model.Name, model.Description);
+        savedAudience = new(selectedOrgIds);
     }
 
     private async Task Save()

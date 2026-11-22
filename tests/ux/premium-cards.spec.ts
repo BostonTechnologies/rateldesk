@@ -157,10 +157,10 @@ test('Service Explorer separates an empty folder from an unavailable query and s
   await expect(page.getByRole('button', { name: 'New Request', exact: true })).toBeDisabled();
   await request.post(`${fixture}/options`, { data: { mode: 'services-error' } });
   await open(page, '/admin/requests/services');
-  await expect(page.getByRole('alert')).toContainText('Service Explorer could not be loaded.');
+  await expect(page.getByRole('alert')).toContainText('Service Catalog could not be loaded.');
   await expect(page.getByText(/No items here yet/)).toHaveCount(0);
   await request.get(`${fixture}/reset`);
-  await page.getByRole('button', { name: 'Retry Service Explorer', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry Service Catalog', exact: true }).click();
   await expect(page.getByTestId('service-explorer-card')).toHaveCount(4);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

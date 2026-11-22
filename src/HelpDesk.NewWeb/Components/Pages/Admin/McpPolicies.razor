@@ -1,10 +1,10 @@
-@page "/admin/operator-policies"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using System.Globalization
 @using Helpdesk.Shared.DTOs.McpPolicies
 @using Helpdesk.Shared.Auth
 @inject IHttpClientFactory Clients
 @inject NavigationManager Navigation
+<WorkspaceEditGuard Dirty="@(editing || draftRetained || preview is not null)" Saving="@busy" Message="Leave MCP Policies and discard the current edit or preview?" />
 
 <PageTitle>MCP Policies</PageTitle>
 <MudPaper Class="helpdesk-content-surface pa-4" data-testid="mcp-policy-management">

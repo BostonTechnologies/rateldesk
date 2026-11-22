@@ -158,8 +158,8 @@ public class WebAuthRoutesTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
         var html = await client.GetStringAsync("/account/integration-credentials?tab=system-connections");
-        Assert.Contains("System connections", html);
-        Assert.Contains("API &amp; MCP credentials", html);
+        Assert.Contains(">Connections<", html);
+        Assert.Contains("API &amp; MCP Credentials", html);
         Assert.Contains("integration-system-connections", html);
         Assert.Contains("integration-account-credentials", html);
         Assert.Contains("system-connections-panel", html);
@@ -167,7 +167,7 @@ public class WebAuthRoutesTests
         Assert.Contains("Create Connection", html);
         Assert.DoesNotContain("system-pairing-form", html);
         var credentials = await client.GetStringAsync("/account/integration-credentials?tab=credentials");
-        Assert.Contains("API &amp; MCP credentials", credentials);
+        Assert.Contains("API &amp; MCP Credentials", credentials);
         Assert.Contains("integration-credential-create", credentials);
     }
 
@@ -578,7 +578,7 @@ public class WebAuthRoutesTests
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Email Settings / Mailbox Configuration", content, StringComparison.Ordinal);
+        Assert.Contains("Mailboxes", content, StringComparison.Ordinal);
     }
 
     [Fact]

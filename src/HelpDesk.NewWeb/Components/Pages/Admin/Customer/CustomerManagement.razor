@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/customers"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @implements IDisposable
@@ -7,11 +8,11 @@
 @inject NavigationManager NavigationManager
 @using HelpDesk.NewWeb.Models
 
-<PageTitle>Customers</PageTitle>
+<PageTitle>Customer Contacts</PageTitle>
 
-<AdminDirectoryWorkspace Title="Customers" Subtitle="Manage contacts and their application access."
+<AdminDirectoryWorkspace Title="Customer Contacts" Subtitle="Manage contacts and their application access."
                          TotalCount="source.TotalCount" Loaded="source.HasLoaded" Refreshing="source.IsLoading" Error="@source.Error" OnRefresh="ReloadAsync">
-    <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create customer</MudButton></PrimaryAction>
+    <PrimaryAction><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create customer contact</MudButton></PrimaryAction>
     <ToolbarContent>
         <MudTextField T="string" Value="query.Search" ValueChanged="SearchChangedAsync" Label="Search name, email or organization"
                       Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="300" MaxLength="120" />
@@ -43,13 +44,13 @@
                 <MudTd DataLabel="State">@(context.IsEnabled ? "Enabled" : "Disabled")</MudTd>
                 <MudTd DataLabel="Access">@(context.AuthStatus?.StatusText ?? "Access unavailable")</MudTd>
                 <MudTd DataLabel="Actions"><div class="workspace-actions"><div class="directory-actions">
-                    <WorkspaceAction Label="Edit customer" Icon="@Icons.Material.Outlined.Edit" OnClick="() => OpenEditDialog(context)" />
+                    <WorkspaceAction Label="Edit customer contact" Icon="@Icons.Material.Outlined.Edit" OnClick="() => OpenEditDialog(context)" />
                     <WorkspaceAction Label="@GetInviteActionLabel(context)" Icon="@GetInviteIcon(context.AuthStatus?.InviteStatus)"
                                      Disabled="@(IsInviteActionDisabled(context) || busyCustomerId == context.Id)" DisabledReason="@GetInviteTooltip(context)" OnClick="() => RunInviteAction(context)" />
-                    <WorkspaceAction Label="Delete customer" Icon="@Icons.Material.Outlined.Delete" OnClick="() => OpenDeleteDialog(context)" />
+                    <WorkspaceAction Label="Delete customer contact" Icon="@Icons.Material.Outlined.Delete" OnClick="() => OpenDeleteDialog(context)" />
                 </div></div></MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No customers match these filters." : "No customers yet. Create a customer to begin.")</MudText></NoRecordsContent>
+            <NoRecordsContent><MudText>@(source.Error is not null ? "The directory is unavailable." : query.HasFilters ? "No customer contacts match these filters." : "No customer contacts yet. Create a customer contact to begin.")</MudText></NoRecordsContent>
             <LoadingContent><MudText>Loading customers…</MudText></LoadingContent>
             <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" ShowFirstLast="true" /></PagerContent>
         </MudTable>
@@ -95,12 +96,12 @@
     private async Task<List<OrganizationDto>> InitialOrganizationAsync() => (await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/tenants/search?limit=1"))?.Items.ToList() ?? [];
     private async Task OpenCreateDialog()
     {
-        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("Create Customer", new DialogParameters { ["Organizations"] = await InitialOrganizationAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("Create customer contact", new DialogParameters { ["Organizations"] = await InitialOrganizationAsync() }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
     private async Task OpenEditDialog(CustomerDto customer)
     {
-        var dialog = await DialogService.ShowAsync<EditCustomerDialog>("Edit Customer", new DialogParameters { ["Customer"] = customer }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<EditCustomerDialog>("Edit customer contact", new DialogParameters { ["Customer"] = customer }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
     private async Task OpenDeleteDialog(CustomerDto customer)

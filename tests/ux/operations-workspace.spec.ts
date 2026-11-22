@@ -115,9 +115,8 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     await ready(page, '/admin/support-routing');
     const drawer = page.getByTestId('app-navigation-drawer');
     if (width < 1280) await page.getByTestId('navigation-toggle').click();
-    await expect(drawer.getByRole('link', { name: 'Support Routing', exact: true })).toBeVisible();
-    const emails = drawer.getByRole('button', { name: 'Toggle Email Settings', exact: true });
-    await emails.click();
+    await expect(drawer.getByRole('link', { name: 'People & Organizations', exact: true })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Email', exact: true })).toBeVisible();
     const labels = drawer.locator('.mud-nav-link-text');
     const wrapped = await labels.evaluateAll(elements => elements.filter(element => {
       if (!element.getClientRects().length) return false;
@@ -125,14 +124,14 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
       return style.whiteSpace !== 'nowrap' || element.getBoundingClientRect().height > parseFloat(style.lineHeight) + 2;
     }).map(element => element.textContent));
     expect(wrapped).toEqual([]);
-    for (const name of ['Support Routing', 'Tenant SLA Settings', 'Mailbox Configuration']) {
+    for (const name of ['People & Organizations', 'Automation', 'Integrations']) {
       const label = drawer.getByRole('link', { name, exact: true }).locator('.mud-nav-link-text');
       expect(await label.evaluate(element => element.scrollWidth - element.clientWidth), `${name} fits at the configured drawer width`).toBeLessThanOrEqual(1);
       await label.evaluate(element => { (element as HTMLElement).style.fontFamily = 'Arial, sans-serif'; });
       expect(await label.evaluate(element => element.scrollWidth - element.clientWidth), `${name} also fits with a fallback font`).toBeLessThanOrEqual(1);
       await label.evaluate(element => { (element as HTMLElement).style.fontFamily = ''; });
     }
-    const support = drawer.getByRole('link', { name: 'Support Routing', exact: true });
+    const support = drawer.getByRole('link', { name: 'People & Organizations', exact: true });
     await support.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
     await expect(support).toBeFocused();
     expect(await support.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
@@ -140,7 +139,7 @@ for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024,
     const row = await support.boundingBox();
     expect(icon!.width).toBeGreaterThanOrEqual(20);
     expect(icon!.x).toBeGreaterThanOrEqual(row!.x);
-    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Support Routing');
+    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('People & Organizations');
     await captureTables(page); await page.screenshot({ path: testInfo.outputPath('navigation.png'), fullPage: true });
     const longName = drawer.locator('a[href="auth"]');
     await longName.focus();
@@ -172,11 +171,11 @@ test('200 percent layout retains search, operations and keyboard navigation in b
     }
     await ready(page, '/admin/support-routing');
     await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
-    const support = page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Support Routing', exact: true });
+    const support = page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'People & Organizations', exact: true });
     await support.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
     await expect(support).toBeFocused();
     expect(await support.locator('.mud-nav-link-text').evaluate(element => getComputedStyle(element).whiteSpace)).toBe('nowrap');
-    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('Support Routing');
+    await expect(page.locator('.mud-tooltip.mud-popover-open')).toContainText('People & Organizations');
     await assertNoHorizontalOverflow(page);
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
   }

@@ -85,7 +85,7 @@ incident. Interrupted post-commit workflow continuation resumes durably.
 
 ## Edit request workflows
 
-Open **Administration → Automation → Service Explorer**, open a service, and edit
+Open **Administration → Automation → Service Catalog**, open a service, and edit
 its request form. The editor starts on **Workflow**. Select a task in the ordered
 navigator to edit its details, automation connection/target/mappings, or local
 **Advanced workflow** settings. On a narrow screen, select a task and use

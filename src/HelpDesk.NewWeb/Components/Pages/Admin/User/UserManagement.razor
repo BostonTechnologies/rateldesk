@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/users"
 @attribute [Authorize(Roles = "Tenant.Users.Manage,Tenant.Roles.Assign,HelpdeskAdmin")]
 @implements IDisposable
@@ -13,19 +14,19 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using HelpDesk.NewWeb.Services
 
-<PageTitle>Team</PageTitle>
+<PageTitle>Support Agents</PageTitle>
 <AuthorizeView Roles="HelpdeskAdmin" Context="instanceAdministrator">
 <Authorized>
 <div class="helpdesk-page team-directory directory-workspace">
 <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
     <header class="team-header">
-        <div class="team-heading"><MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText><MudText Typo="Typo.body2">People, organization roles and application access</MudText></div>
+        <div class="team-heading"><MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Support Agents</MudText><MudText Typo="Typo.body2">People, organization roles and application access</MudText></div>
         <div class="team-header-actions">
         <MudTooltip Text="Refresh current query"><MudIconButton aria-label="Refresh team" Icon="@Icons.Material.Filled.Refresh" OnClick="Refresh" /></MudTooltip>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create user</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">Create support agent</MudButton>
         </div>
     </header>
-    <div class="team-query-toolbar" role="search" aria-label="Find team members">
+    <div class="team-query-toolbar" role="search" aria-label="Find support agents">
         <MudTextField T="string" Value="@searchText" ValueChanged="SearchChanged" Label="Search name or email" Variant="Variant.Outlined" Margin="Margin.Dense"
                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" DebounceInterval="300" Immediate="true" Clearable="true" />
         <OrganizationDirectorySelector Value="@organizationId" ValueChanged="OrganizationChanged" />
@@ -40,9 +41,9 @@
         </MudSelect>
         <MudButton Variant="Variant.Text" Disabled="@(!HasFilters)" OnClick="ClearFilters">Clear filters</MudButton>
     </div>
-    <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? $"{total:N0} team members" : "Team unavailable")</MudText>
+    <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? total == 1 ? "1 support agent" : $"{total:N0} support agents" : "Support Agents unavailable")</MudText>
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="Refresh">Retry</MudButton></MudAlert> }
-    <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Team directory. Scroll horizontally to reach all columns and actions." tabindex="0">
+    <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Support Agents directory. Scroll horizontally to reach all columns and actions." tabindex="0">
     <MudTable T="UserDirectoryDto" @ref="table" ServerData="LoadServerData" Dense="true" Hover="true" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.None"
               Height="clamp(14rem, calc(100dvh - 24rem), 44rem)" RowsPerPage="pageSize" CurrentPage="pageIndex" RowsPerPageChanged="PageSizeChanged" CurrentPageChanged="PageChanged" Class="team-table compact-table" data-table-surface="pages-admin-user-usermanagement-1">
         <ColGroup><col style="width:28%" /><col style="width:24%" /><col style="width:16%" /><col style="width:12%" /><col style="width:20%" /></ColGroup>
@@ -58,7 +59,7 @@
             <MudTd DataLabel="Organization"><span class="team-cell-text" title="@context.OrganizationName">@(context.OrganizationName ?? "No organization")</span></MudTd>
             <MudTd DataLabel="Access"><span>@StateLabel(context.AccountState)</span><span class="team-access-summary" title="@context.IdentitySummary">@context.IdentitySummary</span></MudTd>
             <MudTd DataLabel="Actions"><div class="team-row-actions">
-                <MudTooltip Text="Edit user and roles"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-label="Edit user" OnClick="() => OpenEditDialog(context)" /></MudTooltip>
+                <MudTooltip Text="Edit support agent and roles"><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" aria-label="Edit support agent" OnClick="() => OpenEditDialog(context)" /></MudTooltip>
                 @if (AuthenticationMode.SupportsLocalAccounts && context.CanManageAccount) { <MudTooltip Text="Manage local credentials"><MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small" aria-label="Manage local account" OnClick="() => OpenResetDialog(context)" /></MudTooltip> }
                 @if (AuthenticationMode.SupportsLocalAccounts && context.AccountId is not null)
                 {
@@ -68,8 +69,8 @@
                 <MudTooltip Text="@(context.DeleteBlockedReason ?? "Delete user")"><span><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" aria-label="Delete user" Disabled="@(!context.CanDelete)" OnClick="() => OpenDeleteDialog(context)" /></span></MudTooltip>
             </div></MudTd>
         </RowTemplate>
-        <LoadingContent><MudText>Loading team members…</MudText></LoadingContent>
-        <NoRecordsContent><MudText>@(loadError is not null ? "Team members could not be loaded. Retry the query." : HasFilters ? "No team members match these filters." : "No team members have been created.")</MudText></NoRecordsContent>
+        <LoadingContent><MudText>Loading support agents…</MudText></LoadingContent>
+        <NoRecordsContent><MudText>@(loadError is not null ? "Support agents could not be loaded. Retry the query." : HasFilters ? "No support agents match these filters." : "No support agents have been created.")</MudText></NoRecordsContent>
         <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" InfoFormat="{first_item}-{last_item} of {all_items}" /></PagerContent>
     </MudTable>
     </div>
@@ -78,9 +79,9 @@
 </Authorized>
 <NotAuthorized>
     <div class="helpdesk-page"><MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
-        <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Team</MudText>
+        <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Support Agents</MudText>
         <MudText Typo="Typo.body2" Class="mb-4">Manage membership and application roles for an authorized tenant. Shared account credentials and lifecycle remain instance-administrator actions.</MudText>
-        <TenantAdministration IsCanonical="true" />
+        <TenantAdministration IsCanonical="true" OrganizationId="@QueryOrganization" />
     </MudPaper></div>
 </NotAuthorized>
 </AuthorizeView>
@@ -157,7 +158,7 @@
         {
             if (current == generation && !disposed)
             {
-                loadError = "Team members could not be loaded. Your query is retained; retry when the service is available.";
+                loadError = "Support agents could not be loaded. Your query is retained; retry when the service is available.";
                 await InvokeAsync(StateHasChanged);
             }
             return new() { Items = [], TotalItems = 0 };
@@ -189,12 +190,12 @@
     }
     private async Task OpenCreateDialog()
     {
-        var dialog = await DialogService.ShowAsync<CreateUserDialog>("Create user", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<CreateUserDialog>("Create support agent", new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await Refresh();
     }
     private async Task OpenEditDialog(UserDirectoryDto user)
     {
-        var dialog = await DialogService.ShowAsync<EditUserDialog>("Edit user", new DialogParameters { ["User"] = ToUser(user) }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<EditUserDialog>("Edit support agent", new DialogParameters { ["User"] = ToUser(user) }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await Refresh();
     }
     private async Task OpenResetDialog(UserDirectoryDto user)

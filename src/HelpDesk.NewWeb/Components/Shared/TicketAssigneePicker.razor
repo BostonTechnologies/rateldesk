@@ -4,13 +4,14 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
-<AssigneeSelector Module="@TicketType.TrimEnd('s')" OrganizationId="@OrganizationId" TicketId="@TicketId"
+<AssigneeSelector Module="@(TicketType == "request-tasks" ? "task" : TicketType.TrimEnd('s'))" OrganizationId="@OrganizationId" TicketId="@TicketId"
                   Value="@AssignedToId" SelectedName="@SelectedName" SelectedEmail="@SelectedEmail"
                   Label="@(TicketType == "changes" ? "Implementor" : "Assignee")"
-                  ReadOnly="ReadOnly" Busy="saving" Compact="true" AllowUnassigned="@(TicketType != "changes")"
+                  ReadOnly="ReadOnly" Busy="saving" Compact="@Compact" AllowUnassigned="@(TicketType != "changes")"
                   SelectionChanged="Assign" />
 
 @code {
+    [Parameter] public bool Compact { get; set; } = true;
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public string? OrganizationId { get; set; }
     [Parameter] public string TicketId { get; set; } = default!;
@@ -48,6 +49,7 @@
             {
                 "incidents" => await Api.PutAsJsonAsync($"api/v1/incidents/{ticketId}", new UpdateIncidentDto { AssignedToId = candidate?.Id ?? string.Empty }, token),
                 "requests" => await Api.PostAsJsonAsync("api/v1/requests/bulk/assign", new { Ids = new[] { TicketId }, AssignedToId = candidate?.Id }, token),
+                "request-tasks" => await Api.PatchAsJsonAsync($"api/v1/request-tasks/{ticketId}", new { AssignedToId = candidate?.Id, ClearAssignment = candidate is null }, token),
                 "changes" => await Api.PostAsJsonAsync($"api/v1/changes/{ticketId}/assignee", new { ImplementorUserId = candidate?.Id }, token),
                 _ => throw new InvalidOperationException("Unsupported ticket module.")
             };
@@ -63,7 +65,7 @@
             await AssignedToIdChanged.InvokeAsync(AssignedToId);
             if (!disposed && scope == origin) await AssignmentChanged.InvokeAsync(candidate);
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
             if (!disposed && scope == origin) Snackbar.Add("Assignment failed. Refresh and try again.", Severity.Error);

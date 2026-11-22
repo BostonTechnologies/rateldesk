@@ -7,16 +7,17 @@
 @inject ISnackbar Snackbar
 @inject HelpDesk.NewWeb.Models.WebAuthenticationMode AuthenticationMode
 
+<WorkspaceEditGuard Dirty="@formChanged" Message="Discard unsaved customer contact changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">
             <MudIcon Icon="@Icons.Material.Filled.Edit" Class="mr-2 mb-n1" />
-            Edit Customer
+            Edit customer contact
         </MudText>
     </TitleContent>
 
     <DialogContent>
-        <MudForm @ref="form" Model="model" OnValidSubmit="Submit" Class="mt-2">
+        <MudForm FieldChanged="@(_ => formChanged = true)" @ref="form" Model="model" OnValidSubmit="Submit" Class="mt-2">
             <MudTabs Class="compact-tabs">
                 <MudTabPanel Text="Details">
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
@@ -106,6 +107,7 @@
 </MudDialog>
 
 @code {
+    private bool formChanged;
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;

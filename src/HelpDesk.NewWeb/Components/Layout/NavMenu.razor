@@ -47,13 +47,7 @@
     <AuthorizeView>
         <HelpdeskNavGroup Title="Operations" RoutePrefixes="@OperationsRoutes" Icon="@Icons.Material.Filled.SettingsSuggest">
             <AuthorizeView Roles="Incident.Read,Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Manager,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin" Context="aiGate">
-                <HelpdeskNavGroup Title="AI Ops" RoutePrefixes="@AiRoutes" Icon="@Icons.Material.Filled.Psychology">
-                    <HelpdeskNavLink Href="/ai/chat" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Chat" Title="Chat">Chat</HelpdeskNavLink>
-                    <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="investigationGate">
-                        <HelpdeskNavLink Href="/ai/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Troubleshoot" Title="Investigations">Investigations</HelpdeskNavLink>
-                    </AuthorizeView>
-                    <AuthorizeView Roles="HelpdeskAdmin" Context="promptGate"><HelpdeskNavLink Href="/ai/prompts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.EditNote" Title="Prompts">Prompts</HelpdeskNavLink></AuthorizeView>
-                </HelpdeskNavGroup>
+                <HelpdeskNavLink Href="/ai/chat" Aliases="@AiRoutes" Icon="@Icons.Material.Filled.Psychology" Title="AI Ops">AI Ops</HelpdeskNavLink>
             </AuthorizeView>
             <AuthorizeView Roles="Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Execute,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin" Context="opsGate">
                 <HelpdeskNavLink Href="/ops" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SettingsSuggest" Title="Operations console">Operations console</HelpdeskNavLink>
@@ -75,39 +69,15 @@
                 <AuthorizeView Roles="HelpdeskAdmin" Context="adminAuth">
                     <div class="nav-section-heading"><span>Administration</span></div>
                     <HelpdeskNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" RoutePrefixes="@AdministrationRoutes">
-                        <HelpdeskNavGroup Title="Accounts & Orgs" RoutePrefixes="@AccountAdministrationRoutes" Icon="@Icons.Material.Filled.AccountTree">
-                            <HelpdeskNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group" Title="Team">Team</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/customers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People" Title="Customers">
-                                Customers
-                            </HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Aliases="@OrganizationAliases" Icon="@Icons.Material.Filled.Apartment" Title="Organizations">
-                                Organizations
-                            </HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/support-routing" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.SupportAgent" Title="Support Routing">
-                                Support Routing
-                            </HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/tenant-sla-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Tune" Title="Tenant SLA Settings">Tenant SLA Settings</HelpdeskNavLink>
-                        </HelpdeskNavGroup>
+                        <HelpdeskNavLink Href="/admin/users" Aliases="@AccountAdministrationRoutes" Icon="@Icons.Material.Filled.AccountTree" Title="People &amp; Organizations">People &amp; Organizations</HelpdeskNavLink>
 
                         <HelpdeskNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security" Title="Roles &amp; Permissions">Roles &amp; Permissions</HelpdeskNavLink>
 
-                        <HelpdeskNavGroup Title="Email Settings" Icon="@Icons.Material.Filled.Email" RoutePrefixes="@EmailRoutes">
-                            <HelpdeskNavLink Href="/admin/email-settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Mail" Title="Mailbox Configuration">Mailbox Configuration</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/pending-emails" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.MarkunreadMailbox" Title="Pending Emails">Pending Emails</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/email-rules" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Rule" Title="Email Rules">Email Rules</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/templates" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Email" Title="Email Templates">Email Templates</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/layouts" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewQuilt" Title="Email Layouts">Email Layouts</HelpdeskNavLink>
-                        </HelpdeskNavGroup>
+                        <HelpdeskNavLink Href="/admin/email-settings" Aliases="@EmailRoutes" Icon="@Icons.Material.Filled.Email" Title="Email">Email</HelpdeskNavLink>
 
-                        <HelpdeskNavLink Href="/admin/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Key" Title="Integration">Integration</HelpdeskNavLink>
+                        <HelpdeskNavLink Href="/admin/integration" Match="NavLinkMatch.Prefix" Aliases="@IntegrationAliases" Icon="@Icons.Material.Filled.Key" Title="Integrations">Integrations</HelpdeskNavLink>
 
-                        <HelpdeskNavLink Href="/admin/operator-policies" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Policy" Title="MCP Policies">MCP Policies</HelpdeskNavLink>
-
-                        <HelpdeskNavGroup Title="Automation" Icon="@Icons.Material.Filled.SmartToy" RoutePrefixes="@AutomationRoutes">
-                            <HelpdeskNavLink Href="/admin/automation" Match="NavLinkMatch.Prefix" ExcludedRoutes="@IntegrationRoutes" Icon="@Icons.Material.Filled.SmartToy" Title="Automation Rules">Automation Rules</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/requests/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps" Title="Service Explorer">Service Explorer</HelpdeskNavLink>
-                            <HelpdeskNavLink Href="/admin/ai-assistant-webhooks" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Webhook" Title="Webhooks">Webhooks</HelpdeskNavLink>
-                        </HelpdeskNavGroup>
+                        <HelpdeskNavLink Href="/admin/automation" Aliases="@AutomationRoutes" ExcludedRoutes="@IntegrationRoutes" Icon="@Icons.Material.Filled.SmartToy" Title="Automation">Automation</HelpdeskNavLink>
 
                         <HelpdeskNavLink Href="/admin/categories" Match="NavLinkMatch.Prefix" Aliases="@CategoryAliases" Icon="@Icons.Material.Filled.Category" Title="Ticket Categories">Ticket Categories</HelpdeskNavLink>
                         <HelpdeskNavLink Href="/admin/branding" Match="NavLinkMatch.Prefix" Aliases="@BrandingAliases" Icon="@Icons.Material.Filled.Palette" Title="Branding &amp; Identity">Branding &amp; Identity</HelpdeskNavLink>
@@ -131,7 +101,7 @@
     private static readonly string[] OrganizationAliases = ["tenant-administration", "tenant-settings"];
     private static readonly string[] AccountAdministrationRoutes = ["admin/users", "admin/customers", "admin/organizations", "admin/support-routing", "admin/tenant-sla-settings", .. OrganizationAliases];
     private static readonly string[] EmailRoutes = ["admin/email-settings", "admin/pending-emails", "admin/email-rules", "admin/templates", "admin/layouts"];
-    private static readonly string[] IntegrationAliases = ["settings/connectivity", "admin/orchestration/orchestration", "admin/integrations", "admin/automation/integration", "account/integration-credentials"];
+    private static readonly string[] IntegrationAliases = ["admin/operator-policies", "settings/connectivity", "admin/orchestration/orchestration", "admin/integrations", "admin/automation/integration", "account/integration-credentials"];
     private static readonly string[] IntegrationRoutes = ["admin/automation/integration", .. IntegrationAliases];
     private static readonly string[] CategoryAliases = ["admin/categories0"];
     private static readonly string[] BrandingAliases = ["admin/tenants/*/branding"];

@@ -1,0 +1,98 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Sections
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager Navigation
+
+@if (workspace is not null)
+{
+    <header class="workspace-header">
+        <SectionOutlet SectionName="workspace-context" />
+        <WorkspaceTabStrip Label="@workspace.Name">
+            @foreach (var tab in workspace.Tabs)
+            {
+                <AuthorizeView Roles="@tab.Roles" @key="tab">
+                    <a href="@Destination(tab)" aria-current="@(active == tab ? "page" : null)">@tab.Label</a>
+                </AuthorizeView>
+            }
+        </WorkspaceTabStrip>
+    </header>
+}
+@Body
+
+@code {
+    private sealed record Tab(string Label, string Route, string Roles, string[]? Aliases = null)
+    {
+        public bool Owns(string path) => NavigationRoute.IsBranch(path, Route)
+            || Aliases?.Any(alias => NavigationRoute.IsBranch(path, alias)) == true;
+    }
+    private sealed record Workspace(string Name, Tab[] Tabs);
+    private static readonly Workspace AiOps = new("AI Ops",
+    [
+        new("Chat", "ai/chat", "Incident.Read,Incident.Write,Incident.Manager,Request.Read,Request.Write,Request.Manager,Change.Read,Change.Write,Change.Manager,HelpdeskAdmin"),
+        new("Investigations", "ai/ops", "Incident.Write,Incident.Manager,Request.Write,Request.Manager,Change.Write,Change.Manager,HelpdeskAdmin"),
+        new("Prompts", "ai/prompts", "HelpdeskAdmin"),
+    ]);
+    private static readonly Workspace People = new("People & Organizations",
+    [
+        new("Support Agents", "admin/users", "Tenant.Users.Manage,Tenant.Roles.Assign,HelpdeskAdmin"),
+        new("Customer Contacts", "admin/customers", "HelpdeskAdmin"),
+        new("Organizations", "admin/organizations", "Tenant.Roles.Assign,Tenant.Settings.Manage,HelpdeskAdmin", ["tenant-administration", "tenant-settings"]),
+        new("Support Routing", "admin/support-routing", "HelpdeskAdmin"),
+        new("Service Levels", "admin/tenant-sla-settings", "HelpdeskAdmin"),
+    ]);
+    private static readonly Workspace Email = new("Email",
+    [
+        new("Mailboxes", "admin/email-settings", "HelpdeskAdmin"),
+        new("Pending Mail", "admin/pending-emails", "HelpdeskAdmin"),
+        new("Rules", "admin/email-rules", "HelpdeskAdmin"),
+        new("Templates", "admin/templates", "HelpdeskAdmin"),
+        new("Layouts", "admin/layouts", "HelpdeskAdmin"),
+    ]);
+    private static readonly Workspace Automation = new("Automation",
+    [
+        new("Rules", "admin/automation", "HelpdeskAdmin"),
+        new("Service Catalog", "admin/requests/services", "HelpdeskAdmin"),
+        new("Webhooks", "admin/ai-assistant-webhooks", "HelpdeskAdmin"),
+    ]);
+
+    private static readonly Workspace[] Workspaces = [AiOps, People, Email, Automation];
+    private readonly Dictionary<(Tab, string), string> destinations = [];
+    private Workspace? workspace;
+    private Tab? active;
+    private string organization = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        Remember();
+        Navigation.LocationChanged += LocationChanged;
+    }
+
+    private void LocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        Remember();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void Remember()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var path = NavigationRoute.Normalize(Navigation.ToBaseRelativePath(Navigation.Uri));
+        workspace = Workspaces.FirstOrDefault(area => area.Tabs.Any(tab => tab.Owns(path)));
+        active = workspace?.Tabs.FirstOrDefault(tab => tab.Owns(path));
+        if (active is null) return;
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        organization = query.TryGetValue("organizationId", out var scope) ? scope.ToString() : string.Empty;
+        destinations[(active, organization)] = uri.PathAndQuery;
+    }
+
+    private string Destination(Tab tab)
+    {
+        if (destinations.TryGetValue((tab, organization), out var remembered)) return remembered;
+        var route = "/" + tab.Route;
+        return organization.Length == 0 ? route : QueryHelpers.AddQueryString(route, "organizationId", organization);
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= LocationChanged;
+}

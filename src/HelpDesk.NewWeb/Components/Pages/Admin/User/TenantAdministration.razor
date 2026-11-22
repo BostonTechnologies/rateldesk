@@ -1,4 +1,6 @@
+@layout WorkspaceLayout
 @page "/tenant-administration"
+@inject AuthenticationStateProvider Authentication
 @attribute [Authorize(Roles = "Tenant.Users.Manage,Tenant.Roles.Assign,HelpdeskAdmin")]
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
@@ -132,11 +134,21 @@
         ? members
         : members.Where(member => member.Name.Contains(memberSearch, StringComparison.OrdinalIgnoreCase) || member.Email.Contains(memberSearch, StringComparison.OrdinalIgnoreCase));
 
-    protected override Task OnParametersSetAsync()
+    protected override async Task OnParametersSetAsync()
     {
         if (hasAppliedOrganizationParameter && string.Equals(appliedOrganizationId, OrganizationId, StringComparison.OrdinalIgnoreCase))
-            return Task.CompletedTask;
-        return ApplyOrganizationParameterAsync();
+            return;
+        if (!IsCanonical)
+        {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (user.IsInRole("Tenant.Users.Manage") && !user.IsInRole("Tenant.Roles.Assign") &&
+                !user.IsInRole("Tenant.Settings.Manage") && !user.IsInRole("HelpdeskAdmin"))
+            {
+                NavigationManager.NavigateTo("/admin/users" + new Uri(NavigationManager.Uri).Query, replace: true);
+                return;
+            }
+        }
+        await ApplyOrganizationParameterAsync();
     }
 
     private async Task ApplyOrganizationParameterAsync()

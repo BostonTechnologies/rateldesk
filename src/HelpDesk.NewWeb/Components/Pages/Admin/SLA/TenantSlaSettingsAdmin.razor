@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/tenant-sla-settings"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @inject IHttpClientFactory HttpClientFactory
@@ -6,11 +7,11 @@
 @using Helpdesk.Shared.DTOs.Sla
 @using Microsoft.AspNetCore.Components.Routing
 
-<PageTitle>Tenant SLA Settings</PageTitle>
+<PageTitle>Service Levels</PageTitle>
 <NavigationLock ConfirmExternalNavigation="HasUnsavedChanges" OnBeforeInternalNavigation="ConfirmNavigationAsync" />
 <div class="tenant-sla-workspace helpdesk-content-surface pa-3">
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-        <MudText Typo="Typo.h5" HtmlTag="h1">Tenant SLA Settings</MudText>
+        <MudText Typo="Typo.h5" HtmlTag="h1">Service Levels</MudText>
         <MudSpacer />
         <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" @key="tenantSelectorVersion" Label="Tenant" Value="@tenantId" ValueChanged="OnTenantChanged" SelectionChanged="RememberOrganization" Clearable="false" Disabled="@busy" />
     </MudStack>
