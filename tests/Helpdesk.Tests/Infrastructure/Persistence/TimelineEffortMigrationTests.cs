@@ -20,12 +20,13 @@ public sealed class TimelineEffortMigrationTests
         var effectCount = 0;
         string originalEffects;
         string originalReceipts;
-        await using (var previous = fixture.Open())
+        await using (var migrationContext = fixture.Open())
         {
-            var migrations = previous.Database.GetMigrations().ToArray();
+            await using var previous = new PublishedCampaignSeedContext(migrationContext);
+            var migrations = migrationContext.Database.GetMigrations().ToArray();
             var effortIndex = Array.FindIndex(migrations, name => name.EndsWith("_PersistTimelineWorklogEffort", StringComparison.Ordinal));
             Assert.True(effortIndex > 0);
-            await previous.GetService<IMigrator>().MigrateAsync(migrations[effortIndex - 1]);
+            await migrationContext.GetService<IMigrator>().MigrateAsync(migrations[effortIndex - 1]);
             var mailboxId = Guid.NewGuid();
             previous.Organizations.AddRange(new Organization { Id = "upgrade-effort-org", Name = "Organization" },
                 new Organization { Id = "other-effort-org", Name = "Other organization" });
@@ -120,13 +121,14 @@ public sealed class TimelineEffortMigrationTests
         var legacyId = Guid.NewGuid();
         var timestamp = new DateTimeOffset(2026, 9, 12, 10, 0, 0, TimeSpan.Zero);
         string[] previousHistory;
-        await using (var previous = fixture.Open())
+        await using (var migrationContext = fixture.Open())
         {
-            var migrations = previous.Database.GetMigrations().ToArray();
+            await using var previous = new PublishedCampaignSeedContext(migrationContext);
+            var migrations = migrationContext.Database.GetMigrations().ToArray();
             var effortMigration = Assert.Single(migrations, name => name.EndsWith("_PersistTimelineWorklogEffort", StringComparison.Ordinal));
             var effortIndex = Array.IndexOf(migrations, effortMigration);
             Assert.True(effortIndex > 0);
-            await previous.GetService<IMigrator>().MigrateAsync(migrations[effortIndex - 1]);
+            await migrationContext.GetService<IMigrator>().MigrateAsync(migrations[effortIndex - 1]);
             previousHistory = (await previous.Database.GetAppliedMigrationsAsync()).ToArray();
             previous.Organizations.Add(new Organization { Id = "upgrade-effort-org", Name = "Preserved organization" });
             previous.Incidents.Add(new Incident { Id = "upgrade-effort-ticket", OrganizationId = "upgrade-effort-org",

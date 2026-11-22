@@ -28,7 +28,7 @@ public sealed class WorkflowDependencyEvaluator(
         }
 
         var request = await _requests.GetAsync(requestId);
-        if (request is null || string.IsNullOrWhiteSpace(request.RequestFormId))
+        if (request is null || request.AdministrativeClosureReason != null || string.IsNullOrWhiteSpace(request.RequestFormId))
         {
             return new WorkflowDependencyEvaluationResult(0);
         }
@@ -74,7 +74,7 @@ public sealed class WorkflowDependencyEvaluator(
 
         foreach (var task in tasks)
         {
-            if (task.Status != RequestTaskStatus.Pending || !task.IsBlocked)
+            if (task.AdministrativeClosureReason != null || task.Status != RequestTaskStatus.Pending || !task.IsBlocked)
             {
                 continue;
             }
@@ -105,7 +105,7 @@ public sealed class WorkflowDependencyEvaluator(
                     break;
                 }
 
-                if (dependencyTasks.Any(dep => dep.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped)))
+                if (dependencyTasks.Any(dep => dep.AdministrativeClosureReason != null || dep.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped)))
                 {
                     allSatisfied = false;
                     break;

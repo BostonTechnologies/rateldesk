@@ -372,3 +372,9 @@ public sealed record RequestStateChangedEvent(
         CorrelationId: CorrelationId,
         Reference: RequestId,
         OccurredUtc: Timestamp.UtcDateTime);
+
+public sealed record RequestWorkClosedEvent(string RequestId, string? TaskId, string? TaskName,
+    string ActorId, bool ParentClosed, int SettledTasks, int RemainingTasks, string? OrganizationId,
+    DateTimeOffset Timestamp, string CorrelationId)
+    : DomainEvent("DomainEvent.RequestTask.AdministrativelyClosed", "RequestTask", OrganizationId,
+        TaskId ?? RequestId, CorrelationId, RequestId, Timestamp.UtcDateTime);

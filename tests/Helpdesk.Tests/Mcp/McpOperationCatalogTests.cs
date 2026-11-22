@@ -383,6 +383,7 @@ public sealed class McpOperationCatalogTests
             "bulk_create" when incident => """{"items":[{"title":"matrix","description":"matrix","customerId":"customer-1","organizationId":"organization-1"}]}""",
             "bulk_create" when change => $"{{\"items\":[{ChangeCreateRequest()}]}}",
             "bulk_create" => """{"items":[{"title":"matrix","description":"matrix","customerId":"customer-1","organizationId":"organization-1"}]}""",
+            "bulk_close" => """{"reason":"Retire test","selection":[{"id":"request-1","stateVersion":3}]}""",
             "bulk_state" => $"{{\"ids\":[\"{id}\"],\"newState\":\"Resolved\"}}",
             "assign" => $"{{\"ids\":[\"{id}\"],\"assignedToId\":\"user-1\"}}",
             "assign_self" => $"{{\"ids\":[\"{id}\"],\"agentUserEmail\":\"operator@example.test\"}}",
@@ -401,6 +402,7 @@ public sealed class McpOperationCatalogTests
     private static string TaskRequest(string operation) => operation switch
     {
         "list" => "{}",
+        "bulk_close" => """{"reason":"Retire test","selection":[{"id":"task-1","stateVersion":2}]}""",
         "bulk_start" or "bulk_complete" or "bulk_retry" => """{"ids":["task-1"]}""",
         "create" => """{"title":"matrix","description":"matrix","requestId":"request-1","organizationId":"organization-1"}""",
         "update" => """{"taskId":"task-1","title":"updated matrix task"}""",

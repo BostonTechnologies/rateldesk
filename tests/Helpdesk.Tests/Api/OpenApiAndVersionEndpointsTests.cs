@@ -154,13 +154,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Beta.3 adds ten administrator operations for OpenAI setup, catalogs, runtime,
         // owner-bound device connections and subscription profiles.
         // Scoped organization, contact, approver and peer searches add nine operations.
+        // Operator closure adds a version-checked operation for requests and one for request tasks.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(538, operationCount);
+        Assert.Equal(540, operationCount);
 #else
-        Assert.Equal(537, operationCount);
+        Assert.Equal(539, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]
@@ -235,6 +236,8 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         }
         foreach (var (path, operationId, tag) in new[]
         {
+            ("/api/v1/requests/bulk/close", "CloseRequests", "Requests"),
+            ("/api/v1/request-tasks/bulk/close", "CloseRequestTasks", "Request Tasks"),
             ("/api/v1/changes/{id}/state", "UpdateChangeTicketState", "Changes"),
             ("/api/v1/admin/orchestration/test", "TestOrchestrationConnectivity", "External Orchestration")
         })

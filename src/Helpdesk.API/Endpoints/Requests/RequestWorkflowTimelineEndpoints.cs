@@ -143,6 +143,8 @@ public static class RequestWorkflowTimelineEndpoints
         var taskNameSuffix = string.IsNullOrWhiteSpace(payload.TaskName) ? string.Empty : $": {payload.TaskName}";
         return eventType switch
         {
+            "DomainEvent.RequestTask.AdministrativelyClosed" => payload.TaskId == null
+                ? "Request closed by operator" : $"Task closed by operator{taskNameSuffix}",
             "DomainEvent.RequestTask.Unblocked" => $"Task unblocked{taskNameSuffix}",
             "DomainEvent.RequestTask.Blocked" => $"Task blocked{taskNameSuffix}",
             "DomainEvent.RequestTask.Skipped" => $"Task skipped{taskNameSuffix}",

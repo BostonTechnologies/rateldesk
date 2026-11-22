@@ -53,6 +53,19 @@ http.createServer(async (req, res) => {
     tickets.requests.workflowBlockReason = state === 'unknown' ? 'The execution deadline elapsed. The remote outcome is unknown; support must reconcile this attempt.' : null;
     return reply({ count: requestTasks.length });
   }
+  if (url.pathname === '/api/v1/requests/bulk/close' && req.method === 'POST') {
+    const submission = await body();
+    const record = tickets.requests;
+    if (submission.selection?.length !== 1 || submission.selection[0].id !== record.id ||
+        submission.selection[0].stateVersion !== (record.stateVersion ?? 0) || !submission.reason?.trim())
+      return reply({ error: 'Closure selection mismatch' }, 400);
+    saves.push({ module: 'requests', close: submission });
+    record.administrativeClosureReason = submission.reason;
+    record.stateVersion = (record.stateVersion ?? 0) + 1;
+    record.state = 6;
+    requestTasks.forEach(task => { task.administrativeClosureReason = submission.reason; });
+    return reply([{ id: record.id, outcome: 'closed', settledTasks: requestTasks.length, remainingTasks: 0 }]);
+  }
   if (url.pathname === '/fixture/ticket-scope' && req.method === 'POST') {
     const scope = await body();
     for (const ticket of Object.values(tickets)) {

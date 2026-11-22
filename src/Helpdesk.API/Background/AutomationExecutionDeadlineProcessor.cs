@@ -26,7 +26,7 @@ public sealed class AutomationExecutionDeadlineProcessor(
         // This is a system worker, not a user directory query. Every claimed row
         // is subsequently bound to its persisted organization before business work.
         var candidates = await db.RequestTasks.IgnoreQueryFilters().AsNoTracking()
-            .Where(task => (task.Type == RequestTaskType.Automation || task.Type == RequestTaskType.Approval || task.Type == RequestTaskType.Manual)
+            .Where(task => task.AdministrativeClosureReason == null && (task.Type == RequestTaskType.Automation || task.Type == RequestTaskType.Approval || task.Type == RequestTaskType.Manual)
                 && (task.AutomationContinuationPending
                     || (task.Type == RequestTaskType.Automation && (task.Status == RequestTaskStatus.InProgress
                         || (task.Status == RequestTaskStatus.Failed
@@ -55,7 +55,7 @@ public sealed class AutomationExecutionDeadlineProcessor(
 
             var lease = Guid.NewGuid().ToString("N");
             var claimed = await db.RequestTasks.Where(task => task.Id == candidate.Id
-                && task.AutomationStateVersion == candidate.Version
+                && task.AdministrativeClosureReason == null && task.AutomationStateVersion == candidate.Version
                 && task.AutomationAttemptCorrelationId == candidate.Attempt
                 && (task.AutomationReconciliationLeaseUntilUtcTicks == null || task.AutomationReconciliationLeaseUntilUtcTicks <= now.UtcTicks))
                 .ExecuteUpdateAsync(updates => updates
@@ -85,6 +85,7 @@ public sealed class AutomationExecutionDeadlineProcessor(
 
     private async Task ReconcileAsync(RequestTask task, DateTimeOffset now, CancellationToken ct)
     {
+        if (task.AdministrativeClosureReason != null) return;
         task.AutomationDeadlineUtcTicks ??= AutomationExecutionDeadlinePolicy.ResolveDeadlineUtcTicks(task, now);
         var expired = now.UtcTicks >= task.AutomationDeadlineUtcTicks.Value;
         OrchestrationCallbackDto? result = null;

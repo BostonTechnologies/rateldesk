@@ -11,6 +11,7 @@
 @using Helpdesk.Shared.Models
 @using Microsoft.AspNetCore.Components.Authorization
 
+@inject IDialogService Dialogs
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
@@ -63,6 +64,10 @@
         <MudPaper Class="pa-2 mb-2" Outlined="true">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudText Typo="Typo.body2">@_selected.Count selected</MudText>
+                @if (_selected.Count <= 50 && _selected.All(CanClose))
+                {
+                    <MudButton Size="Size.Small" OnClick="() => CloseTasksAsync(_selected)">Close selected</MudButton>
+                }
                 <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(bulkBusy || !CanBulkOperate)" OnClick="BulkStartAsync">Bulk Start</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" Disabled="@(bulkBusy || !CanBulkOperate)" OnClick="BulkCompleteAsync">Bulk Complete</MudButton>
                 @if (profile?.HasPermission("Request.Execute") == true || isAdmin)
@@ -114,6 +119,7 @@
                 { <MudTooltip Text="@context.AutomationBlockReason"><span class="workspace-secondary">@context.AutomationBlockReason</span></MudTooltip> }
             </MudTd>
             <MudTd DataLabel="Status">
+                @if (context.AdministrativeClosureReason is { } reason) { <strong title="@reason">Closed · </strong> }
                 <MudText Typo="Typo.body2" Color="@(RequiresManualReconciliation(context.LastAutomationStatus) ? Color.Warning : GetTaskStatusColor(context.Status))">@(RequiresManualReconciliation(context.LastAutomationStatus) ? (context.AutomationTimedOutAt.HasValue ? "Timed out — outcome unknown" : "Needs reconciliation") : context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.InProgress ? "In progress" : WorkspaceLabels.Readable(context.Status.ToString()))</MudText>
                 @if (context.Type == RequestTaskType.Automation && !string.IsNullOrWhiteSpace(context.LastAutomationStatus))
                 {
@@ -128,15 +134,19 @@
             <MudTd DataLabel="Created"><span>@context.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</span><span class="workspace-secondary">@context.CreatedAt.LocalDateTime.ToString("HH:mm")</span></MudTd>
             <MudTd DataLabel="Actions">
                 <div class="workspace-actions" @onclick:stopPropagation="true">
-                    @if (context.Status == RequestTaskStatus.Pending)
+                    @if (CanClose(context))
+                    {
+                        <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseTasksAsync([context])" />
+                    }
+                    @if (context.AdministrativeClosureReason == null && context.Status == RequestTaskStatus.Pending)
                     {
                         <WorkspaceAction Label="Start task" Icon="@Icons.Material.Filled.PlayArrow" Disabled="@GetStartDisabled(context)" DisabledReason="@(context.AutomationBlockReason ?? "Task permission or readiness is required")" OnClick="() => StartTaskAsync(context.Id)" />
                     }
-                    @if (context.Type == RequestTaskType.Manual && context.Status == RequestTaskStatus.InProgress)
+                    @if (context.AdministrativeClosureReason == null && context.Type == RequestTaskType.Manual && context.Status == RequestTaskStatus.InProgress)
                     {
                         <WorkspaceAction Label="Complete task" Icon="@Icons.Material.Outlined.CheckCircle" Disabled="@(rowActionBusy || !CanOperate(context))" DisabledReason="Task permission is required" OnClick="() => CompleteTaskAsync(context.Id)" />
                     }
-                    @if (context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && CanOperate(context) && !RequiresManualReconciliation(context.LastAutomationStatus))
+                    @if (context.AdministrativeClosureReason == null && context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && CanOperate(context) && !RequiresManualReconciliation(context.LastAutomationStatus))
                     {
                         <WorkspaceAction Label="Retry task" Icon="@Icons.Material.Filled.Replay" Disabled="@(rowActionBusy || !CanOperate(context))" OnClick="() => RetryTaskAsync(context.Id)" />
                     }
@@ -481,6 +491,16 @@
         {
             return;
         }
+    }
+
+    private bool CanClose(RequestTaskListItemDto item) => profile?.CanManageRequest(item.OrganizationId) == true
+        && item.AdministrativeClosureReason == null && item.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped);
+
+    private async Task CloseTasksAsync(IEnumerable<RequestTaskListItemDto> items)
+    {
+        var selected = items.Select(x => new CloseWorkSelection(x.Id, x.StateVersion)).ToList();
+        if (await CloseWorkDialog.ShowAsync(Dialogs, false, selected, $"Close {selected.Count} selected task(s)?"))
+            await Reload();
     }
 
     private async Task StartTaskAsync(string id) => await ExecuteRowActionAsync(id, "start", "Task started.");

@@ -5,6 +5,7 @@
 @implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
+@inject IServiceProvider Services
 
 <StatePopup @key="scope" Kind="ticket" Label="@GetStateLabel(State)" TrackingId="@(TrackingId ?? TicketId)" Color="@GetStateColor(State)"
             CanEdit="@(TicketType is "incidents" or "requests")" Busy="pending" Loading="loading" Error="@error"
@@ -75,6 +76,22 @@
                 error = "The saved state could not be confirmed. Reload current state before trying again.";
                 return false;
             }
+            if (origin.Type == "requests" && newState == TicketState.Resolved && updated.State == TicketState.OnHold)
+            {
+                var tasks = await Api.GetFromJsonAsync<List<Helpdesk.Shared.DTOs.Request.RequestTaskDto>>(
+                    $"api/v1/requests/{Uri.EscapeDataString(origin.Id)}/tasks", token);
+                if (!Current(origin, token)) return false;
+                var count = tasks?.Count(t => t.AdministrativeClosureReason == null && t.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped));
+                if (count == null) return false;
+                await CloseWorkDialog.ShowAsync(Services.GetRequiredService<IDialogService>(), true,
+                    [new(origin.Id, updated.StateVersion)], $"Workflow holds prevented ordinary resolution. Close this request and its {count} unfinished tasks?");
+                if (!Current(origin, token)) return false;
+                var current = await Api.GetFromJsonAsync<StateResponse>($"api/v1/requests/{Uri.EscapeDataString(origin.Id)}", token);
+                if (!Current(origin, token) || current?.Id != origin.Id) return false;
+                State = current.State;
+                await StateChanged.InvokeAsync(current.State);
+                return true;
+            }
             State = updated.State;
             await StateChanged.InvokeAsync(updated.State);
             if (!disposed) Snackbar.Add($"State updated to {GetStateLabel(updated.State)}.{(updated.State == TicketState.Resolved ? " Find resolved tickets using History." : "")}", Severity.Success);
@@ -123,7 +140,7 @@
 
     private bool Current((string Id, string Type) origin, CancellationToken token) => !disposed && !token.IsCancellationRequested && scope == origin;
     public void Dispose() { disposed = true; cancellation.Cancel(); cancellation.Dispose(); }
-    private sealed record StateResponse(string Id, TicketState State);
+    private sealed record StateResponse(string Id, TicketState State, long StateVersion = 0);
 
     private static string GetStateLabel(TicketState state) => state switch
     {

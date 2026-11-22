@@ -1,8 +1,8 @@
 {
-  "schemaHash": "f95043942970670d88fd8c2ba015f0025ca285a7ad17fd666f3879a722120a84",
-  "catalogRevision": "2026-11-17.ticket-relations-v33",
-  "catalogHash": "6be1fe17478a3dc431868dad3fcc76b4ce36364d7f7e26f2fa2af5df7190461a",
-  "operationCount": 391,
+  "schemaHash": "357ddb1595834a167499471cdbe60e4d95d2b6a74b6f4e7ebebc2004c7631785",
+  "catalogRevision": "2026-11-22.request-closure-v34",
+  "catalogHash": "fbb4e81625ecee04a8da819bd9c16a5d4561a3572549cb948e83b47e3042c423",
+  "operationCount": 393,
   "operations": [
     {
       "tool": "helpdesk_auth",
@@ -6614,6 +6614,168 @@
           "ids"
         ],
         "description": "ConfiguredAgentAssignmentRequest for helpdesk_changes operation assign_self. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_requests",
+      "operation": "bulk_close",
+      "requestContract": "CloseRequestWork",
+      "method": "POST",
+      "pathTemplate": "/api/v1/requests/bulk/close",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "bulk_close operation.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Request.Write or Request.Manager within each selected record\u2019s organization, or active instance administrator. Scope is rechecked for every record.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "selection": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "stateVersion": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "stateVersion"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "reason",
+          "selection"
+        ],
+        "description": "CloseRequestWork for helpdesk_requests operation bulk_close. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_request_tasks",
+      "operation": "bulk_close",
+      "requestContract": "CloseRequestWork",
+      "method": "POST",
+      "pathTemplate": "/api/v1/request-tasks/bulk/close",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "bulk_close operation.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Request.Write or Request.Manager within each selected record\u2019s organization, or active instance administrator. Scope is rechecked for every record.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "selection": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "stateVersion": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "stateVersion"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "reason",
+          "selection"
+        ],
+        "description": "CloseRequestWork for helpdesk_request_tasks operation bulk_close. All operation-specific fields belong inside this request object, never at the tool root."
       }
     },
     {
@@ -36082,6 +36244,98 @@
       }
     },
     {
+      "tool": "helpdesk_requests",
+      "operation": "bulk_close",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "bulk_close",
+          "request": {
+            "reason": "Example",
+            "selection": [
+              {
+                "id": "Example",
+                "stateVersion": 0
+              }
+            ]
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "bulk_close",
+          "request": {
+            "reason": "Example",
+            "selection": [
+              {
+                "id": "Example",
+                "stateVersion": 0
+              }
+            ]
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "reason": "Example",
+            "selection": [
+              {
+                "id": "Example",
+                "stateVersion": 0
+              }
+            ]
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_request_tasks",
+      "operation": "bulk_close",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "bulk_close",
+          "request": {
+            "reason": "Example",
+            "selection": [
+              {
+                "id": "Example",
+                "stateVersion": 0
+              }
+            ]
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "bulk_close",
+          "request": {
+            "reason": "Example",
+            "selection": [
+              {
+                "id": "Example",
+                "stateVersion": 0
+              }
+            ]
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "reason": "Example",
+            "selection": [
+              {
+                "id": "Example",
+                "stateVersion": 0
+              }
+            ]
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
       "tool": "helpdesk_request_tasks",
       "operation": "list",
       "examples": {
@@ -62089,6 +62343,65 @@
             "additionalProperties": false,
             "properties": {
               "operation": {
+                "const": "bulk_close",
+                "description": "bulk_close operation. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "selection": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "stateVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "stateVersion"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                },
+                "required": [
+                  "reason",
+                  "selection"
+                ],
+                "description": "CloseRequestWork for helpdesk_request_tasks operation bulk_close. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
                 "const": "list",
                 "description": "List authorized tickets. request.query maps to API q; request.q is an alias. Equivalent trimmed aliases deduplicate; conflicting nonempty aliases fail validation. Null or blank search is unfiltered; filtering precedes counts and paging. Explicit page must be an integer from 1 to 1000000; pageSize from 1 to 100. Omitted pagination retains API behavior. Select this operation in the outer operation field."
               },
@@ -63899,6 +64212,65 @@
                   "ids"
                 ],
                 "description": "ConfiguredAgentAssignmentRequest for helpdesk_requests operation assign_self. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "bulk_close",
+                "description": "bulk_close operation. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "selection": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "stateVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "stateVersion"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                },
+                "required": [
+                  "reason",
+                  "selection"
+                ],
+                "description": "CloseRequestWork for helpdesk_requests operation bulk_close. All operation-specific fields belong inside this request object, never at the tool root."
               }
             },
             "required": [

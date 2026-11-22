@@ -4286,6 +4286,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<string>("AdministrativeClosureReason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AdministrativelyClosedBy")
+                        .HasColumnType("text");
+
                     b.Property<string>("AssignedToId")
                         .HasColumnType("text");
 
