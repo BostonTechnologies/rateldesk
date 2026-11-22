@@ -76,7 +76,7 @@
 .ai-create-actions { display: flex; flex-wrap: wrap; gap: .6rem; padding-top: 1rem; border-top: 1px solid var(--mud-palette-divider); }
 .ai-ops .ai-pane-switch { display: none; }
 @media (max-width: 760px) {
-    .ai-ops .ai-pane-switch { display: inline-flex; align-self: flex-start; margin-bottom: .25rem; }
+    .ai-ops .ai-pane-switch { display: inline-flex; align-self: flex-start; }
     .ai-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
     .show-investigation :is(.ai-investigation-list, .ai-metrics), .show-results .ai-conversation { display: none; }
     .ai-investigation-list { border: 0; padding: .5rem; gap: .4rem; }
@@ -85,4 +85,6 @@
     .ai-toolbar > label { width: auto; flex: 1 1 11rem; }
     .ai-metrics > div { padding: .2rem .35rem; gap: .25rem; }
     .ai-empty, .ai-create { padding: .75rem; }
+    .ai-toolbar h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .show-investigation .ai-toolbar .ai-results-action { display: none; }
 }

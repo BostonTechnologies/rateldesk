@@ -14,17 +14,16 @@
 <main class="ai-ops @(showResults ? "show-results" : "show-investigation")" data-testid="ai-investigations">
     <header class="ai-toolbar">
         <h1>Investigations</h1>
-
-        <button type="button" @onclick="Refresh" disabled="@busy">Refresh</button>
-        <button type="button" class="ai-primary" @onclick="StartCreate" disabled="@(busy || organizations.Count == 0)">New investigation</button>
+        <button type="button" class="ai-pane-switch" aria-controls="investigation-results"
+                aria-expanded="@(showResults ? "true" : "false")" @onclick="() => showResults = !showResults">
+            @(showResults ? "Back to investigation" : "Back to results")
+        </button>
+        <button type="button" class="ai-results-action" @onclick="Refresh" disabled="@busy">Refresh</button>
+        <button type="button" class="ai-primary ai-results-action" @onclick="StartCreate" disabled="@(busy || organizations.Count == 0)">New investigation</button>
         <div class="ai-toolbar-connection"><AiNetclawConnectionStatus ApiRoute="@ConnectionRoute" OrganizationName="@(selected is { } current ? OrganizationName(current.OrganizationId) : OrganizationName(organization))" ConversationId="selected?.Id" /></div>
     </header>
     @if (error is not null) { <div class="ai-notice" role="alert">@error</div> }
     @if (busy) { <p class="ai-loading" role="status">Updating investigation workspace…</p> }
-    <button type="button" class="ai-pane-switch" aria-controls="investigation-results"
-            aria-expanded="@(showResults ? "true" : "false")" @onclick="() => showResults = !showResults">
-        @(showResults ? "Back to investigation" : "Back to results")
-    </button>
     <div class="ai-metrics" aria-label="Status in recent results">
         <div><span>Active</span><strong>@(listAvailable ? investigations.Count(x => x.State is ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports).ToString() : "—")</strong></div>
         <div><span>Waiting for your decision</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.AwaitingApproval).ToString() : "—")</strong></div>

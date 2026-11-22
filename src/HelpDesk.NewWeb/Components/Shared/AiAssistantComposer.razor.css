@@ -16,7 +16,7 @@
 @media (max-width: 600px) { .composer-identity span { max-width: 115px; } }
 @media (max-height: 600px) {
     .chat-composer { padding: .25rem .4rem; }
-    .chat-composer textarea { min-height: 2.5rem; height: 2.5rem; max-height: 22dvh; }
+    .chat-composer textarea { min-height: 2.5rem; height: 2.5rem; max-height: min(18dvh, 4rem); }
     .composer-actions { margin-top: .15rem; gap: .25rem; }
     .composer-hint, .composer-notice { margin-top: .15rem; }
     .composer-send { min-height: 40px; }

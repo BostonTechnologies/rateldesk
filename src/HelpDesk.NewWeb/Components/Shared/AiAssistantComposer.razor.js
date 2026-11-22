@@ -3,8 +3,9 @@ import { saveText } from '../../js/chat-drafts.js';
 const bindings = new WeakMap();
 export function resize(root) {
     const input = root.querySelector('textarea');
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(240, Math.max(64, input.scrollHeight))}px`;
+    // Let the active viewport's CSS min/max bound the measured text height.
+    input.style.height = '0px';
+    input.style.height = `${input.scrollHeight}px`;
 }
 export function attach(root, dotnet) {
     detach(root);
