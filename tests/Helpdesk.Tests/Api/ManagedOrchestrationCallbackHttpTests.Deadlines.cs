@@ -438,8 +438,13 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         var task = await SeedDeadlineAsync(h, client, clock, connectivity);
         clock.Advance(TimeSpan.FromMinutes(3));
         Assert.Equal(1, await SweepAsync(h));
-        long version = 0;
-        await h.EditAsync(async db => version = (await db.Requests.SingleAsync()).WorkflowStateVersion);
+        using var resolution = await SetOperatorStateAsync(h, task.RequestId, "bulk", TicketState.Resolved);
+        Assert.Equal(HttpStatusCode.OK, resolution.StatusCode);
+        using var disposition = JsonDocument.Parse(await resolution.Content.ReadAsStringAsync());
+        Assert.Equal(0, disposition.RootElement.GetProperty("updated").GetInt32());
+        var blocked = Assert.Single(disposition.RootElement.GetProperty("blocked").EnumerateArray());
+        Assert.Equal(task.RequestId, blocked.GetProperty("id").GetString());
+        var version = blocked.GetProperty("stateVersion").GetInt64();
         using var close = await h.AdminAsync(HttpMethod.Post, "/api/v1/requests/bulk/close", new
         {
             reason = "Test retired", selection = new[] { new { id = task.RequestId, stateVersion = version } }
