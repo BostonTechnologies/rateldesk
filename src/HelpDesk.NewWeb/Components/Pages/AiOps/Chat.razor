@@ -18,6 +18,13 @@
 <main class="chat-page" data-testid="organization-chat">
     <header class="chat-page-heading">
         <div><p class="chat-eyebrow">AI OPERATIONS</p><h1>Chat</h1><p class="chat-page-description">Ask questions and investigate work in your organization.</p></div>
+        @if (!loading && organization.Length > 0)
+        {
+            <button type="button" class="chat-pane-switch chat-secondary-button" aria-controls="organization-chat-history"
+                    aria-expanded="@(showHistory ? "true" : "false")" @onclick="() => showHistory = !showHistory">
+                @(showHistory ? "Back to chat" : "Conversations")
+            </button>
+        }
         <div class="chat-workspace-controls">
             @if (organization.Length > 0) { <AiNetclawConnectionStatus @key="organization" ApiRoute="@Route" OrganizationName="@OrganizationName(organization)" ConversationId="selected?.ConversationId" /> }
         </div>
@@ -30,10 +37,6 @@
     }
     else
     {
-        <button type="button" class="chat-pane-switch chat-secondary-button" aria-controls="organization-chat-history"
-                aria-expanded="@(showHistory ? "true" : "false")" @onclick="() => showHistory = !showHistory">
-            @(showHistory ? "Back to chat" : "Conversations")
-        </button>
         <div class="chat-workspace @(showHistory ? "show-history" : "show-chat")">
             <aside id="organization-chat-history" class="chat-history" aria-label="Chat history">
                 <button type="button" class="chat-new-button" @onclick="StartNew" disabled="@(busy || !CanStart)"><MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" /><span>New chat</span></button>
