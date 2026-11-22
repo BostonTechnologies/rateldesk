@@ -83,7 +83,7 @@ public class PageAuthorizationConventionsTests
         Assert.Contains("\"admin/organizations\", \"Tenant.Roles.Assign,Tenant.Settings.Manage,HelpdeskAdmin\"", shell, StringComparison.Ordinal);
         Assert.Contains("\"/admin/users\" : \"/admin/organizations\"", navigation, StringComparison.Ordinal);
         var settingsPage = File.ReadAllText(Path.Combine(repoRoot, "src", "HelpDesk.NewWeb", "Components", "Pages", "Admin", "User", "TenantSettings.razor"));
-        Assert.Contains("api/v1/tenant-admin/organizations?permission=Tenant.Settings.Manage", settingsPage, StringComparison.Ordinal);
+        Assert.Contains("api/v1/tenant-admin/organizations/search?permission=Tenant.Settings.Manage", settingsPage, StringComparison.Ordinal);
         Assert.Contains("profile.HasPermission(HelpdeskPermissions.TenantSettingsManage, organization.Id)", settingsPage, StringComparison.Ordinal);
         Assert.Contains("OnParametersSetAsync", settingsPage, StringComparison.Ordinal);
         Assert.Contains("ApplyOrganizationParameterAsync", settingsPage, StringComparison.Ordinal);

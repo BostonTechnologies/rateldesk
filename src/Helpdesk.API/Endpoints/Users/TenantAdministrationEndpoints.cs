@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.API.Endpoints.Authentication;
@@ -58,6 +59,29 @@ public static class TenantAdministrationEndpoints
         .RequireAuthorization()
         .WithName("GetTenantAdministrationOrganizations")
         .WithTags("Tenant administration");
+
+        app.MapGet("/api/v1/tenant-admin/organizations/search", async (
+            string? permission, string? q, string? id, int? limit, HttpContext context,
+            ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            var membership = permission == "membership";
+            var grant = ResolveOrganizationLookupPermission(permission);
+            if (!membership && grant is null) return Results.BadRequest();
+            var access = await accessService.ResolveAsync(context.User, ct);
+            var eligible = db.Organizations.AsNoTracking().Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled);
+            if (!access.IsHelpdeskAdmin)
+            {
+                var allowed = membership
+                    ? access.OrganizationIdsForAny(HelpdeskPermissions.TenantRolesAssign, HelpdeskPermissions.TenantUsersManage)
+                    : access.OrganizationIdsFor(grant!);
+                var ids = allowed.ToArray();
+                eligible = eligible.Where(x => ids.Contains(x.Id));
+            }
+            var references = context.Request.Query["ids"].ToArray();
+            if (references.Length > 50) return Results.BadRequest();
+            if (references.Length > 0) eligible = eligible.Where(row => references.Contains(row.Id));
+            return await OrganizationLookup.SearchAsync(db, eligible, q, id, limit, ct, namesOnly: true);
+        }).RequireAuthorization().WithTags("Tenant administration");
 
         var settings = app.MapGroup("/api/v1/tenant-admin/organizations/{organizationId}/settings")
             .WithTags("Tenant settings")

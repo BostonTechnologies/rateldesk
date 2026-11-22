@@ -180,8 +180,8 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await integration.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
   await integration.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(integration.getByRole('combobox', { name: 'Organization', exact: true })).toBeVisible();
-  const organization = integration.getByRole('combobox', { name: 'Organization', exact: true });
+  await expect(integration.getByRole('combobox', { name: /^Organization\*?$/ })).toBeVisible();
+  const organization = integration.getByRole('combobox', { name: /^Organization\*?$/ });
   await organization.selectOption({ label: 'Browser Wizard Organization' });
   await expect(organization.locator('option:checked')).toHaveText('Browser Wizard Organization');
   const permissions = page.getByTestId('credential-permission-selector');

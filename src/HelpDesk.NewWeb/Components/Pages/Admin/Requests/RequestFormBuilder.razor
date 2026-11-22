@@ -62,19 +62,7 @@
                                 <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.Production">Production</MudSelectItem>
                             </MudSelect>
 
-                            <MudSelect T="string"
-                                       Value="model.OrganizationId"
-                                       ValueChanged="OnOrganizationChanged"
-                                       Label="Primary Organization"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense"
-                                       Clearable="true"
-                                       HelperText="Automation uses a saved system connection for this primary organization.">
-                                @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                }
-                            </MudSelect>
+                            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Primary Organization" Value="@model.OrganizationId" ValueChanged="OnOrganizationChanged" SelectedItemLoaded="RememberOrganization" SelectionChanged="RememberOrganization" Required="false" Placeholder="No primary organization" />
 
                             @if (SelectedOrganization is not null)
                             {
@@ -954,7 +942,7 @@
         ("helpdeskData", "HelpdeskData")
     };
 
-    private List<OrganizationDto> organizations = new();
+    private void RememberOrganization(OrganizationDto? organization) => SelectedOrganization = organization;
     private HashSet<string> selectedOrgIds { get; set; } = new();
     private List<DatasetDefinitionDto> availableDatasets = new();
     private List<UserDto> users = new();
@@ -1002,7 +990,7 @@
     private MudDropContainer<RequestTaskTemplateModel>? taskDropContainer;
     private bool refreshTaskDropContainerAfterRender;
     private int taskDropRenderVersion;
-    private OrganizationDto? SelectedOrganization => organizations.FirstOrDefault(x => x.Id == model.OrganizationId);
+    private OrganizationDto? SelectedOrganization { get; set; }
     private IReadOnlyList<AutomationConnectionChoice> AutomationConnectionChoices => AutomationConnectionSelection.ForOrganization(systemConnections, model.OrganizationId);
     private AutomationConnectionChoice? SelectedAutomationConnection => AutomationConnectionSelection.Resolve(AutomationConnectionChoices, SelectedBinding?.SystemConnectionId);
     private string OrchestrationSelectionKey => $"{model.OrganizationId}:{SelectedAutomationConnection?.ConnectionId}:{SelectedBinding?.SystemConnectionId}";
@@ -1090,7 +1078,6 @@
             return;
         }
 
-        organizations = await Api.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new();
         users = await Api.GetFromJsonAsync<List<UserDto>>("api/v1/users") ?? new();
         await LoadAvailableDatasetsAsync();
         if (!_isNew)
@@ -1209,7 +1196,7 @@
                 }
             }
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
         {
             validationError = "Unable to read the form schema. Check the JSON before saving.";
         }

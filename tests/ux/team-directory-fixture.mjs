@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Synthetic UI evidence only. Provider and authorization outcomes live in owning .NET tests.
 let active = false;
 let records = [];
@@ -30,6 +31,9 @@ export function handleTeamDirectory(req, res, url) {
   if (path === '/fixture/team/unavailable') { unavailable = url.searchParams.get('value') === 'true'; json(res, {}); return true; }
   if (path === '/fixture/team/reject-delete') { rejectDelete = url.searchParams.get('value') === 'true'; json(res, {}); return true; }
   if (path === '/fixture/team/release') { for (const release of held) release(); held = []; json(res, {}); return true; }
+  if (path === '/api/v1/admin/directories/organizations/search') {
+    json(res, organizationLookupPage(url, organizations)); return true;
+  }
   if (path === '/api/v1/admin/directories/organizations/lookup') {
     const selected = url.searchParams.get('selectedId'), search = (url.searchParams.get('search') || '').toLowerCase();
     json(res, organizations.filter(item => selected ? item.id === selected : item.name.toLowerCase().includes(search))); return true;

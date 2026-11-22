@@ -41,13 +41,13 @@
                 @if (connection.Mapping is { } mapping)
                 {
                     <div class="pairing-mapping" aria-label="Tenant and organization mapping">
-                        <div><span class="pairing-field-label">NetRatel tenant</span><span>@ChoiceName(DirectoryFor(connection.PairId)?.NetRatelTenants, mapping.NetRatelTenantId)</span></div>
+                        <div><span class="pairing-field-label">NetRatel tenant</span><span>@ChoiceName(DirectoryFor(connection)?.NetRatelTenants, mapping.NetRatelTenantId)</span></div>
                         <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Class="pairing-mapping-arrow" aria-label="maps to" />
-                        <div><span class="pairing-field-label">RatelDesk organization</span><span>@ChoiceName(DirectoryFor(connection.PairId)?.RatelDeskOrganizations, mapping.RatelDeskOrganizationId)</span></div>
+                        <div><span class="pairing-field-label">RatelDesk organization</span><span>@ChoiceName(DirectoryFor(connection)?.RatelDeskOrganizations, mapping.RatelDeskOrganizationId)</span></div>
                     </div>
                     @if (mapping.RatelDeskCustomerId is { } customer)
                     {
-                        <MudText Typo="Typo.body2" Class="pairing-account"><span class="pairing-field-label">Incident account</span> @ChoiceName(DirectoryFor(connection.PairId)?.RatelDeskCustomers, customer)</MudText>
+                        <MudText Typo="Typo.body2" Class="pairing-account"><span class="pairing-field-label">Incident account</span> @ChoiceName(DirectoryFor(connection)?.RatelDeskCustomers, customer)</MudText>
                     }
                     <div class="pairing-capabilities" aria-label="Capability direction">
                         @if (mapping.CreateIncidents) { <span>Create incidents <small>NetRatel → RatelDesk</small></span> }
@@ -133,17 +133,17 @@
                         @if (organizationHintUnavailable) { <MudAlert Severity="Severity.Warning" Dense="true" data-testid="connection-organization-hint-error">The linked organization is unavailable or unauthorized. Choose an available organization explicitly; no saved mapping has changed.</MudAlert> }
                         @if (contextChanged) { <MudText Typo="Typo.body2" Class="mud-text-secondary">The linked organization changed. Your current draft is retained; change its organization explicitly if needed.</MudText> }
                         <MudGrid Spacing="2">
-                            <MudItem xs="12" sm="6"><MudSelect T="string" @bind-Value="draft.NetRatelTenantId" Label="NetRatel tenant" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(busy || directoryLoading || directory is null)" data-testid="connection-netratel-tenant">
-                                @foreach (var tenant in directory?.NetRatelTenants ?? []) { <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem> }
-                            </MudSelect></MudItem>
-                            <MudItem xs="12" sm="6"><MudSelect T="string" Value="@draft.RatelDeskOrganizationId" ValueChanged="OrganizationChanged" Label="RatelDesk organization" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(busy || directoryLoading || directory is null)" data-testid="connection-rateldesk-organization">
-                                @foreach (var organization in directory?.RatelDeskOrganizations ?? []) { <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem> }
-                            </MudSelect></MudItem>
+                            <MudItem xs="12" sm="6"><div data-testid="connection-netratel-tenant"><OrganizationSearchPicker SearchUrl="@(PairingSearchUrl("netratel"))"
+                                    Label="NetRatel tenant" Value="@draft.NetRatelTenantId" SelectionChanged="SelectTenant" Disabled="@(busy || directoryLoading || directory is null)"
+                                    AutoSelectSingle="false" Clearable="false" /></div></MudItem>
+                            <MudItem xs="12" sm="6"><div data-testid="connection-rateldesk-organization"><OrganizationSearchPicker SearchUrl="@(PairingSearchUrl("organization"))"
+                                    Label="RatelDesk organization" Value="@draft.RatelDeskOrganizationId" SelectionChanged="SelectOrganization" Disabled="@(busy || directoryLoading || directory is null)"
+                                    AutoSelectSingle="false" Clearable="false" /></div></MudItem>
                             @if (draft.CreateIncidents)
                             {
-                                <MudItem xs="12"><MudSelect T="string" @bind-Value="draft.RatelDeskCustomerId" Label="RatelDesk customer" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(busy || directoryLoading || directory is null)" data-testid="connection-rateldesk-customer">
-                                    @foreach (var customer in (directory?.RatelDeskCustomers ?? []).Where(c => c.ParentId == draft.RatelDeskOrganizationId)) { <MudSelectItem Value="@customer.Id">@customer.Name</MudSelectItem> }
-                                </MudSelect></MudItem>
+                                <MudItem xs="12"><div data-testid="connection-rateldesk-customer"><CreationSearchPicker TItem="PairingChoice" LookupUrl="@(PairingSearchUrl("customer", draft.RatelDeskOrganizationId))"
+                                    Label="RatelDesk customer" ItemId="row => row.Id" ItemLabel="row => row.Name" Value="@draft.RatelDeskCustomerId"
+                                    SelectionChanged="SelectCustomer" LoadOnOpen="true" Required="true" Clearable="false" Disabled="@(busy || directoryLoading || directory is null)" /></div></MudItem>
                             }
                             <MudItem xs="12"><MudTextField T="string" @bind-Value="draft.Name" Label="Connection name" Required="true" Immediate="true" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="busy" MaxLength="128" data-testid="connection-name" /></MudItem>
                         </MudGrid>
@@ -191,7 +191,7 @@
     private IEnumerable<PairingConnectionDto> VisibleConnections => connections.Where(c =>
         MatchesStatus(c) &&
         (string.IsNullOrWhiteSpace(search) || string.Join(" ", c.Mapping?.Name, c.Peer.Name, c.Peer.Product,
-            c.Mapping is { } m ? ChoiceName(DirectoryFor(c.PairId)?.RatelDeskOrganizations, m.RatelDeskOrganizationId) + " " + ChoiceName(DirectoryFor(c.PairId)?.NetRatelTenants, m.NetRatelTenantId) : "").Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)));
+            c.Mapping is { } m ? ChoiceName(DirectoryFor(c)?.RatelDeskOrganizations, m.RatelDeskOrganizationId) + " " + ChoiceName(DirectoryFor(c)?.NetRatelTenants, m.NetRatelTenantId) : "").Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)));
     private static string Key(PairingConnectionDto c) => c.Mapping is null ? "pair:" + c.PairId : "mapping:" + c.Mapping.Id;
     private bool Deleted(PairingConnectionDto c) => deleted.Contains(Key(c)) || deleted.Contains("pair:" + c.PairId);
     private static string ProductLabel(PairingConnectionDto connection) => string.Equals(connection.Peer.Product, "netratel", StringComparison.OrdinalIgnoreCase) ? "NetRatel" : connection.Peer.Product;
@@ -246,13 +246,10 @@
                     ? c with { LastTest = tested.Result } : c).ToList();
             loading = false;
             StateHasChanged();
-            await Task.WhenAll(loaded.Select(c => c.PairId).Distinct().Select(async pairId =>
+            await Task.WhenAll(loaded.Where(c => c.Mapping is not null).Select(async connection =>
             {
-                try { var choices = await Api.DirectoryAsync(pairId, lifetime.Token); if (Current(current)) directories[pairId] = choices; }
-                catch (Exception exception) when (Expected(exception))
-                {
-                    if (Current(current)) directories.Remove(pairId);
-                }
+                try { var choices = await Api.DirectoryReferencesAsync(connection.PairId, connection.Mapping, null, lifetime.Token); if (Current(current)) directories[Key(connection)] = choices; }
+                catch (Exception exception) when (Expected(exception)) { if (Current(current)) directories.Remove(Key(connection)); }
             }));
             // Durable incomplete rows expose Continue setup. Refresh never opens or resets a review.
         }
@@ -348,9 +345,9 @@
         directoryLoading = true;
         try
         {
-            var loaded = await Api.DirectoryAsync(connection.PairId, lifetime.Token);
+            var loaded = await Api.DirectoryReferencesAsync(connection.PairId, draft?.Mapping(), OrganizationId, lifetime.Token);
             if (disposed || current != selectionGeneration || selected != connection) return;
-            directory = loaded; directories[connection.PairId] = loaded; ValidateOrganizationHint();
+            directory = loaded; ValidateOrganizationHint();
             if (seedOrganization && draft is { RatelDeskOrganizationId.Length: 0 } && !organizationHintUnavailable &&
                 loaded.RatelDeskOrganizations.FirstOrDefault(o => string.Equals(o.Id, OrganizationId, StringComparison.OrdinalIgnoreCase)) is { } authorized)
                 draft.RatelDeskOrganizationId = authorized.Id;
@@ -360,6 +357,28 @@
     }
     private Task ReloadDirectoryAsync() => selected is { } connection && !directoryLoading
         ? LoadDirectoryAsync(connection, selectionGeneration, seedOrganization: false) : Task.CompletedTask;
+    private string PairingSearchUrl(string kind, string? organizationId = null) =>
+        selected is null || directory is null || kind == "customer" && string.IsNullOrWhiteSpace(organizationId) ? "" :
+        $"api/v1/admin/system-connections/{Uri.EscapeDataString(selected.PairId)}/directory/search?kind={kind}&organizationId={Uri.EscapeDataString(organizationId ?? "")}";
+
+    private void SelectTenant(OrganizationDto? item)
+    {
+        if (draft is null || directory is null) return;
+        draft.NetRatelTenantId = item?.Id ?? "";
+        directory = directory with { NetRatelTenants = item is null ? [] : [new(item.Id, item.Name)] };
+    }
+    private void SelectOrganization(OrganizationDto? item)
+    {
+        if (draft is null || directory is null) return;
+        OrganizationChanged(item?.Id ?? "");
+        directory = directory with { RatelDeskOrganizations = item is null ? [] : [new(item.Id, item.Name)] };
+    }
+    private void SelectCustomer(PairingChoice? item)
+    {
+        if (draft is null || directory is null || item is not null && item.ParentId != draft.RatelDeskOrganizationId) return;
+        draft.RatelDeskCustomerId = item?.Id;
+        directory = directory with { RatelDeskCustomers = item is null ? [] : [item] };
+    }
     private void OrganizationChanged(string value)
     {
         if (draft is null) return;
@@ -375,6 +394,8 @@
             var saved = await Api.SaveAsync(draft.Mapping(), lifetime.Token);
             if (disposed || current != selectionGeneration || Deleted(saved) || selected != connection) return;
             Upsert(saved);
+            if (saved.Mapping is { } mapping && directory is not null)
+                directories[Key(saved)] = directory.References(mapping.NetRatelTenantId, mapping.RatelDeskOrganizationId, mapping.RatelDeskCustomerId, null);
             if (Connected(saved)) { CloseSelection(); notice = "Connection configured. Test this mapping to verify current access."; }
             else { selected = saved; error = "The connection needs configuration. Review the saved mapping and retry."; }
         }
@@ -431,7 +452,7 @@
     }
     private static string FailureText(Exception e) => e is SystemConnectionException api ? api.Message + " Reference: " + api.Reference : "The connection action did not complete. Retry this same connection. Reference: connection-service-unavailable";
     private static bool Expected(Exception exception) => exception is SystemConnectionException or HttpRequestException or JsonException or OperationCanceledException or IOException;
-    private PairingSetupDirectory? DirectoryFor(string pairId) => directories.GetValueOrDefault(pairId);
+    private PairingSetupDirectory? DirectoryFor(PairingConnectionDto connection) => directories.GetValueOrDefault(Key(connection));
     private static string ChoiceName(IEnumerable<PairingChoice>? choices, string id) => choices?.FirstOrDefault(c => c.Id == id)?.Name ?? $"Saved mapping ({id}); name unavailable";
     public void Dispose() { disposed = true; ++generation; ++selectionGeneration; generated = null; pairingCode = ""; pairFingerprint = ""; lifetime.Cancel(); lifetime.Dispose(); }
     private sealed class ConnectionDraft

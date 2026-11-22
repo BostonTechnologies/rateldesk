@@ -145,7 +145,10 @@
         try
         {
             roles = await HelpdeskApi.GetFromJsonAsync<List<RoleDefinition>>("api/v1/admin/role-definitions/") ?? [];
-            organizations = await HelpdeskApi.GetFromJsonAsync<List<TenantOrganization>>("api/v1/tenant-admin/organizations") ?? [];
+            const string endpoint = "api/v1/tenant-admin/organizations/search";
+            var seed = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<TenantOrganization>>(endpoint + "?limit=1");
+            var owners = await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, roles.Select(role => role.OwnerOrganizationId), endpoint);
+            organizations = (seed?.Items ?? []).Concat(owners.Select(row => new TenantOrganization(row.Id, row.Name))).DistinctBy(row => row.Id).ToList();
         }
         catch
         {

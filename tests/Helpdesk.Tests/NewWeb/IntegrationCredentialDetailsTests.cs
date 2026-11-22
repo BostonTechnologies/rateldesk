@@ -285,10 +285,10 @@ public sealed class IntegrationCredentialDetailsTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
-            if (request.Method == HttpMethod.Get && path == "/api/v1/tenant-admin/organizations")
+            if (request.Method == HttpMethod.Get && path == "/api/v1/tenant-admin/organizations/search")
             {
-                Assert.Equal($"?permission={HelpdeskPermissions.TenantSettingsManage}", request.RequestUri.Query);
-                return Json(new[] { new OrganizationDto { Id = "org-a", Name = "Organization A", IsEnabled = true } });
+                Assert.Contains($"permission={HelpdeskPermissions.TenantSettingsManage}", request.RequestUri.Query);
+                return Json(new { items = new[] { new OrganizationDto { Id = "org-a", Name = "Organization A", IsEnabled = true } }, totalEligible = 1, hasMore = false });
             }
             if (request.Method == HttpMethod.Get && path == "/api/v1/integration-credentials/")
                 return PendingList is null ? Json(Metadata()) : await PendingList.Task;

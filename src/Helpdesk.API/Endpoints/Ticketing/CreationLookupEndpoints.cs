@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using System.Security.Claims;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
@@ -26,20 +27,7 @@ internal static class CreationLookupEndpoints
             var allowed = access.AllowedOrganizationIds.Where(candidate => CanUse(access, candidate, module)).ToArray();
             var eligible = db.Organizations.AsNoTracking().Where(x => x.State == EntityState.Enabled);
             if (!access.IsHelpdeskAdmin) eligible = eligible.Where(x => allowed.Contains(x.Id));
-            var total = await eligible.CountAsync(token);
-            if (!string.IsNullOrWhiteSpace(id)) eligible = eligible.Where(x => x.Id == id);
-            else if (!string.IsNullOrWhiteSpace(q))
-            {
-                var pattern = Pattern(db, q);
-                eligible = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
-                    ? eligible.Where(x => EF.Functions.ILike(x.Name, pattern, "\\"))
-                    : eligible.Where(x => EF.Functions.Like(SqliteUnicodeSearch.Fold(x.Name)!, pattern, "\\"));
-            }
-            var take = Math.Min(limit ?? 20, 50);
-            var items = await eligible.OrderBy(x => x.Name.ToLower()).ThenBy(x => x.Id)
-                .Select(x => new OrganizationDto { Id = x.Id, Name = x.Name, DnsName = x.DnsName, State = x.State })
-                .Take(take + 1).ToListAsync(token);
-            return Results.Ok(Page(items, total, take));
+            return await OrganizationLookup.SearchAsync(db, eligible, q, id, limit, token);
         }).WithName("SearchCreationOrganizations");
 
         group.MapGet("/customers/search", async (ClaimsPrincipal user,

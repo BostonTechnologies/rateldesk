@@ -142,7 +142,7 @@
                             {
                                 <MudItem xs="12"><dl class="change-record-metadata">
                                     <dt>Priority</dt><dd>@change.Priority</dd>
-                                    <dt>Organization</dt><dd>@(change.OrganizationName ?? organizations.FirstOrDefault(x => x.Id == change.OrganizationId)?.Name ?? "Organization details unavailable")</dd>
+                                    <dt>Organization</dt><dd>@(change.OrganizationName ?? change.CustomerOrgName ?? "Organization details unavailable")</dd>
                                     <dt>Implementor</dt><dd>@(change.ImplementorUserName ?? change.ImplementorUserEmail ?? "Not provided")</dd>
                                     <dt>Change type</dt><dd>@change.ChangeType</dd>
                                     <dt>Implementation window (UTC)</dt><dd>@change.ImplementationStartAt?.ToString("yyyy-MM-dd HH:mm") → @change.ImplementationEndAt?.ToString("yyyy-MM-dd HH:mm")</dd>
@@ -164,19 +164,7 @@
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <MudSelect T="string"
-                                           Label="Organization"
-                                           Variant="Variant.Outlined"
-                                           Dense="true"
-                                           Margin="Margin.Dense"
-                                           Value="@change.OrganizationId"
-                                           ValueChanged="OnOrganizationChanged"
-                                           Disabled="@(isUpdating || IsChangeLocked)">
-                                    @foreach (var organization in organizations)
-                                    {
-                                        <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                    }
-                                </MudSelect>
+                                <OrganizationSearchPicker SearchUrl="api/v1/ticketing/organizations/search?module=change" AutoSelectSingle="false" Label="Organization" Clearable="false" Value="@change.OrganizationId" SelectionChanged="OnOrganizationChanged" SelectedItemLoaded="OnOrganizationLoaded" Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
                             <MudItem xs="12">
                                 <AssigneeSelector Module="change" OrganizationId="@change.OrganizationId" TicketId="@change.Id"
@@ -325,7 +313,6 @@
     private ChangeDto? change;
     private ChangeDto? originalChange;
     private ErrorBoundary? renderBoundary;
-    private List<OrganizationDto> organizations = new();
     private List<TicketCategoryDto> categories = new();
     private HashSet<Guid> selectedCategoryIds = new();
     private bool loading = true;
@@ -392,10 +379,6 @@
             if (originalChange != null)
             {
                 change = CloneChange(originalChange);
-                organizations = CanManage
-                    ? await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/ticketing/organizations?module=change", token) ?? new()
-                    : new();
-                token.ThrowIfCancellationRequested();
                 change.ChangeTemplate ??= new ChangeTemplateDto();
                 SyncImplementationWindowEditors(change);
                 selectedCategoryIds = change.CategoryIds.ToHashSet();
@@ -412,7 +395,7 @@
                 NavigationManager.Uri,
                 Activity.Current?.TraceId.ToString());
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex)
         {
             if (!IsCurrent(lifetime) || token.IsCancellationRequested) return;
@@ -586,18 +569,20 @@
         hasChanges = true;
     }
 
-    private void OnOrganizationChanged(string? organizationId)
+    private void OnOrganizationLoaded(OrganizationDto? organization)
     {
-        if (IsChangeLocked) return;
-        if (change is null)
-        {
-            return;
-        }
+        if (change is null || organization is null || change.OrganizationId != organization.Id) return;
+        change.OrganizationName = change.CustomerOrgName = organization.Name;
+    }
 
-        var selectedOrganization = organizations.FirstOrDefault(x => x.Id == organizationId);
-        change.OrganizationId = string.IsNullOrWhiteSpace(organizationId) ? null : organizationId;
-        change.OrganizationName = selectedOrganization?.Name;
-        change.CustomerOrgName = selectedOrganization?.Name;
+    private void OnOrganizationChanged(OrganizationDto? organization)
+    {
+        if (IsChangeLocked || change is null || organization is null || organization.Id == change.OrganizationId) return;
+        change.CustomerId = null;
+        change.CustomerName = null;
+        change.CustomerEmail = null;
+        change.OrganizationId = organization.Id;
+        change.OrganizationName = change.CustomerOrgName = organization.Name;
         hasChanges = true;
     }
 
@@ -809,7 +794,7 @@
             State = change.State,
             LifecycleState = change.LifecycleState,
             Priority = change.Priority,
-            OrganizationId = change.OrganizationId,
+            OrganizationId = change.OrganizationId == originalChange?.OrganizationId ? null : change.OrganizationId,
             ImplementorUserId = change.ImplementorUserId,
             ImplementationStartAt = change.ImplementationStartAt,
             ImplementationEndAt = change.ImplementationEndAt,

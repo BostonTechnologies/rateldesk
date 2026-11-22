@@ -16,12 +16,7 @@
         @if (error is not null) { <MudAlert Severity="Severity.Error" Class="my-3">@error</MudAlert> }
         @if (string.IsNullOrWhiteSpace(OrganizationId))
         {
-            <MudSelect T="string" Label="Tenant" Value="organizationId" ValueChanged="SelectAsync" Disabled="busy" Class="my-3">
-                @foreach (var organization in organizations)
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search?permission=Tenant.Settings.Manage" AutoSelectSingle="false" Label="Tenant" Value="@organizationId" ValueChanged="@(id => SelectAsync(id ?? string.Empty))" Disabled="@busy" Clearable="false" />
         }
         @if (settings is not null)
         {
@@ -43,35 +38,37 @@
     private string? error;
     private bool busy;
     private (string? Name, string? ContactInfo) savedFields;
-    private bool organizationsLoaded;
     private bool hasAppliedOrganizationParameter;
     private string? appliedOrganizationId;
 
-    protected override async Task OnInitializedAsync()
-    {
-        var profile = CurrentUserAccessProfile.FromClaims((await AuthenticationState.GetAuthenticationStateAsync()).User);
-        organizations = (await Api.GetFromJsonAsync<List<TenantOrganization>>("api/v1/tenant-admin/organizations?permission=Tenant.Settings.Manage") ?? new())
-            .Where(organization => profile.HasPermission(HelpdeskPermissions.TenantSettingsManage, organization.Id)).ToList();
-        organizationsLoaded = true;
-        await ApplyOrganizationParameterAsync();
-    }
-
     protected override Task OnParametersSetAsync()
     {
-        if (!organizationsLoaded ||
-            (hasAppliedOrganizationParameter && string.Equals(appliedOrganizationId, OrganizationId, StringComparison.OrdinalIgnoreCase)))
-        {
+        if (hasAppliedOrganizationParameter && string.Equals(appliedOrganizationId, OrganizationId, StringComparison.OrdinalIgnoreCase))
             return Task.CompletedTask;
-        }
-
         return ApplyOrganizationParameterAsync();
     }
 
     private async Task ApplyOrganizationParameterAsync()
     {
+        var requested = OrganizationId;
         error = null;
         hasAppliedOrganizationParameter = true;
-        appliedOrganizationId = OrganizationId;
+        appliedOrganizationId = requested;
+        var url = "api/v1/tenant-admin/organizations/search?permission=Tenant.Settings.Manage&limit=1";
+        if (!string.IsNullOrWhiteSpace(requested)) url += "&id=" + Uri.EscapeDataString(requested);
+        try
+        {
+            var result = await Api.GetFromJsonAsync<CreationLookupResult<TenantOrganization>>(url);
+            if (requested != OrganizationId) return;
+            var profile = CurrentUserAccessProfile.FromClaims((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            if (requested != OrganizationId) return;
+            organizations = (result?.Items ?? []).Where(organization => profile.HasPermission(HelpdeskPermissions.TenantSettingsManage, organization.Id)).ToList();
+        }
+        catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        {
+            if (requested == OrganizationId) error = "The authorized organization could not be loaded. Refresh the page and try again.";
+            return;
+        }
         if (!organizationSelection.ApplyRouteParameter(OrganizationId, organizations.Select(organization => organization.Id)))
         {
             settings = null;
@@ -109,13 +106,18 @@
         error = null;
         if (string.IsNullOrWhiteSpace(organizationId)) return;
         busy = true;
+        var scope = organizationId;
         try
         {
-            settings = await Api.GetFromJsonAsync<TenantSettingsModel>(organizationSelection.Path("settings"));
-            savedFields = (settings?.Name, settings?.ContactInfo);
+            var loaded = await Api.GetFromJsonAsync<TenantSettingsModel>(organizationSelection.Path("settings"));
+            if (scope == organizationId)
+            {
+                settings = loaded;
+                savedFields = (loaded?.Name, loaded?.ContactInfo);
+            }
         }
-        catch (HttpRequestException) { error = "The tenant settings could not be loaded."; }
-        finally { busy = false; }
+        catch (HttpRequestException) { if (scope == organizationId) error = "The tenant settings could not be loaded."; }
+        finally { if (scope == organizationId) busy = false; }
     }
     private async Task SaveAsync()
     {

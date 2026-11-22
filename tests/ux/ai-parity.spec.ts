@@ -1,3 +1,4 @@
+import { selectOrganization } from './organization-lookup';
 import { captureTables } from './table-evidence';
 import { expect, test } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
@@ -6,6 +7,23 @@ import { assertNoHorizontalOverflow } from './auth';
 const id = '11111111-1111-4111-8111-111111111111';
 const fixture = 'http://127.0.0.1:18299';
 const routes = [`/ai/chat?organizationId=org&conversationId=${id}`, `/ai/ops?id=${id}`];
+
+test('chat header searches beyond the opening directory and supports keyboard selection', async ({ page, request }, info) => {
+  await request.get(`${fixture}/fixture/reset?mode=empty`);
+  await page.goto('/auth/development');
+  await page.goto('/ai/chat?organizationId=org');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  const input = page.getByRole('combobox', { name: /^Organization\*?$/ });
+  await input.fill('Zulu synthetic 104');
+  await expect(page.getByRole('option', { name: 'Zulu synthetic 104', exact: true })).toBeVisible();
+  await page.screenshot({path: info.outputPath('late-chat-organization.png')});
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/organizationId=late-104/);
+  const counts = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
+  expect(counts.sends).toBe(0);
+  expect(counts.starts).toBe(0);
+});
 
 for (const route of routes) {
   for (const [theme, width] of [['light', 1440], ['dark', 1440], ['light', 390], ['dark', 390]] as const) {
@@ -120,7 +138,7 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await expect(input).toBeEnabled();
   await expect(page.getByText('Synthetic first reply.')).toBeVisible();
   await input.fill('Private draft for the first organization');
-  await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-b');
+  await selectOrganization(page, page.getByRole('combobox', { name: /^Organization\*?$/ }), 'Other synthetic organization');
   await expect(input).toBeEnabled(); await expect(input).toHaveValue('');
   await expect(page.getByText('Private draft for the first organization')).toHaveCount(0);
   const counts = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
@@ -259,11 +277,11 @@ test('multiline organization draft survives navigation, Back, reload and an orga
   await expect(input).toHaveValue(draft);
   await page.reload();
   await expect(input).toHaveValue(draft);
-  const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
-  await organization.selectOption('org-b');
+  const organization = page.getByRole('combobox', { name: /^Organization\*?$/ });
+  await selectOrganization(page, organization, 'Other synthetic organization');
   await expect(input).toBeEnabled();
   await expect(input).toHaveValue('');
-  await organization.selectOption('org');
+  await selectOrganization(page, organization, 'Synthetic organization');
   await expect(input).toHaveValue(draft);
   await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
   await page.reload();
@@ -299,7 +317,7 @@ test('changing organization fences an in-flight first-send response and clears i
   await input.fill('First request for the previous organization');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await (await request.get(`${fixture}/fixture/chat-counts`)).json()).starts).toBe(1);
-  await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-b');
+  await selectOrganization(page, page.getByRole('combobox', { name: /^Organization\*?$/ }), 'Other synthetic organization');
   await expect(input).toBeEnabled(); await expect(input).toHaveValue('');
   await request.get(`${fixture}/fixture/release-start`);
   await expect(page).toHaveURL(/organizationId=org-b/);

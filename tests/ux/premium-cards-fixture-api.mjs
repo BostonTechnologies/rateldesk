@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Loopback-only synthetic presentation fixture. This never invokes a provider.
 import http from 'node:http';
 const organizations = Array.from({ length: 100 }, (_, index) => ({ id: `org-${index + 1}`, name: `Example organization ${String(index + 1).padStart(3, '0')}` }));
@@ -47,6 +48,7 @@ http.createServer(async (request, response) => {
     const items = mode === 'empty' ? [] : Array.from({ length: 5 }, (_, index) => ({ id: `example-${prefix}-${index + 1}`, trackingId: `${prefix}-EXAMPLE-${index + 1}`, title: `Example ${prefix} work item ${index + 1} with a long title that remains available to keyboard and assistive technology`, subject: `Example incident ${index + 1} with a readable long subject`, state: index % 2 ? 3 : 0, lifecycleState: index % 2 ? 2 : 0, updatedAt: '2026-11-11T09:00:00Z' }));
     return reply({ items, total: items.length, totalCount: items.length });
   }
+ if (['/api/v1/admin/directories/organizations/search', '/api/v1/admin/tenants/search'].includes(path)) return reply(organizationLookupPage(url, organizations));
   if (path === '/api/v1/organizations') return reply(organizations);
   if (path === '/api/v1/service-items' || path === '/api/v1/service-items/service-1') return mode === 'services-error' ? reply({}, 503) : reply(services);
   if (path === '/api/v1/services/service-1') return reply({ id: 'service-1', name: 'Example service 1', depth: 1, allowedOrganizationIds: [] });

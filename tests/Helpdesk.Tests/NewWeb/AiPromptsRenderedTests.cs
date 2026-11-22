@@ -3,7 +3,10 @@ using System.Net;
 using System.Net.Http.Json;
 using BlazorMonaco.Editor;
 using Bunit;
+using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.AiOps;
+using Microsoft.AspNetCore.Components.Sections;
+using MudBlazor;
 using Helpdesk.Shared.DTOs.Organization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
@@ -46,7 +49,7 @@ public sealed class AiPromptsRenderedTests
     public async Task Dirty_draft_requires_an_explicit_choice_before_prompt_or_organization_changes()
     {
         using var api = new Api();
-        await using var context = Context(api);
+        await using var context = Context(api, out var outlet);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll("[data-testid=prompt-item]").Count));
         page.Find("[data-testid=prompt-edit]").Click();
@@ -59,7 +62,7 @@ public sealed class AiPromptsRenderedTests
         Assert.Equal("Retain this draft", page.Find("[data-testid=prompt-name]").GetAttribute("value"));
         Assert.Equal("Unsaved organization A guidance", page.FindComponent<Editor>().Instance.Value);
 
-        page.Find("[data-testid=prompt-organization]").Change("org-b");
+        await WorkspaceOrganizationSelection.SelectAsync(outlet, "Organization B", "org-b");
         Assert.Single(api.LoadedOrganizations);
         Assert.Equal("Retain this draft", page.Find("[data-testid=prompt-name]").GetAttribute("value"));
         Button(page, "Discard changes").Click();
@@ -104,13 +107,13 @@ public sealed class AiPromptsRenderedTests
     public async Task Organization_switch_reads_the_latest_editor_text_before_deciding_whether_a_draft_is_dirty()
     {
         using var api = new Api();
-        await using var context = Context(api);
+        await using var context = Context(api, out var outlet);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll("[data-testid=prompt-item]")));
         page.Find("[data-testid=prompt-edit]").Click();
         // The browser has accepted typing but its change callback has not reached the page yet.
         context.JSInterop.Setup<string>("blazorMonaco.editor.getValue", _ => true).SetResult("Latest browser draft");
-        page.Find("[data-testid=prompt-organization]").Change("org-b");
+        await WorkspaceOrganizationSelection.SelectAsync(outlet, "Organization B", "org-b");
         page.WaitForAssertion(() => Assert.Contains("Discard unsaved prompt changes?", page.Markup));
         Assert.Single(api.LoadedOrganizations);
         Assert.Equal("Latest browser draft", page.FindComponent<Editor>().Instance.Value);
@@ -169,13 +172,16 @@ public sealed class AiPromptsRenderedTests
         Assert.False(api.Saves[0].Request.Archived);
     }
 
-    private static BunitContext Context(Api api)
+    private static BunitContext Context(Api api) => Context(api, out _);
+
+    private static BunitContext Context(Api api, out IRenderedComponent<SectionOutlet> outlet)
     {
         var context = new BunitContext();
         context.Services.AddMudServices();
         context.Services.AddSingleton<IHttpClientFactory>(api);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.JSInterop.SetupModule("./js/helpdesk-monaco-text.js").Mode = JSRuntimeMode.Loose;
+        outlet = WorkspaceOrganizationSelection.RenderHeader(context);
         return context;
     }
 
@@ -205,8 +211,8 @@ public sealed class AiPromptsRenderedTests
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/api/v1/organizations")
-                return Json(new[] { new OrganizationDto { Id = "org-a", Name = "Organization A", IsEnabled = true }, new OrganizationDto { Id = "org-b", Name = "Organization B", IsEnabled = true } });
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/api/v1/admin/directories/organizations/search")
+                return Json(new CreationLookupResult<OrganizationDto>([new() { Id = "org-a", Name = "Organization A", IsEnabled = true }, new() { Id = "org-b", Name = "Organization B", IsEnabled = true }], 2, false));
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/api/v1/ai/ops/prompts")
             {
                 var org = request.RequestUri.Query.Contains("org-b", StringComparison.Ordinal) ? "org-b" : "org-a";

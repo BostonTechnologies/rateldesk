@@ -746,6 +746,7 @@ public class WebAuthRoutesTests
                 return systemConnectionApi(request, cancellationToken);
             object? setupFixture = request.RequestUri?.AbsolutePath switch
             {
+                "/api/v1/admin/tenants/search" => new { items = new[] { new { id = "organization-ui", name = "Fixture organization", isEnabled = true } }, totalEligible = 1, hasMore = false },
                 "/api/v1/organizations" => new[] { new { id = "organization-ui", name = "Fixture organization", isEnabled = true } },
                 "/api/v1/customers" => new[] { new { id = "customer-ui", organizationId = "organization-ui", name = "Fixture customer", isEnabled = true } },
                 "/api/v1/integration-credentials/" or "/api/v1/admin/system-connections/" => Array.Empty<object>(),

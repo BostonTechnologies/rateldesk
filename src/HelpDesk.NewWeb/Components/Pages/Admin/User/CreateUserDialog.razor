@@ -37,15 +37,7 @@
                     <MudSelectItem T="string" Value="@("Technician")">Technician</MudSelectItem>
                 </MudSelect>
             }
-            <MudSelect T="string"
-                       @bind-Value="model.OrganizationId"
-                       Label="Organization"
-                       Clearable="true">
-                @foreach (var organization in organizations)
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" @bind-Value="model.OrganizationId" Required="false" Placeholder="No organization" />
             <MudSwitch @bind-Value="model.IsTestUser"
                        Color="Color.Warning"
                        Label="Allow access to in-testing self-service requests"
@@ -74,20 +66,11 @@
 
     private MudForm form = default!;
     private CreateUserModel model = new();
-    private List<OrganizationDto> organizations = new();
     private string? _activationToken;
 
     private bool SupportsLocalAccounts => AuthenticationMode.SupportsLocalAccounts;
     private bool _created;
     private bool _busy;
-    protected override async Task OnInitializedAsync()
-    {
-        organizations = (await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? new())
-            .Where(x => x.IsEnabled)
-            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
     private async Task Submit()
     {
         if (_created || _busy) return;

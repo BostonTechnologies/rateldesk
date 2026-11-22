@@ -34,21 +34,8 @@
             </div>
         }
 
-        <MudTextField T="string" @bind-Value="organizationSearch" Label="Search available organizations" Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
-
-        <MudSelect T="string"
-                   Label="Permitted organizations"
-                   MultiSelection="true"
-                   Dense="true"
-                   MultiSelectionTextFunc="GetSelectionText"
-                   SelectedValues="@selectedOrgIds"
-                   SelectedValuesChanged="@(v => selectedOrgIds = v?.ToHashSet() ?? new())">
-            @foreach (var org in VisibleOrganizations)
-            {
-                <MudSelectItem T="string" Value="@org.Id">@org.Name</MudSelectItem>
-            }
-        </MudSelect>
-        @if (!VisibleOrganizations.Any()) { <MudText Typo="Typo.body2" Class="mud-text-secondary">No matching organizations. Assigned organizations are retained.</MudText> }
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" Label="Add permitted organization"
+                                  Required="false" Disabled="@saving" AutoSelectSingle="false" ClearAfterSelection="true" ValueChanged="AddOrganization" />
         </div>
     </DialogContent>
 
@@ -68,9 +55,6 @@
 
     private HashSet<string> selectedOrgIds = new(StringComparer.OrdinalIgnoreCase);
     private bool saving;
-    private string? organizationSearch;
-    private IEnumerable<OrganizationDto> VisibleOrganizations => Organizations.Where(organization => string.IsNullOrWhiteSpace(organizationSearch) || organization.Name.Contains(organizationSearch.Trim(), StringComparison.OrdinalIgnoreCase)).OrderBy(organization => organization.Name, StringComparer.OrdinalIgnoreCase);
-
     protected override void OnInitialized()
     {
         selectedOrgIds = new HashSet<string>(Item.AllowedOrganizationIds ?? new(), StringComparer.OrdinalIgnoreCase);
@@ -85,14 +69,9 @@
         Organizations.FirstOrDefault(org => string.Equals(org.Id, organizationId, StringComparison.OrdinalIgnoreCase))?.Name
         ?? organizationId;
 
-    private string GetSelectionText(IReadOnlyList<string> selectedValues)
+    private void AddOrganization(string? organizationId)
     {
-        if (selectedValues.Count == 0)
-        {
-            return "No organizations selected";
-        }
-
-        return string.Join(", ", selectedValues.Select(GetOrganizationName).Order(StringComparer.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(organizationId)) selectedOrgIds.Add(organizationId);
     }
 
     private async Task Save()

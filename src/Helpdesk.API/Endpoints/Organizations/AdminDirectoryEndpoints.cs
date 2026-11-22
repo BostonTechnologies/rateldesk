@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using Helpdesk.Infrastructure.Auth.Authentik;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs;
@@ -21,6 +22,16 @@ public static class AdminDirectoryEndpoints
             .WithTags("Admin directories").RequireAuthorization("HelpdeskAdmin");
         group.MapGet("/customers", GetCustomers).WithName("QueryAdminCustomers").WithSummary("Search and page the complete authorized customer directory with bounded access status");
         group.MapGet("/organizations", GetOrganizations).WithName("QueryAdminOrganizations").WithSummary("Search and page organization administration records");
+        group.MapGet("/organizations/search", (HelpdeskDbContext db, string? q, string? id, bool? assignable, int? limit, HttpContext context, CancellationToken ct) =>
+        {
+            var eligible = db.Organizations.AsNoTracking();
+            if (assignable == true && string.IsNullOrWhiteSpace(id))
+                eligible = eligible.Where(row => row.State == Helpdesk.Shared.Models.EntityState.Enabled);
+            var ids = context.Request.Query["ids"].ToArray();
+            if (ids.Length > 50) return Task.FromResult(Results.BadRequest());
+            if (ids.Length > 0) eligible = eligible.Where(row => ids.Contains(row.Id));
+            return OrganizationLookup.SearchAsync(db, eligible, q, id, limit, ct, administrativeDetails: true);
+        });
         group.MapGet("/organizations/lookup", LookupOrganizations).WithName("LookupAdminDirectoryOrganizations").WithSummary("Search a bounded organization selector or resolve its selected identity");
         group.MapGet("/categories", GetCategories).WithName("QueryAdminTicketCategories").WithSummary("Search exact category types and scopes without changing legacy picker semantics");
     }

@@ -11,16 +11,7 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="form" Model="model" Class="mt-2">
-            <MudSelect T="string"
-                       @bind-Value="model.OwningOrganizationId"
-                       Label="Owning organization"
-                       Required="true"
-                       Dense="true">
-                @foreach (var organization in Organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Owning organization" @bind-Value="model.OwningOrganizationId" Clearable="false" />
             <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
             <MudTextField @bind-Value="model.Description" Label="Description" Lines="2" />
             <MudSwitch T="bool" @bind-Value="model.IsEnabled" Label="Enabled" />

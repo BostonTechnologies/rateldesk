@@ -11,16 +11,14 @@
 @inject ILogger<Chat> Logger
 
 <PageTitle>Chat · RatelDesk</PageTitle>
+<Microsoft.AspNetCore.Components.Sections.SectionContent SectionName="workspace-context">
+    <OrganizationSearchPicker SearchUrl="@OrganizationSearchUrl" Value="@organization" Disabled="@loading"
+                              AutoSelectSingle="false" Clearable="false" LockWhenSingle="true" SelectionChanged="ChangeOrganization" />
+</Microsoft.AspNetCore.Components.Sections.SectionContent>
 <main class="chat-page" data-testid="organization-chat">
     <header class="chat-page-heading">
         <div><p class="chat-eyebrow">AI OPERATIONS</p><h1>Chat</h1><p class="chat-page-description">Ask questions and investigate work in your organization.</p></div>
         <div class="chat-workspace-controls">
-            <label class="chat-tenant">Organization
-                <select value="@organization" @onchange="ChangeOrganization" disabled="@(loading || organizations.Count == 0)">
-                    @if (organization.Length == 0) { <option value="">Select an organization</option> }
-                    @foreach (var org in organizations) { <option value="@org.Id">@org.Name</option> }
-                </select>
-            </label>
             @if (organization.Length > 0) { <AiNetclawConnectionStatus @key="organization" ApiRoute="@Route" OrganizationName="@OrganizationName(organization)" ConversationId="selected?.ConversationId" /> }
         </div>
     </header>

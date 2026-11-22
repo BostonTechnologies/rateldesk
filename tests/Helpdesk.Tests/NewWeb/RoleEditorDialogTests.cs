@@ -97,6 +97,13 @@ public sealed class RoleEditorDialogTests
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("https://synthetic.example.test/") };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath == "/api/v1/tenant-admin/organizations/search")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { items = new[] { new { id = "org-1", name = "Example organization", isEnabled = true } }, totalEligible = 1, hasMore = false })
+                };
+            }
             Sends++; Path = request.RequestUri!.AbsolutePath; Method = request.Method;
             Payload = await request.Content!.ReadFromJsonAsync<JsonElement>(cancellationToken);
             return new HttpResponseMessage(Reject ? HttpStatusCode.Conflict : HttpStatusCode.OK) { Content = JsonContent.Create(new { message = "Synthetic role conflict" }) };

@@ -54,18 +54,13 @@
                 <MudNumericField T="int" @bind-Value="draft.LookbackDays" Label="Lookback Days" Min="1" Dense="true" Margin="Margin.Dense" />
             </MudItem>
             <MudItem xs="12" sm="4">
-                <MudSelect T="string"
-                           Label="Recipients"
-                           MultiSelection="true"
-                           Dense="true"
-                           Margin="Margin.Dense"
-                           SelectedValues="@draftRecipientEmails"
-                           SelectedValuesChanged="OnDraftRecipientsChanged">
-                    @foreach (var recipient in GetRecipientOptions(TenantId, draftRecipientEmails))
-                    {
-                        <MudSelectItem T="string" Value="@recipient.Email">@recipient.Label</MudSelectItem>
-                    }
-                </MudSelect>
+                <CreationSearchPicker TItem="TicketFilterOptionDto" LookupUrl="@RecipientLookupUrl" Label="Add recipient"
+                                      Placeholder="Search name or email" Kind="recipients" ClearAfterSelection="true"
+                                      ItemId="row => row.Id" ItemLabel="row => row.Label" SelectionChanged="AddRecipient" />
+                @foreach (var email in draftRecipientEmails.Order(StringComparer.OrdinalIgnoreCase))
+                {
+                    <MudChip T="string" Value="@email" OnClose="@(() => draftRecipientEmails.Remove(email))">@email</MudChip>
+                }
             </MudItem>
         </MudGrid>
 
@@ -103,8 +98,8 @@
     [Parameter] public List<TenantLookupDto> Tenants { get; set; } = new();
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     private List<SlaReportSubscriptionDto> subscriptions = new();
-    private List<UserDto> users = new();
-    private List<CustomerDto> customers = new();
+    private string RecipientLookupUrl => string.IsNullOrWhiteSpace(TenantId) ? "" :
+        $"api/v1/admin/tenants/{Uri.EscapeDataString(TenantId)}/report-recipients/search";
     private HashSet<string> draftRecipientEmails = new(StringComparer.OrdinalIgnoreCase);
     private SlaReportSubscriptionDto draft = NewDraft();
     private bool showEditor;
@@ -116,16 +111,7 @@
         .Where(x => string.Equals(x.TenantId, TenantId, StringComparison.OrdinalIgnoreCase))
         .OrderBy(x => x.Frequency).ThenBy(x => x.SendTimeLocal);
 
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users") ?? new();
-            customers = await HelpdeskApi.GetFromJsonAsync<List<CustomerDto>>("api/v1/customers") ?? new();
-            if (!IsDisposed) await LoadAsync();
-        }
-        catch { error = "Report recipients could not be loaded. Reload to try again."; }
-    }
+    protected override Task OnInitializedAsync() => LoadAsync();
 
     private async Task LoadAsync()
     {
@@ -161,7 +147,10 @@
     }
     private async Task CancelEdit() { showEditor = false; error = null; await DraftChanged.InvokeAsync(); }
     private void OnDraftSendTimeChanged(TimeSpan? value) { if (value.HasValue) draft.SendTimeLocal = value.Value; }
-    private void OnDraftRecipientsChanged(IEnumerable<string>? values) => draftRecipientEmails = ToEmailSet(values);
+    private void AddRecipient(TicketFilterOptionDto? option)
+    {
+        if (option is not null) draftRecipientEmails.Add(option.Id);
+    }
 
     private async Task SaveDraftAsync()
     {
@@ -218,39 +207,6 @@
     private static SlaReportSubscriptionDto Clone(SlaReportSubscriptionDto value) =>
         System.Text.Json.JsonSerializer.Deserialize<SlaReportSubscriptionDto>(System.Text.Json.JsonSerializer.Serialize(value))!;
 
-    private IEnumerable<RecipientOption> GetRecipientOptions(string? tenantId, IEnumerable<string>? selectedEmails = null)
-    {
-        var selected = ToEmailSet(selectedEmails);
-        if (string.IsNullOrWhiteSpace(tenantId))
-        {
-            return selected
-                .OrderBy(x => x)
-                .Select(x => new RecipientOption(x, x));
-        }
-
-        var options = users
-            .Where(x => string.Equals(x.OrganizationId, tenantId, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Email))
-            .Select(x => new RecipientOption(x.Email.Trim(), FormatUser(x)))
-            .Concat(customers
-                .Where(x => x.IsEnabled && string.Equals(x.OrganizationId, tenantId, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(x.Email))
-                .Select(x => new RecipientOption(x.Email.Trim(), FormatCustomer(x))))
-            .GroupBy(x => x.Email, StringComparer.OrdinalIgnoreCase)
-            .Select(x => x.First())
-            .ToList();
-
-        foreach (var email in selected)
-        {
-            if (!options.Any(x => string.Equals(x.Email, email, StringComparison.OrdinalIgnoreCase)))
-            {
-                options.Add(new RecipientOption(email, email));
-            }
-        }
-
-        return options
-            .OrderBy(x => x.Label)
-            .ThenBy(x => x.Email);
-    }
-
     private static HashSet<string> GetRecipientEmails(SlaReportSubscriptionDto dto)
     {
         return ToEmailSet(dto.Targets
@@ -275,20 +231,6 @@
             .ToList();
     }
 
-    private static string FormatUser(UserDto user)
-    {
-        return string.IsNullOrWhiteSpace(user.Name)
-            ? user.Email
-            : $"{user.Name} ({user.Email})";
-    }
-
-    private static string FormatCustomer(CustomerDto customer)
-    {
-        return string.IsNullOrWhiteSpace(customer.Name)
-            ? customer.Email
-            : $"{customer.Name} ({customer.Email})";
-    }
-
     private static SlaReportSubscriptionDto NewDraft()
     {
         return new SlaReportSubscriptionDto
@@ -303,5 +245,4 @@
         };
     }
 
-    private sealed record RecipientOption(string Email, string Label);
 }

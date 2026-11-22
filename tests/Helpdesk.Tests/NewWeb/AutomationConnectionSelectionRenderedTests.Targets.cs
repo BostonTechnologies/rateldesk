@@ -49,7 +49,7 @@ public sealed partial class AutomationConnectionSelectionRenderedTests
         var nodes = dialog.FindComponents<MudSelect<string>>().Single(select => select.Instance.Label == "Nodes");
         await nodes.InvokeAsync(() => nodes.Instance.SelectOption(FirstId.ToString("D")));
         dialog.FindComponents<MudTextField<string>>().Single(field => field.Instance.Label == "Command").Find("textarea").Change("printf synthetic");
-        dialog.FindAll("button").Single(button => button.TextContent.Contains("Create job", StringComparison.Ordinal)).Click();
+        await dialog.InvokeAsync(() => dialog.FindAll("button").Single(button => button.TextContent.Contains("Create job", StringComparison.Ordinal)).Click());
         dialog.WaitForAssertion(() => Assert.Contains("target. Reference: synthetic-ref", dialog.Markup));
         Assert.Equal("Synthetic authored job", dialog.FindComponents<MudTextField<string>>().Single(field => field.Instance.Label == "Job name").Instance.GetState(field => field.Value));
         Assert.Equal("printf synthetic", dialog.FindComponents<MudTextField<string>>().Single(field => field.Instance.Label == "Command").Instance.GetState(field => field.Value));

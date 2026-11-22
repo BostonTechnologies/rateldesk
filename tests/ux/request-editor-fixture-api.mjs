@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Loopback-only synthetic editor data; never dispatches external automation.
 import http from 'node:http';
 const connectionId = '11111111-1111-1111-1111-111111111111';
@@ -41,6 +42,7 @@ http.createServer(async(req,res)=>{
  if(path.endsWith('/system/token')){const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url');return reply({token:`${encode({alg:'none'})}.${encode({sub:'synthetic-editor',auth_mode:'development',preferred_username:'Synthetic Administrator',email:'admin@example.test',organization_id:'org-1',roles:['HelpdeskAdmin'],allowed_organization_id:'org-1',managed_organization_id:'org-1',exp:Math.floor(Date.now()/1000)+3600})}.fixture`});}
  if(path==='/api/v1/auth/me')return reply({isAuthenticated:true,name:'Synthetic Administrator',email:'admin@example.test',userId:'synthetic-editor',customerId:null,primaryOrganizationId:'org-1',isHelpdeskAdmin:true,roles:['HelpdeskAdmin'],roleBundles:['HelpdeskAdmin'],permissions:['HelpdeskAdmin'],allowedOrganizationIds:['org-1'],managedOrganizationIds:['org-1']});
  if(path==='/api/v1/branding')return reply({applicationName:'RatelDesk',faviconUrl:'/favicon.ico'});
+ if (['/api/v1/admin/directories/organizations/search'].includes(path)) return reply(organizationLookupPage(url, organizations));
  if(path==='/api/v1/organizations')return reply(organizations);
  if(path==='/api/v1/users')return reply([{id:'operator',name:'Synthetic Operator',email:'operator@example.test',organizationId:'org-1'}]);
  if(path==='/api/v1/services/service-1')return reply({id:'service-1',name:'Synthetic service',depth:1});

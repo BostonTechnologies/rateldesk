@@ -21,13 +21,7 @@
             @if (isHelpdeskAdmin)
             {
                 <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" Label="Tenant" Value="selectedTenantId" ValueChanged="OnTenantChanged" Clearable="true" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense">
-                        <MudSelectItem T="string" Value="@((string?)null)">All Tenants</MudSelectItem>
-                        @foreach (var tenant in tenants)
-                        {
-                            <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Tenant" Value="@selectedTenantId" ValueChanged="OnTenantChanged" Placeholder="All tenants" Required="false" />
                 </MudItem>
             }
 
@@ -54,11 +48,6 @@
                 </MudSelect>
             </MudItem>
         </MudGrid>
-
-        @if (tenantLookupError is not null)
-        {
-            <MudAlert Severity="Severity.Warning">@tenantLookupError Refresh to retry.</MudAlert>
-        }
 
         @if (!string.IsNullOrWhiteSpace(loadError))
         {
@@ -200,8 +189,6 @@
     private CancellationTokenSource? refresh;
     private DateTimeOffset? lastRefreshed;
     private string? loadError;
-    private string? tenantLookupError;
-    private bool tenantsLoaded;
     private string? appliedQuery;
     private bool showBreached;
     private bool loading;
@@ -211,7 +198,6 @@
     private int selectedThreshold = 90;
     private SlaMetricType selectedMetric = SlaMetricType.Resolution;
 
-    private List<TenantLookupDto> tenants = new();
     private SlaComplianceSummaryDto summary = new();
     private int nearPage = 1, breachedPage = 1, nearPageSize = 25, breachedPageSize = 25;
     private async Task ChangeNearPageAsync(WorkspacePageRequest request) { nearPage = request.Page; nearPageSize = request.PageSize; await RefreshAsync(); }
@@ -301,23 +287,6 @@
             var nearBreachUrl = BuildNearBreachUrl(selectedThreshold, selectedMetric);
             var nearNinetyUrl = BuildNearBreachUrl(90, SlaMetricType.Resolution, 1);
 
-            if (isHelpdeskAdmin && !tenantsLoaded)
-            {
-                try
-                {
-                    var nextTenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup", token) ?? new();
-                    token.ThrowIfCancellationRequested();
-                    tenants = nextTenants;
-                    tenantsLoaded = true;
-                    tenantLookupError = null;
-                }
-                catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
-                {
-                    if (current == refresh) tenantLookupError = "Tenant lookup is unavailable.";
-                }
-            }
-            token.ThrowIfCancellationRequested();
-
             var nextSummary = await HelpdeskApi.GetFromJsonAsync<SlaComplianceSummaryDto>(
                 complianceUrl, token) ?? new SlaComplianceSummaryDto();
 
@@ -348,7 +317,7 @@
             nearNinetyCount = nearNinety.Total;
             lastRefreshed = DateTimeOffset.UtcNow;
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException) { if (current == refresh) loadError = "SLA data is unavailable."; }
         finally
         {

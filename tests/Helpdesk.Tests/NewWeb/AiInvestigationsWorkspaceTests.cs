@@ -5,6 +5,8 @@ using Bunit;
 using Bunit.TestDoubles;
 using Helpdesk.Shared.AiAssistant.Chat;
 using Helpdesk.Shared.DTOs.AiOps;
+using Helpdesk.Shared.DTOs;
+using Microsoft.AspNetCore.Components.Sections;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +25,7 @@ public sealed class AiInvestigationsWorkspaceTests
         await using var context = Context(api);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
-        Assert.Contains("/api/v1/ai/ops/organizations", api.Requests);
+        Assert.Contains("/api/v1/ai/ops/organizations/search?limit=1", api.Requests);
         Assert.DoesNotContain("/api/v1/organizations", api.Requests);
         Assert.False(page.Find(".ai-toolbar .ai-primary").HasAttribute("disabled"));
     }
@@ -40,7 +42,7 @@ public sealed class AiInvestigationsWorkspaceTests
         page.FindAll(".ai-toolbar button").Single(x => x.TextContent == "Refresh").Click();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
         Assert.Empty(page.FindAll("[role='alert']"));
-        Assert.Equal(2, api.Requests.Count(x => x == "/api/v1/ai/ops/organizations"));
+        Assert.Equal(2, api.Requests.Count(x => x == "/api/v1/ai/ops/organizations/search?limit=1"));
         Assert.DoesNotContain("/api/v1/organizations", api.Requests);
     }
 
@@ -86,10 +88,10 @@ public sealed class AiInvestigationsWorkspaceTests
     public async Task Selected_tickets_survive_search_and_failed_save_and_retry_reuses_same_context_identity()
     {
         using var api = new Api { RejectCreate = true };
-        await using var context = Context(api);
+        await using var context = Context(api, out var header);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
-        page.Find(".ai-toolbar select").Change("org-a");
+        await WorkspaceOrganizationSelection.SelectAsync(header, "Organization A", "org-a");
         page.Find(".ai-toolbar .ai-primary").Click();
         page.Find(".ai-create > label input").Input("Investigate delivery delay");
         page.FindAll(".ai-ticket-picker input")[0].Change(true);
@@ -121,14 +123,14 @@ public sealed class AiInvestigationsWorkspaceTests
     public async Task Switching_organization_clears_context_choices_and_scopes_history_and_guidance()
     {
         using var api = new Api();
-        await using var context = Context(api);
+        await using var context = Context(api, out var header);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
-        page.Find(".ai-toolbar select").Change("org-a");
+        await WorkspaceOrganizationSelection.SelectAsync(header, "Organization A", "org-a");
         page.Find(".ai-toolbar .ai-primary").Click();
         page.FindAll(".ai-ticket-picker input")[0].Change(true);
         page.Find(".ai-prompt-picker input").Change(true);
-        page.Find(".ai-toolbar select").Change("org-b");
+        await WorkspaceOrganizationSelection.SelectAsync(header, "Organization B", "org-b");
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".ai-prompt-picker input")));
         Assert.Contains("0 / 12 selected", page.Find(".ai-create").TextContent);
         Assert.Contains("0 / 8 optional prompts", page.Find(".ai-create").TextContent);
@@ -143,10 +145,10 @@ public sealed class AiInvestigationsWorkspaceTests
     public async Task Unavailable_provider_options_preserve_ticket_context_and_recover_on_refresh()
     {
         using var api = new Api { FailCapabilities = true };
-        await using var context = Context(api);
+        await using var context = Context(api, out var header);
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll(".ai-investigation").Count));
-        page.Find(".ai-toolbar select").Change("org-a");
+        await WorkspaceOrganizationSelection.SelectAsync(header, "Organization A", "org-a");
         page.Find(".ai-toolbar .ai-primary").Click();
         page.Find(".ai-create > label input").Input("Investigate delivery delay");
         page.Find(".ai-ticket-picker input").Change(true);
@@ -185,7 +187,9 @@ public sealed class AiInvestigationsWorkspaceTests
         Assert.Contains("Archived", page.Find(".ai-investigation.selected").TextContent);
     }
 
-    private static BunitContext Context(Api api)
+    private static BunitContext Context(Api api) => Context(api, out _);
+
+    private static BunitContext Context(Api api, out IRenderedComponent<SectionOutlet> header)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -193,6 +197,7 @@ public sealed class AiInvestigationsWorkspaceTests
         context.AddAuthorization().SetAuthorized("Synthetic investigation operator");
         context.Services.AddSingleton<IHttpClientFactory>(api);
         context.ComponentFactories.AddStub<Chat>();
+        header = WorkspaceOrganizationSelection.RenderHeader(context);
         return context;
     }
 
@@ -224,6 +229,9 @@ public sealed class AiInvestigationsWorkspaceTests
                 if (path is "/api/v1/ai/chat/organizations/org-a/capabilities" or "/api/v1/ai/chat/organizations/org-b/capabilities")
                     return FailCapabilities ? new(HttpStatusCode.ServiceUnavailable) : Json(new ChatCapabilities(true, null));
                 if (path == "/api/v1/organizations") return new(HttpStatusCode.Forbidden);
+                if (path == "/api/v1/ai/ops/organizations/search" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);
+                if (path == "/api/v1/ai/ops/organizations/search")
+                    return Json(new CreationLookupResult<AiOpsOrganizationDto>([new("org-a", "Organization A"), new("org-b", "Organization B")], 2, false));
                 if (path == "/api/v1/ai/ops/organizations" && FailOrganizations) return new(HttpStatusCode.ServiceUnavailable);
                 if (path == "/api/v1/ai/ops/organizations")
                     return Json(new[] { new AiOpsOrganizationDto("org-a", "Organization A"), new AiOpsOrganizationDto("org-b", "Organization B") });

@@ -15,9 +15,7 @@
             @if (HasUnsupportedPermissions) { <MudAlert Severity="Severity.Warning" Dense="true">This role contains permissions outside your current authority. An instance administrator must review it; its saved permissions are preserved.</MudAlert> }
             <div class="role-editor-details">
                 <MudTextField @bind-Value="draftName" Label="Role name" Required="true" MaxLength="200" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(saving || HasUnsupportedPermissions)" />
-                <MudSelect T="string" @bind-Value="draftOwner" Label="Owning organization" Required="true" Disabled="@(saving || IsEditing)" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@(IsEditing ? "The owning organization is fixed for this role." : "Permissions apply within this organization.")">
-                    @foreach (var organization in Organizations) { <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem> }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search" AutoSelectSingle="false" Label="Owning organization" @bind-Value="draftOwner" Disabled="@(saving || IsEditing)" Clearable="false" />
             </div>
             <div class="role-editor-permissions">
                 <GroupedPermissionSelector EligiblePermissions="EligiblePermissions" SelectedValues="draftPermissions" SelectedValuesChanged="PermissionsChanged" AriaLabel="Custom role permissions" Disabled="@(saving || HasUnsupportedPermissions)" />
@@ -82,7 +80,7 @@
         error = null;
         if (IsEditing && Role is { IsBuiltIn: true } or { IsProtected: true }) { error = "Protected roles cannot be edited."; return; }
         if (string.IsNullOrWhiteSpace(draftName)) { error = "Enter a role name."; return; }
-        if (!Organizations.Any(x => x.Id == draftOwner)) { error = "Choose an authorized owning organization."; return; }
+        if (string.IsNullOrWhiteSpace(draftOwner)) { error = "Choose an authorized owning organization."; return; }
         if (draftPermissions.Count == 0) { error = "Select at least one permission."; return; }
         if (draftPermissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase).Any()) { error = "This role includes permissions outside your current authority. Ask an instance administrator to review it."; return; }
         if (!RoleDefinitionCatalog.SatisfiesDependencies(draftPermissions)) { error = "Include the matching Read permission for Write, Delete, Execute or Approve, and the matching User permission for Manager."; return; }

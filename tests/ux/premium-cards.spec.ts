@@ -75,8 +75,7 @@ test('all assignments remain reachable and description/actions retain their beha
   await cards.nth(3).getByRole('button', { name: 'Manage organization access for Example service 4', exact: true }).click();
   const access = page.getByRole('dialog');
   await expect(access.getByText('100 assigned organizations', { exact: true })).toBeVisible();
-  await access.getByRole('textbox', { name: 'Search available organizations', exact: true }).fill('organization 100');
-  await access.getByRole('combobox', { name: 'Permitted organizations', exact: true }).click();
+  await access.getByRole('combobox', { name: 'Add permitted organization', exact: true }).fill('organization 100');
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(access.getByText('100 assigned organizations', { exact: true })).toBeVisible();

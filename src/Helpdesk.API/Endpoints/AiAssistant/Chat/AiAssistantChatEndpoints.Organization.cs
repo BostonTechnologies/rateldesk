@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using System.Security.Claims;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.Persistence;
@@ -27,6 +28,18 @@ public static partial class AiAssistantChatEndpoints
             ? null : Results.NotFound();
     }
 
+    private static IQueryable<Helpdesk.Shared.Models.Organization> ReadableOrganizations(HelpdeskDbContext db, CurrentUserAccessProfile access)
+    {
+        var eligible = db.Organizations.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled);
+        if (access.IsHelpdeskAdmin) return eligible;
+        var allowed = access.OrganizationIdsForAny(HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager,
+            HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager,
+            HelpdeskPermissions.ChangeRead, HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager)
+            .Where(id => CanReadOrganization(access, id)).ToArray();
+        return eligible.Where(x => allowed.Contains(x.Id));
+    }
+
     private static void MapOrganizationChatEndpoints(IEndpointRouteBuilder app)
     {
         // Read-only staff admission is checked against current organization grants below.
@@ -35,13 +48,14 @@ public static partial class AiAssistantChatEndpoints
         root.MapGet("/organizations", async (HttpContext ctx, ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
         {
             var access = await accessService.ResolveAsync(ctx.User, ct);
-            var orgs = access.OrganizationIdsForAny(HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager,
-                HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager,
-                HelpdeskPermissions.ChangeRead, HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager).ToArray();
-            var rows = await db.Organizations.IgnoreQueryFilters().AsNoTracking()
-                .Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled && (access.IsHelpdeskAdmin || orgs.Contains(x.Id)))
-                .OrderBy(x => x.Name).Select(x => new AiOpsOrganizationDto(x.Id, x.Name)).ToListAsync(ct);
-            return Results.Ok(rows.Where(x => CanReadOrganization(access, x.Id)));
+            return Results.Ok(await ReadableOrganizations(db, access).OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .Select(x => new AiOpsOrganizationDto(x.Id, x.Name)).ToListAsync(ct));
+        });
+        root.MapGet("/organizations/search", async (HttpContext ctx, ICurrentUserAccessService accessService,
+            HelpdeskDbContext db, string? q, string? id, int? limit, CancellationToken ct) =>
+        {
+            var access = await accessService.ResolveAsync(ctx.User, ct);
+            return await OrganizationLookup.SearchAsync(db, ReadableOrganizations(db, access), q, id, limit, ct, namesOnly: true);
         });
         var group = root.MapGroup("/organizations/{organizationId}");
         group.AddEndpointFilter(async (ctx, next) =>

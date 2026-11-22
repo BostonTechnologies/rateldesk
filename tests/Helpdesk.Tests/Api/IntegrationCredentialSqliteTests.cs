@@ -50,7 +50,22 @@ public sealed partial class IntegrationCredentialSqliteTests
         using var reviewResponse = await harness.Client.PostAsJsonAsync("/api/v1/integration-credentials/pairing/review",
             new IntegrationPairingReviewRequest(started.HumanCode));
         var review = await reviewResponse.Content.ReadFromJsonAsync<IntegrationPairingReview>();
-        Assert.Equal("org-a", Assert.Single(review!.Organizations).Id);
+        var expected = Assert.Single(review!.Organizations);
+        Assert.Equal("org-a", expected.Id);
+        foreach (var organizationId in new string?[] { null, "org-b", "org-a" })
+        {
+            using var scopedResponse = await harness.Client.PostAsJsonAsync("/api/v1/integration-credentials/pairing/review",
+                new IntegrationPairingReviewRequest(started.HumanCode) { SelectedOrganizationOnly = true, OrganizationId = organizationId });
+            scopedResponse.EnsureSuccessStatusCode();
+            var scoped = await scopedResponse.Content.ReadFromJsonAsync<IntegrationPairingReview>();
+            if (organizationId == expected.Id)
+            {
+                var choice = Assert.Single(scoped!.Organizations);
+                Assert.Equal(expected.Id, choice.Id);
+                Assert.Equal(expected.Permissions, choice.Permissions);
+            }
+            else Assert.Empty(scoped!.Organizations);
+        }
         using var approval = await harness.Client.PostAsJsonAsync("/api/v1/integration-credentials/pairing/approve",
             new IntegrationPairingApprovalRequest(started.HumanCode, "org-a", ["Incident.Read"], 30, true));
         Assert.Equal(HttpStatusCode.NoContent, approval.StatusCode);

@@ -11,13 +11,7 @@
         {
             <MudGrid Spacing="2" Class="mb-2">
                 <MudItem xs="12" md="6">
-                    <MudSelect T="string" Label="Preview as tenant" Value="@selectedTenantId" ValueChanged="OnTenantChanged">
-                        <MudSelectItem T="string" Value="@SystemDefaultsTenantValue">System Defaults</MudSelectItem>
-                        @foreach (var tenant in tenants)
-                        {
-                            <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Preview as tenant" Placeholder="System Defaults" Required="false" Value="@(selectedTenantId == SystemDefaultsTenantValue ? null : selectedTenantId)" ValueChanged="@(id => OnTenantChanged(id ?? SystemDefaultsTenantValue))" />
                 </MudItem>
             </MudGrid>
         }
@@ -49,7 +43,6 @@
     [Parameter] public PreviewSampleContext? SampleContext { get; set; }
     [Parameter] public string RenderedHtml { get; set; } = string.Empty;
 
-    private readonly List<TenantLookupDto> tenants = new();
     private string selectedTenantId = SystemDefaultsTenantValue;
     private string previewSubject = string.Empty;
     private string previewHtml = string.Empty;
@@ -69,8 +62,6 @@
         }
 
         selectedTenantId = string.IsNullOrWhiteSpace(TenantId) ? SystemDefaultsTenantValue : TenantId;
-        var loadedTenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-        tenants.AddRange(loadedTenants);
         await RefreshPreviewAsync();
     }
 

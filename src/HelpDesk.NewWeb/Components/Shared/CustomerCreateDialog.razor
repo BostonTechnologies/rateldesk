@@ -17,16 +17,15 @@
         <MudForm FieldChanged="@(_ => formChanged = true)" @ref="form" Model="model" Class="mt-2">
             <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
             <MudTextField @bind-Value="model.Email" Label="Email" Required="true" />
-            <MudSelect T="string"
-                       @bind-Value="model.OrganizationId"
-                       Label="Organization"
-                       Required="true"
-                       Disabled="@LockOrganization">
-                @foreach (var org in Organizations)
-                {
-                    <MudSelectItem T="string" Value="@org.Id">@org.Name</MudSelectItem>
-                }
-            </MudSelect>
+            @if (LockOrganization)
+            {
+                <MudTextField T="string" Label="Organization" Value="@(Organizations.FirstOrDefault(x => x.Id == model.OrganizationId)?.Name ?? model.OrganizationId)" ReadOnly="true" />
+            }
+            else
+            {
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" Value="@model.OrganizationId"
+                                          ValueChanged="@(id => model.OrganizationId = id ?? string.Empty)" AutoSelectSingle="false" Clearable="false" />
+            }
             <MudSwitch T="bool" @bind-Value="model.IsEnabled" Label="Enabled" />
         </MudForm>
     </DialogContent>

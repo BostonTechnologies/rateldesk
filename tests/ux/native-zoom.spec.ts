@@ -1,3 +1,4 @@
+import { selectOrganization } from './organization-lookup';
 import { captureTables } from './table-evidence';
 import { chromium, expect, test, type Page } from '@playwright/test';
 import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -215,7 +216,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'View', exact: true }).click();
           const review = page.getByRole('dialog', { name: 'Connection configuration', exact: true });
           await expect(review).toBeVisible();
-          await expect(review.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Alpha');
+          await expect(review.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveValue('Synthetic Alpha');
           const bounds = await review.boundingBox();
           expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
           expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width / 2 + 1);
@@ -236,7 +237,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           await page.getByRole('button', { name: 'Review client', exact: true }).click();
           const review = page.getByRole('dialog', { name: 'Connection consent', exact: true });
           await expect(review).toBeVisible();
-          await review.getByLabel('Organization', { exact: true }).selectOption('org-a');
+          await selectOrganization(page, review.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
           await review.getByRole('button', { name: /^Select \d+ displayed eligible permissions$/ }).click();
           const bounds = await review.boundingBox();
           expect(bounds!.x).toBeGreaterThanOrEqual(0);

@@ -12,18 +12,8 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="form" Model="model" Class="mt-2">
-            <MudSelect T="string" @bind-Value="model.CustomerOrganizationId" Label="Customer organization" Required="true" Dense="true">
-                @foreach (var organization in Organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
-            <MudSelect T="string" Value="@model.ProviderOrganizationId" ValueChanged="OnProviderChanged" Label="Provider organization" Required="true" Dense="true">
-                @foreach (var organization in Organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Customer organization" @bind-Value="model.CustomerOrganizationId" Clearable="false" />
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Provider organization" Value="@model.ProviderOrganizationId" ValueChanged="@(id => OnProviderChanged(id ?? string.Empty))" Clearable="false" />
             <MudSelect T="string" @bind-Value="model.SupportGroupId" Label="Support group" Required="true" Dense="true">
                 @foreach (var group in FilteredSupportGroups)
                 {

@@ -30,9 +30,7 @@
     <details class="pending-mail-advanced" open="@(appliedFilters.Keys.Any(x => x is "organization" or "sender" or "recipient" or "reason" or "from" or "to"))">
         <summary>More filters · organization, mailbox, recipient, reason and created time</summary>
         <div class="pending-mail-filters">
-        <MudAutocomplete T="PendingEmailOrganization" Label="Organization" Value="organizationOption" ValueChanged="OrganizationChanged"
-            SearchFunc="SearchOrganizations" ToStringFunc="@(x => x?.Label ?? string.Empty)" Clearable="true" CoerceText="true"
-            Variant="Variant.Outlined" Margin="Margin.Dense" MaxItems="20" />
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" @bind-Value="organization" Required="false" AutoSelectSingle="false" Placeholder="All organizations" />
         <MudTextField T="string" Label="Mailbox / sender" @bind-Value="sender" Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudTextField T="string" Label="Recipient" @bind-Value="recipient" Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudTextField T="string" Label="Reason / error code" @bind-Value="reason" Variant="Variant.Outlined" Margin="Margin.Dense" />
@@ -218,9 +216,7 @@
         if (Navigation.ToAbsoluteUri(uri).Equals(new Uri(Navigation.Uri))) { if (!updatingLocation) _ = LoadAsync(); }
         else Navigation.NavigateTo(uri, replace: replace);
     }
-    private void OrganizationChanged(PendingEmailOrganization? value) { organizationOption = value; organization = value?.Id; }
-    private async Task<IEnumerable<PendingEmailOrganization>> SearchOrganizations(string text, CancellationToken ct) =>
-        await TimelineClient.SearchPendingOrganizationsAsync(text, ct: ct);
+
     private void ApplyFilters() { page = 0; ClearSelection(); Navigate(); }
     private void ClearFilters() => Navigation.NavigateTo("/admin/pending-emails");
     private void RemoveFilter(string key)

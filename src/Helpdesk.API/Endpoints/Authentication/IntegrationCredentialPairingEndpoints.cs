@@ -33,7 +33,7 @@ public static class IntegrationCredentialPairingEndpoints
         consent.MapPost("/review", async (IntegrationPairingReviewRequest request, ClaimsPrincipal principal, HttpContext http,
             IntegrationCredentialPairingService service, CancellationToken ct) =>
         {
-            var review = await service.ReviewAsync(request.HumanCode, principal, Remote(http), ct);
+            var review = await service.ReviewAsync(request.HumanCode, principal, Remote(http), ct, request.SelectedOrganizationOnly, request.OrganizationId);
             return review is null ? Results.NotFound() : Results.Ok(review);
         });
         consent.MapPost("/approve", async (IntegrationPairingApprovalRequest request, ClaimsPrincipal principal, HttpContext http,

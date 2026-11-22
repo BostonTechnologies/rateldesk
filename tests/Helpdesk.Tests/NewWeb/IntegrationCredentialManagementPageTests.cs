@@ -409,8 +409,13 @@ public sealed class IntegrationCredentialManagementPageTests
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/acknowledge"))
             { Acknowledgements++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent)); }
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/setup")) return HandleSetupAsync(request, cancellationToken);
-            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/organizations"))
-                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(Array.Empty<object>()) });
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/search"))
+            {
+                var selectedId = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query).GetValueOrDefault("id").ToString();
+                var items = new[] { new { id = "org-a", name = "Organization A", isEnabled = true }, new { id = "org-b", name = "Organization B", isEnabled = true } };
+                return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(new
+                    { items = items.Where(row => selectedId.Length == 0 || row.id == selectedId), totalEligible = items.Length, hasMore = false }) });
+            }
             if (request.Method == HttpMethod.Get)
                 return PendingList?.Task ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Metadata()) });
             if (request.Method == HttpMethod.Post)

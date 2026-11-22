@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Synthetic presentation fixture only. The owning .NET tests exercise real migrated SQLite/PostgreSQL.
 import http from 'node:http';
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -84,6 +85,7 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/api/v1/auth/me') return reply({ isAuthenticated: true, email: null, primaryOrganizationId: null, customerId: null, name: 'Synthetic operator', userId: 'synthetic-operator', isHelpdeskAdmin: true, roleBundles: ['HelpdeskAdmin'], permissions: [], allowedOrganizationIds: [], managedOrganizationIds: [] });
   if (url.pathname === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
   if (url.pathname === '/api/v1/timeline/failed') return reply(data.slice(0, 100));
+  if (url.pathname === '/api/v1/admin/directories/organizations/search') return reply(organizationLookupPage(url, [{ id: 'org-synthetic', name: 'Synthetic organization' }]));
   if (url.pathname === '/api/v1/timeline/pending/organizations') return reply([{ id: 'org-synthetic', label: 'Synthetic organization' }]);
   if (url.pathname === '/api/v1/timeline/pending') {
     requests.push(Object.fromEntries(url.searchParams));

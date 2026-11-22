@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Channels;
 using Bunit;
+using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Organization;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
@@ -98,7 +99,7 @@ public sealed class OrganizationDirectorySelectorTests
     private static Exception Failure(bool circuitOpen) => circuitOpen
         ? new BrokenCircuitException("private upstream circuit") : new TimeoutRejectedException("private upstream timeout");
     private static HttpResponseMessage Response(string id, string name) => new(HttpStatusCode.OK)
-        { Content = JsonContent.Create(new[] { new TenantLookupDto { Id = id, Name = name } }) };
+        { Content = JsonContent.Create(new CreationLookupResult<TenantLookupDto>([new() { Id = id, Name = name }], 1, false)) };
     private sealed class Api : HttpMessageHandler, IHttpClientFactory
     {
         public Channel<TaskCompletionSource<HttpResponseMessage>> Pending { get; } = Channel.CreateUnbounded<TaskCompletionSource<HttpResponseMessage>>();

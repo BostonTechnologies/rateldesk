@@ -1,3 +1,4 @@
+@using HelpDesk.NewWeb.Components.Shared
 @using System.ComponentModel.DataAnnotations
 @using Helpdesk.Shared.DTOs.Orchestration
 @using Helpdesk.Shared.Models
@@ -25,24 +26,8 @@
                     <MudText Typo="Typo.body2" Class="mb-2">
                         Link this Helpdesk organization to an External orchestration tenant so tenant-scoped automation targets can be created safely.
                     </MudText>
-                    @if (!string.IsNullOrWhiteSpace(orchestrationTenantsError))
-                    {
-                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-2">
-                            @orchestrationTenantsError
-                        </MudAlert>
-                    }
-                    <MudSelect T="int?"
-                               @bind-Value="model.OrchestrationTenantId"
-                               Label="External orchestration Tenant"
-                               Variant="Variant.Outlined"
-                               Margin="Margin.Dense"
-                               Clearable="true"
-                               Disabled="orchestrationTenantsLoading">
-                        @foreach (var tenant in orchestrationTenants)
-                        {
-                            <MudSelectItem T="int?" Value="@tenant.TenantId">@tenant.Name (@tenant.TenantId)</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <OrchestrationTenantPicker Value="@model.OrchestrationTenantId" SavedName="@selectedTenantName"
+                                               SelectionChanged="SelectExternalTenant" />
                     <MudText Typo="Typo.caption">
                         Leave empty if this organization is not yet linked to External orchestration.
                     </MudText>
@@ -64,13 +49,11 @@
 
     private MudForm form = default!;
     private CreateOrganizationModel model = new();
-    private List<OrchestrationCatalogTenantDto> orchestrationTenants = new();
-    private bool orchestrationTenantsLoading;
-    private string? orchestrationTenantsError;
-
-    protected override async Task OnInitializedAsync()
+    private string? selectedTenantName;
+    private void SelectExternalTenant(OrchestrationCatalogTenantDto? tenant)
     {
-        await LoadOrchestrationTenantsAsync();
+        model.OrchestrationTenantId = tenant?.TenantId;
+        selectedTenantName = tenant?.Name;
     }
 
     private async Task Submit()
@@ -85,7 +68,7 @@
                 model.ContactInfo,
                 model.State,
                 OrchestrationTenantId = model.OrchestrationTenantId,
-                OrchestrationTenantName = SelectedOrchestrationTenantName,
+                OrchestrationTenantName = selectedTenantName,
                 OrchestrationTenantLinkedAtUtc = model.OrchestrationTenantId.HasValue ? (DateTimeOffset?)DateTimeOffset.UtcNow : null
             });
             if (response.IsSuccessStatusCode)
@@ -96,29 +79,6 @@
     }
 
     private void Cancel() => Dialog.Cancel();
-
-    private string? SelectedOrchestrationTenantName => orchestrationTenants
-        .FirstOrDefault(x => x.TenantId == model.OrchestrationTenantId)?.Name;
-
-    private async Task LoadOrchestrationTenantsAsync()
-    {
-        orchestrationTenantsLoading = true;
-        orchestrationTenantsError = null;
-        try
-        {
-            orchestrationTenants = await HelpdeskApi.GetFromJsonAsync<List<OrchestrationCatalogTenantDto>>(
-                "api/v1/admin/orchestration/catalog/tenants") ?? new();
-        }
-        catch (Exception ex)
-        {
-            orchestrationTenantsError = $"External orchestration tenant catalog could not be loaded: {ex.Message}";
-            orchestrationTenants = new();
-        }
-        finally
-        {
-            orchestrationTenantsLoading = false;
-        }
-    }
 
     public class CreateOrganizationModel
     {

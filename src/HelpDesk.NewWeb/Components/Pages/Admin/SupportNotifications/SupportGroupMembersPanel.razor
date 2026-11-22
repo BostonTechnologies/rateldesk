@@ -35,12 +35,7 @@
                           Immediate="true" />
         </MudItem>
         <MudItem xs="12" md="4">
-            <MudSelect T="string" @bind-Value="ownerFilter" Label="Owner organization" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
-                @foreach (var organization in Organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Label="Owner organization" @bind-Value="ownerFilter" Required="false" Placeholder="All organizations" />
         </MudItem>
         <MudItem xs="12" md="3" Class="d-flex align-center">
             <MudSwitch T="bool" @bind-Value="showDisabled" Label="Show disabled groups" />

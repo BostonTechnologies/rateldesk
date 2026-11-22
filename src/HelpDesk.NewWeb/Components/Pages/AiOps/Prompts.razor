@@ -11,15 +11,13 @@
 
 <PageTitle>AI prompts</PageTitle>
 <NavigationLock ConfirmExternalNavigation="@Dirty" OnBeforeInternalNavigation="BeforeNavigationAsync" />
+<Microsoft.AspNetCore.Components.Sections.SectionContent SectionName="workspace-context">
+    <div data-testid="prompt-organization"><OrganizationSearchPicker @key="organizationPickerKey" SearchUrl="api/v1/admin/directories/organizations/search" Value="@organization" ValueChanged="ChangeOrganization" Disabled="@busy" Clearable="false" AutoSelectSingle="false" /></div>
+</Microsoft.AspNetCore.Components.Sections.SectionContent>
 <main class="prompt-library" data-testid="prompt-library">
     <header class="prompt-toolbar">
         <h1>Prompts</h1>
-        <label class="prompt-organization-field">Organization
-            <select @key="organizationPickerKey" value="@organization" @onchange="ChangeOrganization" disabled="@(busy || organizations.Count == 0)" data-testid="prompt-organization">
-                @if (organizations.Count == 0) { <option value="">No organizations</option> }
-                @foreach (var org in organizations) { <option value="@org.Id">@org.Name</option> }
-            </select>
-        </label>
+
         <label class="prompt-search-field">Search prompts
             <input type="search" @bind="search" @bind:event="oninput" maxlength="200" placeholder="Name or description" disabled="@(organization.Length == 0)" />
         </label>
@@ -145,7 +143,6 @@
 </main>
 
 @code {
-    private List<OrganizationDto> organizations = [];
     private List<AiPromptDto> prompts = [];
     private AiPromptDto? selected;
     private MonacoTextEditor? editor;
@@ -173,8 +170,8 @@
         busy = true;
         try
         {
-            organizations = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations", lifetime.Token) ?? [];
-            organization = organizations.FirstOrDefault()?.Id ?? "";
+            var initial = await Clients.CreateClient("HelpdeskApi").GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/directories/organizations/search?limit=1", lifetime.Token);
+            organization = initial?.Items.FirstOrDefault()?.Id ?? "";
             if (organization.Length > 0) await LoadAsync();
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException)
@@ -182,10 +179,9 @@
         finally { busy = false; loading = false; }
     }
 
-    private Task ChangeOrganization(ChangeEventArgs args)
+    private Task ChangeOrganization(string? next)
     {
-        var next = args.Value?.ToString() ?? "";
-        if (next == organization || !organizations.Any(org => org.Id == next)) return Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(next) || next == organization) return Task.CompletedTask;
         organizationPickerKey++;
         return GuardAsync(async () =>
         {

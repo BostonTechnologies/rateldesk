@@ -36,6 +36,29 @@ test.beforeEach(async ({ page, request }) => {
  await page.goto('/auth/development', { waitUntil: 'domcontentloaded' });
 });
 
+for (const [route, label] of [
+  ['/admin/support-routing', 'Organization'],
+  ['/admin/tenant-sla-settings', 'Tenant'],
+  ['/admin/ai-assistant-webhooks', 'Tenant / Organization'],
+  ['/admin/pending-emails', 'Organization'],
+ ] as const) {
+ test(`organization search reaches late records on ${route}`, async ({ page, request }, info) => {
+ await request.get(`${fixture}/fault?mode=lookup-directory`);
+  await open(page, route);
+  if (route === '/admin/pending-emails') await page.getByText(/^More filters · organization/).click();
+  const input = page.getByRole('combobox', { name: new RegExp(`^${label}\\*?$`) });
+  await input.click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await input.fill('organization 127');
+  const option = page.getByRole('option', { name: 'Synthetic organization 127', exact: true });
+  await expect(option).toBeVisible();
+  await option.click();
+  await expect(input).toHaveValue('Synthetic organization 127');
+  await page.screenshot({ path: info.outputPath(`lookup-${route.split('/').pop()}.png`) });
+ expect((await (await request.get(`${fixture}/state`)).json()).saves).toHaveLength(0);
+ });
+}
+
 test('synthetic before and after workspace evidence', async ({ page }, info) => {
  test.setTimeout(240_000);
  for (const theme of ['light', 'dark']) {

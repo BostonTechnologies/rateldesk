@@ -7,6 +7,7 @@ using Helpdesk.Shared.DTOs.Organization;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
+using MudBlazor.Extensions;
 using NSubstitute;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
@@ -47,6 +48,27 @@ public sealed class CreationSearchPickerRenderedTests
         await picker.InvokeAsync(() => hydration.Response.SetResult(Page("late", "Zulu hydrated organization", 55)));
         picker.WaitForAssertion(() => Assert.Equal("Zulu hydrated organization", picker.Find("input").GetAttribute("value")));
         Assert.Single(selections);
+    }
+
+    [Fact]
+    public async Task Typing_while_a_deep_link_is_hydrating_keeps_both_the_selected_label_and_current_suggestions()
+    {
+        await using var context = Context(out var api);
+        var selections = new List<string?>();
+        var picker = context.Render<OrganizationPicker>(p => p.Add(x => x.SearchUrl, "api/v1/admin/tenants/search")
+            .Add(x => x.AutoSelectSingle, false).Add(x => x.Value, "late")
+            .Add(x => x.SelectionChanged, item => selections.Add(item?.Id)));
+        var hydration = await api.WaitForCallAsync("id=late");
+        var autocomplete = picker.FindComponent<MudAutocomplete<OrganizationDto>>().Instance;
+        IEnumerable<OrganizationDto>? suggestions = null;
+        var searching = picker.InvokeAsync(async () => suggestions = await autocomplete.SearchFunc!("different", CancellationToken.None));
+        var query = await api.WaitForCallAsync("q=different");
+        query.Response.SetResult(Page("different", "Different organization", 121));
+        await searching;
+        Assert.Equal("different", Assert.Single(suggestions!).Id);
+        await picker.InvokeAsync(() => hydration.Response.SetResult(Page("late", "Saved late organization", 121)));
+        picker.WaitForAssertion(() => Assert.Equal("Saved late organization", autocomplete.GetState(x => x.Value)?.Name));
+        Assert.Empty(selections);
     }
 
     [Fact]

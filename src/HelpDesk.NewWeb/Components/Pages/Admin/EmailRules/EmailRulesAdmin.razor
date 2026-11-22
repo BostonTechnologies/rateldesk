@@ -53,13 +53,7 @@
             <MudText Typo="Typo.h6">Clone rule</MudText>
             <MudTextField Label="Cloned rule name" @bind-Value="cloneName" Immediate="true" MaxLength="200" />
             <MudTextField Label="Cloned rule description" @bind-Value="cloneDescription" Immediate="true" Lines="3" />
-            <MudSelect T="string" Label="Cloned rule organization" @bind-Value="cloneOrganization">
-                <MudSelectItem Value="@(string.Empty)">Global rule</MudSelectItem>
-                @foreach (var organization in tenantNames)
-                {
-                    <MudSelectItem Value="organization.Key">@organization.Value</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Cloned rule organization" Placeholder="Global rule" Value="@cloneOrganization" ValueChanged="@(id => cloneOrganization = id ?? string.Empty)" Required="false" />
             <MudText Typo="Typo.caption">The copy retains conditions and actions and starts disabled. Choose its source mailbox after saving.</MudText>
             <MudButton OnClick="SaveCloneAsync" Disabled="@(loading || string.IsNullOrWhiteSpace(cloneName))">Save disabled copy</MudButton>
             <MudButton OnClick="() => cloneSource = null">Cancel clone</MudButton>
@@ -139,14 +133,11 @@
             </div>
             <details class="mb-2"><summary>More filters · organization, rule, exact IDs and dates</summary>
                 <div class="workspace-toolbar">
-                <MudSelect T="string" @bind-Value="auditTenantId" Label="Organization" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
-                    @foreach (var org in tenantNames) { <MudSelectItem Value="@org.Key">@org.Value</MudSelectItem> }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Label="Organization" Placeholder="All organizations" @bind-Value="auditTenantId" Required="false" />
                 <MudSelect T="string" @bind-Value="auditRuleId" Label="Rule" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense">
                     @foreach (var rule in rules) { <MudSelectItem Value="@rule.Id">@rule.Name</MudSelectItem> }
                 </MudSelect>
 
-                    <MudTextField T="string" Label="Organization ID" @bind-Value="auditTenantId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Rule ID" @bind-Value="auditRuleId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Message ID" @bind-Value="auditMessageId" Variant="Variant.Outlined" Margin="Margin.Dense" />
                     <MudTextField T="string" Label="Ticket ID" @bind-Value="auditTicketId" Variant="Variant.Outlined" Margin="Margin.Dense" />
@@ -295,9 +286,9 @@
         {
             mailboxes = await HttpClientFactory.CreateClient("HelpdeskApi").GetFromJsonAsync<List<EmailInboxSettingsDto>>("api/v1/email-settings") ?? [];
 
-            await LoadTenantsAsync();
             rules.Clear();
             rules.AddRange(await RulesClient.GetRulesAsync());
+            await LoadTenantsAsync();
             await LoadAuditAsync();
         }
         catch (Exception ex)
@@ -315,7 +306,7 @@
     {
         try
         {
-            var tenants = await HelpdeskApi.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? [];
+            var tenants = await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, rules.Select(rule => rule.TenantId));
             tenantNames.Clear();
             foreach (var tenant in tenants)
             {

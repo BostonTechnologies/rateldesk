@@ -116,8 +116,7 @@
     }
     private async Task OpenEditDialog(OrganizationDto organization)
     {
-        var organizations = await HelpdeskApi.GetFromJsonAsync<List<OrganizationDto>>("api/v1/organizations") ?? [];
-        var dialog = await DialogService.ShowAsync<EditOrganizationDialog>("Edit Organization", new DialogParameters { ["Organization"] = organization, ["Organizations"] = organizations }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var dialog = await DialogService.ShowAsync<EditOrganizationDialog>("Edit Organization", new DialogParameters { ["Organization"] = organization }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         if (await dialog.Result is { Canceled: false }) await ReloadAsync();
     }
     private async Task OpenDeleteDialog(OrganizationDto organization)

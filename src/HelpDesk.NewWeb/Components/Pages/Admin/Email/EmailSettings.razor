@@ -138,16 +138,9 @@
             {
                 @if (model.Id == Guid.Empty)
                 {
-                    <MudAutocomplete T="EffectiveOrganization" Label="RatelDesk organization"
-                                     Value="SelectedOrganization" ValueChanged="SelectOrganization"
-                                     SearchFunc="SearchOrganizationsAsync" ToStringFunc="OrganizationLabel"
-                                     Required="true" Clearable="true" ResetValueOnEmptyText="true"
-                                     CoerceValue="false" DebounceInterval="200" ShowProgressIndicator="true"
-                                     MaxItems="20" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                     Disabled="@mutationsDisabled">
-                        <ItemTemplate Context="org">@org.Name — @org.Status</ItemTemplate>
-                        <NoItemsTemplate>No available organizations match this search.</NoItemsTemplate>
-                    </MudAutocomplete>
+                    <OrganizationSearchPicker SearchUrl="api/v1/email-settings/available-organizations/search"
+                                              Label="RatelDesk organization" Value="@model.OrganizationId" ValueChanged="SelectOrganization"
+                                              AutoSelectSingle="false" Disabled="@mutationsDisabled" />
                 }
                 else
                 {
@@ -430,19 +423,9 @@
     private static string FormatTimestamp(long? value) => value is null ? "Never" : DateTimeOffset.FromUnixTimeMilliseconds(value.Value).ToLocalTime().ToString("g");
     private sealed record EffectiveOrganization(string Id, string Name, Guid? MailboxId, string Status);
     private EffectiveOrganization? SelectedOrganization => organizations.SingleOrDefault(x => x.Id == model.OrganizationId);
-    private static string OrganizationLabel(EffectiveOrganization? organization) => organization?.Name ?? string.Empty;
-    private Task<IEnumerable<EffectiveOrganization>> SearchOrganizationsAsync(string? text, CancellationToken ct)
+    private void SelectOrganization(string? id)
     {
-        ct.ThrowIfCancellationRequested();
-        var available = organizations.Where(org =>
-            !mailboxes.Any(mailbox => !mailbox.Archived && mailbox.Scope == MailboxScope.Organization && mailbox.OrganizationId == org.Id) &&
-            (string.IsNullOrWhiteSpace(text) || org.Name.Contains(text, StringComparison.OrdinalIgnoreCase)))
-            .OrderBy(org => org.Name, StringComparer.OrdinalIgnoreCase).Take(20).ToArray();
-        return Task.FromResult<IEnumerable<EffectiveOrganization>>(available);
-    }
-    private void SelectOrganization(EffectiveOrganization? organization)
-    {
-        model.OrganizationId = organization?.Id;
+        model.OrganizationId = id;
         MarkDirty();
     }
     private MudForm form = default!;
