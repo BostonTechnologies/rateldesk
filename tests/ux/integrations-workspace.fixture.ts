@@ -156,7 +156,7 @@ for (const state of ['missing', 'denied']) {
  });
 }
 
-test('manual credential organization selection ignores the native status filter and reviews only exact grants', async ({ page }) => {
+test('manual credential organization selection ignores the native status filter and reviews only exact grants', async ({ page, request }) => {
  await open(page);
  await expect(page.getByRole('combobox', { name: 'Status', exact: true }).getByRole('option', { name: 'All (25)', exact: true })).toHaveCount(1);
  await page.getByTestId('integration-credential-create').click();
@@ -181,6 +181,23 @@ test('manual credential organization selection ignores the native status filter 
  await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeDisabled();
  await integration.getByRole('checkbox', { name: 'I have reviewed this connection and its access, and approve creating the integration.', exact: true }).check();
  await expect(integration.getByRole('button', { name: 'Create integration', exact: true })).toBeEnabled();
+ await request.get(`${fixture}/fault?mode=hold-issuance`);
+ await integration.getByRole('button', { name: 'Create integration', exact: true }).click();
+ try {
+  await expect.poll(async () => (await (await request.get(`${fixture}/issuance`)).json()).waiting).toBe(true);
+  await page.evaluate(() => (window as any).Blazor.navigateTo('/account/integration-credentials?tab=connections'));
+  await expect(integration.getByText('Wait for the credential operation to finish.')).toBeVisible();
+ } finally {
+  await request.get(`${fixture}/finish-issuance`);
+ }
+ const issued = page.getByRole('textbox', { name: 'Credential', exact: true });
+ await expect(issued).toHaveValue('synthetic-ui-handoff');
+ await page.getByRole('link', { name: 'Connections', exact: true }).click();
+ await expect(page.getByText('Finish the credential delivery before leaving this area.')).toBeVisible();
+ await expect(issued).toHaveValue('synthetic-ui-handoff');
+ await page.getByRole('button', { name: 'I have saved it' }).click();
+ await page.getByRole('link', { name: 'Connections', exact: true }).click();
+ await expect(page.getByTestId('system-connections-panel')).toBeVisible();
 });
 
 test('ordinary account cannot open host or client approval', async ({ page, request }) => {
@@ -315,11 +332,11 @@ test('system connection context, interrupted save, durable resume and row-local 
  await manage.click();
  await expect(page).toHaveURL(/organizationId=org-b/);
  await expect(page.getByRole('link', { name: 'Return to setup', exact: true })).toHaveAttribute('href', '/admin/automation/integration/orchestrator?organizationId=org-b');
- await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+ await page.getByRole('link', { name: 'API & MCP Credentials', exact: true }).click();
  await expect(page).toHaveURL(/tab=credentials/);
  expect(new URL(page.url()).searchParams.get('organizationId')).toBe('org-b');
  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe('/admin/automation/integration/orchestrator?organizationId=org-b');
- await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+ await page.getByRole('link', { name: 'Connections', exact: true }).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  const panel = page.getByTestId('system-connections-panel');
  await panel.locator('[data-connection-id="pair-awaiting"]').getByRole('button', { name: 'Continue setup', exact: true }).click();
@@ -637,3 +654,31 @@ test('MCP policy preview keeps the reviewed fields locked until explicit confirm
 
 // Opt-in geometry and synthetic screenshots for the owner table inventory.
 test.afterEach(async ({ page }) => { await captureTables(page); });
+
+for (const [width, height, theme] of [
+ [1366, 768, 'light'], [360, 640, 'dark'], [390, 844, 'light'], [360, 480, 'dark'],
+] as const) {
+ test(`route-backed hub navigation at ${width}x${height} in ${theme}`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height });
+  await page.evaluate(value => localStorage.setItem('helpdesk.theme.preference', value), theme);
+  await open(page, '/admin/integration?tab=connections&organizationId=org-a');
+  const nav = page.getByRole('navigation', { name: 'Integrations', exact: true });
+  await expect(nav.getByRole('link')).toHaveText(['Connections', 'API & MCP Credentials', 'AI Providers', 'MCP Policies']);
+  const policies = nav.getByRole('link', { name: 'MCP Policies' });
+  await policies.focus();
+  await expect(policies).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(policies).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('mcp-policy-management')).toBeVisible();
+  await expect(page.getByTestId('system-connections-panel')).toHaveCount(0);
+  await expect(page.getByTestId('integration-credential-create')).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.get('organizationId')).toBe('org-a');
+  await page.goBack();
+  await expect(nav.getByRole('link', { name: 'Connections', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goForward();
+  await page.reload();
+  await expect(policies).toHaveAttribute('aria-current', 'page');
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath(`integrations-${width}-${height}-${theme}.png`) });
+ });
+}

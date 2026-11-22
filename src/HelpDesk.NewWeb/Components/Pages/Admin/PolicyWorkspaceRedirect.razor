@@ -1,0 +1,12 @@
+@page "/admin/operator-policies"
+@attribute [Authorize(Roles = "HelpdeskAdmin")]
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnInitialized()
+    {
+        var target = new Uri(Navigation.Uri);
+        var canonical = Navigation.ToAbsoluteUri("/admin/integration" + target.Query + target.Fragment).AbsoluteUri;
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(canonical, new Dictionary<string, object?> { ["tab"] = "mcp-policies" }), replace: true);
+    }
+}

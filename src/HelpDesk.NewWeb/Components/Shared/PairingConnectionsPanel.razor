@@ -5,6 +5,10 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
+@if (busy || generated is not null)
+{
+    <NavigationLock ConfirmExternalNavigation="true" OnBeforeInternalNavigation="ProtectPairing" />
+}
 <div class="pairing-connections" data-testid="system-connections-panel">
     <div aria-hidden="@(DialogOpen ? "true" : null)">
         <div class="pairing-toolbar">
@@ -161,6 +165,13 @@
 </div>
 
 @code {
+    private void ProtectPairing(LocationChangingContext context)
+    {
+        context.PreventNavigation();
+        notice = busy ? "Wait for the connection operation to finish." : "Close the displayed pairing code before leaving Connections.";
+        StateHasChanged();
+    }
+
     [Parameter] public string? OrganizationId { get; set; }
     private SystemConnectionApi Api => new(HttpClientFactory);
     private readonly CancellationTokenSource lifetime = new();

@@ -47,7 +47,7 @@ public sealed class UserLifecycleDialogTests
         await using var context = DirectoryContext(api, "Hybrid");
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/users?search=kept%20query");
         var page = context.Render<TeamPage>();
-        page.WaitForAssertion(() => Assert.Contains("Team members could not be loaded. Retry the query.", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("Support agents could not be loaded. Retry the query.", page.Markup));
         Assert.Contains("query is retained", page.Find("[role=alert]").TextContent);
         Assert.DoesNotContain("private technical detail", page.Markup);
         Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "kept query");

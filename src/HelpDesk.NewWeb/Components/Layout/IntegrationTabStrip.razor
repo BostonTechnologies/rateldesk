@@ -1,0 +1,25 @@
+@inject NavigationManager Navigation
+
+<WorkspaceTabStrip Label="Integrations" data-testid="integration-credential-tabs">
+    @foreach (var tab in IntegrationTabs.Where(item => IsAdmin || item.Slug == "credentials"))
+    {
+        <a href="@Destination(tab.Slug)" aria-current="@(Active == tab.Slug ? "page" : null)" data-testid="@tab.TestId">@tab.Label</a>
+    }
+</WorkspaceTabStrip>
+
+@code {
+    [Parameter] public string? Active { get; set; }
+    [Parameter] public bool IsAdmin { get; set; }
+    [Parameter, EditorRequired] public string TargetUrl { get; set; } = string.Empty;
+
+    private string Destination(string tab) => Navigation.GetUriWithQueryParameters(TargetUrl,
+        new Dictionary<string, object?> { ["tab"] = tab });
+
+    private static readonly (string Slug, string Label, string TestId)[] IntegrationTabs =
+    [
+        ("connections", "Connections", "integration-system-connections"),
+        ("credentials", "API & MCP Credentials", "integration-account-credentials"),
+        ("ai-providers", "AI Providers", "integration-ai-providers"),
+        ("mcp-policies", "MCP Policies", "integration-mcp-policies")
+    ];
+}

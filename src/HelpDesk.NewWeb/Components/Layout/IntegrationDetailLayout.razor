@@ -1,0 +1,14 @@
+@inherits LayoutComponentBase
+@layout MainLayout
+@inject NavigationManager Navigation
+
+<AuthorizeView Roles="HelpdeskAdmin">
+    <IntegrationTabStrip Active="@Active" IsAdmin="true" TargetUrl="@CanonicalUrl" />
+</AuthorizeView>
+@Body
+
+@code {
+    private string CanonicalUrl => Navigation.ToAbsoluteUri("/admin/integration" + new Uri(Navigation.Uri).Query).AbsoluteUri;
+    private string Active => NavigationRoute.Normalize(Navigation.ToBaseRelativePath(Navigation.Uri))
+        .EndsWith("/netclaw", StringComparison.OrdinalIgnoreCase) ? "ai-providers" : "connections";
+}

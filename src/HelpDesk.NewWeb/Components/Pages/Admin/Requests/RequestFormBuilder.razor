@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
+<WorkspaceEditGuard Dirty="@(IsDirty)" Saving="@saving" Message="Discard unsaved request form changes and leave?" />
 <MudDialog Class="request-form-builder-dialog">
     <TitleContent>
         <div class="request-form-builder-title">
