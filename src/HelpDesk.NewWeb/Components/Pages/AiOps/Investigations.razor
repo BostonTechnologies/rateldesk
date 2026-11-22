@@ -7,7 +7,7 @@
 @inject NavigationManager Navigation
 
 <PageTitle>AI investigations</PageTitle>
-<main class="ai-ops" data-testid="ai-investigations">
+<main class="ai-ops @(showResults ? "show-results" : "show-investigation")" data-testid="ai-investigations">
     <header class="ai-toolbar">
         <h1>Investigations</h1>
         <label>Organization
@@ -22,13 +22,17 @@
     </header>
     @if (error is not null) { <div class="ai-notice" role="alert">@error</div> }
     @if (busy) { <p class="ai-loading" role="status">Updating investigation workspace…</p> }
+    <button type="button" class="ai-pane-switch" aria-controls="investigation-results"
+            aria-expanded="@(showResults ? "true" : "false")" @onclick="() => showResults = !showResults">
+        @(showResults ? "Back to investigation" : "Back to results")
+    </button>
     <div class="ai-metrics" aria-label="Status in recent results">
         <div><span>Active</span><strong>@(listAvailable ? investigations.Count(x => x.State is ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports).ToString() : "—")</strong></div>
         <div><span>Waiting for your decision</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.AwaitingApproval).ToString() : "—")</strong></div>
         <div><span>Needs recovery</span><strong>@(listAvailable ? investigations.Count(x => x.State == ChatState.DeliveryUnknown).ToString() : "—")</strong></div>
     </div>
     <div class="ai-workspace">
-        <aside class="ai-investigation-list" aria-label="Recent investigations">
+        <aside id="investigation-results" class="ai-investigation-list" aria-label="Recent investigations">
             <form class="ai-search" @onsubmit="Search" @onsubmit:preventDefault>
                 <label for="investigation-search">Find investigations</label>
                 <div><input id="investigation-search" @bind="search" @bind:event="oninput" maxlength="200" placeholder="Investigation title" disabled="@busy" />
@@ -41,7 +45,7 @@
             <div class="ai-list-items">
                 @foreach (var row in FilteredInvestigations)
                 {
-                    <a @key="row.Id" class="ai-investigation @(selected?.Id == row.Id && !creating ? "selected" : "")"
+                    <a @key="row.Id" @onclick="() => showResults = false" class="ai-investigation @(selected?.Id == row.Id && !creating ? "selected" : "")"
                        href="@InvestigationUrl(row.Id)" aria-current="@(selected?.Id == row.Id && !creating ? "page" : null)">
                         <span class="ai-state @StateClass(row.State)">@StateLabel(row.State)</span>
                         <strong>@row.Title</strong>
@@ -145,7 +149,7 @@
     private Guid? providerProfileId;
     private string organization = "", title = "", search = "", ticketSearch = "", statusFilter = "all";
     private string? error;
-    private bool busy, creating, initialized, listAvailable;
+    private bool busy, creating, initialized, listAvailable, showResults;
     private int generation;
     private Guid creationId = Guid.NewGuid();
     private readonly HashSet<string> ticketIds = [];
@@ -171,6 +175,7 @@
     protected override async Task OnParametersSetAsync()
     {
         var current = ++generation;
+        showResults = !Id.HasValue;
         busy = true; selected = null; creating = false; error = null; search = Query ?? "";
         try
         {
@@ -276,8 +281,8 @@
             if (current == generation) chatCapabilities = null;
         }
     }
-    private void StartCreate() { creating = true; error = null; }
-    private void CancelCreate() { creating = false; error = null; }
+    private void StartCreate() { showResults = false; creating = true; error = null; }
+    private void CancelCreate() { showResults = selected is null; creating = false; error = null; }
     private async Task FindTickets()
     {
         if (busy || organization.Length == 0) return;
