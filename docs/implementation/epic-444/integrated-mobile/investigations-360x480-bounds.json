@@ -1,0 +1,114 @@
+[
+  {
+    "class": "workspace-header",
+    "rect": {
+      "x": 14,
+      "y": 70,
+      "width": 332,
+      "height": 101,
+      "top": 70,
+      "right": 346,
+      "bottom": 171,
+      "left": 14
+    },
+    "scrollHeight": 101
+  },
+  {
+    "class": "creation-search-picker",
+    "rect": {
+      "x": 14,
+      "y": 70,
+      "width": 271,
+      "height": 52,
+      "top": 70,
+      "right": 285,
+      "bottom": 122,
+      "left": 14
+    },
+    "scrollHeight": 52
+  },
+  {
+    "class": "workspace-tabs",
+    "rect": {
+      "x": 14,
+      "y": 126,
+      "width": 272.953125,
+      "height": 45,
+      "top": 126,
+      "right": 286.953125,
+      "bottom": 171,
+      "left": 14
+    },
+    "scrollHeight": 44
+  },
+  {
+    "class": "ai-toolbar",
+    "rect": {
+      "x": 14,
+      "y": 179,
+      "width": 332,
+      "height": 39.28125,
+      "top": 179,
+      "right": 346,
+      "bottom": 218.28125,
+      "left": 14
+    },
+    "scrollHeight": 39
+  },
+  {
+    "class": "conversation-header",
+    "rect": {
+      "x": 15,
+      "y": 223.28125,
+      "width": 330,
+      "height": 51.484375,
+      "top": 223.28125,
+      "right": 345,
+      "bottom": 274.765625,
+      "left": 15
+    },
+    "scrollHeight": 50
+  },
+  {
+    "class": "ai-chat-scroll",
+    "rect": {
+      "x": 15,
+      "y": 274.765625,
+      "width": 330,
+      "height": 48,
+      "top": 274.765625,
+      "right": 345,
+      "bottom": 322.765625,
+      "left": 15
+    },
+    "scrollHeight": 2677
+  },
+  {
+    "class": "ai-chat-composer",
+    "rect": {
+      "x": 15,
+      "y": 322.765625,
+      "width": 330,
+      "height": 148.140625,
+      "top": 322.765625,
+      "right": 345,
+      "bottom": 470.90625,
+      "left": 15
+    },
+    "scrollHeight": 148
+  },
+  {
+    "class": "composer-send",
+    "rect": {
+      "x": 247.890625,
+      "y": 385.765625,
+      "width": 81.71875,
+      "height": 40,
+      "top": 385.765625,
+      "right": 329.609375,
+      "bottom": 425.765625,
+      "left": 247.890625
+    },
+    "scrollHeight": 38
+  }
+]
