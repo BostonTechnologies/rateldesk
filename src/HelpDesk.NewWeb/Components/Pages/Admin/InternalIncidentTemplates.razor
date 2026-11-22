@@ -5,9 +5,7 @@
 <MudStack Spacing="2">
     @if (error is not null) { <MudAlert Dense="true" Severity="Severity.Error" role="alert">@error</MudAlert> }
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
-        <MudSelect T="string" Label="Organization" Value="organization" ValueChanged="OrganizationChanged" Dense="true" Style="min-width:12rem">
-            @foreach (var tenant in organizations) { <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem> }
-        </MudSelect>
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" Value="@organization" ValueChanged="@(id => OrganizationChanged(id ?? string.Empty))" Clearable="false" />
         <MudSelect T="string" Label="System default to clone" @bind-Value="defaultId" Dense="true" Style="min-width:12rem">
             @foreach (var item in defaults) { <MudSelectItem Value="@item.Id">@item.Name</MudSelectItem> }
         </MudSelect>

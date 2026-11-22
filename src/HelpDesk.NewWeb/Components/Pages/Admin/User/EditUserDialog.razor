@@ -35,12 +35,7 @@
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="12" sm="6">
-                        <MudSelect T="string" @bind-Value="newOrganizationId" Label="Organization" Required="true">
-                            @foreach (var organization in organizations)
-                            {
-                                <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                            }
-                        </MudSelect>
+                        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" @bind-Value="newOrganizationId" Clearable="false" />
                     </MudItem>
                 </MudGrid>
                 <MudButton OnClick="AddAssignment" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2">Add scoped role</MudButton>
@@ -72,15 +67,7 @@
                     <MudSelectItem T="string" Value="@("User")">User</MudSelectItem>
                     <MudSelectItem T="string" Value="@("Technician")">Technician</MudSelectItem>
                 </MudSelect>
-                <MudSelect T="string"
-                           @bind-Value="model.OrganizationId"
-                           Label="Organization"
-                           Clearable="true">
-                    @foreach (var organization in organizations)
-                    {
-                        <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                    }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Organization" @bind-Value="model.OrganizationId" Required="false" Placeholder="No organization" />
                 <MudSwitch @bind-Value="model.IsTestUser"
                            Color="Color.Warning"
                            Label="Allow access to in-testing self-service requests"

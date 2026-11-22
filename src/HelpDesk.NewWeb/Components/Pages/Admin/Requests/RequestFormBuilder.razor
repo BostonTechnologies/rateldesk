@@ -61,19 +61,7 @@
                                 <MudSelectItem T="RequestFormReleaseStatus" Value="@RequestFormReleaseStatus.Production">Production</MudSelectItem>
                             </MudSelect>
 
-                            <MudSelect T="string"
-                                       Value="model.OrganizationId"
-                                       ValueChanged="OnOrganizationChanged"
-                                       Label="Primary Organization"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense"
-                                       Clearable="true"
-                                       HelperText="Automation uses a saved system connection for this primary organization.">
-                                @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                }
-                            </MudSelect>
+                            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Label="Primary Organization" Value="@model.OrganizationId" ValueChanged="OnOrganizationChanged" Required="false" Placeholder="No primary organization" />
 
                             @if (SelectedOrganization is not null)
                             {

@@ -7,6 +7,10 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Helpdesk.Shared.Pairing;
+using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.Organization;
+using Microsoft.AspNetCore.WebUtilities;
+using AngleSharp.Html.Parser;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -177,7 +181,7 @@ public sealed class PairingConnectionsPageTests
         AssertRenderedSelection(view, await view.HtmlAsync(), "connection-rateldesk-customer", "customer-9", "Incident customer");
         await view.ChangeSelectionAsync("connection-rateldesk-organization", "organization-8");
         AssertRenderedSelection(view, await view.HtmlAsync(), "connection-rateldesk-organization", "organization-8", "Escalation team");
-        Assert.Null(view.Select("connection-rateldesk-customer").Value);
+        Assert.Null(view.SelectedId("connection-rateldesk-customer"));
         Assert.False(Property<bool>(view.Panel, "CanSave"));
         Assert.Equal(failedSave ? 1 : 0, api.Saves.Count);
 
@@ -502,10 +506,10 @@ public sealed class PairingConnectionsPageTests
     private static string Form(string html, string testId) => Assert.Single(Regex.Matches(html, "<form\\b[^>]*data-testid=\"" + testId + "\"[^>]*>.*?</form>", RegexOptions.Singleline).Cast<Match>()).Value;
     private static void AssertRenderedSelection(RenderedAccount view, string html, string testId, string id, string displayName)
     {
-        Assert.Equal(id, view.Select(testId).Value);
-        var presenter = Assert.Single(Regex.Matches(html, "<div\\b[^>]*>([^<]*)</div>").Cast<Match>(), match => match.Value.Contains("data-testid=\"" + testId + "\"", StringComparison.Ordinal));
-        Assert.Contains("display:inline", presenter.Value);
-        Assert.Equal(displayName, WebUtility.HtmlDecode(presenter.Groups[1].Value).Trim());
+        Assert.Equal(id, view.SelectedId(testId));
+        var input = new HtmlParser().ParseDocument(html).QuerySelector($"[data-testid='{testId}'] input[role=combobox]");
+        Assert.NotNull(input);
+        Assert.Equal(displayName, input.GetAttribute("value"));
     }
     private static void AssertLocalControls(string html, bool enabled)
     {
@@ -546,12 +550,14 @@ public sealed class PairingConnectionsPageTests
     private sealed class ComponentCapture : IComponentActivator
     {
         public PairingPanel? Panel { get; private set; }
-        public List<MudSelect<string>> Selects { get; } = [];
+        public List<MudAutocomplete<OrganizationDto>> Organizations { get; } = [];
+        public List<MudAutocomplete<PairingChoice>> Customers { get; } = [];
         public IComponent CreateInstance(Type componentType)
         {
             var component = (IComponent)Activator.CreateInstance(componentType)!;
             if (component is PairingPanel panel) Panel = panel;
-            if (component is MudSelect<string> select) Selects.Add(select);
+            if (component is MudAutocomplete<OrganizationDto> organizations) Organizations.Add(organizations);
+            if (component is MudAutocomplete<PairingChoice> customers) Customers.Add(customers);
             return component;
         }
     }
@@ -568,8 +574,27 @@ public sealed class PairingConnectionsPageTests
     private sealed class RenderedAccount(ServiceProvider services, AccountRenderer renderer, HtmlRootComponent root, PairingPanel panel, ComponentCapture capture) : IAsyncDisposable
     {
         public PairingPanel Panel => panel;
-        public MudSelect<string> Select(string testId) => capture.Selects.Last(select => select.UserAttributes?.GetValueOrDefault("data-testid")?.ToString() == testId);
-        public Task ChangeSelectionAsync(string testId, string id) => renderer.Dispatcher.InvokeAsync(() => Select(testId).ValueChanged.InvokeAsync(id));
+        private MudAutocomplete<OrganizationDto> Organization(string testId) =>
+            capture.Organizations.Last(component => component.Label == (testId == "connection-netratel-tenant" ? "NetRatel tenant" : "RatelDesk organization"));
+
+        public string? SelectedId(string testId) => testId == "connection-rateldesk-customer"
+            ? capture.Customers.Last().Value?.Id : Organization(testId).Value?.Id;
+
+        public Task ChangeSelectionAsync(string testId, string id) => renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            if (testId == "connection-rateldesk-customer")
+            {
+                var customer = capture.Customers.Last();
+                var options = await customer.SearchFunc!("", CancellationToken.None);
+                await customer.ValueChanged.InvokeAsync(options.Single(row => row.Id == id));
+            }
+            else
+            {
+                var picker = Organization(testId);
+                var options = await picker.SearchFunc!("", CancellationToken.None);
+                await picker.ValueChanged.InvokeAsync(options.Single(row => row.Id == id));
+            }
+        });
         public Task SetOrganizationHintAsync(string? id) => renderer.Dispatcher.InvokeAsync(() => ((IComponent)panel).SetParametersAsync(ParameterView.FromDictionary(new Dictionary<string, object?> { ["OrganizationId"] = id })));
         public Task<string> HtmlAsync() => renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
         public Task InvokeAsync(string methodName, object? argument = null)
@@ -608,6 +633,19 @@ public sealed class PairingConnectionsPageTests
                 return Json(Rows);
             }
             if (path.EndsWith("/code", StringComparison.Ordinal)) { GenerateCount++; return Json(new PairingCodeDto("JKLM-NPQR", DateTimeOffset.UtcNow.AddMinutes(5))); }
+            if (path.EndsWith("/directory/search", StringComparison.Ordinal))
+            {
+                var query = QueryHelpers.ParseQuery(request.RequestUri.Query);
+                var choices = query["kind"].ToString() switch
+                {
+                    "netratel" => Choices.NetRatelTenants,
+                    "organization" => Choices.RatelDeskOrganizations,
+                    _ => Choices.RatelDeskCustomers.Where(customer => customer.ParentId == query["organizationId"].ToString()).ToArray()
+                };
+                var selected = query["id"].ToString();
+                return Json(new CreationLookupResult<PairingChoice>(
+                    choices.Where(row => selected.Length == 0 || row.Id == selected).ToList(), choices.Length, false));
+            }
             if (path.EndsWith("/directory", StringComparison.Ordinal))
             {
                 if (FailDirectory) throw new HttpRequestException("Synthetic unavailable directory.");

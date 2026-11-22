@@ -12,12 +12,7 @@
         <MudButton Color="Color.Primary" OnClick="NewConfiguration">Add webhook</MudButton>
     </MudStack>
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="ReloadAsync">Retry</MudButton></MudAlert> }
-    <MudSelect T="string" Margin="Margin.Dense" Variant="Variant.Outlined" Label="Tenant / Organization" Value="selectedOrganizationId" ValueChanged="OnOrganizationChanged" Required="true" Class="mb-3">
-        @foreach (var tenant in tenants)
-        {
-            <MudSelectItem Value="@tenant.Id">@tenant.Name</MudSelectItem>
-        }
-    </MudSelect>
+    <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Tenant / Organization" Value="@selectedOrganizationId" ValueChanged="OnOrganizationChanged" Clearable="false" Disabled="@editing" />
     @if (editing)
     {
         <MudPaper Class="pa-3 mb-3" Outlined="true">
@@ -45,8 +40,9 @@
 </MudPaper>
 
 @code {
-    private List<AiAssistantWebhookConfigurationDto> items = new(); private List<TenantLookupDto> tenants = new(); private string? selectedOrganizationId; private bool editing; private Guid? editingId; private Form form = new();
+    private List<AiAssistantWebhookConfigurationDto> items = new(); private string? selectedOrganizationId; private bool editing; private Guid? editingId; private Form form = new();
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private int scopeVersion;
     private bool loading;
     private string? loadError;
     protected override Task OnInitializedAsync() => ReloadAsync();
@@ -55,22 +51,34 @@
         loading = true; loadError = null;
         try
         {
-            tenants = await Api.GetFromJsonAsync<List<TenantLookupDto>>("api/v1/admin/tenants/lookup") ?? new();
-            selectedOrganizationId ??= tenants.FirstOrDefault()?.Id;
+            if (selectedOrganizationId is null)
+            {
+                var current = scopeVersion;
+                var first = await Api.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/tenants/search?limit=1");
+                if (scopeVersion != current) return;
+                selectedOrganizationId = first?.Items.FirstOrDefault()?.Id;
+            }
             await Load();
         }
         catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
         { loadError = "Organizations could not be loaded. Retry the query."; }
         finally { loading = false; }
     }
-    private async Task OnOrganizationChanged(string value) { selectedOrganizationId = value; editing = false; await Load(); }
+    private async Task OnOrganizationChanged(string? value) { if (editing || value == selectedOrganizationId) return; selectedOrganizationId = value; items.Clear(); await Load(); }
     private async Task Load()
     {
+        var current = ++scopeVersion;
+        var scope = selectedOrganizationId;
         loading = true; loadError = null;
-        try { items = string.IsNullOrWhiteSpace(selectedOrganizationId) ? new() : await Api.GetFromJsonAsync<List<AiAssistantWebhookConfigurationDto>>($"api/v1/admin/ai-assistant-webhooks/?organizationId={Uri.EscapeDataString(selectedOrganizationId)}") ?? new(); }
+        try
+        {
+            var rows = string.IsNullOrWhiteSpace(scope) ? [] : await Api.GetFromJsonAsync<List<AiAssistantWebhookConfigurationDto>>(
+                $"api/v1/admin/ai-assistant-webhooks/?organizationId={Uri.EscapeDataString(scope)}") ?? [];
+            if (scopeVersion == current) items = rows;
+        }
         catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
-        { loadError = "Webhooks could not be loaded. Retry the query."; }
-        finally { loading = false; }
+        { if (scopeVersion == current) loadError = "Webhooks could not be loaded. Retry the query."; }
+        finally { if (scopeVersion == current) loading = false; }
     }
     private void NewConfiguration() { editingId = null; form = new(); editing = true; }
     private void Edit(AiAssistantWebhookConfigurationDto item) { editingId = item.Id; form = new() { Name = item.Name, Endpoint = item.Endpoint, RouteName = item.RouteName, PromptTemplate = item.PromptTemplate, Areas = item.TicketAreas.ToList() }; editing = true; }

@@ -21,13 +21,7 @@
             @if (isHelpdeskAdmin)
             {
                 <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" Label="Tenant" Value="selectedTenantId" ValueChanged="OnTenantChanged" Clearable="true" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense">
-                        <MudSelectItem T="string" Value="@((string?)null)">All Tenants</MudSelectItem>
-                        @foreach (var tenant in tenants)
-                        {
-                            <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Tenant" Value="@selectedTenantId" ValueChanged="OnTenantChanged" Placeholder="All tenants" Required="false" />
                 </MudItem>
             }
 

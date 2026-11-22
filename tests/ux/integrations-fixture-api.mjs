@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Synthetic UI-only loopback fixture. Real lifecycle and authorization run in owning API/provider suites.
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -69,6 +70,14 @@ http.createServer(async (req, res) => {
  const admin = claims.roles?.includes('HelpdeskAdmin') ?? false;
  if (path === '/api/v1/auth/me') return reply({ isAuthenticated: true, name: 'Synthetic Operator', email: 'operator@example.test', userId: claims.sub, primaryOrganizationId: 'org-a', customerId: null, isHelpdeskAdmin: admin, roleBundles: claims.roles ?? [], permissions: claims.roles ?? [], allowedOrganizationIds: ['org-a'], managedOrganizationIds: [] });
  if (path === '/api/v1/branding') return reply({ applicationName: 'RatelDesk', faviconUrl: '/favicon.ico' });
+ if (['/api/v1/admin/directories/organizations/search', '/api/v1/ai/ops/organizations/search', '/api/v1/ai/chat/organizations/search', '/api/v1/tenant-admin/organizations/search', '/api/v1/admin/tenants/search'].includes(path)) return reply(organizationLookupPage(url, admin ? organizations : organizations.slice(0, 1)));
+ if (path.startsWith(systemRoot + '/') && path.endsWith('/directory/search')) {
+  if (!admin) return reply({}, 403);
+  const kind = url.searchParams.get('kind');
+  const candidates = kind === 'netratel' ? systemDirectory.netRatelTenants : kind === 'organization' ? systemDirectory.ratelDeskOrganizations :
+   systemDirectory.ratelDeskCustomers.filter(row => row.parentId === url.searchParams.get('organizationId'));
+  return reply(organizationLookupPage(url, candidates));
+ }
  if (path === '/api/v1/organizations') return reply(admin ? organizations : organizations.slice(0, 1));
  if (req.method === 'GET' && path === '/api/v1/ai/ops/organizations') {
   if (!admin && !claims.roles?.includes('Incident.Read')) return reply({}, 403);

@@ -64,9 +64,7 @@
                 <MudText Typo="Typo.subtitle1">Managed Agents API profile</MudText>
                 <div class="ai-provider-fields">
                     <MudTextField Label="Profile name" @bind-Value="form.Name" MaxLength="100" Margin="Margin.Dense" />
-                    <MudAutocomplete T="string" Label="Organization" @bind-Value="form.OrganizationId" @bind-Value:after="ClearCatalog"
-                                     SearchFunc="SearchOrganizations" ToStringFunc="OrganizationLabel" Dense="true"
-                                     Disabled="@(form.Revision > 0)" Margin="Margin.Dense" />
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" @bind-Value="form.OrganizationId" @bind-Value:after="ClearCatalog" Placeholder="Authorized organizations" Required="false" AutoSelectSingle="false" Disabled="@(form.Revision > 0)" />
                 </div>
                 <div class="ai-provider-fields">
                     <MudSelect T="OpenAiKeyAction" Label="Project key" @bind-Value="form.KeyAction" @bind-Value:after="OnKeyActionChanged" Margin="Margin.Dense">
@@ -277,10 +275,6 @@
         ChatProviderKind.CodexAppServer => $"Codex App Server · ChatGPT plan usage · {profile.Model}",
         _ => $"Managed Agents API · API project billing · {profile.Model}"
     };
-
-    private Task<IEnumerable<string>> SearchOrganizations(string text, CancellationToken _) =>
-        Task.FromResult(Organizations.Where(item => string.IsNullOrWhiteSpace(text) || item.Name.Contains(text, StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.Id));
 
     private Task<IEnumerable<string>> SearchModels(string text, CancellationToken _) =>
         Task.FromResult((catalog?.Models ?? []).Select(item => item.Id)

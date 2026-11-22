@@ -28,8 +28,7 @@
     <div class="team-query-toolbar" role="search" aria-label="Find team members">
         <MudTextField T="string" Value="@searchText" ValueChanged="SearchChanged" Label="Search name or email" Variant="Variant.Outlined" Margin="Margin.Dense"
                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" DebounceInterval="300" Immediate="true" Clearable="true" />
-        <MudAutocomplete T="TenantLookupDto" Value="selectedOrganization" ValueChanged="OrganizationChanged" SearchFunc="FindOrganizations" ToStringFunc="@(item => item?.Name ?? string.Empty)"
-                         Label="Organization" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" ResetValueOnEmptyText="true" MinCharacters="0" DebounceInterval="300" MaxItems="50" />
+        <OrganizationDirectorySelector Value="@organizationId" ValueChanged="OrganizationChanged" />
         <MudTextField T="string" Value="@roleFilter" ValueChanged="RoleChanged" Label="Role or scoped role key" Placeholder="User, Technician or a scoped role key" DebounceInterval="300" Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
         <MudSelect T="string" Value="@stateFilter" ValueChanged="StateChanged" Label="Application access" Variant="Variant.Outlined" Margin="Margin.Dense">
             <MudSelectItem T="string" Value="@(string.Empty)">All access states</MudSelectItem>
@@ -42,7 +41,6 @@
         <MudButton Variant="Variant.Text" Disabled="@(!HasFilters)" OnClick="ClearFilters">Clear filters</MudButton>
     </div>
     <MudText Typo="Typo.body2" Class="my-2" aria-live="polite">@(loadError is null ? $"{total:N0} team members" : "Team unavailable")</MudText>
-    @if (organizationError is not null) { <MudAlert Severity="Severity.Warning" role="alert">@organizationError</MudAlert> }
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="Refresh">Retry</MudButton></MudAlert> }
     <div class="team-table-region" @ref="directoryRegion" role="region" aria-label="Team directory. Scroll horizontally to reach all columns and actions." tabindex="0">
     <MudTable T="UserDirectoryDto" @ref="table" ServerData="LoadServerData" Dense="true" Hover="true" FixedHeader="true" FixedFooter="true" Breakpoint="Breakpoint.None"
@@ -100,9 +98,8 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
     private MudTable<UserDirectoryDto>? table;
-    private TenantLookupDto? selectedOrganization;
     private string searchText = string.Empty, roleFilter = string.Empty, stateFilter = string.Empty, sortBy = "name";
-    private string? organizationId, loadError, organizationError, appliedLocation;
+    private string? organizationId, loadError, appliedLocation;
     private bool? testFilter;
     private int pageIndex, pageSize = 25, total, generation;
     private bool descending, disposed, reloadAfterRender, focusDirectoryAfterRender;
@@ -122,23 +119,6 @@
         sortBy = QuerySort is "email" or "organization" or "state" ? QuerySort : "name"; descending = QueryDescending;
         var actor = AuthenticationStateTask is null ? null : (await AuthenticationStateTask).User;
         if (actor?.IsInRole("HelpdeskAdmin") != true) return;
-        if (!string.IsNullOrWhiteSpace(organizationId))
-        {
-            var requestedOrganization = organizationId;
-            try
-            {
-                var organizations = await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?selectedId={Uri.EscapeDataString(requestedOrganization)}");
-                if (disposed || organizationId != requestedOrganization) return;
-                selectedOrganization = organizations?.FirstOrDefault(); organizationError = null;
-            }
-            catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
-            {
-                if (disposed || organizationId != requestedOrganization) return;
-                selectedOrganization = new() { Id = requestedOrganization, Name = "Selected organization" };
-                organizationError = "Organization lookup is unavailable. Your selection is retained; retry the lookup.";
-            }
-        }
-        else selectedOrganization = null;
         reloadAfterRender = table is not null;
     }
 
@@ -184,27 +164,12 @@
         }
     }
 
-    private async Task<IEnumerable<TenantLookupDto>> FindOrganizations(string search, CancellationToken ct)
-    {
-        try
-        {
-            organizationError = null;
-            return await Api.GetFromJsonAsync<List<TenantLookupDto>>($"api/v1/admin/directories/organizations/lookup?search={Uri.EscapeDataString(search ?? string.Empty)}", ct) ?? [];
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return []; }
-        catch (Exception exception) when (UserLifecycleErrors.IsUnavailable(exception) || exception is JsonException)
-        {
-            organizationError = "Organization lookup is unavailable. Your selection is retained; retry the search.";
-            await InvokeAsync(StateHasChanged);
-            return [];
-        }
-    }
     private Task SearchChanged(string value) { searchText = value ?? string.Empty; return QueryChanged(); }
     private Task RoleChanged(string value) { roleFilter = value; return QueryChanged(); }
     private Task StateChanged(string value) { stateFilter = value; return QueryChanged(); }
     private Task CohortChanged(bool? value) { testFilter = value; return QueryChanged(); }
-    private Task OrganizationChanged(TenantLookupDto? value) { selectedOrganization = value; organizationId = value?.Id; return QueryChanged(); }
-    private Task ClearFilters() { searchText = roleFilter = stateFilter = string.Empty; organizationId = null; selectedOrganization = null; testFilter = null; return QueryChanged(); }
+    private Task OrganizationChanged(string? value) { organizationId = value; return QueryChanged(); }
+    private Task ClearFilters() { searchText = roleFilter = stateFilter = string.Empty; organizationId = null; testFilter = null; return QueryChanged(); }
     private string SortState(string key) => sortBy == key ? descending ? "descending" : "ascending" : "none";
     private string SortIcon(string key) => sortBy == key ? descending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward : Icons.Material.Filled.UnfoldMore;
     private Task ChangeSort(string key) { descending = sortBy == key && !descending; sortBy = key; return QueryChanged(); }

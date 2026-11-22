@@ -38,18 +38,7 @@
     <MudPaper Elevation="0" Class="pa-2 mb-2">
         <MudGrid Spacing="3" AlignItems="Center">
             <MudItem xs="12" md="6">
-                <MudSelect T="string"
-                           Value="@selectedOrganizationId"
-                           ValueChanged="OnOrganizationChangedAsync"
-                           Label="Organization"
-                           Variant="Variant.Outlined"
-                           Margin="Margin.Dense"
-                           Disabled="@(loading || editing)">
-                    @foreach (var organization in organizations.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                    }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Value="@selectedOrganizationId" ValueChanged="@(id => OnOrganizationChangedAsync(id ?? string.Empty))" Clearable="false" Disabled="@(loading || editing)" />
             </MudItem>
             <MudItem xs="12" md="6">
                 <MudText Typo="Typo.overline">Selected organization</MudText>

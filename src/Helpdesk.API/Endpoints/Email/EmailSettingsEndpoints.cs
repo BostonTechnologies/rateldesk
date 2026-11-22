@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
@@ -147,6 +148,12 @@ public static class EmailSettingsEndpoints
                 return Results.Ok(MailboxSettingsService.ToDto(mailbox));
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Configuration changed; reload before archiving." }); }
+        });
+        group.MapGet("/available-organizations/search", (HelpdeskDbContext db, string? q, string? id, int? limit, CancellationToken ct) =>
+        {
+            var eligible = db.Organizations.AsNoTracking().Where(org => !db.EmailInboxSettings.Any(mailbox =>
+                !mailbox.Archived && mailbox.Scope == MailboxScope.Organization && mailbox.OrganizationId == org.Id));
+            return OrganizationLookup.SearchAsync(db, eligible, q, id, limit, ct, namesOnly: true);
         });
         group.MapGet("/effective", async (HelpdeskDbContext db, CancellationToken ct) =>
         {

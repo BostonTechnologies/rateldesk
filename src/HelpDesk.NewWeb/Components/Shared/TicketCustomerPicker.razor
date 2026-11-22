@@ -14,34 +14,8 @@
     }
     else
     {
-        <MudAutocomplete T="CustomerDto"
-                         Placeholder="Select user"
-                         Value="selectedCustomer"
-                         ValueChanged="Assign"
-                         SearchFunc="SearchCustomers"
-                         ToStringFunc="@(customer => CustomerLabel(customer))"
-                         Variant="Variant.Text"
-                         Dense="true"
-                         Clearable="false"
-                         CoerceText="false"
-                         ResetValueOnEmptyText="true"
-                         DebounceInterval="250"
-                         Disabled="@(ReadOnly || string.IsNullOrWhiteSpace(OrganizationId))"
-                         Adornment="Adornment.Start"
-                         AdornmentIcon="@Icons.Material.Filled.PersonSearch"
-                         Class="ticket-customer-picker">
-            <ItemTemplate Context="customer">
-                <MudStack Spacing="0" Class="py-1">
-                    <MudText Typo="Typo.body2">@customer.Name</MudText>
-                    <MudText Typo="Typo.caption">@customer.Email</MudText>
-                </MudStack>
-            </ItemTemplate>
-            <NoItemsTemplate>
-                <MudText Typo="Typo.body2" Class="px-3 py-2">
-                    @(string.IsNullOrWhiteSpace(OrganizationId) ? "No customer scope." : "No matching customer users.")
-                </MudText>
-            </NoItemsTemplate>
-        </MudAutocomplete>
+        <CustomerRequesterPicker @key="TicketId" Module="@TicketType.TrimEnd('s')" OrganizationId="@OrganizationId" Label="Select user"
+                                 AllowCreate="false" LoadOnOpen="true" Disabled="@(ReadOnly || assigning)" SelectionChanged="Assign" />
     }
 </div>
 
@@ -56,80 +30,26 @@
     [Parameter] public EventCallback<CustomerSelection> CustomerChanged { get; set; }
 
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
-    private readonly List<CustomerDto> customers = new();
-    private string? loadedOrganizationId;
-    private CustomerDto? selectedCustomer;
-
+    private bool assigning;
     private string DisplayText => FirstNonEmpty(CustomerName, CustomerEmail, CustomerId) ?? "User";
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (!string.Equals(loadedOrganizationId, OrganizationId, StringComparison.Ordinal))
-        {
-            loadedOrganizationId = OrganizationId;
-            customers.Clear();
-            selectedCustomer = null;
-
-            if (!ReadOnly && !string.IsNullOrWhiteSpace(OrganizationId) && string.IsNullOrWhiteSpace(CustomerId))
-            {
-                await LoadCustomersAsync();
-            }
-        }
-    }
-
-    private async Task LoadCustomersAsync()
-    {
-        try
-        {
-            var all = await Api.GetFromJsonAsync<List<CustomerDto>>($"api/v1/ticketing/customers?module={TicketType.TrimEnd('s')}&organizationId={Uri.EscapeDataString(OrganizationId ?? string.Empty)}") ?? new();
-            customers.AddRange(all
-                .Where(x => x.IsEnabled && string.Equals(x.OrganizationId, OrganizationId, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase));
-        }
-        catch
-        {
-            customers.Clear();
-            Snackbar.Add("Unable to load customer users right now.", Severity.Warning);
-        }
-    }
-
-    private async Task<IEnumerable<CustomerDto>> SearchCustomers(string value, CancellationToken token)
-    {
-        if (string.IsNullOrWhiteSpace(OrganizationId))
-        {
-            return Enumerable.Empty<CustomerDto>();
-        }
-
-        if (customers.Count == 0)
-        {
-            await LoadCustomersAsync();
-        }
-
-        var term = value?.Trim();
-        return string.IsNullOrWhiteSpace(term)
-            ? customers.Take(20)
-            : customers
-                .Where(x => Contains(x.Name, term) || Contains(x.Email, term))
-                .Take(20);
-    }
 
     private async Task Assign(CustomerDto? customer)
     {
-        if (customer is null)
+        if (customer is null || assigning || ReadOnly || customer.OrganizationId != OrganizationId)
         {
             return;
         }
 
+        assigning = true;
         try
         {
-            var response = await Api.PostAsJsonAsync(
+            using var response = await Api.PostAsJsonAsync(
                 $"api/v1/{TicketType}/{TicketId}/customer",
                 new { CustomerId = customer.Id });
 
             if (!response.IsSuccessStatusCode)
             {
                 Snackbar.Add(await BuildErrorMessageAsync(response), Severity.Error);
-                selectedCustomer = null;
                 return;
             }
 
@@ -141,16 +61,10 @@
         }
         catch
         {
-            selectedCustomer = null;
             Snackbar.Add("Unable to update the ticket user.", Severity.Error);
         }
+        finally { assigning = false; }
     }
-
-    private static string CustomerLabel(CustomerDto? customer) =>
-        customer is null ? string.Empty : FirstNonEmpty(customer.Name, customer.Email, customer.Id) ?? string.Empty;
-
-    private static bool Contains(string? value, string term) =>
-        value?.Contains(term, StringComparison.OrdinalIgnoreCase) == true;
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));

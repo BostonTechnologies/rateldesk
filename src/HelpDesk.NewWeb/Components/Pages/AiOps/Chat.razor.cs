@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Helpdesk.Shared.AiAssistant.Chat;
+using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.Organization;
 using Helpdesk.Shared.DTOs.AiOps;
 using HelpDesk.NewWeb.Components.Shared;
 using HelpDesk.NewWeb.Services;
@@ -15,7 +17,8 @@ public partial class Chat
 {
     [SupplyParameterFromQuery(Name = "organizationId")] public string? Organization { get; set; }
     [SupplyParameterFromQuery(Name = "conversationId")] public Guid? Conversation { get; set; }
-    private List<AiOpsOrganizationDto> organizations = [];
+    private const string OrganizationSearchUrl = "api/v1/ai/chat/organizations/search";
+    private OrganizationDto? selectedOrganization;
     private List<ChatConversationSummary> history = [];
     private List<AiPromptDto> prompts = [];
     private readonly HashSet<Guid> promptIds = [];
@@ -39,7 +42,7 @@ public partial class Chat
     private bool CanStart => capabilities is { Enabled: true, CanWrite: true };
     private string Route => $"api/v1/ai/chat/organizations/{Uri.EscapeDataString(organization)}";
     private static string Url(string org, Guid? id = null) => $"/ai/chat?organizationId={Uri.EscapeDataString(org)}" + (id is null ? "" : $"&conversationId={id}");
-    private string OrganizationName(string org) => organizations.FirstOrDefault(x => x.Id == org)?.Name ?? org;
+    private string OrganizationName(string org) => selectedOrganization?.Id == org ? selectedOrganization.Name : org;
     private bool Current(int value) => !disposed && value == generation;
     private static string StateLabel(ChatState state) => state switch { ChatState.Idle => "Ready", ChatState.Processing => "Working", ChatState.WaitingForChildren => "Waiting for delegated follow-ups", ChatState.WaitingForScheduledReports => "Waiting for scheduled reports", ChatState.AwaitingApproval => "Needs a decision", ChatState.DeliveryUnknown => "Needs recovery", _ => "Archived" };
     private static string StateClass(ChatState state) => state switch { ChatState.Processing or ChatState.WaitingForChildren or ChatState.WaitingForScheduledReports => "active", ChatState.AwaitingApproval or ChatState.DeliveryUnknown => "attention", _ => "" };
@@ -78,17 +81,22 @@ public partial class Chat
         try
         {
             using var api = Clients.CreateClient("HelpdeskApi");
-            var orgs = await api.GetFromJsonAsync<List<AiOpsOrganizationDto>>("api/v1/ai/chat/organizations", ct) ?? [];
+            var lookupUrl = $"{OrganizationSearchUrl}?limit=1&id={Uri.EscapeDataString(organization)}";
+            var page = await api.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>(lookupUrl, ct);
             if (!Current(current)) return;
-            organizations = orgs;
-            if (organization.Length == 0 && orgs.Count > 0)
+            selectedOrganization = page?.Items.FirstOrDefault();
+            if (selectedOrganization is null)
             {
-                organization = orgs[0].Id;
+                if (organization.Length > 0) error = "Organization access is unavailable.";
+                organization = "";
+                return;
+            }
+            if (organization.Length == 0)
+            {
+                organization = selectedOrganization.Id;
                 loadedRoute = (organization, Conversation);
                 Navigation.NavigateTo(Url(organization, Conversation), replace: true);
             }
-            if (organization.Length == 0) return;
-            if (!orgs.Any(x => x.Id == organization)) { organization = ""; error = "Organization access is unavailable."; return; }
             var caps = await api.GetFromJsonAsync<ChatCapabilities>($"{Route}/capabilities", ct);
             if (!Current(current)) return;
             capabilities = caps;
@@ -113,10 +121,10 @@ public partial class Chat
         finally { if (Current(current)) loading = false; }
     }
 
-    private void ChangeOrganization(ChangeEventArgs e)
+    private void ChangeOrganization(OrganizationDto? selection)
     {
-        var next = e.Value?.ToString() ?? "";
-        if (next == organization) return;
+        if (selection is null || selection.Id == organization) return;
+        var next = selection.Id;
         ++generation; selected = null; capabilities = null; newProfileId = null; history = []; message = ""; pendingStart = null;
         Navigation.NavigateTo(Url(next));
     }

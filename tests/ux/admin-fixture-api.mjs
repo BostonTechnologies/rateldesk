@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 import { handleAutomationTrace } from './automation-traceability-fixture.mjs';
 // Synthetic loopback fixture. Real authorization and provider persistence are tested separately.
 import http from 'node:http';
@@ -136,6 +137,7 @@ http.createServer(async (req, res) => {
   }
   return reply({});
  }
+ if (['/api/v1/admin/directories/organizations/search', '/api/v1/tenant-admin/organizations/search', '/api/v1/admin/tenants/search', '/api/v1/ai/ops/organizations/search'].includes(path)) return reply(organizationLookupPage(url, scopedOrganizations));
  if (['/api/v1/organizations', '/api/v1/ticketing/organizations', '/api/v1/tenant-admin/organizations', '/api/v1/admin/tenants/lookup'].includes(path)) return reply(scopedOrganizations);
  if (path === '/api/v1/users') return reply(users);
  if (path === '/api/v1/customers') return reply([]);

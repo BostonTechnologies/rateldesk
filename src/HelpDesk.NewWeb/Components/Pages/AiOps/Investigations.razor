@@ -7,15 +7,13 @@
 @inject NavigationManager Navigation
 
 <PageTitle>AI investigations</PageTitle>
+<Microsoft.AspNetCore.Components.Sections.SectionContent SectionName="workspace-context">
+    <OrganizationSearchPicker SearchUrl="api/v1/ai/ops/organizations/search" Value="@organization" ValueChanged="@(id => ChangeOrganization(id ?? string.Empty))" Required="false" AutoSelectSingle="false" Placeholder="All organizations" Disabled="@busy" />
+</Microsoft.AspNetCore.Components.Sections.SectionContent>
 <main class="ai-ops" data-testid="ai-investigations">
     <header class="ai-toolbar">
         <h1>Investigations</h1>
-        <label>Organization
-            <select value="@organization" @onchange="OrganizationChanged" disabled="@busy">
-                <option value="">All organizations</option>
-                @foreach (var org in organizations) { <option value="@org.Id">@org.Name</option> }
-            </select>
-        </label>
+
         <button type="button" @onclick="Refresh" disabled="@busy">Refresh</button>
         <button type="button" class="ai-primary" @onclick="StartCreate" disabled="@(busy || organizations.Count == 0)">New investigation</button>
         <div class="ai-toolbar-connection"><AiNetclawConnectionStatus ApiRoute="@ConnectionRoute" OrganizationName="@(selected is { } current ? OrganizationName(current.OrganizationId) : OrganizationName(organization))" ConversationId="selected?.Id" /></div>
@@ -239,7 +237,6 @@
         }
         finally { if (current == generation) busy = false; }
     }
-    private Task OrganizationChanged(ChangeEventArgs args) => ChangeOrganization(args.Value?.ToString() ?? "");
     private async Task ChangeOrganization(string value)
     {
         if (busy) return;

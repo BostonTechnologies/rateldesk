@@ -1,3 +1,4 @@
+import { organizationLookupPage } from './organization-lookup-fixture.mjs';
 // Synthetic rendered-directory evidence. SQL and authorization are tested by the dual-provider HTTP suite.
 let enabled = false, fault = '', reads = [], actions = [], organizations = [], customers = [], categories = [];
 const id = index => `70000000-0000-0000-0000-${String(index).padStart(12, '0')}`;
@@ -38,6 +39,7 @@ export async function handleDirectoryRequest(req, res, url) {
   const page = Math.min(Number(url.searchParams.get('page') ?? 0), Math.max(0, Math.ceil(totalCount / pageSize) - 1));
   return reply({ items: rows.slice(page * pageSize, (page + 1) * pageSize), totalCount, page, pageSize });
  }
+ if (['/api/v1/admin/directories/organizations/search'].includes(path)) return reply(organizationLookupPage(url, organizations));
  if (path === '/api/v1/admin/directories/organizations/lookup') {
   const search = (url.searchParams.get('search') ?? '').toLowerCase(), selected = url.searchParams.get('selectedId');
   return reply(organizations.filter(row => selected ? row.id === selected : row.name.toLowerCase().includes(search)).slice(0, 50).map(({ id, name }) => ({ id, name })));

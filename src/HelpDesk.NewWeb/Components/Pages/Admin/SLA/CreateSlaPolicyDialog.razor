@@ -26,12 +26,7 @@
                     <MudSelectItem Value="SlaScopeType.SystemDefault">System Default</MudSelectItem>
                     <MudSelectItem Value="SlaScopeType.Tenant">Tenant</MudSelectItem>
                 </MudSelect>
-                <MudSelect T="string" Label="Tenant" @bind-Value="model.TenantId" Required="@(model.ScopeType == SlaScopeType.Tenant)" Disabled="model.ScopeType == SlaScopeType.SystemDefault" Dense="true">
-                    @foreach (var tenant in tenants)
-                    {
-                        <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
-                    }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Tenant" @bind-Value="model.TenantId" Required="@(model.ScopeType == SlaScopeType.Tenant)" Disabled="@(model.ScopeType == SlaScopeType.SystemDefault)" />
             }
             <MudSelect T="TicketType" @bind-Value="model.AppliesTo" Label="Applies To" Dense="true">
                 <MudSelectItem Value="TicketType.Incident">Incident</MudSelectItem>

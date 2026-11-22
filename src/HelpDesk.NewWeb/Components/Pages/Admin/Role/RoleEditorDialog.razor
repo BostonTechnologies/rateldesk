@@ -15,9 +15,7 @@
             @if (HasUnsupportedPermissions) { <MudAlert Severity="Severity.Warning" Dense="true">This role contains permissions outside your current authority. An instance administrator must review it; its saved permissions are preserved.</MudAlert> }
             <div class="role-editor-details">
                 <MudTextField @bind-Value="draftName" Label="Role name" Required="true" MaxLength="200" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(saving || HasUnsupportedPermissions)" />
-                <MudSelect T="string" @bind-Value="draftOwner" Label="Owning organization" Required="true" Disabled="@(saving || IsEditing)" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@(IsEditing ? "The owning organization is fixed for this role." : "Permissions apply within this organization.")">
-                    @foreach (var organization in Organizations) { <MudSelectItem Value="@organization.Id">@organization.Name</MudSelectItem> }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search" AutoSelectSingle="false" Label="Owning organization" @bind-Value="draftOwner" Disabled="@(saving || IsEditing)" Clearable="false" />
             </div>
             <div class="role-editor-permissions">
                 <GroupedPermissionSelector EligiblePermissions="EligiblePermissions" SelectedValues="draftPermissions" SelectedValuesChanged="PermissionsChanged" AriaLabel="Custom role permissions" Disabled="@(saving || HasUnsupportedPermissions)" />

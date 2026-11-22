@@ -1,3 +1,4 @@
+import { selectOrganization } from './organization-lookup';
 import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
@@ -50,7 +51,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await assertNoHorizontalOverflow(page);
   await captureTables(page); await page.screenshot({ path: info.outputPath(`entries-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
   const dialog = await reviewClient(page);
-  await dialog.getByLabel('Organization', { exact: true }).selectOption('org-a');
+  await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
   const catalog = (await (await request.get(`${fixture}/state`)).json()).permissions as string[];
   const selector = dialog.getByTestId('credential-permission-selector');
   await expect(selector.getByRole('checkbox')).toHaveCount(catalog.length);
@@ -81,7 +82,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
 test('exact filtered ordinary grants, organization changes and transient consent preserve review state', async ({ page, request }) => {
  await open(page);
  const dialog = await reviewClient(page, ' abcd test ');
- await dialog.getByLabel('Organization', { exact: true }).selectOption('org-a');
+ await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
  const selector = dialog.getByTestId('credential-permission-selector');
  await selector.getByRole('searchbox').fill('Incident.Read');
  await selector.getByRole('button', { name: 'Select 1 displayed eligible permissions', exact: true }).click();
@@ -92,7 +93,7 @@ test('exact filtered ordinary grants, organization changes and transient consent
  await selector.getByRole('button', { name: 'Clear Request', exact: true }).click();
  const consent = dialog.getByRole('checkbox', { name: 'I approve this client connection with the permissions selected above.', exact: true });
  await consent.check();
- await dialog.getByLabel('Organization', { exact: true }).selectOption('org-b');
+ await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Beta');
  await expect(consent).not.toBeChecked();
  await expect(dialog.locator('input[name="permissions"]')).toHaveCount(0);
  await dialog.getByRole('checkbox', { name: /Incident\.Read$/ }).check();
@@ -117,7 +118,7 @@ test('temporary verifier has only explicit organization and short status consent
  await expect(dialog.getByTestId('credential-permission-selector')).toHaveCount(0);
  await expect(dialog.locator('[name="lifetimeDays"]')).toHaveCount(0);
  await expect(dialog).toContainText('five minutes');
- await dialog.getByLabel('Organization', { exact: true }).selectOption('org-a');
+ await selectOrganization(page, dialog.getByLabel('Organization', { exact: true }), 'Synthetic Alpha');
  await dialog.getByRole('checkbox', { name: 'I approve only this temporary status verification.', exact: true }).check();
  await dialog.getByRole('button', { name: 'Approve connection', exact: true }).click();
  await expectConsentAcknowledged(page);
@@ -167,8 +168,8 @@ test('manual credential organization selection ignores the native status filter 
  await expect(integration.getByRole('heading', { name: 'Server access', exact: true })).toBeVisible();
  await integration.getByRole('button', { name: 'Next', exact: true }).click();
  const organization = integration.getByRole('combobox', { name: 'Organization', exact: true });
- await organization.selectOption({ label: 'Synthetic Beta' });
- await expect(organization.locator('option:checked')).toHaveText('Synthetic Beta');
+ await selectOrganization(page, organization, 'Synthetic Beta');
+ await expect(organization).toHaveValue('Synthetic Beta');
  const permissions = page.getByTestId('credential-permission-selector');
  await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);
  await permissions.getByRole('checkbox', { name: /Incident\.User$/ }).check();
@@ -237,7 +238,7 @@ async function selectSystemChoice(page: Page, label: string, name: string) {
  await selected.click();
  const options = page.getByRole('listbox');
  await options.getByRole('option', { name, exact: true }).click();
- await expect(selected).toHaveText(name);
+ await expect(selected).toHaveValue(name);
  await expect(options).toBeHidden();
 }
 for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
@@ -269,7 +270,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await first.getByRole('button', { name: 'View', exact: true }).click();
   let dialog = await assertSystemReviewFits(page, 'Connection configuration', width);
   // A link to Beta never rewrites a saved Alpha mapping.
-  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Alpha');
+  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveValue('Synthetic Alpha');
   await expect(dialog.getByRole('combobox', { name: 'RatelDesk customer', exact: true })).toHaveText('Synthetic Alpha customer');
   await expect(dialog.getByTestId('save-system-connection')).toBeVisible();
   await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-configuration-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
@@ -301,7 +302,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1366, 1920]) {
   await expect(panel.getByTestId('system-connection-row')).toHaveCount(1);
   await panel.getByRole('button', { name: 'Continue setup', exact: true }).click();
   dialog = await assertSystemReviewFits(page, 'Systems paired', width);
-  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
+  await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveValue('Synthetic Beta');
   await expect(dialog.getByTestId('save-system-connection')).toBeDisabled();
   await captureTables(page); await page.screenshot({ path: info.outputPath(`systems-resume-${theme}-${width}.png`), fullPage: false, animations: 'disabled' });
  });
@@ -324,7 +325,7 @@ test('system connection context, interrupted save, durable resume and row-local 
  const panel = page.getByTestId('system-connections-panel');
  await panel.locator('[data-connection-id="pair-awaiting"]').getByRole('button', { name: 'Continue setup', exact: true }).click();
  const dialog = page.getByRole('dialog', { name: 'Systems paired', exact: true });
- await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
+ await expect(dialog.getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveValue('Synthetic Beta');
  await selectSystemChoice(page, 'NetRatel tenant', 'Synthetic monitoring');
  const connectionName = dialog.getByLabel('Connection name', { exact: true });
  await connectionName.fill('Synthetic resumed connection');
@@ -349,12 +350,12 @@ test('system connection context, interrupted save, durable resume and row-local 
  await expect(panel.locator(`[data-connection-id="${mappingId}"]`)).toContainText('Synthetic resumed connection');
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await panel.locator(`[data-connection-id="${mappingId}"]`).getByRole('button', { name: 'View', exact: true }).click();
- await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('Synthetic Beta');
+ await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveValue('Synthetic Beta');
  await page.getByRole('dialog').getByRole('button', { name: 'Back to connections', exact: true }).click();
  await open(page, '/account/integration-credentials?tab=connections&organizationId=unavailable-org');
  await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'Add mapping', exact: true }).click();
  await expect(page.getByTestId('connection-organization-hint-error')).toBeVisible();
- await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveText('');
+ await expect(page.getByRole('dialog').getByRole('combobox', { name: 'RatelDesk organization', exact: true })).toHaveValue('');
  await expect(page.getByTestId('save-system-connection')).toBeDisabled();
  await page.getByRole('dialog').getByRole('button', { name: 'Back to connections', exact: true }).click();
  const first = panel.locator('[data-connection-id="mapping-1"]'), second = panel.locator('[data-connection-id="mapping-2"]');
@@ -469,7 +470,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
   await history.getByRole('combobox', { name: 'Status', exact: true }).selectOption('approval');
   await expect(history.locator('.ai-investigation')).toHaveCount(1);
   await expect(history).toContainText('Review proposed remediation');
-  await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-a');
+  await selectOrganization(page, page.getByRole('combobox', { name: 'Organization', exact: true }), 'Synthetic Alpha');
   await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: /INC-1.*Synthetic incident/ })).toBeVisible();
   await assertNoHorizontalOverflow(page);
@@ -569,7 +570,7 @@ test('Monaco prompt editing preserves a rejected draft and saves the next revisi
 test('AI prompts and multi-ticket investigation save preserve selected context without sending', async ({ page, request }) => {
  await openWorkspace(page, '/ai/prompts', 'prompt-library');
  await expect(page.getByRole('heading', { name: 'Prompts', exact: true })).toBeVisible();
- await page.getByTestId('prompt-organization').selectOption('org-a');
+ await selectOrganization(page, page.getByTestId('prompt-organization').getByRole('combobox'), 'Synthetic Alpha');
  await page.getByTestId('prompt-new').click();
  await page.getByTestId('prompt-name').fill('Synthetic triage guidance');
  await page.getByTestId('prompt-description').fill('Inspect the selected records');
@@ -578,7 +579,7 @@ test('AI prompts and multi-ticket investigation save preserve selected context w
  await page.getByTestId('prompt-save').click();
  await expect(page.getByTestId('prompt-item').filter({ hasText: 'Synthetic triage guidance' })).toContainText('Revision 1');
  await openWorkspace(page, '/ai/ops', 'ai-investigations');
- await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-a');
+ await selectOrganization(page, page.getByRole('combobox', { name: 'Organization', exact: true }), 'Synthetic Alpha');
  await page.locator('.ai-toolbar').getByRole('button', { name: 'New investigation', exact: true }).click();
  await expect(page.getByText('Always included:', { exact: false })).toContainText('Synthetic triage guidance');
  await page.getByLabel('Investigation title', { exact: true }).fill('Synthetic incident and task investigation');

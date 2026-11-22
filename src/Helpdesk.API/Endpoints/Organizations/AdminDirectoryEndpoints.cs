@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using Helpdesk.Infrastructure.Auth.Authentik;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs;
@@ -21,6 +22,8 @@ public static class AdminDirectoryEndpoints
             .WithTags("Admin directories").RequireAuthorization("HelpdeskAdmin");
         group.MapGet("/customers", GetCustomers).WithName("QueryAdminCustomers").WithSummary("Search and page the complete authorized customer directory with bounded access status");
         group.MapGet("/organizations", GetOrganizations).WithName("QueryAdminOrganizations").WithSummary("Search and page organization administration records");
+        group.MapGet("/organizations/search", (HelpdeskDbContext db, string? q, string? id, int? limit, CancellationToken ct) =>
+            OrganizationLookup.SearchAsync(db, db.Organizations.AsNoTracking(), q, id, limit, ct));
         group.MapGet("/organizations/lookup", LookupOrganizations).WithName("LookupAdminDirectoryOrganizations").WithSummary("Search a bounded organization selector or resolve its selected identity");
         group.MapGet("/categories", GetCategories).WithName("QueryAdminTicketCategories").WithSummary("Search exact category types and scopes without changing legacy picker semantics");
     }

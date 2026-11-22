@@ -12,12 +12,7 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <MudText Typo="Typo.h5" HtmlTag="h1">Tenant SLA Settings</MudText>
         <MudSpacer />
-        <MudSelect @key="tenantSelectorVersion" T="string" Label="Tenant" Value="tenantId" ValueChanged="OnTenantChanged" Disabled="busy" Variant="Variant.Outlined" Margin="Margin.Dense" Class="tenant-context">
-            @foreach (var tenant in tenants)
-            {
-                <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
-            }
-        </MudSelect>
+        <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" @key="tenantSelectorVersion" Label="Tenant" Value="@tenantId" ValueChanged="OnTenantChanged" Clearable="false" Disabled="@busy" />
     </MudStack>
     @if (error is not null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
     @if (loading) { <MudProgressLinear Indeterminate="true" /> }

@@ -20,12 +20,7 @@
                                 <MudSelectItem Value="CalendarScopeType.SystemDefault">System Default</MudSelectItem>
                                 <MudSelectItem Value="CalendarScopeType.Tenant">Tenant</MudSelectItem>
                             </MudSelect>
-                            <MudSelect T="string" Label="Tenant" @bind-Value="Model.TenantId" Required="@(Model.ScopeType == CalendarScopeType.Tenant)" Disabled="Model.ScopeType == CalendarScopeType.SystemDefault" Dense="true" Margin="Margin.Dense">
-                                @foreach (var tenant in Tenants)
-                                {
-                                    <MudSelectItem T="string" Value="@tenant.Id">@tenant.Name</MudSelectItem>
-                                }
-                            </MudSelect>
+                            <OrganizationSearchPicker SearchUrl="api/v1/admin/tenants/search" AutoSelectSingle="false" Label="Tenant" @bind-Value="Model.TenantId" Required="@(Model.ScopeType == CalendarScopeType.Tenant)" Disabled="@(Model.ScopeType == CalendarScopeType.SystemDefault)" />
                         }
                         <MudTextField @bind-Value="Model.TimeZoneId" Label="Time Zone" Dense="true" Margin="Margin.Dense" />
                         <MudCheckBox @bind-Value="Model.IsActive" Label="Active" Dense="true" />

@@ -22,12 +22,7 @@
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
                     <MudTextField @bind-Value="model.Email" Label="Email" Required="true" />
 
-                    <MudSelect T="string" @bind-Value="model.OrganizationId" Label="Organization" Required="true" Disabled="@(authStatus?.IsLinkedLogin == true)">
-                @foreach (var org in Organizations)
-                {
-                    <MudSelectItem T="string" Value="@org.Id">@org.Name</MudSelectItem>
-                }
-                    </MudSelect>
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Value="@model.OrganizationId" ValueChanged="@(id => model.OrganizationId = id ?? string.Empty)" Clearable="false" Disabled="@(authStatus?.IsLinkedLogin == true)" />
                     @if (authStatus?.IsLinkedLogin == true)
                     {
                         <MudText Typo="Typo.caption" Color="Color.Secondary">A linked login keeps its current organization access. Use the explicit access workflow to move it.</MudText>

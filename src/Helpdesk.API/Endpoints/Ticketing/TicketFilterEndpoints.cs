@@ -17,7 +17,7 @@ internal static class TicketFilterEndpoints
 
     internal static void MapTicketFilterEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/filter-options", async (string module, string dimension, string? q, int? take,
+        group.MapGet("/filter-options", async (string module, string dimension, string? q, int? take, bool? picker,
             HttpRequest request, ClaimsPrincipal user, HelpdeskDbContext db, ICurrentUserAccessService accessService, CancellationToken token) =>
         {
             if (module is not ("incident" or "request" or "change" or "task") || dimension is not ("customer" or "for" or "assignee") ||
@@ -47,6 +47,7 @@ internal static class TicketFilterEndpoints
             if (selectedIds.Length > 20 || selectedIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200)) return Results.BadRequest();
             if (selectedOrganizations.Length > 0) tickets = tickets.Where(ticket => selectedOrganizations.Contains(ticket.OrganizationId));
             var organizationIds = tickets.Select(ticket => ticket.OrganizationId).Distinct();
+            int? eligibleCount = null;
             IQueryable<FilterOption> options;
             if (dimension == "customer")
                 options = db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)).Select(organization => new FilterOption { Id = organization.Id, Label = organization.Name });
@@ -81,11 +82,13 @@ internal static class TicketFilterEndpoints
                     }
                 }
                 if (selectedIds.Length > 0) users = users.Where(candidate => selectedIds.Contains(candidate.Id));
+                if (picker == true) eligibleCount = await users.CountAsync(token);
                 users = AssigneeQueries.Search(db, users, q);
                 options = users.Select(candidate => new FilterOption { Id = candidate.Id, Label = candidate.Name + " (" + candidate.Email + ")" });
             }
             if (dimension == "customer" || (dimension == "for" && module != "change"))
             {
+                if (picker == true) eligibleCount = await options.CountAsync(token);
                 var pattern = "%" + (q ?? "").Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%";
                 options = db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL"
                     ? options.Where(option => EF.Functions.ILike(option.Label, pattern, "\\"))
@@ -97,6 +100,7 @@ internal static class TicketFilterEndpoints
                 .Select(option => new TicketFilterOptionDto(option.Id, option.Label)).ToListAsync(token);
             var hasMore = items.Count > limit;
             if (hasMore) items.RemoveAt(limit);
+            if (eligibleCount is int total) return Results.Ok(new CreationLookupResult<TicketFilterOptionDto>(items, total, hasMore));
             return Results.Ok(new TicketFilterOptionsDto(items, hasMore));
         }).WithName("SearchTicketFilterOptions");
     }

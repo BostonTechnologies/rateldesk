@@ -31,12 +31,7 @@
         {
             @if (string.IsNullOrWhiteSpace(OrganizationId))
             {
-                <MudSelect T="string" Label="Tenant" Value="selectedOrganizationId" ValueChanged="SelectOrganization" Class="mb-4">
-                    @foreach (var organization in organizations)
-                    {
-                        <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                    }
-                </MudSelect>
+                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search?permission=membership" AutoSelectSingle="false" Label="Tenant" Value="@selectedOrganizationId" ValueChanged="@(id => SelectOrganization(id ?? string.Empty))" Clearable="false" />
             }
 
             @if (canInvite)

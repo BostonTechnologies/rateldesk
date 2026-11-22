@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Organizations;
 using System.Security.Claims;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Infrastructure.AiAssistant.Chat;
@@ -29,15 +30,14 @@ public static class AiOpsEndpoints
         group.MapGet("/organizations", async (HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, CancellationToken ct) =>
         {
             var access = await accessService.ResolveAsync(ctx.User, ct);
-            var orgs = access.OrganizationIdsForAny(
-                HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager,
-                HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager,
-                HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager).ToArray();
-            var organizations = await db.Organizations.AsNoTracking()
-                .Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled && (access.IsHelpdeskAdmin || orgs.Contains(x.Id)))
-                .OrderBy(x => x.Name).ThenBy(x => x.Id)
-                .Select(x => new AiOpsOrganizationDto(x.Id, x.Name)).ToListAsync(ct);
-            return Results.Ok(organizations.Where(x => CanUse(access, x.Id)));
+            return Results.Ok(await InvestigationOrganizations(db, access).OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .Select(x => new AiOpsOrganizationDto(x.Id, x.Name)).ToListAsync(ct));
+        });
+        group.MapGet("/organizations/search", async (HttpContext ctx, ICurrentUserAccessService accessService,
+            HelpdeskDbContext db, string? q, string? id, int? limit, CancellationToken ct) =>
+        {
+            var access = await accessService.ResolveAsync(ctx.User, ct);
+            return await OrganizationLookup.SearchAsync(db, InvestigationOrganizations(db, access), q, id, limit, ct, namesOnly: true);
         });
         group.MapGet("/tickets", async (string organizationId, string? q, HelpdeskDbContext db, ICurrentUserAccessService accessService, HttpContext ctx, CancellationToken ct) =>
         {
@@ -123,6 +123,17 @@ public static class AiOpsEndpoints
             await transport.RetireAsync(id, ct);
             return Results.NoContent();
         });
+    }
+
+    private static IQueryable<Helpdesk.Shared.Models.Organization> InvestigationOrganizations(HelpdeskDbContext db, CurrentUserAccessProfile access)
+    {
+        var eligible = db.Organizations.AsNoTracking().Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled);
+        if (access.IsHelpdeskAdmin) return eligible;
+        var allowed = access.OrganizationIdsForAny(
+            HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentManager,
+            HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestManager,
+            HelpdeskPermissions.ChangeWrite, HelpdeskPermissions.ChangeManager).Where(id => CanUse(access, id)).ToArray();
+        return eligible.Where(x => allowed.Contains(x.Id));
     }
 
     private static bool CanUse(CurrentUserAccessProfile access, string org) => access.CanManageIncident(org) || access.CanManageRequest(org) || access.CanManageChange(org);

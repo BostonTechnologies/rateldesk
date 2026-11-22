@@ -14,12 +14,7 @@
         @if (error is not null) { <MudAlert Severity="Severity.Error" Class="my-3">@error</MudAlert> }
         @if (string.IsNullOrWhiteSpace(OrganizationId))
         {
-            <MudSelect T="string" Label="Tenant" Value="organizationId" ValueChanged="SelectAsync" Disabled="busy" Class="my-3">
-                @foreach (var organization in organizations)
-                {
-                    <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                }
-            </MudSelect>
+            <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search?permission=Tenant.Settings.Manage" AutoSelectSingle="false" Label="Tenant" Value="@organizationId" ValueChanged="@(id => SelectAsync(id ?? string.Empty))" Disabled="@busy" Clearable="false" />
         }
         @if (settings is not null)
         {

@@ -12,7 +12,7 @@
                      Variant="Variant.Outlined" Margin="@Margin" Dense="true" Required="@Required"
                      Disabled="@(Disabled || string.IsNullOrWhiteSpace(LookupUrl) || (LockWhenSingle && totalEligible == 1 && selected is not null))"
                      ReadOnly="choosing"
-                     Clearable="@(!LockWhenSingle || totalEligible != 1)" ResetValueOnEmptyText="true"
+                     Clearable="@(Clearable && (!LockWhenSingle || totalEligible != 1))" ResetValueOnEmptyText="true"
                      CoerceValue="false" DebounceInterval="250" MinCharacters="0" MaxItems="50"
                      Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" ShowProgressIndicator="true"
                      TextChanged="OnTextChanged">
@@ -31,9 +31,9 @@
     </MudAutocomplete>
     <div role="status" aria-live="polite">
         @if (loading) { <MudText Typo="Typo.caption">Loading @Kind…</MudText> }
-        @if (failed)
+        @if (failed || hydrationFailed)
         {
-            <MudText Typo="Typo.caption" Color="Color.Error">Could not load @Kind.</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Error">@(hydrationFailed ? HydrationFailureMessage ?? $"Could not load {Kind}." : SearchFailureMessage ?? $"Could not load {Kind}.")</MudText>
             <MudButton Size="Size.Small" OnClick="Retry">Retry @Label.ToLowerInvariant()</MudButton>
         }
         else if (!loading && totalEligible == 0) { <MudText Typo="Typo.caption">No eligible @Kind.</MudText> }
@@ -49,8 +49,13 @@
     [Parameter] public string Kind { get; set; } = "choices";
     [Parameter] public string Placeholder { get; set; } = "Search";
     [Parameter] public Margin Margin { get; set; } = Margin.Dense;
+    [Parameter] public bool Clearable { get; set; } = true;
     [Parameter] public bool Required { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool LoadOnOpen { get; set; }
+    [Parameter] public Func<string, TItem>? UnavailableSelection { get; set; }
+    [Parameter] public string? HydrationFailureMessage { get; set; }
+    [Parameter] public string? SearchFailureMessage { get; set; }
     [Parameter] public bool AutoSelectSingle { get; set; }
     [Parameter] public bool LockWhenSingle { get; set; }
     [Parameter] public bool ClearAfterSelection { get; set; }
@@ -67,7 +72,9 @@
     private string query = "";
     private TItem? selected;
     private int? totalEligible;
-    private bool loading, failed, hasMore, disposed, initialized;
+    private bool loading, failed, hydrationFailed, hasMore, disposed, initialized;
+    private long hydrationVersion;
+    private string? appliedValue;
     private long searchVersion;
     private long fetchVersion;
     private long scopeVersion;
@@ -93,6 +100,8 @@
             initialized = false;
             selected = null;
             labels.Clear();
+            appliedValue = null;
+            hydrationFailed = false;
             totalEligible = null;
             loading = failed = hasMore = false;
             query = "";
@@ -100,7 +109,7 @@
             latestSearch = null;
         }
         if (string.IsNullOrWhiteSpace(LookupUrl)) return;
-        if (!initialized)
+        if (!initialized && !LoadOnOpen)
         {
             initialized = true;
             var initial = await Fetch("", null, scopeCancellation.Token);
@@ -113,20 +122,25 @@
                 return;
             }
         }
+        if (appliedValue == Value && (selected is not null || hydrationFailed)) return;
+        appliedValue = Value;
+        var generation = ++hydrationVersion;
+        hydrationFailed = false;
         if (string.IsNullOrWhiteSpace(Value)) { selected = null; return; }
         if (selected is not null && ItemId(selected) == Value) return;
         var expectedId = Value;
         var token = scopeCancellation.Token;
         if (!labels.TryGetValue(expectedId, out var item))
         {
+            selected = UnavailableSelection?.Invoke(expectedId);
             var result = await Fetch("", expectedId, token);
-            if (result is null) return;
-            item = result?.Items.FirstOrDefault(candidate => ItemId(candidate) == expectedId);
+            if (disposed || token.IsCancellationRequested || Value != expectedId || generation != hydrationVersion) return;
+            if (result is null) { hydrationFailed = true; return; }
+            item = result.Items.FirstOrDefault(candidate => ItemId(candidate) == expectedId);
         }
-        if (disposed || token.IsCancellationRequested || Value != expectedId) return;
-        selected = item;
+        selected = item ?? UnavailableSelection?.Invoke(expectedId);
         await SelectedItemLoaded.InvokeAsync(item);
-        if (item is null && !failed) await SelectionChanged.InvokeAsync(null);
+        if (item is null && UnavailableSelection is null) await SelectionChanged.InvokeAsync(null);
     }
 
     private async Task<CreationLookupResult<TItem>?> Fetch(string text, string? id, CancellationToken token)
@@ -134,14 +148,14 @@
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, scopeCancellation.Token);
         var ct = cancellation.Token;
         var expectedScope = scope;
-        var version = ++fetchVersion;
-        loading = true;
-        failed = false;
+        var version = id is null ? ++fetchVersion : hydrationVersion;
+        bool IsCurrent() => version == (id is null ? fetchVersion : hydrationVersion);
+        if (id is null) { loading = true; failed = false; }
         try
         {
             var result = await Api.GetFromJsonAsync<CreationLookupResult<TItem>>(
-                $"{LookupUrl}&q={Uri.EscapeDataString(text)}&limit=20{(id is null ? "" : "&id=" + Uri.EscapeDataString(id))}", ct);
-            if (disposed || ct.IsCancellationRequested || scope != expectedScope || version != fetchVersion) return null;
+                $"{LookupUrl}{(LookupUrl.Contains('?') ? "&" : "?")}q={Uri.EscapeDataString(text)}&limit=20{(id is null ? "" : "&id=" + Uri.EscapeDataString(id))}", ct);
+            if (disposed || ct.IsCancellationRequested || scope != expectedScope || !IsCurrent()) return null;
             if (result is null) throw new JsonException("The lookup response was empty.");
             var items = new List<TItem>(result.Items.Count);
             foreach (var item in result.Items)
@@ -156,16 +170,16 @@
                 items.Add(choice);
             }
             totalEligible = result.TotalEligible;
-            hasMore = result.HasMore;
+            if (id is null) hasMore = result.HasMore;
             return new(items, result.TotalEligible, result.HasMore);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
-            if (!disposed && !ct.IsCancellationRequested && scope == expectedScope && version == fetchVersion) failed = true;
+            if (!disposed && !ct.IsCancellationRequested && scope == expectedScope && id is null && IsCurrent()) failed = true;
             return null;
         }
-        finally { if (!disposed && scope == expectedScope && version == fetchVersion) loading = false; }
+        finally { if (!disposed && scope == expectedScope && id is null && IsCurrent()) loading = false; }
     }
 
     private async Task<IEnumerable<TItem>> Search(string text, CancellationToken token)
@@ -235,7 +249,13 @@
     }
     private async Task Retry()
     {
-        if (!initialized || totalEligible is null || selected is null && !string.IsNullOrWhiteSpace(Value))
+        if (hydrationFailed)
+        {
+            appliedValue = null;
+            selected = null;
+            await OnParametersSetAsync();
+        }
+        else if (!LoadOnOpen && (!initialized || totalEligible is null || selected is null && !string.IsNullOrWhiteSpace(Value)))
         {
             initialized = false;
             await OnParametersSetAsync();

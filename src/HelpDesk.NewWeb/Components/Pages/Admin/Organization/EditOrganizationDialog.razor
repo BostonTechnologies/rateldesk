@@ -15,12 +15,9 @@
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
                     <MudTextField @bind-Value="model.DnsName" Label="DNS Name" />
                     <MudTextField @bind-Value="model.ContactInfo" Label="Contact Info" />
-                    <MudSelect T="string" @bind-Value="model.ItSupportOrganizationId" Label="ITIL/MSP manager organization" Clearable="true">
-                        @foreach (var organization in ManagerOrganizationOptions)
-                        {
-                            <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <OrganizationSearchPicker Label="ITIL/MSP manager organization" @bind-Value="model.ItSupportOrganizationId"
+                                              SearchUrl="@($"api/v1/admin/tenants/search?exclude={Uri.EscapeDataString(Organization.Id)}")"
+                                              Placeholder="No manager organization" AutoSelectSingle="false" Required="false" />
                     <MudSwitch T="bool" @bind-Value="model.Enabled" Label="Enable organization" />
                 </MudTabPanel>
                 <MudTabPanel Text="External orchestration Tenant">
@@ -58,7 +55,6 @@
     private List<OrchestrationCatalogTenantDto> orchestrationTenants = new();
     private bool orchestrationTenantsLoading;
     private string? orchestrationTenantsError;
-    private IEnumerable<OrganizationDto> ManagerOrganizationOptions => Organizations.Where(x => x.IsEnabled && !string.Equals(x.Id, Organization.Id, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase);
     // A display-only fallback preserves the saved choice without persisting a
     // placeholder as if it were a name returned by the remote tenant catalog.
     private IEnumerable<OrchestrationCatalogTenantDto> OrchestrationTenantOptions => Organization.OrchestrationTenantId is { } savedId &&

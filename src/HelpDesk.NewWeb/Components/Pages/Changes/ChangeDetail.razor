@@ -164,19 +164,7 @@
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <MudSelect T="string"
-                                           Label="Organization"
-                                           Variant="Variant.Outlined"
-                                           Dense="true"
-                                           Margin="Margin.Dense"
-                                           Value="@change.OrganizationId"
-                                           ValueChanged="OnOrganizationChanged"
-                                           Disabled="@(isUpdating || IsChangeLocked)">
-                                    @foreach (var organization in organizations)
-                                    {
-                                        <MudSelectItem T="string" Value="@organization.Id">@organization.Name</MudSelectItem>
-                                    }
-                                </MudSelect>
+                                <OrganizationSearchPicker SearchUrl="api/v1/ticketing/organizations/search?module=change" AutoSelectSingle="false" Label="Organization" Value="@change.OrganizationId" ValueChanged="OnOrganizationChanged" Disabled="@(isUpdating || IsChangeLocked)" />
                             </MudItem>
                             <MudItem xs="12">
                                 <AssigneeSelector Module="change" OrganizationId="@change.OrganizationId" TicketId="@change.Id"

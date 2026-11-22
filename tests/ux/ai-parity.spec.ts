@@ -1,3 +1,4 @@
+import { selectOrganization } from './organization-lookup';
 import { captureTables } from './table-evidence';
 import { expect, test } from '@playwright/test';
 import { assertNoHorizontalOverflow } from './auth';
@@ -118,7 +119,7 @@ test(`general chat ${theme} ${width}px starts immediately and names itself on fi
   await expect(input).toBeEnabled();
   await expect(page.getByText('Synthetic first reply.')).toBeVisible();
   await input.fill('Private draft for the first organization');
-  await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-b');
+  await selectOrganization(page, page.getByRole('combobox', { name: 'Organization', exact: true }), 'Other synthetic organization');
   await expect(input).toBeEnabled(); await expect(input).toHaveValue('');
   await expect(page.getByText('Private draft for the first organization')).toHaveCount(0);
   const counts = await (await request.get(`${fixture}/fixture/chat-counts`)).json();
@@ -258,10 +259,10 @@ test('multiline organization draft survives navigation, Back, reload and an orga
   await page.reload();
   await expect(input).toHaveValue(draft);
   const organization = page.getByRole('combobox', { name: 'Organization', exact: true });
-  await organization.selectOption('org-b');
+  await selectOrganization(page, organization, 'Other synthetic organization');
   await expect(input).toBeEnabled();
   await expect(input).toHaveValue('');
-  await organization.selectOption('org');
+  await selectOrganization(page, organization, 'Synthetic organization');
   await expect(input).toHaveValue(draft);
   await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
   await page.reload();
@@ -297,7 +298,7 @@ test('changing organization fences an in-flight first-send response and clears i
   await input.fill('First request for the previous organization');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await (await request.get(`${fixture}/fixture/chat-counts`)).json()).starts).toBe(1);
-  await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('org-b');
+  await selectOrganization(page, page.getByRole('combobox', { name: 'Organization', exact: true }), 'Other synthetic organization');
   await expect(input).toBeEnabled(); await expect(input).toHaveValue('');
   await request.get(`${fixture}/fixture/release-start`);
   await expect(page).toHaveURL(/organizationId=org-b/);
