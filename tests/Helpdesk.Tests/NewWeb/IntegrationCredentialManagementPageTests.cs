@@ -411,10 +411,10 @@ public sealed class IntegrationCredentialManagementPageTests
             if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/setup")) return HandleSetupAsync(request, cancellationToken);
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/search"))
             {
-                var id = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query).GetValueOrDefault("id").ToString();
+                var selectedId = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(request.RequestUri.Query).GetValueOrDefault("id").ToString();
                 var items = new[] { new { id = "org-a", name = "Organization A", isEnabled = true }, new { id = "org-b", name = "Organization B", isEnabled = true } };
                 return Task.FromResult(new HttpResponseMessage(OrganizationStatus) { Content = JsonContent.Create(new
-                    { items = items.Where(row => id.Length == 0 || row.id == id), totalEligible = items.Length, hasMore = false }) });
+                    { items = items.Where(row => selectedId.Length == 0 || row.id == selectedId), totalEligible = items.Length, hasMore = false }) });
             }
             if (request.Method == HttpMethod.Get)
                 return PendingList?.Task ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Metadata()) });
