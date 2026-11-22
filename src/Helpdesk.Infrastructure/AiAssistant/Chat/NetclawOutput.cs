@@ -74,6 +74,33 @@ internal sealed class NetclawOutput
             !started, ToolFailed, duration) with { Details = Trace };
     }
 
+    public ChatChildObservation? ChildObservation()
+    {
+        if (Type == "subagent")
+        {
+            var phase = String(frame, "phase");
+            var state = phase == "completed" ? String(frame, "subAgentOutcome") ?? phase : phase;
+            var milliseconds = frame.TryGetProperty("durationMs", out var duration) && duration.ValueKind == JsonValueKind.Number && duration.TryGetDouble(out var number)
+                && number is > 0 and <= long.MaxValue ? (long?)number : null;
+            return new(null, String(frame, "agentName"), state, String(frame, "subAgentOutcomeReason"), milliseconds);
+        }
+        if (Type != "tool_result" || ToolFailed || ToolName is not ("spawn_agent" or "check_agent_run")
+            || ToolResult is not { Length: > 0 and <= 131072 } payload) return null;
+        try
+        {
+            using var result = JsonDocument.Parse(payload);
+            var json = result.RootElement;
+            if (String(json, "run_id") is not { Length: > 0 and <= 256 } id) return null;
+            if (ToolName == "spawn_agent" && String(json, "control_tool") != "check_agent_run") return null;
+            var state = String(json, "state");
+            if (state is null) return null;
+            if (json.TryGetProperty("terminal", out var terminal) && terminal.ValueKind == JsonValueKind.True)
+                state = String(json, "outcome") ?? state;
+            return new(id, String(json, "agent"), state, String(json, "summary") ?? String(json, "reason"));
+        }
+        catch (JsonException) { return null; }
+    }
+
     private static string? String(JsonElement item, string name) => item.ValueKind == JsonValueKind.Object &&
         item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }

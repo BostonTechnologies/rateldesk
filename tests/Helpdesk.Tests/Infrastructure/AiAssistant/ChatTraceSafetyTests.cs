@@ -1,11 +1,37 @@
 using System.Text.Json;
 using Helpdesk.Application.AiAssistant.Chat;
 using Helpdesk.Shared.AiAssistant.Chat;
+using Helpdesk.Infrastructure.AiAssistant.Chat;
 
 namespace Helpdesk.Tests.Infrastructure.AiAssistant;
 
 public sealed class ChatTraceSafetyTests
 {
+    [Fact]
+    public void Named_progress_without_a_run_id_remains_unassociated()
+    {
+        var frame = new NetclawOutput(JsonSerializer.SerializeToElement(new { type = "subagent", agentName = "Reviewer",
+            phase = "started", subAgentSuccess = false, durationMs = 0 }));
+        var observation = Assert.IsType<ChatChildObservation>(frame.ChildObservation());
+        Assert.Equal("Reviewer", observation.Name);
+        Assert.Equal("started", observation.State);
+        Assert.Null(observation.RunId);
+        Assert.Null(observation.DurationMs);
+    }
+
+    [Theory]
+    [InlineData("spawn_agent", """{"run_id":"r-1","scope_id":"s-1","state":"accepted","control_tool":"check_agent_run"}""", "accepted")]
+    [InlineData("check_agent_run", """{"run_id":"r-1","scope_id":"s-1","state":"terminal","terminal":true,"outcome":"cancelled","agent":"Review"}""", "cancelled")]
+    public void Only_accepted_and_status_receipts_supply_verified_child_identity(string toolName, string result, string state)
+    {
+        var frame = new NetclawOutput(JsonSerializer.SerializeToElement(new { type = "tool_result", toolName, result }));
+        var observation = Assert.IsType<ChatChildObservation>(frame.ChildObservation());
+        Assert.Equal("r-1", observation.RunId);
+        Assert.Equal(state, observation.State);
+        var unrelated = new NetclawOutput(JsonSerializer.SerializeToElement(new { type = "tool_result", toolName = "search_tools", result }));
+        Assert.Null(unrelated.ChildObservation());
+    }
+
     [Theory]
     [InlineData("Plain text tool result\nSecond line 😀")]
     [InlineData("# Skill instructions\nUse `example` and inspect the result.")]

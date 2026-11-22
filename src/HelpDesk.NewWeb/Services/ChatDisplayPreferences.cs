@@ -9,5 +9,5 @@ public sealed class ChatDisplayPreferences
     public bool ShowUsage { get; set; }
     public bool ShowProcessing { get; set; }
     public bool ShowCompaction { get; set; }
-    public bool ShowSubagents { get; set; }
+    public bool ShowSubagents { get; set; } = true;
 }
