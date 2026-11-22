@@ -111,7 +111,9 @@ else
                                             @GetTaskStatusLabel(context.Task)
                                         </span>
                                     </MudTd>
-                                    <MudTd DataLabel="Assignee"><span class="request-task-assignee" title="@GetAssigneeDisplay(context.Task.AssignedToId)">@GetAssigneeDisplay(context.Task.AssignedToId)</span></MudTd>
+                                    <MudTd DataLabel="Assignee"><TicketAssigneePicker TicketType="request-tasks" OrganizationId="@request.OrganizationId"
+                                            TicketId="@context.Task.Id" AssignedToId="@context.Task.AssignedToId" ReadOnly="@(!CanManage)"
+                                            AssignedToIdChanged="value => context.Task.AssignedToId = value" /></MudTd>
                                     <MudTd DataLabel="Actions"><div class="workspace-actions">
                                         <div class="request-task-actions">
                                             @if (context.Task.Status == RequestTaskStatus.Pending)
@@ -277,8 +279,9 @@ else
                                 </MudSelect>
                             </MudItem>
                             <MudItem xs="12">
-                                <AssigneeSelector Module="request" OrganizationId="@request.OrganizationId" TicketId="@request.Id"
-                                                  Value="@request.AssignedToId" ReadOnly="true" />
+                                <TicketAssigneePicker TicketType="requests" OrganizationId="@request.OrganizationId" TicketId="@request.Id"
+                                    AssignedToId="@request.AssignedToId" ReadOnly="@(!CanManage || isUpdating)" Compact="false"
+                                    AssignedToIdChanged="value => { request.AssignedToId = value; originalRequest!.AssignedToId = value; }" />
                             </MudItem>
                             <MudItem xs="12">
                                 <HelpDesk.NewWeb.Components.Shared.ServiceCategoryPicker
@@ -365,7 +368,6 @@ else
     private readonly Dictionary<string, RequestTaskRow> taskRowsById = new(StringComparer.Ordinal);
     private sealed class RequestTaskRow(RequestTaskDto task) { public RequestTaskDto Task { get; set; } = task; }
     private readonly HashSet<string> expandedTasks = new(StringComparer.Ordinal);
-    private Dictionary<string, string> userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
     private List<TicketCategoryDto> categories = new();
     private HashSet<Guid> selectedCategoryIds = new();
     private bool loading = true;
@@ -411,7 +413,7 @@ else
         ticketLifetime.Cancel(); ticketLifetime.Dispose(); ticketLifetime = new();
         var token = ticketLifetime.Token;
         taskActionInProgress = false;
-        tasks = new(); taskRows.Clear(); taskRowsById.Clear(); expandedTasks.Clear(); userDisplayNames.Clear();
+        tasks = new(); taskRows.Clear(); taskRowsById.Clear(); expandedTasks.Clear();
         workflowVersion++;
         workflowTimeline.Clear();
         loading = true;
@@ -442,7 +444,6 @@ else
             {
                 request = CloneRequest(originalRequest);
                 selectedCategoryIds = request.CategoryIds.ToHashSet();
-                if (CanManage) await LoadTeamMembersAsync();
             }
 
         }
@@ -770,29 +771,6 @@ else
         }
     }
 
-    private async Task LoadTeamMembersAsync()
-    {
-        var ticketId = Id;
-        var version = ticketVersion;
-        var token = ticketLifetime.Token;
-        try
-        {
-            var users = await HelpdeskApi.GetFromJsonAsync<List<UserDto>>($"api/v1/ticketing/assignees?module=request&organizationId={Uri.EscapeDataString(request?.OrganizationId ?? string.Empty)}", token) ?? new();
-            if (!IsCurrent(version)) return;
-            userDisplayNames = users
-                .Where(u => !string.IsNullOrWhiteSpace(u.Id))
-                .GroupBy(u => u.Id)
-                .ToDictionary(
-                    g => g.Key,
-                    g => string.IsNullOrWhiteSpace(g.First().Name) ? g.Key : g.First().Name,
-                    StringComparer.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            if (IsCurrent(version)) userDisplayNames = new(StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
     private async Task ResolveRolesAsync()
     {
         if (AuthenticationStateTask is null)
@@ -805,16 +783,6 @@ else
             || user.Claims.Any(c =>
                 (c.Type == ClaimTypes.Role || c.Type == "roles")
                 && string.Equals(c.Value, "HelpdeskAdmin", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private string GetAssigneeDisplay(string? assignedToId)
-    {
-        if (string.IsNullOrWhiteSpace(assignedToId))
-        {
-            return "-";
-        }
-
-        return userDisplayNames.TryGetValue(assignedToId, out var name) ? name : assignedToId;
     }
 
     private async Task StartTaskAsync(RequestTaskDto task)

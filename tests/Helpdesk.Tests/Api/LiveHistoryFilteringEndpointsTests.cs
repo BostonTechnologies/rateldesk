@@ -1779,6 +1779,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await db.Database.EnsureCreatedAsync();
+                await TicketIdentityStore.CreateAsync(db);
             }
 
             await app.StartAsync();

@@ -33,8 +33,7 @@ public static class OrganizationChangeParticipantEndpoints
 
             var users = await db.Users
                 .AsNoTracking()
-                .Where(x => x.OrganizationId == organization.Id ||
-                            (includeImplementors != false && x.OrganizationId == implementorOrganizationId))
+                .Where(x => x.OrganizationId == organization.Id)
                 .OrderBy(x => x.Name)
                 .ThenBy(x => x.Email)
                 .Select(x => new ChangeParticipantUserDto(x.Id, x.Name, x.Email, x.Role, x.OrganizationId))
@@ -54,19 +53,11 @@ public static class OrganizationChangeParticipantEndpoints
                 .DistinctBy(x => x.Id)
                 .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            var implementorUsers = users
-                .Where(x => includeImplementors != false && string.Equals(x.OrganizationId, implementorOrganizationId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (includeImplementors != false && implementorUsers.Count == 0)
-            {
-                implementorUsers = await db.Users
-                    .AsNoTracking()
-                    .Where(x => x.Role == "HelpdeskAdmin" || x.Role == "Technician")
-                    .OrderBy(x => x.Name)
-                    .ThenBy(x => x.Email)
+            List<ChangeParticipantUserDto> implementorUsers = includeImplementors == false ? [] :
+                await AssigneeQueries.Eligible(db, "change", organization)
+                    .OrderBy(x => x.Name).ThenBy(x => x.Email).ThenBy(x => x.Id)
                     .Select(x => new ChangeParticipantUserDto(x.Id, x.Name, x.Email, x.Role, x.OrganizationId))
                     .ToListAsync(token);
-            }
 
             return Results.Ok(new ChangeParticipantsDto
             {

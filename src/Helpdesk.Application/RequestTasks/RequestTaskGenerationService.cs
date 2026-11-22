@@ -10,7 +10,8 @@ public sealed class RequestTaskGenerationService(
     IRepository<RequestTask> requestTasks,
     IRequestFormSchemaParser schemaParser,
     IDomainEventPublisher domainEvents,
-    ICorrelationContext correlationContext) : IRequestTaskGenerationService
+    ICorrelationContext correlationContext,
+    IRequestTaskAssignees assignees) : IRequestTaskGenerationService
 {
     private readonly IRepository<RequestForm> _requestForms = requestForms;
     private readonly IRepository<RequestTask> _requestTasks = requestTasks;
@@ -41,6 +42,12 @@ public sealed class RequestTaskGenerationService(
             .Select(x => x.Id)
             .ToHashSet();
         var correlationId = GetCorrelationId();
+        var defaultIds = templates.Select(task => task.DefaultAssigneeId).OfType<string>()
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToArray();
+        // A global form can be submitted in a different tenant from its author.
+        // Leave the task available for assignment if its default has lost eligibility.
+        HashSet<string> eligibleDefaults = defaultIds.Length == 0 ? [] :
+            await assignees.EligibleDefaultsAsync(request.OrganizationId, defaultIds, cancellationToken);
 
         foreach (var template in templates)
         {
@@ -96,7 +103,7 @@ public sealed class RequestTaskGenerationService(
                 NextRetryAt = null,
                 FailureReason = null,
                 AutomationBindingId = null,
-                AssignedToId = template.DefaultAssigneeId,
+                AssignedToId = template.DefaultAssigneeId is { } assignee && eligibleDefaults.Contains(assignee) ? assignee : null,
                 OrchestrationRequestDefinitionId = null,
                 OrchestrationJobDefinitionId = null,
                 OrchestrationExternalRequestId = null,

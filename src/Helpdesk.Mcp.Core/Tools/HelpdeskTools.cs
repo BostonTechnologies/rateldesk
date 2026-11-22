@@ -529,7 +529,7 @@ public sealed partial class HelpdeskTools(
         try
         {
             var userId = UsesCallerBoundIdentity
-                ? (await client.GetAsync("/api/v1/auth/me", true, ct).ConfigureAwait(false) as JsonObject)?["userId"]?.ToString()
+                ? (await client.GetAsync("/api/v1/auth/me", true, ct).ConfigureAwait(false) as JsonObject)?["assignmentUserId"]?.ToString()
                 : await ResolveConfiguredAgentUserIdAsync(request, ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(userId))
                 return Validation(UsesCallerBoundIdentity

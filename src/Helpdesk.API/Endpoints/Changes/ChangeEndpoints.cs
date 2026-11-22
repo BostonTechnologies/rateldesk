@@ -2490,7 +2490,7 @@ public static partial class ChangeEndpoints
 
             if (!implementorExists)
             {
-                return Results.BadRequest("Implementor must belong to the selected organization's ITIL/MSP manager organization, or be a HelpdeskAdmin/Technician fallback.");
+                return Results.BadRequest("The selected implementor is no longer eligible for this organization. Choose another implementor.");
             }
         }
 

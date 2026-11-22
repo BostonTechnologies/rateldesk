@@ -82,7 +82,15 @@ public sealed class OidcProvisioningTests
         Assert.True(account.IsInstanceAdministrator);
         Assert.NotEqual("subject", account.Id);
         Assert.Equal("subject", login.ProviderKey);
-        Assert.Empty(scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>().CustomerAuthLinks);
+        var domain = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        Assert.Empty(domain.CustomerAuthLinks);
+        var profile = Assert.Single(domain.Users.Where(user => user.Id == account.Id));
+        Assert.Equal(account.Id, profile.Id);
+        Assert.Null(profile.OrganizationId);
+        Assert.Equal(account.DisplayName, profile.Name);
+        domain.Users.Add(new User { Id = "same-email", Name = profile.Name, Email = profile.Email });
+        await domain.SaveChangesAsync();
+        Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync("/api/v1/users/by-email/" + Uri.EscapeDataString(profile.Email))).StatusCode);
     }
 
     [Theory]

@@ -1,3 +1,4 @@
+using Helpdesk.Infrastructure.Persistence;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -18,6 +19,7 @@ public static class AuthenticationEndpoints
     {
         app.MapGet("/api/v1/auth/me", async (
             ClaimsPrincipal user,
+            [FromServices] HelpdeskDbContext db,
             [FromServices] ICurrentUserAccessService accessService,
             CancellationToken ct) =>
         {
@@ -29,7 +31,13 @@ public static class AuthenticationEndpoints
                 "api" or "mcp" => IntegrationCredentialGrantKinds.Ordinary,
                 _ => null
             } : null;
-            return Results.Ok(ToDto(access, user.FindFirstValue(ClaimTypes.NameIdentifier)) with { GrantKind = grantKind });
+            string? assignmentUserId = null;
+            if (user.HasClaim("auth_mode", "integration") && user.FindFirstValue(ClaimTypes.NameIdentifier) is { } accountId &&
+                access.IsAuthenticated && (access.IsHelpdeskAdmin || access.Permissions.Count > 0))
+            {
+                assignmentUserId = await AssigneeQueries.ResolveAccountUserAsync(db, accountId, ct);
+            }
+            return Results.Ok(ToDto(access, user.FindFirstValue(ClaimTypes.NameIdentifier)) with { GrantKind = grantKind, AssignmentUserId = assignmentUserId });
         })
         .RequireAuthorization()
         .WithTags("Authentication")
