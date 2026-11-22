@@ -68,6 +68,17 @@ internal static class McpRequestSchemas
                 break;
             case "NotificationMarkReadRequest":
                 Field(fields, required, "ids", new JsonObject { ["type"] = "array", ["minItems"] = 1, ["items"] = TypeSchema(typeof(Guid)) }, true); break;
+            case "CloseRequestWork":
+                var selected = Object();
+                selected["required"] = new JsonArray("id", "stateVersion");
+                selected["properties"] = new JsonObject
+                {
+                    ["id"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 200 },
+                    ["stateVersion"] = new JsonObject { ["type"] = "integer", ["minimum"] = 0 }
+                };
+                Field(fields, required, "reason", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 1000 }, true);
+                Field(fields, required, "selection", new JsonObject { ["type"] = "array", ["items"] = selected, ["minItems"] = 1, ["maxItems"] = 50 }, true);
+                break;
             case "BulkRequestTaskActionRequest":
                 Field(fields, required, "ids", Strings(1), true); break;
             case "TicketStateRequest": case "BulkTicketStateRequest":

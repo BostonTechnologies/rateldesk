@@ -30,7 +30,7 @@ public sealed class TaskEscalationProcessor(
         var correlationId = GetCorrelationId();
 
         var inProgressTasks = (await _requestTasks.GetAllAsync())
-            .Where(task => task.Status == RequestTaskStatus.InProgress)
+            .Where(task => task.AdministrativeClosureReason == null && task.Status == RequestTaskStatus.InProgress)
             .ToList();
 
         if (inProgressTasks.Count == 0)

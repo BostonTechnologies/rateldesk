@@ -49,6 +49,8 @@ public sealed class FailurePolicyEngine(
         var task = await _requestTasks.GetAsync(taskIdText)
             ?? throw new KeyNotFoundException("Task not found");
 
+        if (request.AdministrativeClosureReason != null || task.AdministrativeClosureReason != null)
+            return new FailurePolicyResult { Decision = "AdministrativelyClosed" };
         var now = DateTimeOffset.UtcNow;
         var correlationId = GetCorrelationId();
         var policy = ResolveFailurePolicy(task.FailurePolicy, task.IsCritical);

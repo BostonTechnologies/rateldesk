@@ -34,6 +34,10 @@
         }
     </MudStack>
 
+    @if (_selected.Count is > 0 and <= 50 && _selected.All(x => accessProfile?.CanManageRequest(x.OrganizationId) == true))
+    {
+        <MudButton Size="Size.Small" OnClick="CloseSelectionAsync">Close selected requests</MudButton>
+    }
     <TicketListFilters Module="request" State="filters" Changed="FiltersChanged" />
     @if (queryError is not null) { <MudAlert Severity="Severity.Error">@queryError <MudButton OnClick="Reload">Retry</MudButton></MudAlert> }
 
@@ -209,6 +213,13 @@
     }
 
 
+
+    private async Task CloseSelectionAsync()
+    {
+        var selected = _selected.Select(x => new CloseWorkSelection(x.Id, x.StateVersion)).ToList();
+        if (await CloseWorkDialog.ShowAsync(DialogService, true, selected, $"Close {selected.Count} selected requests?"))
+            await Reload();
+    }
 
     private async Task ApplyBulkState()
     {

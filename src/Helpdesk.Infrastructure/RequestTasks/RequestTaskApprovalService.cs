@@ -42,6 +42,7 @@ public sealed partial class RequestTaskApprovalService(
         // a second time corrupts/conflicts with that graph in relational saves.
         task = await db.RequestTasks.FirstOrDefaultAsync(x => x.Id == task.Id && x.RequestId == task.RequestId, ct)
             ?? throw new KeyNotFoundException("Request task not found.");
+        if (task.AdministrativeClosureReason != null) throw new RequestProgressionHeldException("Task closed by an operator.");
         if (task.Type != RequestTaskType.Approval)
         {
             throw new InvalidOperationException("Task is not an approval task.");
@@ -296,7 +297,7 @@ public sealed partial class RequestTaskApprovalService(
         var unsent = await db.RequestTaskApprovals
             .Where(x => x.Status == RequestTaskApprovalStatus.Pending && x.TokenSentAtUtc == null)
             .Join(
-                db.RequestTasks.Where(x => x.Type == RequestTaskType.Approval && x.Status == RequestTaskStatus.PendingApproval),
+                db.RequestTasks.Where(x => x.AdministrativeClosureReason == null && x.Type == RequestTaskType.Approval && x.Status == RequestTaskStatus.PendingApproval),
                 approval => approval.RequestTaskId,
                 task => task.Id,
                 (approval, task) => new { Approval = approval, Task = task })
@@ -332,7 +333,7 @@ public sealed partial class RequestTaskApprovalService(
     private async Task RecoverMissingPendingApprovalRowsAsync(CancellationToken ct)
     {
         var tasksMissingRows = await db.RequestTasks
-            .Where(x => x.Type == RequestTaskType.Approval && x.Status == RequestTaskStatus.PendingApproval)
+            .Where(x => x.AdministrativeClosureReason == null && x.Type == RequestTaskType.Approval && x.Status == RequestTaskStatus.PendingApproval)
             .Where(task => !db.RequestTaskApprovals.Any(approval => approval.RequestTaskId == task.Id))
             .ToListAsync(ct);
 
@@ -350,7 +351,7 @@ public sealed partial class RequestTaskApprovalService(
     {
         var now = DateTimeOffset.UtcNow;
         var pending = db.RequestTasks.Where(x =>
-            x.Type == RequestTaskType.Approval && x.Status == RequestTaskStatus.PendingApproval);
+            x.AdministrativeClosureReason == null && x.Type == RequestTaskType.Approval && x.Status == RequestTaskStatus.PendingApproval);
         var overdue = db.Database.IsSqlite()
             ? pending.Where(x => EF.Property<long?>(x, "DueAtUtcTicks") <= now.UtcTicks)
             : pending.Where(x => x.DueAt.HasValue && x.DueAt <= now);

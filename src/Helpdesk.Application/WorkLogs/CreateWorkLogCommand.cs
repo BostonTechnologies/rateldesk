@@ -133,7 +133,7 @@ public class CreateWorkLogCommandHandler(
                 ticketForUpdate.Replies += 1;
                 // Change state belongs to the lifecycle workflow, including after
                 // implementation. Recording activity must never reopen a change.
-                if (ticketForUpdate is not Change)
+                if (ticketForUpdate is not Change && ticketForUpdate.AdministrativeClosureReason == null)
                     ticketForUpdate.State = TicketState.Replied;
                 ticketForUpdate.LastReplierName = request.TechnicianName;
             }

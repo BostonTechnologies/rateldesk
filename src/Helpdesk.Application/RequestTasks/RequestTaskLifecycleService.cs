@@ -737,6 +737,8 @@ public sealed class RequestTaskLifecycleService(
             ? throw new KeyNotFoundException("Task not found")
             : taskId.Trim();
         var task = await _requestTasks.GetAsync(normalizedTaskId);
+        if (task?.AdministrativeClosureReason is not null)
+            throw new InvalidOperationException("This task was closed by an operator.");
         return task ?? throw new KeyNotFoundException("Task not found");
     }
 

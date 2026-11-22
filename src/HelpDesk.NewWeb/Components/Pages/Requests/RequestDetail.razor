@@ -44,7 +44,7 @@ else
             <HelpDesk.NewWeb.Components.Shared.TicketHeader
                 Title="@request.Title" TitleTag="h1" StatusTestId="request-committed-state"
                 TrackingId="@request.TrackingId"
-                Status="@(originalRequest?.State ?? request.State)" StatusText="@RequestProgressLabels.Readable((originalRequest?.State ?? request.State).ToString())" StatusColor="Color.Default"
+                Status="@(originalRequest?.State ?? request.State)" StatusText="@(request.AdministrativeClosureReason != null ? "Closed by operator" : RequestProgressLabels.Readable((originalRequest?.State ?? request.State).ToString()))" StatusColor="Color.Default"
                 Priority="@request.Priority"
                 LastUpdated="@(request.UpdatedAt ?? request.CreatedAt)"
                 CustomerName="@request.CustomerName"
@@ -60,6 +60,14 @@ else
                     <strong>@RequestProgressLabels.Readable(request.WorkflowStatus ?? "Not started")</strong>
                     <span>@tasks.Count(x => x.Status is RequestTaskStatus.Completed or RequestTaskStatus.Skipped) / @tasks.Count tasks complete</span>
                 </div>
+                @if (request.AdministrativeClosureReason is { } reason)
+                {
+                    <MudText>Closed · @reason</MudText>
+                }
+                else if (CanManage && request.State != TicketState.Resolved)
+                {
+                    <MudButton Size="Size.Small" OnClick="() => CloseWorkAsync(null)" Disabled="@(tasksLoading || isUpdating)">Close request</MudButton>
+                }
                 <RequestLiveUpdates @key="Id" RequestId="@Id" OnRefresh="RefreshRequestAndTasksAsync" />
             </div>
             @if (!string.IsNullOrWhiteSpace(request.WorkflowBlockReason))
@@ -108,24 +116,28 @@ else
                                     <MudTd DataLabel="Status">
                                         <span class="request-task-state" data-task-id="@context.Task.Id">
                                             <MudIcon Icon="@GetTaskStatusIcon(context.Task)" Color="@GetDisplayedTaskColor(context.Task)" Size="Size.Small" aria-hidden="true" />
-                                            @GetTaskStatusLabel(context.Task)
+                                            @(context.Task.AdministrativeClosureReason == null ? "" : "Closed · ")@GetTaskStatusLabel(context.Task)
                                         </span>
                                     </MudTd>
                                     <MudTd DataLabel="Assignee"><span class="request-task-assignee" title="@GetAssigneeDisplay(context.Task.AssignedToId)">@GetAssigneeDisplay(context.Task.AssignedToId)</span></MudTd>
                                     <MudTd DataLabel="Actions"><div class="workspace-actions">
                                         <div class="request-task-actions">
-                                            @if (context.Task.Status == RequestTaskStatus.Pending)
+                                            @if (CanManage && context.Task.AdministrativeClosureReason == null && context.Task.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped))
+                                            {
+                                                <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseWorkAsync(context.Task)" />
+                                            }
+                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Status == RequestTaskStatus.Pending)
                                             {
                                                 <WorkspaceAction Label="Start task" Icon="@Icons.Material.Filled.PlayArrow"
                                                     Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress || (context.Task.Type == RequestTaskType.Automation && !context.Task.AutomationReadyToStart))"
                                                     DisabledReason="@(context.Task.AutomationBlockReason ?? "Task permission and readiness are required")" OnClick="() => StartTaskAsync(context.Task)" />
                                             }
-                                            @if (context.Task.Type == RequestTaskType.Manual && context.Task.Status == RequestTaskStatus.InProgress)
+                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Type == RequestTaskType.Manual && context.Task.Status == RequestTaskStatus.InProgress)
                                             {
                                                 <WorkspaceAction Label="Complete task" Icon="@Icons.Material.Outlined.CheckCircle" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => CompleteTaskAsync(context.Task)" />
                                                 <WorkspaceAction Label="Fail task" Icon="@Icons.Material.Outlined.ErrorOutline" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => FailTaskAsync(context.Task)" />
                                             }
-                                            @if (context.Task.Type == RequestTaskType.Automation && context.Task.Status == RequestTaskStatus.Failed && canRetryAutomationTasks && !RequiresManualReconciliation(context.Task.LastAutomationStatus))
+                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Type == RequestTaskType.Automation && context.Task.Status == RequestTaskStatus.Failed && canRetryAutomationTasks && !RequiresManualReconciliation(context.Task.LastAutomationStatus))
                                             {
                                                 <WorkspaceAction Label="Retry task" Icon="@Icons.Material.Filled.Replay" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => RetryTaskAsync(context.Task)" />
                                             }
@@ -256,7 +268,7 @@ else
                                            Margin="Margin.Dense"
                                            Label="Status"
                                            Variant="Variant.Outlined"
-                                           Disabled="@(!CanManage || isUpdating)">
+                                           Disabled="@(!CanManage || isUpdating || request.AdministrativeClosureReason != null)">
                                     @foreach (TicketState state in Enum.GetValues(typeof(TicketState)))
                                     {
                                         <MudSelectItem T="TicketState" Value="@state">@state.ToString()</MudSelectItem>
@@ -467,6 +479,8 @@ else
             Title = source.Title,
             Description = source.Description,
             State = source.State,
+            AdministrativeClosureReason = source.AdministrativeClosureReason,
+            StateVersion = source.StateVersion,
             Priority = source.Priority,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,
@@ -815,6 +829,16 @@ else
         }
 
         return userDisplayNames.TryGetValue(assignedToId, out var name) ? name : assignedToId;
+    }
+
+    private async Task CloseWorkAsync(RequestTaskDto? task)
+    {
+        if (request == null || !CanManage) return;
+        var selected = new CloseWorkSelection(task?.Id ?? request.Id, task?.StateVersion ?? request.StateVersion);
+        var count = tasks.Count(x => x.AdministrativeClosureReason == null && x.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped));
+        var summary = task == null ? $"Close {request.TrackingId} and its {count} unfinished tasks?" : $"Close {task.Name}?";
+        if (await CloseWorkDialog.ShowAsync(DialogService, task == null, [selected], summary))
+            await RefreshRequestAndTasksAsync();
     }
 
     private async Task StartTaskAsync(RequestTaskDto task)

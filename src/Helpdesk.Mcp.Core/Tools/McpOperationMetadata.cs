@@ -116,6 +116,7 @@ public static class McpOperationMetadata
             _ => "Change.Delete or Change.Manager within the selected organization; Change.Write alone is insufficient"
         };
         if (item.Tool == "helpdesk_incidents") return item.Effect == "read" ? "Incident read/write/manager permission or permitted owned incident in organization scope" : "Incident management/write authority in selected organization; API action-specific policy applies";
+        if (item.Operation == "bulk_close") return "Request.Write or Request.Manager within each selected record’s organization, or active instance administrator. Scope is rechecked for every record.";
         if (item.Tool == "helpdesk_request_tasks") return item.Effect == "read"
             ? "Request.Read, Request.Write or Request.Manager on the parent organization; owned-request permission alone does not grant task administration"
             : item.Operation is "create" or "update" or "delete"

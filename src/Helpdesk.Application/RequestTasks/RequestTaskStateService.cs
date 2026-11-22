@@ -22,7 +22,7 @@ public sealed class RequestTaskStateService(
     public async Task<bool> EvaluateParentRequestState(string requestId, CancellationToken cancellationToken = default)
     {
         var request = await _requests.GetAsync(requestId);
-        if (request is null)
+        if (request is null || request.AdministrativeClosureReason != null)
         {
             return false;
         }

@@ -469,6 +469,7 @@ internal static partial class HelpdeskCli
     private static Command BuildRequestsCommand(CliRuntime runtime, GlobalOptions globals)
     {
         var requests = BuildTicketCollectionCommand(runtime, globals, "requests", "Manage service requests.", "/api/v1/requests");
+        requests.AddCommand(BodyCommand(runtime, globals, "bulk-close", HttpMethod.Post, "/api/v1/requests/bulk/close", ("--selection", "selection"), ("--reason", "reason")));
         requests.AddCommand(GetByIdCommand(runtime, globals, "tasks", "/api/v1/requests/{id}/tasks"));
         requests.AddCommand(GetByIdCommand(runtime, globals, "ai-audit", "/api/v1/requests/{id}/ai-audit"));
         return requests;
@@ -745,6 +746,11 @@ internal static partial class HelpdeskCli
             ["updatedAt"] = CloneNode(source["updatedAt"])
         };
 
+        if (resource is "requests" or "request")
+        {
+            row["stateVersion"] = CloneNode(source["stateVersion"]);
+            row["administrativeClosureReason"] = CloneNode(source["administrativeClosureReason"]);
+        }
         AddEnum(row, source, "state", typeof(TicketState));
         AddEnum(row, source, "priority", typeof(TicketPriority));
         AddEnum(row, source, "lifecycleState", typeof(ChangeLifecycleState));

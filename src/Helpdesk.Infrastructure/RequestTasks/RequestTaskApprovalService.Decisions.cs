@@ -97,9 +97,9 @@ public sealed partial class RequestTaskApprovalService
     }
 
     private async Task<bool> FenceTaskAsync(RequestTask task, CancellationToken ct) =>
-        !db.Database.IsRelational() || await db.RequestTasks.IgnoreQueryFilters()
-            .Where(candidate => candidate.Id == task.Id && candidate.RequestId == task.RequestId && candidate.Status == task.Status)
-            .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Status, candidate => candidate.Status), ct) == 1;
+        task.AdministrativeClosureReason == null && (!db.Database.IsRelational() || await db.RequestTasks.IgnoreQueryFilters()
+            .Where(candidate => candidate.Id == task.Id && candidate.RequestId == task.RequestId && candidate.Status == task.Status && candidate.AdministrativeClosureReason == null)
+            .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Status, candidate => candidate.Status), ct) == 1);
 
     private static RequestTaskApprovalReviewResult DecisionChanged() =>
         RequestTaskApprovalReviewResult.Failed("The approval changed concurrently. Read its current outcome before another action.", "approval_changed");

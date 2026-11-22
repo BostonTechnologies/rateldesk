@@ -26,6 +26,7 @@ public static class RequestTaskEndpoints
 
         MapCrud(group);
         MapLifecycle(group);
+        group.MapCloseWork(closeParent: false);
 
         // Legacy route kept for backward compatibility.
         var legacyGroup = app.MapGroup("/api/v1/requestTasks")
@@ -132,13 +133,13 @@ public static class RequestTaskEndpoints
 
             if (historicOnly == true)
             {
-                query = query.Where(x => x.Task.Status == RequestTaskStatus.Completed
+                query = query.Where(x => x.Task.AdministrativeClosureReason != null || x.Task.Status == RequestTaskStatus.Completed
                     || x.Task.Status == RequestTaskStatus.Skipped
                     || x.Task.Status == RequestTaskStatus.Cancelled);
             }
             else
             {
-                query = query.Where(x => x.Task.Status != RequestTaskStatus.Completed
+                query = query.Where(x => x.Task.AdministrativeClosureReason == null && x.Task.Status != RequestTaskStatus.Completed
                     && x.Task.Status != RequestTaskStatus.Skipped
                     && x.Task.Status != RequestTaskStatus.Cancelled);
             }
@@ -200,6 +201,8 @@ public static class RequestTaskEndpoints
                         RequestTitle = x.Request.Title,
                         Name = x.Task.Name,
                         Type = x.Task.Type,
+                        AdministrativeClosureReason = x.Task.AdministrativeClosureReason,
+                        StateVersion = x.Task.AutomationStateVersion,
                         Status = x.Task.Status,
                         AssignedToId = x.Task.AssignedToId,
                         AssignedToDisplayName = x.AssignedUserName,
@@ -300,16 +303,18 @@ public static class RequestTaskEndpoints
                 return Results.BadRequest("Invalid ticket priority.");
             }
 
-            var parent = await db.Requests.AsNoTracking()
+            await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(token) : null;
+            var parent = await db.Requests
                 .IgnoreQueryFilters()
                 .Where(request => request.Id == dto.RequestId)
-                .Select(request => new { request.OrganizationId, request.CustomerId })
                 .FirstOrDefaultAsync(token);
             if (parent is null || !CanAccessOrganization(access, parent.OrganizationId))
             {
                 return Results.NotFound();
             }
 
+            if (parent.AdministrativeClosureReason != null)
+                return Results.Conflict("This request was closed by an operator.");
             if ((!string.IsNullOrWhiteSpace(dto.OrganizationId) &&
                  !string.Equals(dto.OrganizationId, parent.OrganizationId, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrWhiteSpace(dto.CustomerId) &&
@@ -328,7 +333,11 @@ public static class RequestTaskEndpoints
                 dto.LinkedAssetIds,
                 dto.Attachments,
                 dto.DueDate);
+            // Advancing this version serializes insertion of a new child with parent closure.
+            db.Entry(parent).Property(x => x.WorkflowStateVersion).IsModified = true;
             var created = await sender.Send(command);
+            await db.SaveChangesAsync(token);
+            if (transaction != null) await transaction.CommitAsync(token);
             return Results.Created($"/api/v1/request-tasks/{created.Id}", created);
         });
 
@@ -906,6 +915,8 @@ public static class RequestTaskEndpoints
         RequestId = task.RequestId,
         TemplateId = task.TemplateId,
         Type = task.Type,
+        AdministrativeClosureReason = task.AdministrativeClosureReason,
+        StateVersion = task.AutomationStateVersion,
         Status = task.Status,
         StartedAt = task.StartedAt,
         CompletedAt = task.CompletedAt,

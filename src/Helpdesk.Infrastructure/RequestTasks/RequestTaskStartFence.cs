@@ -25,7 +25,7 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
                 ?? throw new KeyNotFoundException("Request not found");
             var ownsExistingApprovalHold = approval && parent.WorkflowStatus == "PendingApproval"
                 && parent.WorkflowBlockReason == $"Waiting for approval for task '{task.Name}'.";
-            if (RequestHoldPolicy.IsOperatorHeld(parent)
+            if (parent.AdministrativeClosureReason != null || RequestHoldPolicy.IsOperatorHeld(parent)
                 || RequestHoldPolicy.BlocksStart(parent) && !ownsExistingApprovalHold)
                 throw new RequestProgressionHeldException("This request is on hold. Resolve its outstanding holds before starting more work.");
             if (await db.RequestTasks.AsNoTracking().AnyAsync(sibling => sibling.RequestId == task.RequestId
@@ -34,9 +34,9 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
                     || sibling.LastAutomationStatus.ToLower() == "submituncertainmanualreconcile"), ct))
                 throw new RequestProgressionHeldException("Reconcile the unresolved automation attempt before starting more work on this request.");
             var current = await db.RequestTasks.AsNoTracking().Where(row => row.Id == task.Id)
-                .Select(row => new { row.Status, row.IsBlocked, row.AutomationStateVersion }).SingleAsync(ct);
+                .Select(row => new { row.Status, row.AdministrativeClosureReason, row.IsBlocked, row.AutomationStateVersion }).SingleAsync(ct);
             if ((current.Status != RequestTaskStatus.Pending && !(approval && current.Status == RequestTaskStatus.PendingApproval))
-                || current.IsBlocked
+                || current.AdministrativeClosureReason != null || current.IsBlocked
                 || current.AutomationStateVersion != task.AutomationStateVersion)
                 throw new DbUpdateConcurrencyException("The task changed before its start intent could be recorded.");
 

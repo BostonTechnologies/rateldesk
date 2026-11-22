@@ -22,7 +22,7 @@ public static class RequestHoldPolicy
         || request.OperatorHold is null && request.State == TicketState.OnHold
             && !OwnsReconciliationHold(request) && !HasUnrelatedWorkflowHold(request);
 
-    public static bool BlocksStart(Request request) => IsOperatorHeld(request) || HasUnrelatedWorkflowHold(request)
+    public static bool BlocksStart(Request request) => request.AdministrativeClosureReason != null || IsOperatorHeld(request) || HasUnrelatedWorkflowHold(request)
         || IsStatus(request, "NeedsReconciliation") || IsStatus(request, OperatorStatus);
 
     private static bool IsStatus(Request request, string status)

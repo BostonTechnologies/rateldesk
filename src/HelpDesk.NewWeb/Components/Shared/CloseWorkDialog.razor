@@ -1,0 +1,90 @@
+@using Helpdesk.Shared.DTOs.Request
+@inject IHttpClientFactory ClientFactory
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2">@Summary</MudText>
+        @if (CloseParent)
+        {
+            <MudText Typo="Typo.body2">Closing a request also closes its unfinished tasks and withdraws pending approvals.</MudText>
+        }
+        <MudText Typo="Typo.body2">Remote executions may still finish. Their reported outcomes remain in history.</MudText>
+        <MudTextField T="string" @bind-Value="reason" Label="Reason" Required="true" Immediate="true" MaxLength="1000"
+            Lines="2" Variant="Variant.Outlined" Disabled="@(busy || attempted)" />
+        @if (error != null) { <MudAlert Severity="Severity.Error">@error</MudAlert> }
+        @foreach (var result in results)
+        {
+            <MudText Typo="Typo.body2">@result.Id · @Describe(result)</MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (attempted)
+        {
+            <MudButton OnClick="Finish">Done</MudButton>
+        }
+        else
+        {
+            <MudButton OnClick="Cancel" Disabled="@busy">Cancel</MudButton>
+            <MudButton OnClick="Submit" Color="Color.Error" Disabled="@(busy || string.IsNullOrWhiteSpace(reason))">Confirm closure</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public bool CloseParent { get; set; }
+    [Parameter] public string Summary { get; set; } = "";
+    [Parameter] public List<CloseWorkSelection> Selection { get; set; } = [];
+    private string reason = "";
+    private bool busy;
+    private bool attempted;
+    private string? error;
+    private List<CloseWorkResult> results = [];
+
+    public static async Task<bool> ShowAsync(IDialogService dialogs, bool closeParent,
+        List<CloseWorkSelection> selection, string summary)
+    {
+        var parameters = new DialogParameters<CloseWorkDialog>
+        {
+            { dialog => dialog.CloseParent, closeParent },
+            { dialog => dialog.Selection, selection },
+            { dialog => dialog.Summary, summary }
+        };
+        var dialog = await dialogs.ShowAsync<CloseWorkDialog>(closeParent ? "Close request" : "Close task", parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, BackdropClick = false });
+        return (await dialog.Result)?.Canceled == false;
+    }
+
+    private async Task Submit()
+    {
+        if (busy || attempted || string.IsNullOrWhiteSpace(reason)) return;
+        busy = true;
+        try
+        {
+            var resource = CloseParent ? "requests" : "request-tasks";
+            using var client = ClientFactory.CreateClient("HelpdeskApi");
+            using var response = await client.PostAsJsonAsync($"api/v1/{resource}/bulk/close",
+                new CloseRequestWorkDto(reason.Trim(), Selection));
+            if (response.IsSuccessStatusCode)
+                results = await response.Content.ReadFromJsonAsync<List<CloseWorkResult>>() ?? [];
+            else
+                error = $"Closure could not be confirmed ({(int)response.StatusCode}). Refresh before trying again.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+        {
+            error = "Closure could not be confirmed. Refresh before trying again.";
+        }
+        finally { attempted = true; busy = false; }
+    }
+
+    private static string Describe(CloseWorkResult result) => result.Outcome switch
+    {
+        "closed" => $"Closed. {result.SettledTasks} tasks settled, {result.RemainingTasks} unfinished.",
+        "already_finished" => "Already finished",
+        "already_closed" => "Previously closed",
+        "changed" => "Changed since selection. Refresh and review.",
+        _ => "Unavailable or access denied"
+    };
+    private void Cancel() => Dialog.Cancel();
+    private void Finish() => Dialog.Close(DialogResult.Ok(true));
+}

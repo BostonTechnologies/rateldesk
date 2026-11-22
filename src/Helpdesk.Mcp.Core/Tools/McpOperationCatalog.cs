@@ -27,7 +27,7 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-11-17.ticket-relations-v33";
+    public const string Revision = "2026-11-22.request-closure-v34";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -134,6 +134,8 @@ public static class McpOperationCatalog
         foreach (var definition in TicketRemainder("helpdesk_requests", "requests", "requestId", ["list", "bulk_create", "bulk_state", "assign", "assign_self"])) yield return definition;
         foreach (var definition in TicketRemainder("helpdesk_changes", "changes", "changeId", ["list", "bulk_create", "bulk_state", "assign", "assign_self"])) yield return definition;
 
+        yield return Operation("helpdesk_requests", "bulk_close", "CloseRequestWork", "POST", "/api/v1/requests/bulk/close", true);
+        yield return Operation("helpdesk_request_tasks", "bulk_close", "CloseRequestWork", "POST", "/api/v1/request-tasks/bulk/close", true);
         foreach (var operation in new[] { "list", "get", "create", "update", "delete", "start", "complete", "fail", "retry", "bulk_start", "bulk_complete", "bulk_retry" })
             yield return Operation("helpdesk_request_tasks", operation, RequestTaskContract(operation), operation is "list" ? "GET" : operation == "get" ? "GET" : operation is "update" ? "PATCH" : operation == "delete" ? "DELETE" : "POST", RequestTaskPath(operation), operation is not ("list" or "get"));
 

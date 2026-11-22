@@ -18,6 +18,8 @@ public abstract class Ticket
     public List<string> LinkedAssetIds { get; set; } = new();
     public string? SlaPolicyId { get; set; }
     public DateTime? DueDate { get; set; }
+    public string? AdministrativeClosureReason { get; set; }
+    public string? AdministrativelyClosedBy { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
     public TicketEmailExclusionReason EmailExclusionReason { get; set; } = TicketEmailExclusionReason.None;
     public List<string> Attachments { get; set; } = new();

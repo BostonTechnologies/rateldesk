@@ -51,7 +51,7 @@ public sealed class WorkflowEngine(
             return WorkflowRunResult.Failed(requestIdText);
         }
         var correlationId = GetCorrelationId();
-        var isRequestProgressionBlocked = RequestHoldPolicy.IsOperatorHeld(request)
+        var isRequestProgressionBlocked = request.AdministrativeClosureReason != null || RequestHoldPolicy.IsOperatorHeld(request)
             || string.Equals(request.WorkflowStatus, "OnHold", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "Blocked", StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.WorkflowStatus, "NeedsReconciliation", StringComparison.OrdinalIgnoreCase)
@@ -60,7 +60,7 @@ public sealed class WorkflowEngine(
 
         ct.ThrowIfCancellationRequested();
         var currentTasks = (await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestIdText, ct))
-            .OrderBy(x => x.Order).ToList();
+            .Where(task => task.AdministrativeClosureReason == null).OrderBy(x => x.Order).ToList();
 
         isRequestProgressionBlocked |= currentTasks.Any(task =>
             AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus));
@@ -71,7 +71,7 @@ public sealed class WorkflowEngine(
 
         ct.ThrowIfCancellationRequested();
         var tasksAfterDependencies = (await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestIdText, ct))
-            .OrderBy(x => x.Order).ToList();
+            .Where(task => task.AdministrativeClosureReason == null).OrderBy(x => x.Order).ToList();
         var skippedCount = 0;
         var skipTimestamp = DateTimeOffset.UtcNow;
 
@@ -116,7 +116,7 @@ public sealed class WorkflowEngine(
             unblockedCount += secondDependencyResult.UnblockedCount;
 
             tasksAfterDependencies = (await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestIdText, ct))
-                .OrderBy(x => x.Order).ToList();
+                .Where(task => task.AdministrativeClosureReason == null).OrderBy(x => x.Order).ToList();
         }
 
         var autoStartedCount = 0;
@@ -207,13 +207,13 @@ public sealed class WorkflowEngine(
                                 task.Id);
                         }
                     }
-                    catch (InvalidOperationException)
+                    catch (InvalidOperationException ex)
                     {
-                        // Another run may have started/transitioned the task first.
+                        _logger.LogDebug(ex, "Workflow task changed before start. TaskId={TaskId}", task.Id);
                     }
-                    catch (KeyNotFoundException)
+                    catch (KeyNotFoundException ex)
                     {
-                        // Task no longer exists.
+                        _logger.LogDebug(ex, "Workflow task disappeared before start. TaskId={TaskId}", task.Id);
                     }
                 }
             }
