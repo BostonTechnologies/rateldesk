@@ -1,3 +1,4 @@
+using Helpdesk.Infrastructure.Identity;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -199,6 +200,57 @@ public sealed class AssigneeSearchEndpointsTests
         await h.WithDb(async db => Assert.Equal(3, await db.TicketCategories.CountAsync()));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Active_mapped_admins_are_assignable_across_modules_and_revalidated_at_save(bool postgres)
+    {
+        await using var h = await Harness.Create(postgres);
+        await h.WithDb(async db =>
+        {
+            await using var identity = TicketIdentityStore.Open(db);
+            identity.Users.AddRange(
+                new ApplicationUser { Id = "local", IsInstanceAdministrator = true },
+                new ApplicationUser { Id = "hybrid-account", IsInstanceAdministrator = true });
+            await identity.SaveChangesAsync();
+            var external = await OidcApplicationAccount.ProvisionAdministratorAsync(identity, "https://identity.example.test", "verified-sub", "Administrator");
+            foreach (var id in new[] { "local", "hybrid-domain", "oidc-domain", "impostor", "wrong-issuer" })
+                db.Users.Add(new User { Id = id, Name = "Zulu Administrator", Email = "duplicate@example.test", OrganizationId = "other", Role = "HelpdeskAdmin" });
+            foreach (var contact in new[] { "hybrid-contact", "oidc-contact", "other-contact" })
+                db.Customers.Add(new Customer { Id = contact, OrganizationId = "other", Name = contact, Email = contact + "@example.test" });
+            db.CustomerAuthLinks.AddRange(
+                new CustomerAuthLink { CustomerId = "hybrid-contact", DomainUserId = "hybrid-domain", LocalAccountId = "hybrid-account" },
+                new CustomerAuthLink { CustomerId = "oidc-contact", DomainUserId = "oidc-domain", OidcIssuer = "https://identity.example.test", OidcSubject = "verified-sub" },
+                new CustomerAuthLink { CustomerId = "other-contact", DomainUserId = "wrong-issuer", OidcIssuer = "https://other.example.test", OidcSubject = "verified-sub" });
+            await db.SaveChangesAsync();
+            Assert.Equal("hybrid-domain", await AssigneeQueries.ResolveAccountUserAsync(db, "hybrid-account", default));
+            Assert.Equal("oidc-domain", await AssigneeQueries.ResolveAccountUserAsync(db, external.Id, default));
+        });
+        foreach (var module in new[] { "request", "change", "incident" })
+        {
+            Assert.Equal(new[] { "hybrid-domain", "local", "oidc-domain" }, (await h.Search(module, "Duplicate@example.test")).Items.Select(x => x.Id));
+            (await h.AssignBulk(module + "s", module, "hybrid-domain")).EnsureSuccessStatusCode();
+            Assert.Equal("hybrid-domain", await h.Assigned(module));
+        }
+        await h.WithDb(async db =>
+        {
+            await using var identity = TicketIdentityStore.Open(db);
+            (await identity.Users.SingleAsync(x => x.Id == "hybrid-account")).IsInstanceAdministrator = false;
+            (await identity.Users.SingleAsync(x => x.Id == "local")).IsEnabled = false;
+            var oidc = await OidcApplicationAccount.FindAsync(identity, "https://identity.example.test", "verified-sub");
+            oidc!.IsDeleted = true;
+            await identity.SaveChangesAsync();
+        });
+        foreach (var module in new[] { "request", "change", "incident" })
+        {
+            Assert.Empty((await h.Search(module, "duplicate@example.test")).Items);
+            foreach (var id in new[] { "local", "hybrid-domain", "oidc-domain" })
+                Assert.Equal(HttpStatusCode.BadRequest, (await h.AssignBulk(module + "s", module, id)).StatusCode);
+            var historical = await h.Client.GetFromJsonAsync<UserDto>($"/api/v1/ticketing/assignees/current?module={module}&organizationId=org&ticketId={module}");
+            Assert.Equal("hybrid-domain", historical!.Id);
+        }
+    }
+
     internal sealed class Harness(WebApplication app, HttpClient client, SqliteConnection? sqlite, PostgreSqlContainer? postgres) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
@@ -218,7 +270,7 @@ public sealed class AssigneeSearchEndpointsTests
             builder.Services.AddSingleton(tenant);
             builder.Services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
             builder.Services.AddScoped<ICurrentUserAccessService, ClaimsAccess>();
-            builder.Services.AddScoped<ISupportAccessService, SupportAccessService>();
+            builder.Services.AddScoped<ISupportAccessService, TicketSupportAccessService>();
             builder.Services.AddSingleton<IChangeTemplateService, ChangeTemplateService>();
             builder.Services.AddSingleton(Substitute.For<ITimelineEventBus>());
             builder.Services.AddSingleton(Substitute.For<ISupportNotificationService>());
@@ -252,6 +304,7 @@ public sealed class AssigneeSearchEndpointsTests
             var h = new Harness(app, client, sqlite, postgres);
             await h.WithDb(async db => {
                 await db.Database.EnsureCreatedAsync();
+                await TicketIdentityStore.CreateAsync(db);
                 db.Organizations.AddRange(new Organization { Id = "org", Name = "Customer", ItSupportOrganizationId = "provider" }, new Organization { Id = "provider", Name = "Provider" }, new Organization { Id = "other", Name = "Other" });
                 for (var i = 0; i < 55; i++) db.Users.Add(new User { Id = $"user-{i:D2}", Name = $"Alpha {i:D2}", Email = $"alpha{i}@example.test", OrganizationId = "org" });
                 db.Users.AddRange(new User { Id = "late", Name = "Zulu Surname", Email = "late@example.test", OrganizationId = "org" },

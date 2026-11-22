@@ -47,6 +47,7 @@ internal static class AssigneeSearchEndpoints
             {
                 "incident" => await db.Incidents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ticketId, token),
                 "request" => await db.Requests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ticketId, token),
+                "task" => await db.RequestTasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ticketId, token),
                 "change" => await db.Changes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == ticketId, token),
                 _ => null
             };
@@ -54,6 +55,7 @@ internal static class AssigneeSearchEndpoints
             var canView = module switch
             {
                 "incident" => access.CanViewIncident(ticket.OrganizationId, ticket.CustomerId, ticket.RequesterEmail),
+                "task" => RequestTasks.RequestTaskEndpoints.CanReadTasks(access) && RequestTasks.RequestTaskEndpoints.CanReadOrganization(access, ticket.OrganizationId),
                 "request" => access.CanViewRequest(ticket.OrganizationId, ticket.CustomerId, ticket.RequesterEmail),
                 _ => access.CanViewChange(ticket.OrganizationId, ticket.CustomerId, ticket.RequesterEmail)
             };
@@ -66,11 +68,11 @@ internal static class AssigneeSearchEndpoints
         }).WithName("GetCurrentTicketAssignee");
     }
 
-    private static bool ValidModule(string module) => module is "incident" or "request" or "change";
+    private static bool ValidModule(string module) => module is "incident" or "request" or "change" or "task";
     private static bool CanManage(CurrentUserAccessProfile access, string module, string organizationId) => module switch
     {
         "incident" => access.CanManageIncident(organizationId),
-        "request" => access.CanManageRequest(organizationId),
+        "request" or "task" => access.CanManageRequest(organizationId),
         "change" => access.CanManageChange(organizationId),
         _ => false
     };

@@ -18,6 +18,9 @@ public sealed record CurrentUserAccessDto(
     /// <summary>Stable application identity of the authenticated caller, when one is linked.</summary>
     public string? UserId { get; init; }
 
+    /// <summary>Verified ticket-assignment domain identity for this account-bound credential.</summary>
+    public string? AssignmentUserId { get; init; }
+
     /// <summary>Explicit integration grant kind; null for an interactive or unrelated identity.</summary>
     public string? GrantKind { get; init; }
 

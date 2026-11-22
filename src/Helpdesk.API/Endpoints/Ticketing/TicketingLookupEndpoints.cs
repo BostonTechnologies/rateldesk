@@ -119,8 +119,9 @@ public static class TicketingLookupEndpoints
                 return Results.Ok(Array.Empty<UserDto>());
             }
 
-            var users = await db.Users.AsNoTracking()
-                .Where(x => !x.IsDeleted && x.OrganizationId == organizationId)
+            var normalizedModule = module?.ToLowerInvariant() ?? "request";
+            if (normalizedModule is not ("incident" or "request" or "change")) return Results.BadRequest("Select a ticket module.");
+            var users = await AssigneeQueries.Eligible(db, normalizedModule, db.Organizations.Where(org => org.Id == organizationId))
                 .OrderBy(x => x.Name)
                 .ThenBy(x => x.Email)
                 .Select(x => new UserDto(x.Id, x.Name, x.Email, x.Role, x.IsTestUser, x.OrganizationId))

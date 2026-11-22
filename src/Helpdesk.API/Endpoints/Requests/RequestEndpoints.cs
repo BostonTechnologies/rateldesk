@@ -207,7 +207,6 @@ public static class RequestEndpoints
             [FromServices] HelpdeskDbContext db,
             [FromServices] IRepository<Request> repo,
             [FromServices] IRepository<Customer> customers,
-            [FromServices] IRepository<User> users,
             [FromServices] ITicketSlaInitializer ticketSlaInitializer,
             [FromServices] AppTicketServices.ITicketRefGeneratorService refs,
             [FromServices] IRequestTaskGenerationService requestTaskGenerationService,
@@ -248,7 +247,7 @@ public static class RequestEndpoints
                 return Results.Forbid();
             }
 
-            var assignmentValidation = await ValidateCreateAssigneeAsync(users, dto.OrganizationId, dto.AssignedToId);
+            var assignmentValidation = await TicketAssigneeValidation.RequestAsync(db, dto.OrganizationId, dto.AssignedToId, token);
             if (assignmentValidation is not null)
             {
                 return assignmentValidation;
@@ -554,7 +553,6 @@ public static class RequestEndpoints
             ClaimsPrincipal user,
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] HelpdeskDbContext db,
-            [FromServices] IRepository<User> users,
             [FromServices] IRepository<Request> repo,
             [FromServices] IDomainEventPublisher domainEvents,
             [FromServices] ICorrelationContext correlationContext,
@@ -569,7 +567,7 @@ public static class RequestEndpoints
             if (requests.Count != ids.Length) return Results.NotFound();
             foreach (var request in requests)
             {
-                var validation = await ValidateCreateAssigneeAsync(users, request.OrganizationId, req.AssignedToId);
+                var validation = await TicketAssigneeValidation.RequestAsync(db, request.OrganizationId, req.AssignedToId, token);
                 if (validation is not null) return validation;
             }
             await using var transaction = db.Database.IsRelational()
@@ -1386,35 +1384,6 @@ public static class RequestEndpoints
     {
         var sanitized = sanitizer.Sanitize(description ?? string.Empty);
         return plainTextConverter.Convert(sanitized);
-    }
-
-    private static async Task<IResult?> ValidateCreateAssigneeAsync(
-        IRepository<User> users,
-        string? organizationId,
-        string? assignedToId)
-    {
-        if (string.IsNullOrWhiteSpace(assignedToId))
-        {
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(organizationId))
-        {
-            return Results.BadRequest("Organization is required when assigning a ticket.");
-        }
-
-        var assignee = await users.GetAsync(assignedToId);
-        if (assignee is null)
-        {
-            return Results.BadRequest("Assigned user was not found.");
-        }
-
-        if (!string.Equals(assignee.OrganizationId, organizationId, StringComparison.OrdinalIgnoreCase))
-        {
-            return Results.BadRequest("Assigned user must belong to the selected organization.");
-        }
-
-        return null;
     }
 
     private static async Task<(IResult? Result, Customer? Customer)> ValidateCreateCustomerAsync(

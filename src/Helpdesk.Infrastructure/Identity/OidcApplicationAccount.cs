@@ -54,6 +54,6 @@ public static class OidcApplicationAccount
         return account;
     }
 
-    private static string Provider(string issuer) => "oidc:" +
+    internal static string Provider(string issuer) => "oidc:" +
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(issuer.TrimEnd('/'))));
 }
