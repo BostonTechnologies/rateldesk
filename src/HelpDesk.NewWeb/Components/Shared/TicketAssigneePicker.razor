@@ -65,7 +65,7 @@
             await AssignedToIdChanged.InvokeAsync(AssignedToId);
             if (!disposed && scope == origin) await AssignmentChanged.InvokeAsync(candidate);
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
             if (!disposed && scope == origin) Snackbar.Add("Assignment failed. Refresh and try again.", Severity.Error);

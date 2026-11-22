@@ -471,13 +471,15 @@
     {
         _debounceCts?.Cancel();
         _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
         try
         {
-            await Task.Delay(300, _debounceCts.Token);
+            await Task.Delay(300, token);
             await Reload();
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            return;
         }
     }
 

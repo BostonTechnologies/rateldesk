@@ -204,6 +204,7 @@ public static class RequestEndpoints
 
         group.MapPost("/", async (
             [FromBody] CreateRequestDto dto,
+            [FromServices] ILoggerFactory loggerFactory,
             [FromServices] HelpdeskDbContext db,
             [FromServices] IRepository<Request> repo,
             [FromServices] IRepository<Customer> customers,
@@ -242,7 +243,8 @@ public static class RequestEndpoints
 
             var customer = customerValidation.Customer!;
             var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanCreateRequest(dto.OrganizationId, customer.Id, customer.Email))
+            if (!access.CanCreateRequest(dto.OrganizationId, customer.Id, customer.Email) ||
+                (!string.IsNullOrWhiteSpace(dto.AssignedToId) && !access.CanManageRequest(dto.OrganizationId)))
             {
                 return Results.Forbid();
             }
@@ -285,9 +287,9 @@ public static class RequestEndpoints
             {
                 await ticketSlaInitializer.InitializeAsync(created);
             }
-            catch
+            catch (Exception error) when (error is not OperationCanceledException)
             {
-                // Ticket creation must not fail if SLA initialization fails.
+                loggerFactory.CreateLogger("RequestCreation").LogWarning(error, "SLA initialization failed for request {RequestId}", created.Id);
             }
 
             if (categoryIds.Count > 0)
@@ -304,9 +306,9 @@ public static class RequestEndpoints
             {
                 await requestTaskGenerationService.GenerateForRequestAsync(created, token);
             }
-            catch
+            catch (Exception error) when (error is not OperationCanceledException)
             {
-                // Request creation must not fail if task generation fails.
+                loggerFactory.CreateLogger("RequestCreation").LogWarning(error, "Task generation failed for request {RequestId}", created.Id);
             }
 
             await tx.CommitAsync(token);

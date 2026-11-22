@@ -65,28 +65,37 @@ public static class AssigneeQueries
     // separate contexts. Keep correlation, active-state filtering and paging in SQL.
     private static IQueryable<AccountMapping> AccountMappings(HelpdeskDbContext db)
     {
-        const string localMappings = """
-            SELECT a."Id" AS "AccountId", COALESCE(c."DomainUserId", a."Id") AS "DomainUserId", a."IsEnabled", a."IsDeleted", a."IsInstanceAdministrator"
-            FROM "AspNetUsers" a LEFT JOIN "CustomerAuthLinks" c ON c."LocalAccountId" = a."Id"
-            WHERE c."Id" IS NOT NULL OR (NOT EXISTS (SELECT 1 FROM "AspNetUserLogins" l WHERE l."UserId" = a."Id")
-                AND NOT EXISTS (SELECT 1 FROM "CustomerAuthLinks" other WHERE other."DomainUserId" = a."Id"
-                    AND (other."LocalAccountId" IS NOT NULL OR other."OidcSubject" IS NOT NULL)))
-            UNION ALL
-            SELECT a."Id", c."DomainUserId", a."IsEnabled", a."IsDeleted", a."IsInstanceAdministrator"
-            FROM "CustomerAuthLinks" c
-            JOIN "AspNetUserLogins" l ON l."ProviderKey" = c."OidcSubject"
-            JOIN "AspNetUsers" a ON a."Id" = l."UserId"
-            WHERE c."LocalAccountId" IS NULL AND c."DomainUserId" IS NOT NULL AND c."OidcIssuer" IS NOT NULL
-                AND c."OidcSubject" <> '' AND c."OidcIssuer" <> '' AND c."OidcSubject" NOT LIKE 'service:%'
-                AND l."LoginProvider" =
-            """;
+        var providerKey = """('oidc:' || encode(sha256(convert_to(rtrim(c."OidcIssuer", '/'), 'UTF8')), 'hex'))""";
         if (db.Database.GetDbConnection() is SqliteConnection sqlite)
         {
-            sqlite.CreateFunction("rateldesk_oidc_provider", (string issuer) => OidcApplicationAccount.Provider(issuer), isDeterministic: true);
-            return db.Database.SqlQueryRaw<AccountMapping>(localMappings + """ rateldesk_oidc_provider(c."OidcIssuer")""");
+            sqlite.CreateFunction<string?, string?>("rateldesk_oidc_provider", issuer => issuer is null ? null : OidcApplicationAccount.Provider(issuer), isDeterministic: true);
+            providerKey = """rateldesk_oidc_provider(c."OidcIssuer")""";
         }
-        return db.Database.SqlQueryRaw<AccountMapping>(localMappings +
-            """ ('oidc:' || encode(sha256(convert_to(rtrim(c."OidcIssuer", '/'), 'UTF8')), 'hex'))""");
+        // Both fragments are constant SQL. Provider keys use the identity store's
+        // normalized issuer hash and subject, independently of profile/display data.
+        var mappings = """
+            SELECT mapped.* FROM (
+                WITH external_links AS (
+                    SELECT l."UserId" AS "AccountId", c."DomainUserId"
+                    FROM "CustomerAuthLinks" c JOIN "AspNetUserLogins" l ON c."OidcSubject" = l."ProviderKey"
+                    WHERE c."LocalAccountId" IS NULL AND c."DomainUserId" IS NOT NULL
+                        AND c."OidcSubject" <> '' AND c."OidcIssuer" <> '' AND c."OidcSubject" NOT LIKE 'service:%'
+                        AND l."LoginProvider" =
+            """ + providerKey + """
+                )
+                SELECT a."Id" AS "AccountId", COALESCE(c."DomainUserId", e."DomainUserId", a."Id") AS "DomainUserId",
+                    a."IsEnabled", a."IsDeleted", a."IsInstanceAdministrator"
+                FROM "AspNetUsers" a
+                LEFT JOIN "CustomerAuthLinks" c ON c."LocalAccountId" = a."Id"
+                LEFT JOIN external_links e ON e."AccountId" = a."Id"
+                WHERE a."Id" NOT LIKE 'service:%' AND NOT EXISTS (SELECT 1 FROM "AspNetUserLogins" machine
+                    WHERE machine."UserId" = a."Id" AND machine."ProviderKey" LIKE 'service:%')
+                    AND (c."Id" IS NOT NULL OR e."DomainUserId" IS NOT NULL OR
+                    NOT EXISTS (SELECT 1 FROM "CustomerAuthLinks" other WHERE other."DomainUserId" = a."Id"
+                        AND (other."LocalAccountId" IS NOT NULL OR other."OidcSubject" IS NOT NULL)))
+            ) mapped
+            """;
+        return db.Database.SqlQueryRaw<AccountMapping>(mappings);
     }
 
     private sealed class AccountMapping

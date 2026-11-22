@@ -1208,9 +1208,9 @@
                 }
             }
         }
-        catch
+        catch (JsonException)
         {
-            // ignore parse errors
+            validationError = "Unable to read the form schema. Check the JSON before saving.";
         }
     }
 
