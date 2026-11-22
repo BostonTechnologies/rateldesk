@@ -1,0 +1,9 @@
+<nav class="workspace-tabs" aria-label="@Label" @attributes="AdditionalAttributes">
+    @ChildContent
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+}

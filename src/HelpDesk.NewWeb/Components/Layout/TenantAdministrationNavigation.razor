@@ -3,14 +3,7 @@
         <AuthorizeView Roles="Tenant.Users.Manage,Tenant.Roles.Assign,Tenant.Settings.Manage" Context="delegatedAdmin">
             <div class="nav-section-heading"><span>Administration</span></div>
             <HelpdeskNavGroup Title="Administration" Icon="@Icons.Material.Filled.AdminPanelSettings" RoutePrefixes="@AdministrationRoutes">
-                <HelpdeskNavGroup Title="Accounts &amp; Orgs" Icon="@Icons.Material.Filled.AccountTree" RoutePrefixes="@AccountRoutes">
-                    <AuthorizeView Roles="Tenant.Users.Manage,Tenant.Roles.Assign" Context="teamAdministrator">
-                        <HelpdeskNavLink Href="/admin/users" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Group" Title="Team">Team</HelpdeskNavLink>
-                    </AuthorizeView>
-                    <AuthorizeView Roles="Tenant.Roles.Assign,Tenant.Settings.Manage" Context="organizationAdministrator">
-                        <HelpdeskNavLink Href="/admin/organizations" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apartment" Aliases="@OrganizationAliases" Title="Organizations">Organizations</HelpdeskNavLink>
-                    </AuthorizeView>
-                </HelpdeskNavGroup>
+                <HelpdeskNavLink Href="@(delegatedAdmin.User.IsInRole("Tenant.Users.Manage") || delegatedAdmin.User.IsInRole("Tenant.Roles.Assign") ? "/admin/users" : "/admin/organizations")" Aliases="@PermittedAliases(delegatedAdmin.User)" Icon="@Icons.Material.Filled.AccountTree" Title="People &amp; Organizations">People &amp; Organizations</HelpdeskNavLink>
                 <AuthorizeView Roles="Tenant.Roles.Assign" Context="roleAdministrator">
                     <HelpdeskNavLink Href="/admin/roles" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Security" Title="Roles &amp; Permissions">Roles &amp; Permissions</HelpdeskNavLink>
                 </AuthorizeView>
@@ -20,6 +13,13 @@
 </AuthorizeView>
 
 @code {
+    private static string[] PermittedAliases(System.Security.Claims.ClaimsPrincipal user)
+    {
+        if (user.IsInRole("Tenant.Roles.Assign")) return AccountRoutes;
+        if (!user.IsInRole("Tenant.Users.Manage")) return ["admin/organizations", "tenant-settings"];
+        return user.IsInRole("Tenant.Settings.Manage") ? AccountRoutes : ["admin/users", "tenant-administration"];
+    }
+
     private static readonly string[] OrganizationAliases = ["tenant-administration", "tenant-settings"];
     private static readonly string[] AccountRoutes = ["admin/users", "admin/organizations", .. OrganizationAliases];
     private static readonly string[] AdministrationRoutes = [.. AccountRoutes, "admin/roles"];

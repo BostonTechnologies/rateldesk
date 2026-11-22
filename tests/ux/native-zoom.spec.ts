@@ -151,7 +151,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
             await expect(page.getByTestId('operations-recent-panel')).toHaveCount(3);
             await expect(page.getByRole('heading', { name: 'Operations Overview', exact: true })).toBeVisible();
           } else if (route.includes('tab=connections')) {
-            await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+            await page.getByRole('link', { name: 'Connections', exact: true }).click();
             const panel = page.getByTestId('system-connections-panel');
             await expect(panel.getByTestId('system-connection-row')).toHaveCount(6);
             const actions = panel.locator('.pairing-row-actions');
@@ -209,7 +209,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
           expect(state.saves).toEqual([]);
         }
         if (suite === 'integrations' && route.includes('tab=connections')) {
-          await page.getByRole('tab', { name: 'System connections', exact: true }).click();
+          await page.getByRole('link', { name: 'Connections', exact: true }).click();
           const panel = page.getByTestId('system-connections-panel');
           await expect(panel.getByTestId('system-connection-row')).toHaveCount(7);
           await panel.locator('[data-connection-id="mapping-1"]').getByRole('button', { name: 'View', exact: true }).click();
@@ -231,7 +231,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 1920]) {
         if (suite === 'integrations' && !route.includes('tab=connections')) {
           // Keyboard traversal deliberately leaves the final Integration tab
           // active. Restore the owning panel before exercising its consent flow.
-          await page.getByRole('tab', { name: 'API & MCP credentials', exact: true }).click();
+          await page.getByRole('link', { name: 'API & MCP Credentials', exact: true }).click();
           await page.getByLabel('Client code', { exact: true }).fill('ABCD-TEST');
           await page.getByRole('button', { name: 'Review client', exact: true }).click();
           const review = page.getByRole('dialog', { name: 'Connection consent', exact: true });

@@ -789,7 +789,7 @@ public sealed class RequestTaskLifecycleService(
         };
 
         throw new AutomationBindingNotReadyException(
-            $"Automation binding for task '{task.Name}' cannot start because '{targetName}' is {stateLabel}. Resolve the binding in Service Explorer before starting the task.");
+            $"Automation binding for task '{task.Name}' cannot start because '{targetName}' is {stateLabel}. Resolve the binding in Service Catalog before starting the task.");
     }
 
     private string GetCorrelationId()

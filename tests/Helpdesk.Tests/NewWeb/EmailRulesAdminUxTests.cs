@@ -37,17 +37,16 @@ public class EmailRulesAdminUxTests
         context.Services.GetRequiredService<NavigationManager>().NavigateTo("/admin/email-rules");
         var menu = context.Render<NavMenu>();
         var administration = Assert.Single(menu.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Administration");
-        var emailSettings = Assert.Single(administration.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Email Settings");
-
-        Assert.Equal(new[]
-        {
-            "/admin/email-settings", "/admin/pending-emails", "/admin/email-rules", "/admin/templates", "/admin/layouts"
-        }, emailSettings.FindAll("a[href]").Select(link => link.GetAttribute("href")));
-        var emailRules = Assert.Single(emailSettings.FindAll("a[href='/admin/email-rules']"));
-        Assert.Equal("Email Rules", emailRules.TextContent.Trim());
-        Assert.Equal("page", emailRules.GetAttribute("aria-current"));
+        var email = Assert.Single(administration.FindAll("a[href='/admin/email-settings']"));
+        Assert.Equal("Email", email.TextContent.Trim());
+        Assert.Equal("page", email.GetAttribute("aria-current"));
         Assert.Equal("true", administration.Find("button").GetAttribute("aria-expanded"));
-        Assert.Equal("true", emailSettings.Find("button").GetAttribute("aria-expanded"));
+
+        var layout = context.Render<NewWeb::HelpDesk.NewWeb.Components.Layout.WorkspaceLayout>();
+        var tabs = layout.FindAll("nav[aria-label='Email'] a");
+        Assert.Equal(new[] { "/admin/email-settings", "/admin/pending-emails", "/admin/email-rules", "/admin/templates", "/admin/layouts" },
+            tabs.Select(link => link.GetAttribute("href")));
+        Assert.Equal("Rules", Assert.Single(tabs, tab => tab.GetAttribute("aria-current") == "page").TextContent.Trim());
     }
 
     [Theory]
@@ -62,7 +61,7 @@ public class EmailRulesAdminUxTests
         var menu = context.Render<NavMenu>();
 
         Assert.Empty(menu.FindAll("a[href='/admin/email-rules']"));
-        Assert.DoesNotContain(menu.FindComponents<MudNavGroup>(), group => group.Instance.Title == "Email Settings");
+        Assert.Empty(menu.FindAll("a[href='/admin/email-settings']"));
     }
 
     [Fact]

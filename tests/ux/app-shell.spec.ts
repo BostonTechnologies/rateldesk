@@ -219,7 +219,7 @@ test('representative incident detail and admin pages do not overflow', async ({ 
   await assertNoHorizontalOverflow(page);
 
   await page.goto('/admin/users');
-  await expect(page.getByRole('heading', { name: 'Team' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Support Agents' })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 });
 

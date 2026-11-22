@@ -1,3 +1,4 @@
+@layout WorkspaceLayout
 @page "/admin/ai-assistant-webhooks"
 @attribute [Authorize(Roles = "HelpdeskAdmin")]
 @using Helpdesk.Shared.DTOs
@@ -6,9 +7,10 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
+<WorkspaceEditGuard Dirty="@editing" Message="Discard the open webhook edit and leave?" />
 <MudPaper Class="pa-4">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
-        <MudText Typo="Typo.h5">AiAssistant Webhooks</MudText>
+        <MudText Typo="Typo.h5">Webhooks</MudText>
         <MudButton Color="Color.Primary" OnClick="NewConfiguration">Add webhook</MudButton>
     </MudStack>
     @if (loadError is not null) { <MudAlert Severity="Severity.Error" role="alert">@loadError <MudButton OnClick="ReloadAsync">Retry</MudButton></MudAlert> }

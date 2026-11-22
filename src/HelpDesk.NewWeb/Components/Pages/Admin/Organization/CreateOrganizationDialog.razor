@@ -3,6 +3,7 @@
 @using Helpdesk.Shared.Models
 @inject IHttpClientFactory HttpClientFactory
 
+<WorkspaceEditGuard Dirty="@formChanged" Message="Discard unsaved organization changes and leave?" />
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">
@@ -11,7 +12,7 @@
         </MudText>
     </TitleContent>
     <DialogContent>
-        <MudForm @ref="form" Model="model" OnValidSubmit="Submit" Class="mt-2">
+        <MudForm FieldChanged="@(_ => formChanged = true)" @ref="form" Model="model" OnValidSubmit="Submit" Class="mt-2">
 
             <MudTabs Class="compact-tabs">
                 <MudTabPanel Text="General">
@@ -57,6 +58,7 @@
 </MudDialog>
 
 @code {
+    private bool formChanged;
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
 

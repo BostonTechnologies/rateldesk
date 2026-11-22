@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 const fixture = `${process.env.HELPDESK_ADMIN_FIXTURE_ORIGIN ?? 'http://127.0.0.1:18500'}/fixture`;
 const baseline = process.env.HELPDESK_DIRECTORY_BASELINE === 'true';
 const routes = [
-  ['/admin/customers', 'Customers', 133],
+  ['/admin/customers', 'Customer Contacts', 133],
   ['/admin/organizations', 'Organizations', 137],
   ['/admin/categories', 'Ticket Categories', 143]
 ] as const;
@@ -133,7 +133,7 @@ test('query changes cancel superseded searches and recover from error without di
   await page.getByRole('button', { name: 'Refresh directory', exact: true }).click();
   await expect(page.getByText(/directory could not be loaded/)).not.toBeVisible();
   await search.fill('no-matching-customer');
-  await expect(page.getByText('No customers match these filters.')).toBeVisible();
+  await expect(page.getByText('No customer contacts match these filters.')).toBeVisible();
 });
 
 test('exact category type controls and explicit create type retain accessible protections', async ({ page }) => {

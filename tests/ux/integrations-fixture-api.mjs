@@ -49,11 +49,14 @@ function accessDetails(row) {
   policyState: row.purpose === 'mcp' ? 'separate-policy-check' : 'not-applicable',
   policySummary: row.purpose === 'mcp' ? 'MCP operation policies are checked separately for each operation. Changing credential grants does not create policy approval.' : 'API credentials do not use HTTP MCP operation policies.' };
 }
+let finishIssue;
 reset();
 http.createServer(async (req, res) => {
  const url = new URL(req.url, 'http://127.0.0.1'); const path = url.pathname.replace(/\/$/, '');
  const reply = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(status === 204 ? undefined : JSON.stringify(value)); };
  const body = async () => { let text = ''; for await (const chunk of req) { text += chunk; if (text.length > 16384) throw new Error('bounded fixture request'); } return text ? JSON.parse(text) : {}; };
+ if (path === '/fixture/issuance') return reply({ waiting: Boolean(finishIssue) });
+ if (path === '/fixture/finish-issuance') { finishIssue?.(); finishIssue = undefined; return reply({ ok: true }); }
  if (path === '/fixture/health') return reply({ ok: true });
  if (path === '/fixture/reset') { reset(); return reply({ ok: true }); }
  if (path === '/fixture/state') return reply({ calls, credentials, permissions, systemConnections, aiPrompts, aiInvestigations });
@@ -80,6 +83,12 @@ http.createServer(async (req, res) => {
     turnInactivityTimeout: '00:05:00', activityHeartbeatInterval: '00:00:15', revision: 0, source: 'database', hasDeviceToken: false, secretState: 'not-configured', profileFingerprint: '' })
   : reply({}, 403);
  if (req.method === 'GET' && path === '/api/v1/admin/netclaw/legacy-sessions/unbound') return reply(admin ? [] : {}, admin ? 200 : 403);
+ if (path === '/api/v1/integration-credentials' && req.method === 'POST' && fault === 'hold-issuance') {
+  const submission = await body();
+  await new Promise(resolve => { finishIssue = resolve; });
+  return reply({ id: identifier(60), prefix: 'synthetic', secret: 'synthetic-ui-handoff', purpose: submission.purpose,
+   organizationId: submission.organizationId, permissions: submission.permissions, expiresAtUtc: submission.expiresAtUtc });
+ }
  if (path === '/api/v1/integration-credentials' && req.method === 'GET') return reply(credentials);
  const accessRoute = path.match(/^\/api\/v1\/integration-credentials\/([a-f0-9-]+)\/access(?:\/(review|apply))?$/i);
  if (accessRoute) {

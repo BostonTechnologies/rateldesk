@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
+<NavigationLock ConfirmExternalNavigation="@(busy || generated is not null)" OnBeforeInternalNavigation="ProtectPairing" />
 <div class="pairing-connections" data-testid="system-connections-panel">
     <div aria-hidden="@(DialogOpen ? "true" : null)">
         <div class="pairing-toolbar">
@@ -161,6 +162,14 @@
 </div>
 
 @code {
+    private void ProtectPairing(LocationChangingContext context)
+    {
+        if (!busy && generated is null) return;
+        context.PreventNavigation();
+        notice = busy ? "Wait for the connection operation to finish." : "Close the displayed pairing code before leaving Connections.";
+        StateHasChanged();
+    }
+
     [Parameter] public string? OrganizationId { get; set; }
     private SystemConnectionApi Api => new(HttpClientFactory);
     private readonly CancellationTokenSource lifetime = new();
@@ -240,7 +249,10 @@
             await Task.WhenAll(loaded.Select(c => c.PairId).Distinct().Select(async pairId =>
             {
                 try { var choices = await Api.DirectoryAsync(pairId, lifetime.Token); if (Current(current)) directories[pairId] = choices; }
-                catch (Exception exception) when (Expected(exception)) { }
+                catch (Exception exception) when (Expected(exception))
+                {
+                    if (Current(current)) directories.Remove(pairId);
+                }
             }));
             // Durable incomplete rows expose Continue setup. Refresh never opens or resets a review.
         }

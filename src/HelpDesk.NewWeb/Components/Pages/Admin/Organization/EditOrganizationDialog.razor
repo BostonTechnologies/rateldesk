@@ -6,10 +6,11 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
 
+<WorkspaceEditGuard Dirty="@formChanged" Message="Discard unsaved organization changes and leave?" />
 <MudDialog>
     <TitleContent><MudText Typo="Typo.h6">Edit Organization</MudText></TitleContent>
     <DialogContent>
-        <MudForm @ref="form" Model="model" Class="mt-2">
+        <MudForm FieldChanged="@(_ => formChanged = true)" @ref="form" Model="model" Class="mt-2">
             <MudTabs Class="compact-tabs">
                 <MudTabPanel Text="General">
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
@@ -48,6 +49,7 @@
 </MudDialog>
 
 @code {
+    private bool formChanged;
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public OrganizationDto Organization { get; set; } = default!;
     [Parameter] public List<OrganizationDto> Organizations { get; set; } = new();
