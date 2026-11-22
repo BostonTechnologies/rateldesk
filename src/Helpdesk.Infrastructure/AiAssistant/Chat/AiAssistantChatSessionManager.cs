@@ -79,7 +79,7 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                 observed = previous;
             }
         }
-        public Dictionary<string, long> ToolStarts { get; } = new();
+        public Dictionary<(int? Turn, string Call), long> ToolStarts { get; } = new();
         public TaskCompletionSource Joined { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Consumer { get; set; } = Task.CompletedTask;
         public int Uses;
@@ -669,11 +669,15 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                     long? duration = null;
                     if (toolCallId is not null)
                     {
-                        if (type == "tool_call" && owner.ToolStarts.Count < 1024) owner.ToolStarts.TryAdd(toolCallId, Stopwatch.GetTimestamp());
-                        else if (type == "tool_result" && owner.ToolStarts.Remove(toolCallId, out var started))
+                        if (type == "tool_call" && owner.ToolStarts.Count < 1024) owner.ToolStarts.TryAdd((output.TurnOrdinal ?? owner.LastCompletedTurn, toolCallId), Stopwatch.GetTimestamp());
+                        else if (type == "tool_result" && owner.ToolStarts.Remove((output.TurnOrdinal ?? owner.LastCompletedTurn, toolCallId), out var started))
                             duration = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                     }
-                    var metadata = output.Activity(duration);
+                    var metadata = output.Activity(duration) with
+                    {
+                        Association = new(owner.MessageId!.Value, owner.LastCompletedTurn, output.TurnOrdinal),
+                        Child = output.ChildObservation()
+                    };
                     AiAssistantChatStore.AppendActivity(db, conversation, type, toolCallId, metadata, Now);
                 }
                 else if (type is "usage" or "processing_state" or "compaction" or "subagent")
@@ -681,7 +685,9 @@ public sealed partial class AiAssistantChatSessionManager(IServiceScopeFactory s
                     var details = output.Trace;
                     AiAssistantChatStore.AppendActivity(db, conversation, type, null,
                         new ChatActivityMetadata(type == "subagent" ? output.AgentName : type,
-                            type, null, null, null, "observed", details), Now);
+                            type, null, null, null, "observed", details,
+                            Association: new(owner.MessageId!.Value, owner.LastCompletedTurn, output.TurnOrdinal),
+                            Child: output.ChildObservation()), Now);
                 }
                 else if (type == "file")
                     AiAssistantChatStore.Append(db, conversation, "file", $"Artifact produced: {output.FileName} ({output.MimeType}).", atUtc: Now);

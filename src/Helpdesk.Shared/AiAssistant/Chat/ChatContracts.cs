@@ -75,7 +75,9 @@ public sealed record ChatOutputAssociation(Guid OperatorMessageId, int? AfterNat
 public sealed record ChatOption(string Key, string Label);
 public sealed record ChatActivityMetadata(string DisplayName, string ToolKind, string? ProviderName,
     string? SkillName, long? DurationMs, string Outcome,
-    ChatTraceDetails? Details = null, ChatProviderEventMetadata? ProviderEvent = null);
+    ChatTraceDetails? Details = null, ChatProviderEventMetadata? ProviderEvent = null, ChatOutputAssociation? Association = null,
+    ChatChildObservation? Child = null);
+public sealed record ChatChildObservation(string? RunId, string? Name, string? State, string? Summary = null, long? DurationMs = null);
 public sealed record ChatTraceDetails(int Version = 1, DateTimeOffset? SourceTimestampUtc = null,
     string? Arguments = null, string? Result = null, string? FailureCode = null,
     bool Redacted = false, bool Truncated = false, string? Measures = null, string? ToolName = null);

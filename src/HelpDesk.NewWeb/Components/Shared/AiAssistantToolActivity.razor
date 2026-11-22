@@ -4,8 +4,22 @@
 <div class="tool-lifecycle @(Preferences.Compact ? "compact" : "comfortable")" data-testid="chat-tool">
     <button type="button" class="tool-summary" aria-expanded="@expanded.ToString().ToLowerInvariant()" @onclick="@(() => expanded = !expanded)">
         <span aria-hidden="true">@(expanded ? "▾" : "▸")</span>
-        <span>@Name: @Status</span>
-        @if (Preferences.ShowTimestamps && Event is { } timestampEvent) { <time title="@TimeLabel(timestampEvent)">@Time(timestampEvent).UtcDateTime.ToString("HH:mm:ss'Z'")</time> }
+        <span class="tool-stages">
+            @if (Operation.Call is { } call)
+            {
+                <span class="tool-stage">@Name: started
+                    @if (Preferences.ShowTimestamps) { <time title="@TimeLabel(call)">@Time(call).UtcDateTime.ToString("HH:mm:ss'Z'")</time> }
+                </span>
+            }
+            @if (Operation.Result is { } resultEvent)
+            {
+                <span class="tool-stage">@Name: @(Operation.Metadata?.Outcome == "failed" ? "reported failure" : "result received")
+                    @if (Preferences.ShowTimestamps) { <time title="@TimeLabel(resultEvent)">@Time(resultEvent).UtcDateTime.ToString("HH:mm:ss'Z'")</time> }
+                </span>
+            }
+            else if (AwaitingApproval) { <small>Awaiting approval</small> }
+            else if (TurnEnded) { <small>Outcome not recorded</small> }
+        </span>
         @if (Operation.Metadata?.ToolKind is "mcp" or "skill" or "discovery") { <small>@Operation.Metadata.ToolKind.ToUpperInvariant()</small> }
     </button>
     @if (Preferences.ShowIdentifiers && Operation.CallId is { } identifier) { <small>@identifier</small> }
@@ -39,9 +53,9 @@
     [Parameter, EditorRequired] public ChatOperation Operation { get; set; } = null!;
     [Parameter] public ChatDisplayPreferences Preferences { get; set; } = new();
     private bool expanded, initialized, autoExpand;
-    private AiAssistantChatEvent? Event => Operation.Result ?? Operation.Call;
+    [Parameter] public bool TurnEnded { get; set; }
+    [Parameter] public bool AwaitingApproval { get; set; }
     private string Name => Operation.Metadata is { } m ? $"{(m.ProviderName is null ? "" : m.ProviderName + "/")}{m.DisplayName}" : "Tool activity (legacy record)";
-    private string Status => Operation.Metadata?.Outcome == "failed" ? "reported failure" : Operation.Result is not null ? "result received" : "started";
     private static string TimeLabel(AiAssistantChatEvent item) => (ChatOperation.Read(item.MetadataJson)?.Details?.SourceTimestampUtc is null ? "Received " : "Native source ") + Time(item).UtcDateTime.ToString("u");
     private static DateTimeOffset Time(AiAssistantChatEvent item) => ChatOperation.Read(item.MetadataJson)?.Details?.SourceTimestampUtc ?? item.CreatedUtc;
     protected override void OnParametersSet()

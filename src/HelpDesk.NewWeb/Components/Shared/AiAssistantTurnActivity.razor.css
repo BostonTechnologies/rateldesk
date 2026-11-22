@@ -13,3 +13,8 @@
     .approval-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
     .approval-actions ::deep .approval-action { width: 100%; }
 }
+
+.child-panel, .child-card { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.child-panel summary, .child-card summary { padding: .35rem; cursor: pointer; }
+.child-card { margin-inline-start: .75rem; font-size: .85rem; }
+.child-card p { white-space: pre-wrap; max-height: 12rem; overflow: auto; }

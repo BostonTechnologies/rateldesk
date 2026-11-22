@@ -56,7 +56,11 @@ public sealed class ChatParityRenderedTests
         var rendered = context.Render<Activity>(p => p.Add(x => x.Turn, turn));
         Assert.Equal("false", rendered.Find(".activity-heading").GetAttribute("aria-expanded"));
         Assert.Equal(2, rendered.FindAll(".tool-summary").Count);
-        Assert.Contains("provider/lookup: result received", rendered.FindAll(".tool-summary")[1].TextContent);
+        var stages = rendered.FindAll(".tool-summary")[1].QuerySelectorAll(".tool-stage");
+        Assert.Collection(stages,
+            start => Assert.Contains("provider/lookup: started", start.TextContent),
+            result => Assert.Contains("provider/lookup: result received", result.TextContent));
+        Assert.Contains("Outcome not recorded", rendered.FindAll(".tool-summary")[0].TextContent);
         rendered.FindAll(".tool-summary")[1].Click();
         Assert.Empty(rendered.FindAll("script"));
         Assert.Contains("<script>private()</script>", rendered.Find("pre code").TextContent);
