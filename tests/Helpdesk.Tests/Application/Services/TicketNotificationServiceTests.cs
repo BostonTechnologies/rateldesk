@@ -3,6 +3,7 @@ using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Infrastructure.EmailTemplates;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.Extensions.Configuration;
@@ -13,6 +14,51 @@ namespace Helpdesk.Tests.Application.Services;
 
 public sealed class TicketNotificationServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approval_notification_targets_decision_link_to_the_designated_approver_only(bool change)
+    {
+        var templates = CreateTemplateRepository(new EmailTemplate
+        {
+            Name = change ? "ChangeApprovalRequired" : "RequestApprovalRequired",
+            Subject = "Review requested",
+            HtmlContent = "{{{TICKET_LINK}}} {{{CHANGE_APPROVAL_LINK}}} {{{REQUEST_APPROVAL_LINK}}} {{{REQUEST_REJECT_LINK}}}"
+        });
+        var mail = Substitute.For<IEmailService>();
+        var deliveries = new List<(string Recipient, string Body, IEnumerable<string>? Cc)>();
+        mail.SendEmailAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IEnumerable<string>?>(),
+                Arg.Any<CancellationToken>(), Arg.Any<string?>(), Arg.Any<IEnumerable<EmailAttachmentData>?>(), Arg.Any<string?>(),
+                Arg.Any<string?>(), Arg.Any<bool>())
+            .Returns(call =>
+            {
+                deliveries.Add((call.ArgAt<IEnumerable<string>>(0).Single(), call.ArgAt<string>(2), call.ArgAt<IEnumerable<string>?>(3)));
+                return true;
+            });
+        var links = Substitute.For<IPublicLinkIssuer>();
+        links.IssueAsync(Arg.Any<Ticket>(), Arg.Any<string>(), Arg.Any<PublicLinkPurpose>(), Arg.Any<string?>(),
+                Arg.Any<CancellationToken>(), Arg.Any<string?>())
+            .Returns(call => "https://public.example/public/link#" + call.ArgAt<PublicLinkPurpose>(2));
+        var service = CreateService(templates, mail, links);
+        const string approverEmail = "approver@example.test";
+        var cc = new[] { "copy@example.test", "COPY@example.test", approverEmail };
+        var sent = change
+            ? await service.SendChangeApprovalRequiredAsync(new Change { Id = "test", TrackingId = "CHG-123" },
+                new ChangeApproval { ApproverEmail = approverEmail }, "Example", "Requester", "Implementer", "Approver", cc)
+            : await service.SendRequestApprovalRequiredAsync(new Request { Id = "test", TrackingId = "REQ-123" },
+                new RequestTask { Id = "task" }, new RequestTaskApproval { ApproverEmail = approverEmail }, "Approver", "", cc);
+
+        Assert.True(sent);
+        Assert.Equal(2, deliveries.Count);
+        var decision = change ? "#ChangeApproval" : "#RequestApproval";
+        Assert.Equal(approverEmail, deliveries[0].Recipient);
+        Assert.Contains(decision, deliveries[0].Body);
+        Assert.Equal("copy@example.test", deliveries[1].Recipient);
+        Assert.Contains(change ? "#ChangeView" : "#Ticket", deliveries[1].Body);
+        Assert.DoesNotContain(decision, deliveries[1].Body);
+        Assert.All(deliveries, delivery => Assert.Null(delivery.Cc));
+    }
+
     [Fact]
     public async Task SendNewTicketConfirmation_Renders_Request_Type_Reference_And_Signed_Link()
     {
@@ -54,7 +100,7 @@ public sealed class TicketNotificationServiceTests
         Assert.True(sent);
         Assert.Equal("Your Request Has Been Created REQ-123", subject);
         Assert.Contains("Request REQ-123", body);
-        Assert.Contains("https://public.example/view-ticket/REQ-123?email=customer%40example.com&amp;token=token-REQ-123-customer%40example.com", body);
+        Assert.Contains("https://public.example/public/link#fixture-REQ-123", body);
     }
 
     [Fact]
@@ -93,7 +139,7 @@ public sealed class TicketNotificationServiceTests
         Assert.Equal("Created REQ-123 Disk capacity report", subject);
         Assert.Contains("Disk capacity report", body);
         Assert.Contains("Collect disk usage", body);
-        Assert.Contains("https://public.example/view-ticket/REQ-123?email=customer%40example.com&amp;token=token-REQ-123-customer%40example.com", body);
+        Assert.Contains("https://public.example/public/link#fixture-REQ-123", body);
     }
 
     [Fact]
@@ -122,7 +168,7 @@ public sealed class TicketNotificationServiceTests
         Assert.Equal("Failed REQ-123 INC-999", subject);
         Assert.Contains("External orchestration run failed", body);
         Assert.Contains("INC-999", body);
-        Assert.Contains("https://public.example/view-ticket/INC-999?email=customer%40example.com&amp;token=token-INC-999-customer%40example.com", body);
+        Assert.Contains("https://public.example/public/link#fixture-INC-999", body);
     }
 
     [Fact]
@@ -215,7 +261,7 @@ public sealed class TicketNotificationServiceTests
 
     private static TicketNotificationService CreateService(
         IRepository<EmailTemplate> templates,
-        IEmailService emailService)
+        IEmailService emailService, IPublicLinkIssuer? publicLinks = null)
     {
         var layoutResolver = Substitute.For<IEmailLayoutResolver>();
         layoutResolver.ResolveAsync(Arg.Any<int?>(), Arg.Any<CancellationToken>())
@@ -240,7 +286,7 @@ public sealed class TicketNotificationServiceTests
             brandingResolver,
             emailService,
             new EmailTemplateRenderer(new TemplateEngine()),
-            new TestPublicTicketLinkSigner(),
+            publicLinks ?? new TestPublicLinkIssuer(),
             config,
             NullLogger<TicketNotificationService>.Instance);
     }
@@ -271,11 +317,10 @@ public sealed class TicketNotificationServiceTests
             .Returns(true);
     }
 
-    private sealed class TestPublicTicketLinkSigner : IPublicTicketLinkSigner
+    private sealed class TestPublicLinkIssuer : IPublicLinkIssuer
     {
-        public string GenerateToken(string trackingId, string email, DateTimeOffset expires) => $"token-{trackingId}-{email}";
-
-        public bool ValidateToken(string token, string trackingId, string email) =>
-            token == GenerateToken(trackingId, email, DateTimeOffset.UtcNow.AddDays(1));
+        public Task<string> IssueAsync(Ticket ticket, string recipient, Helpdesk.Shared.DTOs.PublicAccess.PublicLinkPurpose purpose,
+            string? applicationUrl, CancellationToken cancellationToken, string? taskId = null) =>
+            Task.FromResult($"https://public.example/public/link#fixture-{ticket.TrackingId}");
     }
 }

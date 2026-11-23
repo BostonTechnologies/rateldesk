@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Storage;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Endpoints.Incidents;
 using System.Security.Claims;
@@ -143,23 +144,8 @@ public static class WorkLogEndpoints
                 return Results.Unauthorized();
             }
 
-            var storageRoot = string.IsNullOrWhiteSpace(storageOptions.Value.RootPath)
-                ? Path.Combine(env.ContentRootPath, "storage")
-                : storageOptions.Value.RootPath;
-            var rootPath = Path.Combine(storageRoot, "worklogs");
-            var fullPath = Path.GetFullPath(Path.Combine(rootPath, safeWorklogId, "inline", safeFilename));
-            var fullRoot = Path.GetFullPath(rootPath);
-
-            if (!fullPath.StartsWith(fullRoot, StringComparison.Ordinal))
-                return Results.BadRequest("Invalid path.");
-
-            if (!File.Exists(fullPath))
-                return Results.NotFound();
-
-            logger.LogInformation("Serving worklog inline image. WorklogId={WorklogId} Path={Path}", safeWorklogId, fullPath);
-
-            var contentType = ContentTypeHelper.GetContentType(safeFilename);
-            return Results.File(fullPath, contentType);
+            var storageRoot = storageOptions.Value.ResolveRootPath(env.ContentRootPath);
+            return SignedRasterAsset.Serve(httpContext, Path.Combine(storageRoot, "worklogs", safeWorklogId, "inline"), safeFilename);
         })
         .WithTags("Work Logs")
         .WithName("GetWorklogImage")

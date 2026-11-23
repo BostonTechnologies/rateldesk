@@ -21,7 +21,7 @@ public static class EmailDisplayDocument
     public sealed record Link(string Text, string Url);
     public sealed record Result(string Html, string Text, IReadOnlyList<Link> Links, int BlockedImages);
 
-    public static Result Create(string? html, string? text, string applicationBaseUri)
+    public static Result Create(string? html, string? text, string applicationBaseUri, string? publicAssetPrefix = null)
     {
         var sanitizer = new HtmlSanitizer();
         sanitizer.AllowedTags.Clear();
@@ -61,9 +61,17 @@ public static class EmailDisplayDocument
             var alt = image.GetAttribute("alt");
             image.SetAttribute("alt", string.IsNullOrWhiteSpace(alt) ? "Email image" : alt);
             if (source.Length <= 4 * 1024 * 1024 && RasterData.IsMatch(source)) continue;
+            if (publicAssetPrefix is not null &&
+                source.StartsWith(publicAssetPrefix, StringComparison.Ordinal) &&
+                source[publicAssetPrefix.Length..] is { Length: > 0 and <= 1024 } reference &&
+                reference.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_'))
+            {
+                image.SetAttribute("referrerpolicy", "no-referrer");
+                continue;
+            }
             // Rebase historical absolute image links onto the existing local gateway, never the
             // host supplied by an email. The image endpoint still verifies its scoped bearer token.
-            if (Uri.TryCreate(new Uri(origin), source, out var imageUri) &&
+            if (publicAssetPrefix is null && Uri.TryCreate(new Uri(origin), source, out var imageUri) &&
                 imageUri.Scheme is "http" or "https" && SignedImagePath.IsMatch(imageUri.AbsolutePath) &&
                 imageUri.Query.StartsWith("?token=", StringComparison.Ordinal) && imageUri.Query.Length > 7 &&
                 !imageUri.Query.Contains('&') && !imageUri.AbsolutePath.Contains("..", StringComparison.Ordinal))
@@ -92,7 +100,7 @@ public static class EmailDisplayDocument
         var plain = string.IsNullOrWhiteSpace(text) ? ToText(body.InnerHtml) : text;
         var csp = $"default-src 'none'; script-src 'sha256-{BridgeHash}'; style-src 'unsafe-inline'; img-src data: {origin}; base-uri 'none'; form-action 'none'; connect-src 'none'";
         var output = $"<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\"><meta http-equiv=\"Content-Security-Policy\" content=\"{WebUtility.HtmlEncode(csp)}\"><style>html{{color-scheme:light;background:#fff;color:#111}}body{{margin:12px;font:14px/1.5 Arial,sans-serif;overflow-wrap:anywhere}}table{{max-width:100%}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap}}a{{text-decoration:underline}}*{{box-sizing:border-box}}</style></head><body>{body.InnerHtml}<script>{Bridge}</script></body></html>";
-        return new Result(output, plain ?? string.Empty, links.Distinct().ToArray(), blockedImages);
+        return new Result(publicAssetPrefix is null ? output : body.InnerHtml, plain ?? string.Empty, links.Distinct().ToArray(), blockedImages);
     }
 
     private static void SupplyMissingColourPairs(IElement element, bool inheritedForeground, bool inheritedBackground)

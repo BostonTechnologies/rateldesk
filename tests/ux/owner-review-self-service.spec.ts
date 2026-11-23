@@ -17,7 +17,13 @@ for (const mode of reviewModes) test(`all Self Service table contexts ${modeName
     await capture('my-requests', 'pages-selfservice-myrequests-1');
     await open('/self-service/my-requests/request-0');
     await capture('my-request-detail', 'pages-selfservice-myrequestdetail-1', 'pages-selfservice-myrequestdetail-2', 'pages-selfservice-myrequestdetail-3');
-    await open('/request-approval/REQ-SYN-000/task-0?email=approver%40example.test&token=synthetic');
+    if (process.env.HELPDESK_TABLE_BASELINE === 'true') {
+      await open('/request-approval/REQ-SYN-000/task-0?email=approver%40example.test&token=synthetic');
+    } else {
+      await page.goto(baseURL! + '/public/link#' + 'r'.repeat(43));
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await expect(page.getByText('Synthetic public approval', { exact: true })).toBeVisible();
+    }
     await capture('public-approval', 'pages-requestapproval-1');
     await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
     await open('/submit-ticket');

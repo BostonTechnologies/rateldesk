@@ -171,29 +171,22 @@ public class GraphEmailProcessor : IGraphEmailProcessor
             }
         }
 
-        var domain = fromAddress.Split('@').Last();
-        var organization = await _tenantProvisioningService.GetOrCreateOrganizationByDomainAsync(domain);
-        var (customer, isNewCustomer) = await _tenantProvisioningService.GetOrCreateCustomerAsync(fromAddress, fromName, domain);
-
-        if (customer.State == EntityState.Blocked || organization.State == EntityState.Blocked)
+        Ticket? ticket;
+        try
         {
-            _logger.LogWarning("Sender {SenderEmail} is blocked.", fromAddress);
-            await SendNotificationAsync("AccessDenied", fromAddress, tenantId: organization.Id);
-            await MoveGraphMessageAsync(graphClient, mailboxAddress, graphMessage.Id, blockedFolderId); // use ID
+            ticket = await _tenantProvisioningService.ProcessAsync(fromAddress, fromName, async (customer, isNewCustomer, ct) =>
+            {
+                if (isNewCustomer)
+                    await SendNotificationAsync("WelcomeNewUser", customer.Email, userName: customer.Name, tenantId: customer.OrganizationId);
+                return await ProcessTicketEmailAsync(graphMessage, attachments, customer, ct, internetMessageId);
+            }, token);
+        }
+        catch (RequesterIntakeRejectedException rejection)
+        {
+            _logger.LogWarning("Legacy inbound sender could not be admitted. Reason={Reason}", rejection.Reason);
+            await MoveGraphMessageAsync(graphClient, mailboxAddress, graphMessage.Id, blockedFolderId);
             return;
         }
-
-        if (isNewCustomer)
-        {
-            await SendNotificationAsync("WelcomeNewUser", customer.Email, userName: customer.Name, tenantId: customer.OrganizationId);
-        }
-
-        var ticket = await ProcessTicketEmailAsync(
-            graphMessage,
-            attachments,
-            customer,
-            token,
-            internetMessageId);
 
         await FinalizeGraphMessageAsync(graphClient, mailboxAddress, graphMessage, processedFolderId, ticket, token);
     }
@@ -343,17 +336,18 @@ public class GraphEmailProcessor : IGraphEmailProcessor
             fromName: branding.FromName,
             replyTo: branding.ReplyTo);
 
+        var correlationId = GetCorrelationId();
         if (sent && _emailService is IDurableEmailService { QueuesDelivery: true })
         {
-            _logger.LogInformation("Queued '{TemplateName}' notification to {Recipient}", templateName, to);
-            await _domainEvents.PublishAsync(new EmailQueuedEvent(to, templateName, tenantId, ticketRef, GetCorrelationId()),
+            _logger.LogInformation("Queued '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, correlationId);
+            await _domainEvents.PublishAsync(new EmailQueuedEvent(to, templateName, tenantId, ticketRef, correlationId),
                 CancellationToken.None);
             return true;
         }
 
         if (sent)
         {
-            _logger.LogInformation("Sent '{TemplateName}' notification to {Recipient}", templateName, to);
+            _logger.LogInformation("Sent '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, correlationId);
         }
 
         await _domainEvents.PublishAsync(
@@ -362,7 +356,7 @@ public class GraphEmailProcessor : IGraphEmailProcessor
                 TemplateName: templateName,
                 TenantId: tenantId,
                 Reference: ticketRef,
-                CorrelationId: GetCorrelationId(),
+                CorrelationId: correlationId,
                 Success: sent,
                 Details: sent ? "Email sent successfully." : "Email send returned false."),
             CancellationToken.None);

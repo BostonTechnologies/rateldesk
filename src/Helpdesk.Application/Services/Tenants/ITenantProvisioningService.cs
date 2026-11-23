@@ -4,10 +4,11 @@ namespace Helpdesk.Application.Services.Tenants;
 
 public interface ITenantProvisioningService
 {
-    Task<Organization> GetOrCreateOrganizationByDomainAsync(string domain);
+    Task<T> ProcessAsync<T>(string email, string? submittedName,
+        Func<Customer, bool, CancellationToken, Task<T>> process, CancellationToken cancellationToken);
+}
 
-    Task<(Customer customer, bool isNew)> GetOrCreateCustomerAsync(
-        string email,
-        string name,
-        string domain);
+public sealed class RequesterIntakeRejectedException(string reason) : Exception("Ticket submission could not be accepted.")
+{
+    public string Reason { get; } = reason;
 }

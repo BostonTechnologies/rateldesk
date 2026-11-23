@@ -1,3 +1,4 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Dodo.Primitives;
 using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Observability;
@@ -65,7 +66,7 @@ public class CreateWorkLogCommandHandler(
     IEmailTemplateRenderer templateRenderer,
     IEmailLayoutResolver layoutResolver,
     ITenantBrandingResolver tenantBrandingResolver,
-    IPublicTicketLinkSigner publicTicketLinkSigner,
+    IPublicLinkIssuer publicLinks,
     IConfiguration config,
     ITicketSlaService? ticketSlaService = null,
     ISlaEscalationEvaluator? slaEscalationEvaluator = null,
@@ -271,7 +272,8 @@ public class CreateWorkLogCommandHandler(
                     {
                         UserName = string.IsNullOrWhiteSpace(customer?.Name) ? primaryRecipient : customer.Name,
                         TicketRef = ticketDetails.TrackingId ?? string.Empty,
-                        TicketLink = BuildSignedPublicTicketLink(publicUrl, ticketDetails.TrackingId ?? string.Empty, primaryRecipient),
+                        TicketLink = await publicLinks.IssueAsync(ticketDetails, primaryRecipient,
+                            ticketDetails is Change ? PublicLinkPurpose.ChangeView : PublicLinkPurpose.Ticket, publicUrl, cancellationToken),
                         UpdateMessageHtml = htmlWithStoredImages,
                         UpdateMessageText = plainText,
                         LayoutHtml = layout?.HtmlContent ?? string.Empty,
@@ -283,7 +285,7 @@ public class CreateWorkLogCommandHandler(
                     };
                     if (ticketDetails is Change change)
                     {
-                        ApplyChangeEmailContext(context, change, primaryRecipient);
+                        ApplyChangeEmailContext(context, change);
                     }
 
                     var subject = RenderSubject(template.Subject ?? string.Empty, context);
@@ -414,21 +416,7 @@ public class CreateWorkLogCommandHandler(
         return string.IsNullOrWhiteSpace(request.TechnicianName) ? "System" : request.TechnicianName;
     }
 
-    private string BuildSignedPublicTicketLink(string publicUrl, string trackingId, string email)
-    {
-        var expires = DateTimeOffset.UtcNow.AddDays(7);
-        var token = publicTicketLinkSigner.GenerateToken(trackingId, email, expires);
-        return $"{publicUrl}/view-ticket/{trackingId}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-    }
-
-    private string BuildSignedChangeViewLink(string publicUrl, string trackingId, string email)
-    {
-        var expires = DateTimeOffset.UtcNow.AddDays(7);
-        var token = publicTicketLinkSigner.GenerateToken(trackingId, email, expires);
-        return $"{publicUrl}/change-approval/{Uri.EscapeDataString(trackingId)}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-    }
-
-    private void ApplyChangeEmailContext(EmailTemplateContext context, Change change, string recipientEmail)
+    private static void ApplyChangeEmailContext(EmailTemplateContext context, Change change)
     {
         context.ChangeTitle = change.Title ?? string.Empty;
         context.ChangeDescription = change.Description ?? string.Empty;
@@ -438,11 +426,7 @@ public class CreateWorkLogCommandHandler(
         context.ChangeImplementationEnd = FormatTimestamp(change.ImplementationEndAt);
         context.ChangeApprovalStatus = FormatLifecycleState(change.LifecycleState ?? ChangeLifecycleState.Draft);
         context.ChangeCompletionState = FormatCompletionState(change.LifecycleState ?? ChangeLifecycleState.Draft);
-        context.ChangeViewLink = BuildSignedChangeViewLink(
-            (config["PublicWebAppUrl"] ?? string.Empty).TrimEnd('/'),
-            change.TrackingId ?? string.Empty,
-            recipientEmail);
-        context.TicketLink = context.ChangeViewLink;
+        context.ChangeViewLink = context.TicketLink;
     }
 
     private static string RenderSubject(string subject, EmailTemplateContext context)

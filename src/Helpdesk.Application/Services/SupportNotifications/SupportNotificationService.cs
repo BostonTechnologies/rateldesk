@@ -1,3 +1,4 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
 using System.Net;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.EmailTemplates;
@@ -18,7 +19,7 @@ public sealed class SupportNotificationService(
     ITenantBrandingResolver tenantBrandingResolver,
     IEmailTemplateRenderer templateRenderer,
     IEmailService emailService,
-    IPublicTicketLinkSigner publicTicketLinkSigner,
+    IPublicLinkIssuer publicLinks,
     IConfiguration configuration,
     ILogger<SupportNotificationService> logger,
     IIngressEffectContext? ingressEffects = null) : ISupportNotificationService
@@ -152,7 +153,7 @@ public sealed class SupportNotificationService(
 
             var layout = await layoutResolver.ResolveAsync(template.LayoutId, ct);
             var branding = await tenantBrandingResolver.ResolveAsync(ticket.OrganizationId, ct);
-            var context = BuildContext(ticket, recipient, layout, branding);
+            var context = await BuildContextAsync(ticket, recipient, layout, branding, ct);
             var subject = RenderSubject(template.Subject ?? string.Empty, context);
             var body = templateRenderer.Render(template.HtmlContent ?? string.Empty, context);
             bool sent;
@@ -217,14 +218,15 @@ public sealed class SupportNotificationService(
         }
     }
 
-    private EmailTemplateContext BuildContext(
+    private async Task<EmailTemplateContext> BuildContextAsync(
         Ticket ticket,
         SupportNotificationRecipient recipient,
         EmailLayout? layout,
-        TenantBrandingResolved branding)
+        TenantBrandingResolved branding, CancellationToken ct)
     {
         var ticketRef = ticket.TrackingId ?? string.Empty;
-        var ticketLink = BuildSignedPublicTicketLink(ticketRef, recipient.Email, branding.TemplateBrand.ApplicationUrl);
+        var ticketLink = await publicLinks.IssueAsync(ticket, recipient.Email, PublicLinkPurpose.Ticket,
+            branding.TemplateBrand.ApplicationUrl ?? _publicWebAppUrl, ct);
         return new EmailTemplateContext
         {
             UserName = string.IsNullOrWhiteSpace(recipient.UserName) ? recipient.Email : recipient.UserName,
@@ -242,23 +244,6 @@ public sealed class SupportNotificationService(
             FooterHtml = branding.FooterHtml,
             PrimaryColor = branding.PrimaryColor
         };
-    }
-
-    private string BuildSignedPublicTicketLink(string trackingId, string email, string? applicationUrl = null)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(applicationUrl) ? _publicWebAppUrl : applicationUrl;
-        if (string.IsNullOrWhiteSpace(baseUrl) ||
-            string.IsNullOrWhiteSpace(trackingId) ||
-            string.IsNullOrWhiteSpace(email))
-        {
-            return string.Empty;
-        }
-
-        var token = publicTicketLinkSigner.GenerateToken(
-            trackingId,
-            email,
-            DateTimeOffset.UtcNow.AddDays(30));
-        return $"{baseUrl.TrimEnd('/')}/view-ticket/{Uri.EscapeDataString(trackingId)}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
     }
 
     private static string RenderSubject(string subject, EmailTemplateContext context)

@@ -261,9 +261,7 @@ public sealed class InboundTicketProcessor
             if (alreadyProcessed)
             {
                 _logger.LogInformation(
-                    "Skipping duplicate inbound email worklog for ticket {TicketId}. MessageId={MessageId}",
-                    ticket.Id,
-                    timelineCreatedByUserId);
+                    "Skipping duplicate inbound email worklog for ticket {TicketId}.", ticket.Id);
             }
             else
             {

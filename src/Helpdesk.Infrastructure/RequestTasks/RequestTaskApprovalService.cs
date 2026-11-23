@@ -21,15 +21,14 @@ public sealed partial class RequestTaskApprovalService(
     HelpdeskDbContext db,
     IRequestFormSchemaParser schemaParser,
     ITicketNotificationService notificationService,
-    IPublicTicketLinkSigner signer,
     ILogger<RequestTaskApprovalService> logger) : IRequestTaskApprovalService, IAuthenticatedRequestTaskApprovalService
 {
     // Preserve the existing construction contract. Publications are now durable
     // outbox effects, dispatched only after their business transaction commits.
     public RequestTaskApprovalService(HelpdeskDbContext db, IRequestFormSchemaParser schemaParser,
-        ITicketNotificationService notificationService, IPublicTicketLinkSigner signer,
+        ITicketNotificationService notificationService,
         ITimelineEventBus timelineEventBus, ILogger<RequestTaskApprovalService> logger)
-        : this(db, schemaParser, notificationService, signer, logger) { }
+        : this(db, schemaParser, notificationService, logger) { }
 
     private const int DefaultApprovalDays = 7;
     private const int MaxRejectionReasonLength = 1000;
@@ -122,14 +121,9 @@ public sealed partial class RequestTaskApprovalService(
         return task;
     }
 
-    public async Task<PublicRequestTaskApprovalDto?> GetPublicApprovalAsync(
-        string trackingId,
-        string taskId,
-        string email,
-        string token,
-        CancellationToken ct)
+    public async Task<PublicRequestTaskApprovalDto?> GetPublicApprovalAsync(RequestApprovalGrant grant, CancellationToken ct)
     {
-        var loaded = await LoadSignedApprovalAsync(trackingId, taskId, email, token, ct);
+        var loaded = await LoadGrantApprovalAsync(grant, ct);
         if (loaded is null)
         {
             return null;
@@ -167,11 +161,10 @@ public sealed partial class RequestTaskApprovalService(
         };
     }
 
-    public async Task<RequestTaskApprovalReviewResult> ApproveAsync(string trackingId, string taskId, string email, string token, CancellationToken ct)
-    {
-        return await ReviewDecisionAsync(taskId, () => LoadSignedApprovalAsync(trackingId, taskId, email, token, ct),
-            true, null, null, ct);
-    }
+    public Task<RequestTaskApprovalReviewResult> ReviewForGrantAsync(RequestApprovalGrant grant, bool approve, string? reason,
+        Func<Task<bool>> authorizeDecision, CancellationToken ct) =>
+        ReviewDecisionAsync(grant.TaskId, async () => await authorizeDecision() ? await LoadGrantApprovalAsync(grant, ct) : null,
+            approve, reason, null, ct);
 
     private async Task<RequestTaskApprovalReviewResult> ApproveLoadedAsync(Request request, RequestTask task, RequestTaskApproval approval, CancellationToken ct)
     {
@@ -241,18 +234,6 @@ public sealed partial class RequestTaskApprovalService(
 
         await db.SaveChangesAsync(ct);
         return RequestTaskApprovalReviewResult.Succeeded(request.Id, task.Id, approval.Status);
-    }
-
-    public async Task<RequestTaskApprovalReviewResult> RejectAsync(
-        string trackingId,
-        string taskId,
-        string email,
-        string token,
-        string? reason,
-        CancellationToken ct)
-    {
-        return await ReviewDecisionAsync(taskId, () => LoadSignedApprovalAsync(trackingId, taskId, email, token, ct),
-            false, reason, null, ct);
     }
 
     private async Task<RequestTaskApprovalReviewResult> RejectLoadedAsync(Request request, RequestTask task, RequestTaskApproval approval, string? reason, CancellationToken ct)
@@ -370,38 +351,22 @@ public sealed partial class RequestTaskApprovalService(
         return expired;
     }
 
-    private async Task<(Request Request, RequestTask Task, RequestTaskApproval Approval)?> LoadSignedApprovalAsync(
-        string trackingId,
-        string taskId,
-        string email,
-        string token,
-        CancellationToken ct)
+    private async Task<(Request Request, RequestTask Task, RequestTaskApproval Approval)?> LoadGrantApprovalAsync(
+        RequestApprovalGrant grant, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(trackingId)
-            || string.IsNullOrWhiteSpace(taskId)
-            || string.IsNullOrWhiteSpace(email)
-            || string.IsNullOrWhiteSpace(token)
-            || !signer.ValidateToken(token, $"{trackingId}:{taskId}", email))
-        {
-            return null;
-        }
-
-        var request = await db.Requests.FirstOrDefaultAsync(x => x.TrackingId == trackingId, ct);
+        var request = await db.Requests.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(row => row.Id == grant.RequestId && row.OrganizationId == grant.OrganizationId, ct);
         if (request is null)
-        {
             return null;
-        }
-
-        var task = await db.RequestTasks.FirstOrDefaultAsync(x => x.Id == taskId && x.RequestId == request.Id, ct);
+        var task = await db.RequestTasks.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(row => row.Id == grant.TaskId && row.RequestId == request.Id, ct);
         if (task is null)
-        {
             return null;
-        }
 
-        var normalizedEmail = email.Trim().ToLower();
-        var approval = await db.RequestTaskApprovals
-            .FirstOrDefaultAsync(x => x.RequestTaskId == task.Id && x.ApproverEmail.ToLower() == normalizedEmail, ct);
-        return approval is null ? null : (request, task, approval);
+        var approvals = await db.RequestTaskApprovals
+            .Where(row => row.RequestTaskId == task.Id && row.RequestId == request.Id && row.ApproverEmail.ToLower() == grant.Recipient)
+            .Take(2).ToListAsync(ct);
+        return approvals.Count == 1 ? (request, task, approvals[0]) : null;
     }
 
     private async Task<RequestTaskTemplateModel?> ResolveTemplateAsync(Request request, RequestTask task, CancellationToken ct)
@@ -548,13 +513,14 @@ public sealed partial class RequestTaskApprovalService(
         IEnumerable<RequestTaskApproval> approvalRows,
         CancellationToken ct)
     {
+        var approverAddresses = approvalRows.Select(row => row.ApproverEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sent = await notificationService.SendRequestApprovalRequiredAsync(
             request,
             task,
             approval,
             FormatApprovers(approvalRows),
             BuildPayloadHtml(request.PayloadJson),
-            request.CcRecipients.Where(x => !string.Equals(x, approval.ApproverEmail, StringComparison.OrdinalIgnoreCase)),
+            request.CcRecipients.Where(address => !approverAddresses.Contains(address)),
             ct);
         if (sent)
         {

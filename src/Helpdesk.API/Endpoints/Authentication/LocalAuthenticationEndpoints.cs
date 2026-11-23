@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.PublicIngress;
 using System.Security.Claims;
 using System.Data;
 using System.Security.Cryptography;
@@ -70,7 +71,7 @@ public static class LocalAuthenticationEndpoints
             return Results.NoContent();
         })
         .AllowAnonymous()
-        .RequireRateLimiting("LocalLogin");
+        .RequirePublicAdmission(PublicOperation.Login);
 
         group.MapPost("/login/two-factor", async (
             [FromBody] CompleteTwoFactorLoginRequest request,
@@ -105,7 +106,7 @@ public static class LocalAuthenticationEndpoints
             return Results.NoContent();
         })
         .AllowAnonymous()
-        .RequireRateLimiting("LocalLogin");
+        .RequirePublicAdmission(PublicOperation.Login);
 
         group.MapPost("/logout", async (HttpContext context) =>
         {
@@ -618,7 +619,7 @@ public static class LocalAuthenticationEndpoints
             return Results.NoContent();
         })
         .AllowAnonymous()
-        .RequireRateLimiting("LocalLogin");
+        .RequirePublicAdmission(PublicOperation.Login);
     }
 
     public sealed record LocalLoginRequest(string Email, string Password, bool RememberMe = false, string? TwoFactorCode = null);

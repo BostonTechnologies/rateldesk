@@ -27,3 +27,7 @@ public sealed class RequestApprovalPayloadFieldDto
 }
 
 public sealed record PublicRequestApprovalReviewRequest(string Email, string Token, string? Reason = null);
+
+public sealed record PublicRequestReviewDto(string TrackingId, string RequestTitle, string RequestDescription, string TaskName,
+    RequestTaskApprovalStatus ApprovalStatus, DateTimeOffset? DueAt, DateTimeOffset? ReviewedAtUtc, bool CanReview,
+    List<RequestApprovalPayloadFieldDto> PayloadFields);

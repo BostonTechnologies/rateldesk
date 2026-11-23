@@ -1,3 +1,5 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
+using Helpdesk.Tests.Fixtures;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -268,16 +270,17 @@ public sealed partial class TimelineEffortPersistenceTests
         Assert.Equal(legacyEventId, oldStaffRow.GetProperty("id").GetGuid());
         Assert.Equal(JsonValueKind.Null, Field(oldStaffRow, "recordedHours").ValueKind);
         Assert.Equal(JsonValueKind.Null, Field(oldStaffRow, "workLogId").ValueKind);
-        var publicRoute = "/api/v1/tickets/public/timeline?trackingId=" + module + "-EFFORT&email=customer%40example.test&token=synthetic-signed-token";
-        using var response = await harness.Client.GetAsync(publicRoute);
+        var launch = await PublicLinkFixture.IssueAsync(harness.Services, "ticket-effort");
+        var grant = await PublicLinkFixture.ExchangeAsync(harness.Services, launch);
+        using var response = await PublicLinkFixture.SendAsync(harness.Client, grant, "timeline");
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         var publicTimeline = await response.Content.ReadFromJsonAsync<JsonElement>();
         var publicRow = Assert.Single(publicTimeline.EnumerateArray());
-        Assert.Equal(publicWorklogId, Field(publicRow, "workLogId").GetString());
-        Assert.Equal(0.625, Field(publicRow, "recordedHours").GetDouble());
+        Assert.False(publicRow.TryGetProperty("workLogId", out _));
+        Assert.False(publicRow.TryGetProperty("recordedHours", out _));
         Assert.Equal(0.625, publicRow.GetProperty("hours").GetDouble());
         Assert.Equal("Identical note", publicRow.GetProperty("messageText").GetString());
-        Assert.Equal(HttpStatusCode.Unauthorized, (await harness.Client.GetAsync(publicRoute.Replace("synthetic-signed-token", "invalid-token"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PublicLinkFixture.SendAsync(harness.Client, grant with { Grant = "invalid-token" }, "timeline")).StatusCode);
     }
 
     private static JsonElement Field(JsonElement element, string name)
@@ -289,6 +292,7 @@ public sealed partial class TimelineEffortPersistenceTests
     internal sealed class EffortHarness : IAsyncDisposable
     {
         private readonly SqliteConnection? connection;
+        public IServiceProvider Services => app.Services;
         private readonly ServiceIdentityMigrationTests.DatabaseFixture? providerDatabase;
         private readonly WebApplication app;
         private EffortHarness(SqliteConnection? connection, WebApplication app, HttpClient client, CapturingBus bus,
@@ -378,10 +382,7 @@ public sealed partial class TimelineEffortPersistenceTests
             var branding = Substitute.For<ITenantBrandingResolver>();
             branding.ResolveAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(new TenantBrandingResolved());
             builder.Services.AddSingleton(branding);
-            var signer = Substitute.For<IPublicTicketLinkSigner>();
-            signer.GenerateToken(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>()).Returns("synthetic-signed-token");
-            signer.ValidateToken("synthetic-signed-token", Arg.Any<string>(), "customer@example.test").Returns(true);
-            builder.Services.AddSingleton(signer);
+            PublicLinkFixture.AddServices(builder);
             builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
             builder.Services.Configure<StorageOptions>(_ => { });
             builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, ActorAuthentication>("Test", _ => { });

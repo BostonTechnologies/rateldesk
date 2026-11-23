@@ -17,7 +17,7 @@ namespace Helpdesk.Tests.NewWeb;
 
 public sealed class NavMenuRenderedTests
 {
-    private static readonly string[] Account = ["home", "auth", "notifications", "/logout"];
+    private static readonly string[] Account = ["home", "auth", "notifications"];
     private static readonly string[] GlobalAdministration =
     [
         "/admin/users", "/admin/roles", "/admin/email-settings", "/admin/integration",
@@ -52,7 +52,8 @@ public sealed class NavMenuRenderedTests
         var actions = menu.FindAll(".helpdesk-nav-account a[href],.helpdesk-nav-account button").ToList();
         var account = actions.FindIndex(element => element.GetAttribute("href") == "auth");
         var administration = actions.FindIndex(element => element.LocalName == "button" && element.TextContent.Trim() == "Administration");
-        var logout = actions.FindIndex(element => element.GetAttribute("href") == "/logout");
+        var logout = actions.FindIndex(element => element.GetAttribute("form") == "rateldesk-logout");
+        Assert.Equal("submit", menu.Find("[data-testid=nav-logout]").GetAttribute("type"));
         Assert.True(account >= 0 && account < administration, "The account link must precede Administration.");
         Assert.True(administration < logout, "Administration must precede Logout.");
     }
@@ -250,7 +251,11 @@ public sealed class NavMenuRenderedTests
         Assert.Equal("Operations", Assert.Single(menu.FindComponents<MudNavGroup>()).Instance.Title);
         var authorization = context.Authorization;
         authorization.SetNotAuthorized();
-        menu.WaitForAssertion(() => Assert.Equal(new[] { "/login", "home" }.OrderBy(route => route), Hrefs(menu)));
+        menu.WaitForAssertion(() =>
+        {
+            Assert.Equal(new[] { "/login", "home" }.OrderBy(route => route), Hrefs(menu));
+            Assert.Empty(menu.FindAll("[data-testid=nav-logout]"));
+        });
     }
 
     [Fact]

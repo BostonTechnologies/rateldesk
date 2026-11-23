@@ -72,7 +72,7 @@ public sealed class OpenAiChatWorkerTests(ChatPostgresFixture database) : IClass
             Assert.Equal("operator", decision.ActorId);
             var store = fixture.Store(db);
             var choice = approve ? "approve_once" : "deny";
-            await Assert.ThrowsAsync<ChatConflictException>(() => store.AcceptApprovalAsync(
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => store.AcceptApprovalAsync(
                 ChatScope.Organization("org"), decisionId, new(id, choice), "different-operator", default));
         }
         await using (var db = database.Context())

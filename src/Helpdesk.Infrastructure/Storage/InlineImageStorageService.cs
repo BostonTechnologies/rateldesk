@@ -29,14 +29,12 @@ public sealed class InlineImageStorageService(
         var safeName = Path.GetFileName((filename ?? string.Empty).Trim().Replace('\\', '/'));
         var basename = Regex.Replace(Path.GetFileNameWithoutExtension(safeName), "[^a-zA-Z0-9_-]", "-");
         basename = string.IsNullOrWhiteSpace(basename) ? "image" : basename[..Math.Min(basename.Length, 80)];
-        var extension = Path.GetExtension(safeName).ToLowerInvariant();
-        extension = Regex.IsMatch(extension, @"^\.[a-z0-9]{1,10}$") ? extension : string.Empty;
-        var safeFilename = $"{basename}-{Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant()}{extension}";
+        var normalized = await SafeInlineImage.NormalizeAsync(safeName, content);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(normalized.Content));
+        var safeFilename = $"{basename}-{hash}{normalized.Extension}";
         var root = Path.Combine(_storageRoot, "incidents", safeIncidentId, "inline");
-        Directory.CreateDirectory(root);
-
         var fullPath = Path.Combine(root, safeFilename);
-        await File.WriteAllBytesAsync(fullPath, content);
+        await SafeInlineImage.SaveAsync(root, safeFilename, normalized.Content);
         _logger.LogInformation("Saved incident inline image. IncidentId={IncidentId} Path={Path}", safeIncidentId, fullPath);
 
         var expires = DateTimeOffset.UtcNow.AddHours(24);
@@ -53,12 +51,11 @@ public sealed class InlineImageStorageService(
         byte[] content)
     {
         var safeWorklogId = SanitizePathSegment(worklogId);
-        var safeFilename = SanitizeFileName(filename);
+        var normalized = await SafeInlineImage.NormalizeAsync(filename, content);
+        var safeFilename = Path.ChangeExtension(SanitizeFileName(filename), normalized.Extension);
         var root = Path.Combine(_storageRoot, "worklogs", safeWorklogId, "inline");
-        Directory.CreateDirectory(root);
-
         var fullPath = Path.Combine(root, safeFilename);
-        await File.WriteAllBytesAsync(fullPath, content);
+        await SafeInlineImage.SaveAsync(root, safeFilename, normalized.Content);
         _logger.LogInformation("Saved worklog inline image. WorklogId={WorklogId} Path={Path}", safeWorklogId, fullPath);
 
         var expires = DateTimeOffset.UtcNow.AddHours(24);

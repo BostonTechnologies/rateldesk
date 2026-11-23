@@ -1139,6 +1139,79 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("NotificationReads", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCapability", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BrowserDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("GrantExpiresAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LaunchDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Legacy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Purpose")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RevokedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TaskId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("LaunchDigest")
+                        .IsUnique();
+
+                    b.ToTable("PublicLinkCapability");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCompatibility", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LegacyCutoffUnix")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PublicLinkCompatibility");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.ServiceIdentity.ServiceIdentityConfiguration", b =>
                 {
                     b.Property<int>("Id")

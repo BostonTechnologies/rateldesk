@@ -32,6 +32,7 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
         InboundRoute Hold(string reason, string? organizationId = null) =>
             new(organizationId, reason, sender, name, domain, ForwardedCandidate: forwardedCandidate);
         if (domain.Length == 0) return Hold("InvalidSender");
+        await LockProvisioningDomainAsync(db, domain, ct);
         var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.IdentityUserId == null && x.Email.ToLower() == sender, ct);
         if (customer?.State == Helpdesk.Shared.Models.EntityState.Blocked) return Hold("BlockedRequester", customer.OrganizationId);
         var candidates = new HashSet<string>(StringComparer.Ordinal);
@@ -112,14 +113,29 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
         return normalized.Length == 0 ? [] : [normalized, $"<{normalized}>"];
     }
 
+    internal static async Task LockProvisioningDomainAsync(HelpdeskDbContext db, string domain, CancellationToken ct)
+    {
+        if (db.Database.IsNpgsql() && db.Database.CurrentTransaction is not null)
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({domain}, 467))", ct);
+    }
+
     public static async Task LockOrganizationAsync(HelpdeskDbContext db, string? organizationId, CancellationToken ct)
     {
         if (organizationId is null || !db.Database.IsRelational()) return;
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("Organization ingress locking requires a transaction.");
-        // Use a non-key column to avoid escalating PostgreSQL foreign-key lock modes.
-        await db.Organizations.Where(x => x.Id == organizationId)
-            .ExecuteUpdateAsync(update => update.SetProperty(x => x.Name, x => x.Name), ct);
+        // SQLite starts an immediate write transaction. PostgreSQL takes a row lock
+        // compatible with foreign-key checks made by the incident and outbox writes.
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM \"Organizations\" WHERE \"Id\" = {organizationId} FOR NO KEY UPDATE", ct);
+    }
+
+    internal static async Task LockCustomerAsync(HelpdeskDbContext db, string customerId, CancellationToken ct)
+    {
+        if (db.Database.IsNpgsql() && db.Database.CurrentTransaction is not null)
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM \"Customers\" WHERE \"Id\" = {customerId} FOR NO KEY UPDATE", ct);
     }
 
     public static async Task<string?> ValidateOrganizationIngressAsync(HelpdeskDbContext db, Guid? mailboxId,
@@ -151,7 +167,14 @@ public sealed class InboundTenantRouter(HelpdeskDbContext db, IForwardedEmailPar
         var customer = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == null && x.Email.ToLower() == route.RequesterEmail, ct);
         if (customer is not null)
         {
-            if (customer.OrganizationId != organizationId) throw new InvalidOperationException("RequesterOwnershipConflict");
+            await LockCustomerAsync(db, customer.Id, ct);
+            await db.Entry(customer).ReloadAsync(ct);
+            if (db.Entry(customer).State == Microsoft.EntityFrameworkCore.EntityState.Detached ||
+                customer.OrganizationId != organizationId || customer.IdentityUserId is not null ||
+                customer.Email.ToLowerInvariant() != route.RequesterEmail)
+                throw new InboundReceiptHoldException("RequesterOwnershipConflict");
+            if (!customer.IsEnabled)
+                throw new InboundReceiptHoldException("BlockedRequester");
             return customer;
         }
         customer = new Customer { Email = route.RequesterEmail, Name = route.RequesterName, OrganizationId = organizationId };

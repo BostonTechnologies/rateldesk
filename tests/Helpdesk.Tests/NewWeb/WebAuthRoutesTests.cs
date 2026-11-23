@@ -114,14 +114,47 @@ public class WebAuthRoutesTests
         Assert.DoesNotContain("href=\"/login-authentik\"", html, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Oidc_only_logout_does_not_require_a_local_cookie_handler()
+    [Theory]
+    [InlineData("Local")]
+    [InlineData("Oidc")]
+    [InlineData("Hybrid")]
+    public async Task Logout_requires_a_same_browser_form_before_any_handler_runs(string mode)
     {
-        using var factory = CreateFactory(authenticationMode: "Oidc");
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var response = await client.GetAsync("/logout");
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.StartsWith("https://id.example.com/application/o/rateldesk/end-session", response.Headers.Location!.ToString(), StringComparison.Ordinal);
+        using var factory = CreateFactory(enableTestAuth: true, authenticationMode: mode);
+        var options = new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") };
+        using var client = factory.CreateClient(options);
+        using var otherBrowser = factory.CreateClient(options);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        otherBrowser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+        var token = await ReadFormTokenAsync(client, "/auth");
+        var foreignToken = await ReadFormTokenAsync(otherBrowser, "/auth");
+
+        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Head })
+        {
+            using var request = new HttpRequestMessage(method, "/logout");
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+            Assert.Null(response.Headers.Location);
+            Assert.False(response.Headers.Contains("Set-Cookie"));
+        }
+
+        foreach (var value in new string?[] { null, "invalid", foreignToken })
+        {
+            using var form = new FormUrlEncodedContent(value is null ? [] :
+                new[] { new KeyValuePair<string, string>("__RequestVerificationToken", value) });
+            using var denied = await client.PostAsync("/logout", form);
+            Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+            Assert.Null(denied.Headers.Location);
+            Assert.False(denied.Headers.Contains("Set-Cookie"));
+        }
+
+        using var valid = new FormUrlEncodedContent(new Dictionary<string, string> { ["__RequestVerificationToken"] = token });
+        using var logout = await client.PostAsync("/logout", valid);
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        if (mode == "Local")
+            Assert.Equal("/login", logout.Headers.Location?.OriginalString);
+        else
+            Assert.StartsWith("https://id.example.com/application/o/rateldesk/end-session", logout.Headers.Location!.OriginalString);
     }
 
     [Theory]
@@ -130,6 +163,7 @@ public class WebAuthRoutesTests
     [InlineData("SystemApi")]
     [InlineData("SystemApiNoAuth")]
     [InlineData("SystemPairingApi")]
+    [InlineData("PublicAccessApi")]
     public void Shared_api_handlers_never_store_browser_cookies(string name)
     {
         using var factory = CreateFactory(localAuthentication: true, stubApi: false);
@@ -348,8 +382,12 @@ public class WebAuthRoutesTests
     [InlineData(429, "rate-limited")]
     public async Task Local_login_distinguishes_invalid_credentials_from_api_service_failures(int status, string expectedStatus)
     {
-        using var factory = CreateFactory(localAuthentication: true,
-            loginApi: (_, _) => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status)));
+        var attempts = 0;
+        using var factory = CreateFactory(localAuthentication: true, loginApi: (_, _) =>
+        {
+            attempts++;
+            return Task.FromResult(new HttpResponseMessage((HttpStatusCode)status));
+        });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var token = await ReadFormTokenAsync(client, "/login");
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -358,6 +396,7 @@ public class WebAuthRoutesTests
         });
         var response = await client.PostAsync("/local-login", form);
         Assert.Equal("/login?status=" + expectedStatus, response.Headers.Location?.OriginalString);
+        Assert.Equal(1, attempts);
     }
 
     [Theory]
@@ -642,7 +681,7 @@ public class WebAuthRoutesTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    private static WebApplicationFactory<TokenService> CreateFactory(
+    internal static WebApplicationFactory<TokenService> CreateFactory(
         bool enableTestAuth = false,
         bool useAzureFallback = false,
         bool localAuthentication = false,
@@ -705,7 +744,7 @@ public class WebAuthRoutesTests
             {
                 if (stubApi)
                 {
-                    foreach (var clientName in new[] { "HelpdeskApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth", "SystemPairingApi" })
+                    foreach (var clientName in new[] { "HelpdeskApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth", "SystemPairingApi", "PublicAccessApi" })
                         services.AddHttpClient(clientName).ConfigurePrimaryHttpMessageHandler(() => new BrandingApiHandler(loginApi, systemConnectionApi));
                 }
 

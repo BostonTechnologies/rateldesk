@@ -1,3 +1,6 @@
+using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.Infrastructure.Security;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Persistence;
@@ -22,13 +25,10 @@ public static class RequestTaskApprovalEndpoints
         app.MapGet("/api/v1/request-task-approvers/search", SearchApproverPage)
             .WithTags("Request Tasks").RequireAuthorization("HelpdeskAdmin");
 
-        var publicGroup = app.MapGroup("/api/v1/request-approvals/public")
-            .WithTags("Request Approvals")
-            .AllowAnonymous();
-
-        publicGroup.MapGet("/{trackingId}/{taskId}", GetPublicApproval);
-        publicGroup.MapPost("/{trackingId}/{taskId}/approve", ApprovePublicApproval);
-        publicGroup.MapPost("/{trackingId}/{taskId}/reject", RejectPublicApproval);
+        var publicAccess = app.MapGroup(PublicAccessProtocol.ApiPrefix + "/{accessId:guid}/request")
+            .WithTags("Public Access").WithMetadata(new PublicGrantRequiredMetadata()).AllowAnonymous();
+        publicAccess.MapGet("/", GetPublicApproval).Produces<PublicRequestReviewDto>().WithName("GetPublicRequestApproval");
+        publicAccess.MapPost("/decision", ReviewPublicApproval).WithName("ReviewPublicRequestApproval");
     }
 
     private static async Task<IResult> SearchApproverPage(HelpdeskDbContext db, string? organizationId, string? q, int? limit, CancellationToken ct)
@@ -147,46 +147,31 @@ public static class RequestTaskApprovalEndpoints
         return Results.Ok(results);
     }
 
-    private static async Task<IResult> GetPublicApproval(
-        [FromRoute] string trackingId,
-        [FromRoute] string taskId,
-        [FromQuery] string email,
-        [FromQuery] string token,
-        [FromServices] IRequestTaskApprovalService approvalService,
-        CancellationToken ct)
+    private static async Task<IResult> GetPublicApproval(Guid accessId, HttpContext http, PublicLinkService links,
+        IRequestTaskApprovalService approvals, CancellationToken ct)
     {
-        var approval = await approvalService.GetPublicApprovalAsync(trackingId, taskId, email, token, ct);
-        return approval is null ? Results.Unauthorized() : Results.Ok(approval);
+        if (await PublicLinkEndpoints.AuthorizeAsync(http, links, accessId, ct) is not
+            { Purpose: PublicLinkPurpose.RequestApproval, TaskId: { } task } grant)
+            return Results.Unauthorized();
+        var approval = await approvals.GetPublicApprovalAsync(new(grant.TicketId, grant.OrganizationId, task, grant.Recipient), ct);
+        return approval is null ? Results.Unauthorized() : Results.Ok(new PublicRequestReviewDto(approval.TrackingId, approval.RequestTitle,
+            approval.RequestDescription, approval.TaskName, approval.ApprovalStatus, approval.DueAt, approval.ReviewedAtUtc,
+            approval.CanReview, approval.PayloadFields));
     }
 
-    private static async Task<IResult> ApprovePublicApproval(
-        [FromRoute] string trackingId,
-        [FromRoute] string taskId,
-        [FromBody] PublicRequestApprovalReviewRequest request,
-        [FromServices] IRequestTaskApprovalService approvalService,
-        [FromServices] IWorkflowEngine workflowEngine,
-        CancellationToken ct)
+    private static async Task<IResult> ReviewPublicApproval(Guid accessId, PublicApprovalDecision decision, HttpContext http,
+        PublicLinkService links, IRequestTaskApprovalService approvals, IWorkflowEngine workflowEngine, CancellationToken ct)
     {
-        var result = await approvalService.ApproveAsync(trackingId, taskId, request.Email, request.Token, ct);
+        if (await PublicLinkEndpoints.AuthorizeAsync(http, links, accessId, ct) is not
+            { Purpose: PublicLinkPurpose.RequestApproval, TaskId: { } task } grant)
+            return Results.Unauthorized();
+        var result = await approvals.ReviewForGrantAsync(new(grant.TicketId, grant.OrganizationId, task, grant.Recipient),
+            decision.Approve, decision.Reason,
+            async () => await PublicLinkEndpoints.AuthorizeAsync(http, links, accessId, ct, forDecision: true) is not null, ct);
         if (!result.Success)
-        {
-            return result.ErrorCode == "approval_changed"
-                ? Results.Conflict(new { code = result.ErrorCode, message = result.Error }) : Results.BadRequest(result.Error);
-        }
-
-        await workflowEngine.RunAsync(result.RequestId, WorkflowRunReason.ApprovalReceived, ct);
-        return Results.Ok(result);
-    }
-
-    private static async Task<IResult> RejectPublicApproval(
-        [FromRoute] string trackingId,
-        [FromRoute] string taskId,
-        [FromBody] PublicRequestApprovalReviewRequest request,
-        [FromServices] IRequestTaskApprovalService approvalService,
-        CancellationToken ct)
-    {
-        var result = await approvalService.RejectAsync(trackingId, taskId, request.Email, request.Token, request.Reason, ct);
-        return result.Success ? Results.Ok(result) : result.ErrorCode == "approval_changed"
-            ? Results.Conflict(new { code = result.ErrorCode, message = result.Error }) : Results.BadRequest(result.Error);
+            return result.ErrorCode == "approval_changed" ? Results.Conflict(new { code = result.ErrorCode }) : Results.BadRequest(result.Error);
+        if (decision.Approve)
+            await workflowEngine.RunAsync(result.RequestId, WorkflowRunReason.ApprovalReceived, ct);
+        return Results.NoContent();
     }
 }

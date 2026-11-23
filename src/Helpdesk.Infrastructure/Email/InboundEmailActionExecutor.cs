@@ -64,7 +64,7 @@ public sealed class InboundEmailActionExecutor(
             return new InboundEmailRuleProcessingResult(true, true, null);
         }
 
-        if (tenantResult.Organization is null)
+        if (tenantResult.Organization?.IsEnabled != true)
         {
             await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, "Tenant could not be resolved.", ct);
             return new InboundEmailRuleProcessingResult(true, true, null);
@@ -97,6 +97,13 @@ public sealed class InboundEmailActionExecutor(
         {
             var requesterEmail = forwarded.OriginalFromEmail!.Trim().ToLowerInvariant();
             var customer = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == null && x.Email.ToLower() == requesterEmail, ct);
+            if (customer is not null && db.Database.CurrentTransaction is not null)
+            {
+                await InboundTenantRouter.LockCustomerAsync(db, customer.Id, ct);
+                await db.Entry(customer).ReloadAsync(ct);
+                if (db.Entry(customer).State == Microsoft.EntityFrameworkCore.EntityState.Detached)
+                    throw new InboundReceiptHoldException("RequesterUnavailable");
+            }
             if (customer is not null && (customer.OrganizationId != tenantResult.Organization.Id || customer.State != Helpdesk.Shared.Models.EntityState.Enabled))
             {
                 await TryLogAsync(context, rule, actionKey, true, InboundEmailProcessingStatus.Failed, null, "Requester ownership conflict or blocked requester.", ct);

@@ -716,29 +716,13 @@ public sealed class RequestCreateEndpointsTests
 
     private sealed class TestTenantProvisioningService : ITenantProvisioningService
     {
-        public Task<Organization> GetOrCreateOrganizationByDomainAsync(string domain) =>
-            Task.FromResult(new Organization
+        public Task<T> ProcessAsync<T>(string email, string? submittedName,
+            Func<Customer, bool, CancellationToken, Task<T>> process, CancellationToken cancellationToken) =>
+            process(new Customer
             {
-                Id = "org-1",
-                Name = domain,
-                DnsName = domain
-            });
-
-        public Task<(Customer customer, bool isNew)> GetOrCreateCustomerAsync(
-            string email,
-            string name,
-            string domain)
-        {
-            var customer = new Customer
-            {
-                Id = "customer-1",
-                Name = name,
-                Email = email.Trim().ToLowerInvariant(),
-                OrganizationId = "org-1"
-            };
-
-            return Task.FromResult((customer, true));
-        }
+                Id = "customer-1", Name = submittedName ?? email,
+                Email = email.Trim().ToLowerInvariant(), OrganizationId = "org-1"
+            }, true, cancellationToken);
     }
 
     private sealed class PassingAutomationBindingPayloadContractService : IAutomationBindingPayloadContractService

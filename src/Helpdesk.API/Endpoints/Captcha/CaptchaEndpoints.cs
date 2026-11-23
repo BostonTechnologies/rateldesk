@@ -1,3 +1,5 @@
+using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.ServiceDefaults.Security;
 using Helpdesk.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,11 +20,12 @@ public static class CaptchaEndpoints
         group.MapGet("/", ([FromServices] ICaptchaService svc, HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            var (id, challenge) = svc.GenerateCaptcha();
-            var imageBytes = svc.RenderCaptchaImage(challenge);
-            var imageBase64 = $"data:image/png;base64,{Convert.ToBase64String(imageBytes)}";
-            return Results.Ok(new CaptchaResponse(id, imageBase64));
-        }).AllowAnonymous();
+            var challenge = svc.TryGenerateCaptcha(PublicIngressIdentity.Client(context), context.RequestAborted);
+            if (challenge is null)
+                return PublicAdmissionEndpoints.TooManyRequests(context, retryAfterSeconds: 30);
+            var imageBase64 = $"data:image/png;base64,{Convert.ToBase64String(challenge.Png)}";
+            return Results.Ok(new CaptchaResponse(challenge.Id, imageBase64));
+        }).AllowAnonymous().RequirePublicAdmission(PublicOperation.Captcha);
     }
 }
 

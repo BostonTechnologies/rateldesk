@@ -361,7 +361,7 @@ public sealed class ReverseProxyConfigurationTests
         Assert.Equal(HttpStatusCode.NotFound, mcp.StatusCode);
         Assert.Equal("application/problem+json", mcp.Content.Headers.ContentType!.MediaType);
         var clients = factory.Services.GetRequiredService<IHttpClientFactory>();
-        foreach (var name in new[] { "HelpdeskApi", "NetclawPairingApi", "SystemPairingApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth" })
+        foreach (var name in new[] { "HelpdeskApi", "NetclawPairingApi", "SystemPairingApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth", "PublicAccessApi" })
             Assert.Equal("http://selected-api.example:8222/", clients.CreateClient(name).BaseAddress!.AbsoluteUri);
         Assert.Equal("https://trusted.example/mcp", factory.Services.GetRequiredService<ResolvedWebGatewayOptions>().PublicMcpResource!.AbsoluteUri);
     }

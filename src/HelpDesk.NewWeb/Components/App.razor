@@ -88,9 +88,15 @@
 </head>
 
 <body>
+    @if (HttpContext.User.Identity?.IsAuthenticated == true)
+    {
+        <form id="rateldesk-logout" method="post" action="@(HttpContext.Request.PathBase + "/logout")" data-enhance="false" hidden>
+            <AntiforgeryToken />
+        </form>
+    }
     <Router AppAssembly="typeof(Program).Assembly">
         <Found Context="routeData">
-            <Routes @rendermode="PageRenderMode" />
+            <Routes @rendermode="PageRenderMode" ClientAddress="@Helpdesk.ServiceDefaults.Security.PublicIngressIdentity.FromAddress(HttpContext.Connection.RemoteIpAddress)" />
         </Found>
         <NotFound>
             <LayoutView Layout="typeof(Layout.PublicLayout)">

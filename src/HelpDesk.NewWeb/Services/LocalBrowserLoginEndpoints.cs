@@ -1,3 +1,4 @@
+using Helpdesk.ServiceDefaults.Security;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -12,7 +13,7 @@ public static class LocalBrowserLoginEndpoints
     public static void MapLocalBrowserLoginEndpoints(this IEndpointRouteBuilder app, bool supportsLocalAccounts, string localCookieName)
     {
         app.MapPost("/local-login", async (HttpContext context, IHttpClientFactory clients, IAntiforgery antiforgery,
-            IConfiguration configuration, ILoggerFactory loggers) =>
+            IConfiguration configuration, ILoggerFactory loggers, PublicIngressIdentity clientIdentity) =>
         {
             if (!supportsLocalAccounts)
                 return Results.NotFound();
@@ -31,8 +32,13 @@ public static class LocalBrowserLoginEndpoints
 
             try
             {
-                using var response = await clients.CreateClient("SystemApiNoAuth").PostAsJsonAsync(
-                    "/api/v1/local-auth/login", new { email, password, rememberMe }, context.RequestAborted);
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/local-auth/login")
+                {
+                    Content = JsonContent.Create(new { email, password, rememberMe })
+                };
+                clientIdentity.AddProof(request, PublicIngressIdentity.FromAddress(context.Connection.RemoteIpAddress));
+                using var client = clients.CreateClient("PublicAccessApi");
+                using var response = await client.SendAsync(request, context.RequestAborted);
                 ForwardLoginCookies(response, context, localCookieName, configuration);
                 if (response.StatusCode == HttpStatusCode.Accepted)
                 {
@@ -66,10 +72,10 @@ public static class LocalBrowserLoginEndpoints
                     exception.GetType().Name, context.TraceIdentifier);
                 return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login?status=service-unavailable", returnPath));
             }
-        }).AllowAnonymous().RequireRateLimiting("LocalBrowserLogin");
+        }).AllowAnonymous();
 
         app.MapPost("/local-login/two-factor", async (HttpContext context, IHttpClientFactory clients, IAntiforgery antiforgery,
-            IDataProtectionProvider protection, IConfiguration configuration, ILoggerFactory loggers) =>
+            IDataProtectionProvider protection, IConfiguration configuration, ILoggerFactory loggers, PublicIngressIdentity clientIdentity) =>
         {
             if (!supportsLocalAccounts)
                 return Results.NotFound();
@@ -90,10 +96,12 @@ public static class LocalBrowserLoginEndpoints
                 Content = JsonContent.Create(new { code })
             };
             var challengeCookieName = ChallengeCookieName(configuration);
+            clientIdentity.AddProof(request, PublicIngressIdentity.FromAddress(context.Connection.RemoteIpAddress));
             request.Headers.Add("Cookie", $"{challengeCookieName}={context.Request.Cookies[challengeCookieName]}");
             try
             {
-                using var response = await clients.CreateClient("SystemApiNoAuth").SendAsync(request, context.RequestAborted);
+                using var client = clients.CreateClient("PublicAccessApi");
+                using var response = await client.SendAsync(request, context.RequestAborted);
                 ForwardLoginCookies(response, context, localCookieName, configuration);
                 if (response.StatusCode == HttpStatusCode.NoContent && HasCookie(response, localCookieName))
                     return Results.LocalRedirect(returnPath);
@@ -117,7 +125,7 @@ public static class LocalBrowserLoginEndpoints
                     exception.GetType().Name, context.TraceIdentifier);
                 return Results.LocalRedirect(LoginReturnUrl.WithReturn("/login/two-factor?status=service-unavailable", returnPath));
             }
-        }).AllowAnonymous().RequireRateLimiting("LocalBrowserLogin");
+        }).AllowAnonymous();
     }
 
     public static LocalSignInChallenge? ReadChallenge(HttpContext? context, IConfiguration configuration, IDataProtectionProvider protection)

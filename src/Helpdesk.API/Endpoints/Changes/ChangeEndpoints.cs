@@ -1,3 +1,6 @@
+using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.Infrastructure.Security;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Services.Changes;
@@ -1358,35 +1361,18 @@ public static partial class ChangeEndpoints
         access.CanManageChange(organizationId) ||
         access.HasPermission(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeRead, organizationId);
 
-    private static async Task<IResult> GetPublicChangeApproval(
-        [FromQuery] string trackingId,
-        [FromQuery] string email,
-        [FromQuery] string token,
-        [FromServices] IPublicTicketLinkSigner signer,
-        [FromServices] HelpdeskDbContext db,
-        [FromServices] ITimelineEventBus timelineEventBus,
-        CancellationToken ct)
+    private static async Task<IResult> GetPublicChangeApproval(Guid accessId, HttpContext http,
+        [FromServices] PublicLinkService links, HelpdeskDbContext db, ITimelineEventBus timelineEventBus, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(trackingId) ||
-            string.IsNullOrWhiteSpace(email) ||
-            string.IsNullOrWhiteSpace(token))
-        {
-            return Results.BadRequest("Tracking ID, email, and token are required.");
-        }
-
-        var change = await db.Changes
-            .Include(x => x.Approvals)
-            .FirstOrDefaultAsync(x => x.TrackingId == trackingId, ct);
-        if (change is null)
-        {
-            return Results.Problem("Change not found", statusCode: 404);
-        }
-
-        if (!signer.ValidateToken(token, change.TrackingId, email))
-        {
+        if (await PublicLinkEndpoints.AuthorizeAsync(http, links, accessId, ct) is not
+            { Purpose: PublicLinkPurpose.ChangeView or PublicLinkPurpose.ChangeApproval } grant)
             return Results.Unauthorized();
-        }
 
+        var change = await db.Changes.IgnoreQueryFilters().Include(row => row.Approvals)
+            .SingleOrDefaultAsync(row => row.Id == grant.TicketId && row.OrganizationId == grant.OrganizationId, ct);
+        if (change is null)
+            return Results.NotFound();
+        var email = grant.Recipient;
         var participantLookup = await BuildParticipantLookupAsync(db, [change], ct);
         var approval = change.Approvals.FirstOrDefault(x =>
             string.Equals(x.ApproverEmail, email, StringComparison.OrdinalIgnoreCase));
@@ -1417,7 +1403,6 @@ public static partial class ChangeEndpoints
         var template = DeserializeTemplateForPublicView(change.ChangeTemplateJson);
         return Results.Ok(new PublicChangeApprovalDto
         {
-            ChangeId = change.Id,
             TrackingId = change.TrackingId,
             Title = change.Title,
             Description = change.Description,
@@ -1425,7 +1410,6 @@ public static partial class ChangeEndpoints
             LifecycleState = EffectiveLifecycleState(change),
             OrganizationName = organizationName,
             RequestedForName = GetUserName(participantLookup, change.RequestedForUserId),
-            ImplementorName = GetUserName(participantLookup, change.ImplementorUserId),
             ImplementationStartAt = change.ImplementationStartAt,
             ImplementationEndAt = change.ImplementationEndAt,
             ScopeOfChange = template?.ScopeOfChange,
@@ -1434,7 +1418,7 @@ public static partial class ChangeEndpoints
             ValidationSteps = template?.ValidationSteps ?? new(),
             RollbackPlan = template?.RollbackPlan,
             RollbackReference = template?.RollbackReference,
-            CanReview = approval?.Status == ChangeApprovalStatus.Pending && EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval,
+            CanReview = grant.Purpose == PublicLinkPurpose.ChangeApproval && approval?.Status == ChangeApprovalStatus.Pending && EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval,
             ApprovalStatus = approval?.Status ?? ChangeApprovalStatus.Pending,
             ReviewedAtUtc = approval?.ReviewedAtUtc,
             ViewedAtUtc = approval?.ViewedAtUtc
@@ -2232,6 +2216,8 @@ public static partial class ChangeEndpoints
 
             if (EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval)
             {
+                var approverAddresses = change.Approvals.Select(approval => approval.ApproverEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var informationCopies = change.CcRecipients.Where(address => !approverAddresses.Contains(address)).ToArray();
                 foreach (var approval in change.Approvals)
                 {
                     var approvalQueued = await notificationService.SendChangeApprovalRequiredAsync(
@@ -2241,7 +2227,7 @@ public static partial class ChangeEndpoints
                         requestedForName,
                         implementorName,
                         approvers,
-                        change.CcRecipients.Where(x => !string.Equals(x, approval.ApproverEmail, StringComparison.OrdinalIgnoreCase)),
+                        informationCopies,
                         token);
                     queued &= approvalQueued;
                     if (approvalQueued) approval.TokenSentAtUtc = DateTimeOffset.UtcNow;

@@ -2,7 +2,9 @@ extern alias NewWeb;
 using System.Net;
 using System.Net.Http.Json;
 using Bunit;
+using Helpdesk.ServiceDefaults.Security;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor.Services;
 using Activate = NewWeb::HelpDesk.NewWeb.Components.Pages.Activate;
@@ -58,6 +60,8 @@ public sealed class ActivationPageTests
     {
         var context = new BunitContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton(new PublicIngressIdentity(new EphemeralDataProtectionProvider()));
+        context.Services.AddScoped<NewWeb::HelpDesk.NewWeb.Services.BrowserRequestOrigin>();
         context.Services.AddSingleton<IHttpClientFactory>(api); context.SetRendererInfo(new RendererInfo("Server", true)); return context;
     }
     private sealed class Api : HttpMessageHandler, IHttpClientFactory

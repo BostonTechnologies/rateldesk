@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.PublicIngress;
 using Helpdesk.Infrastructure.Services;
 using Helpdesk.Application.Incidents;
 using Helpdesk.Application.Messaging;
@@ -5,7 +6,6 @@ using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Services.Tenants;
 using Helpdesk.Shared.DTOs;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 
 namespace Helpdesk.API.Endpoints.Tickets;
 
@@ -19,101 +19,41 @@ public static class TicketSubmissionEndpoints
             .RequireRole("system.blazor-web")
             .Build();
 
-        // PUBLIC endpoint for portal users
-        var publicGroup = app.MapGroup("/api/v1/public/tickets")
+        app.MapPost("/api/v1/public/tickets/submit", SubmitAsync)
             .WithTags("Public Tickets")
             .AllowAnonymous()
-            .RequireRateLimiting("TicketSubmission");
+            .RequirePublicAdmission(PublicOperation.TicketSubmission);
 
-        publicGroup.MapPost("/submit", async (
-            [FromBody] SubmitTicketRequest dto,
-            ICaptchaService captcha,
-            ITenantProvisioningService tenantProvisioningService,
-            ITicketNotificationService ticketNotificationService,
-            IRequestSender sender) =>
-        {
-            if (!captcha.ValidateCaptcha(dto.CaptchaId, dto.CaptchaAnswer))
-                return Results.BadRequest("Invalid captcha");
-
-            if (string.IsNullOrWhiteSpace(dto.Email) || !dto.Email.Contains('@'))
-                return Results.BadRequest("Invalid email address.");
-
-            var domain = dto.Email.Split('@').Last();
-            var organization = await tenantProvisioningService.GetOrCreateOrganizationByDomainAsync(domain);
-            var (customer, _) = await tenantProvisioningService.GetOrCreateCustomerAsync(
-                dto.Email,
-                dto.Name,
-                domain);
-
-            var cmd = new CreateIncidentCommand(
-                dto.Subject,
-                dto.Message,
-                dto.Priority,
-                customer.Id,
-                organization.Id,
-                null,
-                null,
-                null,
-                null,
-                customer.Email,
-                null,
-                null);
-
-            var incident = await sender.Send(cmd);
-            _ = await ticketNotificationService.SendNewTicketConfirmationAsync(
-                incident,
-                customer.Email,
-                customer.Name);
-
-            return Results.Ok(new { Id = incident.Id, TrackingId = incident.TrackingId });
-        });
-
-        // SYSTEM endpoint remains protected
-        var systemGroup = app.MapGroup("/api/v1/tickets")
+        app.MapPost("/api/v1/tickets/submit", SubmitAsync)
             .WithTags("System Tickets")
-            .RequireAuthorization(systemPolicy);
+            .RequireAuthorization(systemPolicy)
+            .RequirePublicAdmission(PublicOperation.TicketSubmission);
+    }
 
-        systemGroup.MapPost("/submit", async (
-            [FromBody] SubmitTicketRequest dto,
-            ICaptchaService captcha,
-            ITenantProvisioningService tenantProvisioningService,
-            ITicketNotificationService ticketNotificationService,
-            IRequestSender sender) =>
+    private static async Task<IResult> SubmitAsync(SubmitTicketRequest dto, ICaptchaService captcha,
+        ITenantProvisioningService provisioning, ITicketNotificationService notifications, IRequestSender sender,
+        ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        if (!captcha.ValidateCaptcha(dto.CaptchaId, dto.CaptchaAnswer))
+            return Results.BadRequest("Invalid captcha");
+
+        try
         {
-            if (!captcha.ValidateCaptcha(dto.CaptchaId, dto.CaptchaAnswer))
-                return Results.BadRequest("Invalid captcha");
-
-            if (string.IsNullOrWhiteSpace(dto.Email) || !dto.Email.Contains('@'))
-                return Results.BadRequest("Invalid email address.");
-
-            var domain = dto.Email.Split('@').Last();
-            var organization = await tenantProvisioningService.GetOrCreateOrganizationByDomainAsync(domain);
-            var (customer, _) = await tenantProvisioningService.GetOrCreateCustomerAsync(
-                dto.Email,
-                dto.Name,
-                domain);
-
-            var cmd = new CreateIncidentCommand(
-                dto.Subject,
-                dto.Message,
-                dto.Priority,
-                customer.Id,
-                organization.Id,
-                null,
-                null,
-                null,
-                null,
-                customer.Email,
-                null,
-                null);
-
-            var incident = await sender.Send(cmd);
-            _ = await ticketNotificationService.SendNewTicketConfirmationAsync(
-                incident,
-                customer.Email,
-                customer.Name);
-
-            return Results.Ok(new { Id = incident.Id, TrackingId = incident.TrackingId });
-        });
+            var incident = await provisioning.ProcessAsync(dto.Email, dto.Name, async (customer, _, token) =>
+            {
+                var command = new CreateIncidentCommand(dto.Subject, dto.Message, dto.Priority, customer.Id,
+                    customer.OrganizationId, null, null, null, null, customer.Email, null, null);
+                var created = await sender.Send(command, token);
+                await notifications.SendNewTicketConfirmationAsync(created, customer.Email, customer.Name, cancellationToken: token);
+                return created;
+            }, ct);
+            return Results.Ok(new { incident.Id, incident.TrackingId });
+        }
+        catch (RequesterIntakeRejectedException rejection)
+        {
+            loggerFactory.CreateLogger("TicketSubmission").LogInformation(
+                "Public ticket submission declined. Reason={Reason}", rejection.Reason);
+            return Results.BadRequest(rejection.Message);
+        }
     }
 }

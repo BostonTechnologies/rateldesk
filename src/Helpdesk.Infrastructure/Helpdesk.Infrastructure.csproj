@@ -39,6 +39,8 @@
     <PackageReference Include="Microsoft.Kiota.Serialization.Text" Version="2.1.6" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="SkiaSharp" Version="4.157.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.157.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
   </ItemGroup>
@@ -47,6 +49,7 @@
     <ProjectReference Include="..\Helpdesk.Shared\Helpdesk.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Storage/ThirdParty/*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Email/GraphClient/LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

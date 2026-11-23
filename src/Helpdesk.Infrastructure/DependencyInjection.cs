@@ -6,6 +6,7 @@ using Helpdesk.Application.Services.Changes;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Application.Services.Tenants;
+using Helpdesk.Infrastructure.Tenants;
 using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.RequestTasks;
@@ -179,6 +180,11 @@ public static class DependencyInjection
         services.AddScoped<IEmailSettingsProvider, EmailSettingsProvider>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ITwoFactorService, TwoFactorService>();
+        services.AddOptions<CaptchaOptions>().Bind(configuration.GetSection("Captcha"))
+            .Validate(options => options.Capacity is > 0 and <= 10000 && options.OutstandingPerClient is > 0 and <= 100 &&
+                options.ConcurrentRenders is > 0 and <= 32, "Invalid CAPTCHA capacity configuration.")
+            .ValidateOnStart();
+        services.AddSingleton<CaptchaChallengeStore>();
         services.AddSingleton<ICaptchaService, CaptchaService>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<INotificationService, NotificationService>();
@@ -268,6 +274,9 @@ public static class DependencyInjection
         services.AddScoped<IHtmlSanitizerService, HtmlSanitizerService>();
         services.AddSingleton<IImageLinkSigner, ImageLinkSigner>();
         services.AddSingleton<IPublicTicketLinkSigner, PublicTicketLinkSigner>();
+        services.AddScoped<PublicLinkService>();
+        services.AddScoped<IPublicLinkIssuer>(provider => provider.GetRequiredService<PublicLinkService>());
+        services.AddHostedService<PublicLinkCleanup>();
         services.AddScoped<IInlineImageStorageService, InlineImageStorageService>();
         services.AddScoped<IEmailTemplateImageStorageService, EmailTemplateImageStorageService>();
         services.AddScoped<ITenantBrandAssetStorageService, TenantBrandAssetStorageService>();

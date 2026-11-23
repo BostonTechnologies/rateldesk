@@ -27,60 +27,38 @@ public sealed class PublicTicketLinkSigner(
         return WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
     }
 
-    public bool ValidateToken(string token, string trackingId, string email)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            _logger.LogWarning("Public ticket token missing. TrackingId={TrackingId} Email={Email}", trackingId, email);
-            return false;
-        }
+    public bool ValidateToken(string token, string trackingId, string email) =>
+        TryReadExpiry(token, trackingId, email, out var expiry) &&
+        expiry > DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
+    public bool TryReadExpiry(string token, string trackingId, string email, out long expiry)
+    {
+        expiry = 0;
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 1024)
+            return false;
         string decoded;
         try
         {
-            decoded = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(token));
+            var bytes = WebEncoders.Base64UrlDecode(token);
+            if (!string.Equals(WebEncoders.Base64UrlEncode(bytes), token, StringComparison.Ordinal))
+                return false;
+            decoded = Encoding.UTF8.GetString(bytes);
         }
-        catch
+        catch (FormatException)
         {
-            _logger.LogWarning("Public ticket token decode failed. TrackingId={TrackingId} Email={Email}", trackingId, email);
             return false;
         }
 
         var parts = decoded.Split('|');
-        if (parts.Length != 4)
-        {
-            _logger.LogWarning("Public ticket token malformed. TrackingId={TrackingId} Email={Email}", trackingId, email);
+        if (parts.Length != 4 || parts[0] != trackingId || parts[1] != email ||
+            !long.TryParse(parts[2], out expiry) || expiry <= 0)
             return false;
-        }
 
-        if (!string.Equals(parts[0], trackingId, StringComparison.Ordinal) ||
-            !string.Equals(parts[1], email, StringComparison.Ordinal))
-        {
-            _logger.LogWarning("Public ticket token payload mismatch. TrackingId={TrackingId} Email={Email}", trackingId, email);
-            return false;
-        }
-
-        if (!long.TryParse(parts[2], out var expiryUnix))
-        {
-            _logger.LogWarning("Public ticket token expiry invalid. TrackingId={TrackingId} Email={Email}", trackingId, email);
-            return false;
-        }
-
-        if (DateTimeOffset.UtcNow > DateTimeOffset.FromUnixTimeSeconds(expiryUnix))
-        {
-            _logger.LogWarning("Public ticket token expired. TrackingId={TrackingId} Email={Email}", trackingId, email);
-            return false;
-        }
-
-        var payload = $"{parts[0]}|{parts[1]}|{parts[2]}";
-        var expectedSignature = ComputeSignature(payload);
-        var valid = FixedTimeEquals(parts[3], expectedSignature);
-        if (!valid)
-        {
-            _logger.LogWarning("Public ticket token signature invalid. TrackingId={TrackingId} Email={Email}", trackingId, email);
-        }
-
-        return valid;
+        var expected = ComputeSignature($"{parts[0]}|{parts[1]}|{parts[2]}");
+        if (FixedTimeEquals(parts[3], expected))
+            return true;
+        _logger.LogDebug("Legacy public-link signature was invalid.");
+        return false;
     }
 
     private string ComputeSignature(string payload)

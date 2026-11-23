@@ -1,3 +1,4 @@
+using Helpdesk.Tests.Fixtures;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -17,9 +18,44 @@ namespace Helpdesk.Tests.Api;
 public partial class IncidentCcRecipientsEndpointsTests
 {
     [Theory]
+    [InlineData("incident", "incidents")]
+    [InlineData("worklog", "worklogs")]
+    public async Task SignedAssetRoutesRefuseLegacyDocuments(string scope, string collection)
+    {
+        var directory = Directory.CreateTempSubdirectory("legacy-inline-");
+        var root = directory.FullName;
+        try
+        {
+            var assetPath = Path.Combine(root, collection, "fixture", "inline");
+            Directory.CreateDirectory(assetPath);
+            var options = Options.Create(new StorageOptions { RootPath = root, ImageSigningSecret = "synthetic-fixture" });
+            var signer = new ImageLinkSigner(options, NullLogger<ImageLinkSigner>.Instance);
+            using var factory = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            {
+                services.AddSingleton<IOptions<StorageOptions>>(options);
+                services.AddSingleton<IImageLinkSigner>(signer);
+            }));
+            using var browser = factory.CreateClient();
+            foreach (var name in new[] { "legacy.svg", "legacy.png" })
+            {
+                await File.WriteAllTextAsync(Path.Combine(assetPath, name), "<svg xmlns='http://www.w3.org/2000/svg'/>");
+                var token = signer.GenerateToken(scope, "fixture", name, DateTimeOffset.UtcNow.AddMinutes(10));
+                using var response = await browser.GetAsync($"/api/{collection}/fixture/images/{name}?token={token}");
+                Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+                Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
+                Assert.Contains("sandbox", Assert.Single(response.Headers.GetValues("Content-Security-Policy")));
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("https://api.example.test")]
-    public async Task Peek_RefreshesDistinctHashedAndLegacyImageUrls_AndServesOriginalBytes(string publicApiBaseUrl)
+    public async Task Peek_RefreshesDistinctHashedAndLegacyImageUrls_AndServesRasterImages(string publicApiBaseUrl)
     {
         var root = Path.Combine(Path.GetTempPath(), "helpdesk-783-api-" + Guid.NewGuid().ToString("N"));
         try
@@ -27,9 +63,9 @@ public partial class IncidentCcRecipientsEndpointsTests
             var options = Options.Create(new StorageOptions { RootPath = root, ImageSigningSecret = "test-image-signing-secret", PublicApiBaseUrl = publicApiBaseUrl });
             var signer = new ImageLinkSigner(options, NullLogger<ImageLinkSigner>.Instance);
             var storage = new InlineImageStorageService(Substitute.For<IHostEnvironment>(), options, signer, NullLogger<InlineImageStorageService>.Instance);
-            var first = await storage.SaveIncidentInlineImageAsync("inc-images", "image001.png", [1, 2]);
-            var second = await storage.SaveIncidentInlineImageAsync("inc-images", "image001.png", [3, 4]);
-            await File.WriteAllBytesAsync(Path.Combine(root, "incidents", "inc-images", "inline", "legacy.png"), [5, 6]);
+            var first = await storage.SaveIncidentInlineImageAsync("inc-images", "image001.png", SyntheticRaster.Png(20));
+            var second = await storage.SaveIncidentInlineImageAsync("inc-images", "image001.png", SyntheticRaster.Png(21));
+            await File.WriteAllBytesAsync(Path.Combine(root, "incidents", "inc-images", "inline", "legacy.png"), SyntheticRaster.Png(22));
             string Expired(string url) => url.Split('?')[0] + "?token=" + signer.GenerateToken("incident", "inc-images", Path.GetFileName(url.Split('?')[0]), DateTimeOffset.UtcNow.AddDays(-1));
             var sources = new[] { Expired(first), Expired(second), Expired("/api/incidents/inc-images/images/legacy.png") };
             await _incidentRepo.CreateAsync(new Incident
@@ -57,7 +93,7 @@ public partial class IncidentCcRecipientsEndpointsTests
                 Assert.Equal(sources[index].Split('?')[0], refreshed[index].Split('?')[0]);
                 Assert.NotEqual(sources[index], refreshed[index]);
                 Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(sources[index])).StatusCode);
-                Assert.Equal(new byte[] { (byte)(index * 2 + 1), (byte)(index * 2 + 2) }, await client.GetByteArrayAsync(refreshed[index]));
+                SyntheticRaster.AssertPng((byte)(20 + index), await client.GetByteArrayAsync(refreshed[index]));
             }
         }
         finally

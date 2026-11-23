@@ -1,3 +1,5 @@
+using Yarp.ReverseProxy.Transforms;
+using Helpdesk.ServiceDefaults.Security;
 using FormCraft;
 using FormCraft.ForMudBlazor;
 using FormCraft.ForMudBlazor.Extensions;
@@ -12,13 +14,10 @@ using Helpdesk.Shared.Pairing;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
-using Microsoft.AspNetCore.RateLimiting;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -86,19 +85,8 @@ builder.Services.AddRazorComponents()
 builder.Services.AddControllers();
 
 builder.Services.AddAntiforgery();
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("LocalBrowserLogin", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 30,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-            AutoReplenishment = true
-        }));
-});
+builder.Services.AddSingleton<PublicIngressIdentity>();
+builder.Services.AddScoped<BrowserRequestOrigin>();
 builder.Services.AddAuthorizationCore(options =>
 {
     options.AddPolicy(nameof(CurrentUserAccessProfile.CanManageIntegrationCredentials), policy =>
@@ -318,12 +306,24 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
+// Public callers must receive 429 and ambiguous transport failures from the
+// original attempt before retries can spend another admission or capability.
+var publicAccessApiClient = builder.Services.AddHttpClient("PublicAccessApi", client =>
+    {
+        client.BaseAddress = apiBaseUri;
+        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
+    .RemoveAllLoggers()
+    .RedactLoggedHeaders(_ => true);
+
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
 selfServiceCommandsClient.RemoveAllResilienceHandlers();
 chatCommandsClient.RemoveAllResilienceHandlers();
 netclawPairingApiClient.RemoveAllResilienceHandlers();
 systemPairingApiClient.RemoveAllResilienceHandlers();
+publicAccessApiClient.RemoveAllResilienceHandlers();
 helpdeskApiClient.AddStandardResilienceHandler(options =>
 {
     options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
@@ -345,21 +345,40 @@ builder.Services.AddHttpClient("SystemApi", c =>
 {
     c.BaseAddress = apiBaseUri;
     c.Timeout = TimeSpan.FromSeconds(100);
-}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
     .AddHttpMessageHandler<SystemTokenAuthorizationHandler>();
 
 builder.Services.AddHttpClient("SystemApiNoAuth", c =>
 {
     c.BaseAddress = apiBaseUri;
     c.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
-}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false });
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
+
+builder.Services.AddSingleton<PublicBrowserAccess>();
 
 builder.Services.AddSingleton<InstanceSetupStatusClient>();
 
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(gatewayConfiguration.EffectiveConfiguration.GetSection("ReverseProxy"));
+    .LoadFromConfig(gatewayConfiguration.EffectiveConfiguration.GetSection("ReverseProxy"))
+    .AddTransforms(route =>
+    {
+        route.AddRequestTransform(transform =>
+        {
+            var request = transform.ProxyRequest;
+            request.Headers.Remove(PublicIngressIdentity.RelayHeader);
+            if (transform.HttpContext.Request.Path.StartsWithSegments("/api"))
+            {
+                var proof = transform.HttpContext.RequestServices.GetRequiredService<PublicIngressIdentity>();
+                proof.AddProof(request, PublicIngressIdentity.FromAddress(transform.HttpContext.Connection.RemoteIpAddress));
+            }
+            return ValueTask.CompletedTask;
+        });
+    });
 
+// The host diagnostics category includes request queries before middleware runs.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 var app = builder.Build();
+app.UsePublicLinkResponseHeaders();
 app.Services.GetRequiredService<WebGatewayConfiguration>().SetLogger(app.Logger);
 var apiProxyDestinations = gatewayConfiguration.EffectiveConfiguration
     .GetSection("ReverseProxy:Clusters:apiCluster:Destinations").GetChildren().ToArray();
@@ -399,24 +418,12 @@ app.Use(async (ctx, next) =>
     }
 });
 
-var fwd = new ForwardedHeadersOptions
+PublicIngressIdentity.UseTrustedForwarding(app, gatewayOptions.TrustedProxies, gatewayOptions.TrustedNetworks);
+app.Use(async (context, next) =>
 {
-    ForwardedHeaders =
-        ForwardedHeaders.XForwardedProto |
-        ForwardedHeaders.XForwardedHost |
-        ForwardedHeaders.XForwardedFor
-};
-
-// Preserve legacy trust when no ingress boundary is supplied. Explicit addresses narrow trust.
-// Public MCP URLs always come from deployment configuration rather than forwarded headers.
-if (gatewayOptions.TrustedProxies.Length == 0 && gatewayOptions.TrustedNetworks.Length == 0)
-{
-    fwd.KnownIPNetworks.Clear();
-    fwd.KnownProxies.Clear();
-}
-foreach (var proxy in gatewayOptions.TrustedProxies) fwd.KnownProxies.Add(proxy);
-foreach (var network in gatewayOptions.TrustedNetworks) fwd.KnownIPNetworks.Add(network);
-app.UseForwardedHeaders(fwd);
+    context.Request.Headers.Remove(PublicIngressIdentity.RelayHeader);
+    await next(context);
+});
 
 app.UseHttpsRedirection();
 app.UseWebGatewayRequestGuard(gatewayOptions);
@@ -425,7 +432,6 @@ app.UseAuthentication();
 app.UseMiddleware<TenantContextMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
-app.UseRateLimiter();
 
 app.Use(async (ctx, next) =>
 {
@@ -736,8 +742,27 @@ app.MapGet("/session/access", async (HttpContext context, ITokenService tokens, 
     }
 }).AllowAnonymous();
 
-app.MapGet("/logout", async (HttpContext ctx) =>
+app.MapMethods("/logout", [HttpMethods.Get, HttpMethods.Head], (HttpContext ctx) =>
 {
+    ctx.Response.Headers.Allow = HttpMethods.Post;
+    return Results.StatusCode(StatusCodes.Status405MethodNotAllowed);
+}).AllowAnonymous();
+
+app.MapPost("/logout", async (HttpContext ctx, IAntiforgery antiforgery) =>
+{
+    if (!ctx.Request.HasFormContentType ||
+        ctx.Request.Headers["Sec-Fetch-Site"].ToString() is "cross-site" or "same-site")
+        return Results.BadRequest();
+    try
+    {
+        await antiforgery.ValidateRequestAsync(ctx);
+    }
+    catch (AntiforgeryValidationException)
+    {
+        return Results.BadRequest();
+    }
+
+    ctx.Response.Headers.CacheControl = "no-store";
     var isLocalSession = string.Equals(ctx.User.FindFirst("auth_mode")?.Value, "local", StringComparison.OrdinalIgnoreCase);
     if (webSupportsLocalAccounts)
     {
@@ -757,6 +782,8 @@ app.MapGet("/logout", async (HttpContext ctx) =>
     await ctx.SignOutAsync("Authentik", new AuthenticationProperties { RedirectUri = "/" });
     return Results.Empty;
 });
+
+app.MapPublicBrowserEndpoints();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

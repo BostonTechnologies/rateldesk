@@ -3,9 +3,11 @@ using System.Text.Json;
 using Helpdesk.API.Endpoints.Captcha;
 using Helpdesk.Infrastructure.Services;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Caching.Memory;
+using Helpdesk.API.Endpoints.PublicIngress;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Helpdesk.Tests.Api;
@@ -17,9 +19,13 @@ public sealed class CaptchaEndpointsTests
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddMemoryCache();
+        PublicAdmission.Configure(builder);
+        builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        builder.Services.AddOptions<CaptchaOptions>();
+        builder.Services.AddSingleton<CaptchaChallengeStore>();
         builder.Services.AddSingleton<ICaptchaService, CaptchaService>();
         await using var app = builder.Build();
+        PublicAdmission.Use(app);
         app.MapCaptchaEndpoints();
         await app.StartAsync();
         using var client = app.GetTestClient();
@@ -36,10 +42,9 @@ public sealed class CaptchaEndpointsTests
         Assert.StartsWith("data:image/png;base64,", dataUri, StringComparison.Ordinal);
         var png = Convert.FromBase64String(dataUri["data:image/png;base64,".Length..]);
         Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, png[..8]);
-        var answer = app.Services.GetRequiredService<IMemoryCache>().Get<string>(id);
-        Assert.NotNull(answer);
-        var captcha = app.Services.GetRequiredService<ICaptchaService>();
-        Assert.True(captcha.ValidateCaptcha(id, answer));
-        Assert.False(captcha.ValidateCaptcha(id, answer));
+        var store = app.Services.GetRequiredService<CaptchaChallengeStore>();
+        var answer = store.Consume(id);
+        Assert.Matches("^[1-9][0-9]{5}$", answer ?? "");
+        Assert.False(app.Services.GetRequiredService<ICaptchaService>().ValidateCaptcha(id, answer!));
     }
 }

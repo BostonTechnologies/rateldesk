@@ -201,7 +201,7 @@ public sealed class ChangeActivityPersistenceTests
             new EfRepository<EmailTemplate>(db), new EfRepository<Ticket>(db), new EfRepository<Customer>(db),
             new EfRepository<TicketTimelineEvent>(db), Substitute.For<ITimelineEventBus>(), sanitizer, images, converter,
             Substitute.For<IEmailTemplateRenderer>(), Substitute.For<IEmailLayoutResolver>(),
-            Substitute.For<ITenantBrandingResolver>(), Substitute.For<IPublicTicketLinkSigner>(), new ConfigurationBuilder().Build());
+            Substitute.For<ITenantBrandingResolver>(), Substitute.For<IPublicLinkIssuer>(), new ConfigurationBuilder().Build());
     }
 
     private static Task<Ticket?> InboundReplyAsync(HelpdeskDbContext db, string id)

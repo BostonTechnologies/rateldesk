@@ -1,273 +1,39 @@
-@page "/view-ticket"
-@page "/view-ticket/{TrackingId}"
+@page "/public/access/{AccessId:guid}/ticket"
 @layout PublicLayout
 @attribute [AllowAnonymous]
-@inject AuthenticationStateProvider AuthenticationState
-@rendermode InteractiveServer
-
-@using Helpdesk.Shared.DTOs
-@using Microsoft.AspNetCore.WebUtilities
-@inject IHttpClientFactory HttpClientFactory
-@inject IJSRuntime JS
-@inject ISnackbar Snackbar
-@inject NavigationManager NavigationManager
+@attribute [ExcludeFromInteractiveRouting]
+@inject PublicBrowserAccess PublicAccess
 
 <PageTitle>View My Ticket</PageTitle>
 
-@if (ticket is not null)
-{
-    <MudContainer MaxWidth="MaxWidth.Large" Class="mt-6 mb-12">
-        <MudPaper Class="pa-6 pa-md-8" Elevation="2">
-        <MudText Typo="Typo.h5" GutterBottom="true">Ticket Details</MudText>
-        <MudDivider Class="mb-4" />
-        <MudGrid Spacing="2">
-            <MudItem xs="12">
-                <MudText Typo="Typo.h6">@ticket.Title</MudText>
-            </MudItem>
-            <MudItem xs="6">
-                <MudText Typo="Typo.overline">Tracking ID</MudText>
-                <MudText Typo="Typo.body1">@ticket.TrackingId</MudText>
-            </MudItem>
-            <MudItem xs="6">
-                <MudText Typo="Typo.overline">Current Status</MudText>
-                <MudChip T="string" Label="true" Color="@GetStateColor(ticket.State.ToString())" Size="Size.Small">@ticket.State</MudChip>
-            </MudItem>
-            <MudItem xs="12" sm="6">
-                <MudText Typo="Typo.overline">Last Updated</MudText>
-                <MudText Typo="Typo.body1">@ticket.LastUpdatedAt?.ToString("MMMM dd, yyyy 'at' hh:mm tt")</MudText>
-            </MudItem>
-            <MudItem xs="12">
-                <MudText Typo="Typo.overline">Timeline</MudText>
-                <TicketTimeline
-                    PublicMode="true"
-                    TrackingId="@ticket.TrackingId"
-                    Email="@email"
-                    Token="@token" />
-            </MudItem>
-        </MudGrid>
-
-        <MudButton Variant="Variant.Text"
-                   Color="Color.Primary"
-                   OnClick="@(() =>
-                                      {
-                                          ticket = null;
-                                          notFound = false;
-                                          _trackingId = string.Empty;
-                                          email = string.Empty;
-                                          token = string.Empty;
-                                      })"
-               Class="mt-4">
-        Check Another Ticket
-    </MudButton>
-        </MudPaper>
-    </MudContainer>
-}
-else
-{
-    <MudPaper Class="pa-8 mx-auto mt-16" MaxWidth="600px" Elevation="2">
-        <MudForm @ref="form" OnValidSubmit="@HandleSubmit">
-            <MudText Typo="Typo.h4" GutterBottom="true">Check Ticket Status</MudText>
-            <MudText Color="Color.Secondary" Class="mb-6">
-                Enter your tracking ID and email to view the latest updates on your ticket.
-            </MudText>
-
-            <MudTextField T="string"
-                          @bind-Value="_trackingId"
-                          Label="Ticket Tracking ID*"
-                          Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Please enter your ticket tracking ID."
-                          Class="mb-4" />
-
-            <MudTextField T="string"
-                          @bind-Value="email"
-                          Label="Your Email Address*"
-                          Variant="Variant.Outlined"
-                          InputType="InputType.Email"
-                          Required="true"
-                          RequiredError="Please enter the email associated with the ticket."
-                          Class="mb-4" />
-
-            <MudCheckBox T="bool" @bind-Checked="rememberEmail"
-                         Label="Remember my email for next time"
-                         Color="Color.Primary"
-                         Class="mb-4" />
-
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       ButtonType="ButtonType.Submit"
-                       Disabled="@_loading"
-                       FullWidth="true"
-                       Class="py-3 mt-2">
-                @if (_loading)
-                {
-                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                    <span>Searching...</span>
-                }
-                else
-                {
-                    <span>View Ticket</span>
-                }
-            </MudButton>
-        </MudForm>
-
-        @if (notFound)
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6 mb-12">
+    <MudPaper Class="pa-6 pa-md-8" Elevation="2">
+        @if (_ticket is null)
         {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-6">
-                <strong>Ticket Not Found.</strong> Please double-check your Ticket ID and Email address.
-            </MudAlert>
+            <MudAlert Severity="Severity.Info">This ticket session is unavailable. Open the original email to continue or request a replacement link.</MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.h5" HtmlTag="h1">@_ticket.Title</MudText>
+            <MudText Typo="Typo.subtitle2">@_ticket.TrackingId · @_ticket.State</MudText>
+            <MudText Typo="Typo.body2">Updated @_ticket.LastUpdatedAt?.ToString("g")</MudText>
+            <MudDivider Class="my-4" />
+            <PublicTicketTimeline Items="_timeline" AccessId="AccessId" />
         }
     </MudPaper>
-}
+</MudContainer>
 
 @code {
-    [Parameter] public string? TrackingId { get; set; }
+    [Parameter] public Guid AccessId { get; set; }
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
 
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("SystemApiNoAuth");
-    private MudForm? form;
-    private bool _loading;
+    private PublicTicketViewDto? _ticket;
+    private PublicTicketTimelineItemDto[]? _timeline;
 
-    private string _trackingId = string.Empty;
-    private string email = string.Empty;
-    private string token = string.Empty;
-    private bool rememberEmail;
-
-    private PublicTicketViewDto? ticket;
-    private bool notFound;
-
-    protected override void OnParametersSet()
+    protected override async Task OnInitializedAsync()
     {
-        if (!string.IsNullOrWhiteSpace(TrackingId))
-            _trackingId = TrackingId.Trim();
+        _ticket = await PublicAccess.ReadAsync<PublicTicketViewDto>(HttpContext, AccessId, "ticket");
+        if (_ticket is not null)
+            _timeline = await PublicAccess.ReadAsync<PublicTicketTimelineItemDto[]>(HttpContext, AccessId, "timeline");
     }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender) return;
-
-        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
-        var q = QueryHelpers.ParseQuery(uri.Query);
-
-        if (string.IsNullOrWhiteSpace(_trackingId) && q.TryGetValue("trackingId", out var qTid) && !string.IsNullOrWhiteSpace(qTid))
-            _trackingId = qTid.ToString().Trim();
-
-        if (string.IsNullOrWhiteSpace(email) && q.TryGetValue("email", out var qEmail) && !string.IsNullOrWhiteSpace(qEmail))
-            email = qEmail.ToString().Trim();
-
-        if (string.IsNullOrWhiteSpace(token) && q.TryGetValue("token", out var qToken) && !string.IsNullOrWhiteSpace(qToken))
-            token = qToken.ToString().Trim();
-
-        // try remembered email only if still empty
-        if (string.IsNullOrWhiteSpace(email))
-        {
-            try
-            {
-                var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "helpdeskEmail");
-                if (!string.IsNullOrWhiteSpace(stored))
-                {
-                    email = stored!;
-                    rememberEmail = true;
-                }
-            }
-            catch { }
-        }
-
-        // auto-load when both are present (skip validation)
-        if (!string.IsNullOrWhiteSpace(_trackingId) && !string.IsNullOrWhiteSpace(email) && !string.IsNullOrWhiteSpace(token))
-            await LoadTicketAsync(_trackingId, email, token);
-
-        StateHasChanged();
-    }
-
-    private async Task HandleSubmit()
-    {
-        if (form is not null)
-        {
-            await form.ValidateAsync();
-            if (!form.IsValid) return;
-        }
-
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            Snackbar.Add("Secure access token is required. Please open the ticket from the emailed link.", Severity.Error);
-            return;
-        }
-
-        await LoadTicketAsync(_trackingId, email, token);
-    }
-
-    private void ResetToForm()
-    {
-        ticket = null;
-        notFound = false;
-        _trackingId = string.Empty;
-        email = string.Empty;
-        token = string.Empty;
-        StateHasChanged();
-    }
-
-    private async Task LoadTicketAsync(string tid, string mail, string signedToken)
-    {
-        notFound = false;
-        ticket = null;
-        _loading = true;
-
-        try
-        {
-            // Try trackingId first, fall back to ticketId (covers both backends)
-            var url1 = $"api/v1/tickets/public/view?trackingId={Uri.EscapeDataString(tid)}&email={Uri.EscapeDataString(mail)}&token={Uri.EscapeDataString(signedToken)}";
-            var resp = await HelpdeskApi.GetAsync(url1);
-
-            if (!resp.IsSuccessStatusCode)
-            {
-                var url2 = $"api/v1/tickets/public/view?ticketId={Uri.EscapeDataString(tid)}&email={Uri.EscapeDataString(mail)}&token={Uri.EscapeDataString(signedToken)}";
-                resp = await HelpdeskApi.GetAsync(url2);
-            }
-
-            if (resp.IsSuccessStatusCode)
-            {
-                ticket = await resp.Content.ReadFromJsonAsync<PublicTicketViewDto>();
-                notFound = ticket is null;
-
-                if (ticket is not null)
-                {
-                    if ((await AuthenticationState.GetAuthenticationStateAsync()).User.Identity?.IsAuthenticated == true)
-                        _ = MarkSeenAsync(ticket.Id); // signed anonymous reads do not require a private session
-                    if (rememberEmail)
-                        await JS.InvokeVoidAsync("localStorage.setItem", "helpdeskEmail", mail);
-                    else
-                        await JS.InvokeVoidAsync("localStorage.removeItem", "helpdeskEmail");
-                }
-            }
-            else
-            {
-                notFound = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Error fetching ticket: {ex.Message}", Severity.Error);
-            notFound = true;
-        }
-        finally
-        {
-            _loading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task MarkSeenAsync(string id)
-    {
-        try { await HttpClientFactory.CreateClient("SystemApi").PostAsync($"api/v1/tickets/{id}/mark-as-seen", null); }
-        catch { /* non-critical */ }
-    }
-
-    private Color GetStateColor(string state) => state.ToLowerInvariant() switch
-    {
-        "open" => Color.Info,
-        "inprogress" => Color.Warning,
-        "resolved" => Color.Success,
-        "closed" => Color.Default,
-        _ => Color.Default
-    };
 }

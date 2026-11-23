@@ -75,6 +75,26 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await expect(page.locator('html')).toHaveAttribute('data-copied-setup-command', expectedCommand);
   await expect(page.getByText('Command copied. Run it on your Docker host.', { exact: true })).toBeVisible();
   const setupCodeInput = page.getByLabel('Setup code');
+  if (process.env.HELPDESK_E2E_DAYBREAK === 'true') {
+    const headers = { 'X-Forwarded-For': '192.0.2.12', 'X-Requested-With': 'XMLHttpRequest' };
+    const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: headers });
+    try {
+      const limitedPage = await first.newPage();
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const rejected = await limitedPage.request.post('/api/v1/setup/session', { headers, data: { setupCode: 'synthetic-invalid-code' } });
+        expect(rejected.status()).toBe(401);
+      }
+      await limitedPage.goto('/setup');
+      await expect(limitedPage.getByTestId('setup-wizard')).toHaveAttribute('data-interactive', 'true');
+      const code = limitedPage.getByLabel('Setup code');
+      await code.fill(setupCode);
+      await code.press('Tab');
+      await limitedPage.getByRole('button', { name: 'Continue' }).click();
+      await expect(limitedPage.getByText(/Too many setup attempts/)).toBeVisible();
+    } finally {
+      await first.close();
+    }
+  }
   await setupCodeInput.fill(setupCode);
   await setupCodeInput.press('Tab');
   await expect(setupCodeInput).toHaveValue(setupCode);
@@ -182,8 +202,9 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await integration.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(integration.getByRole('combobox', { name: /^Organization\*?$/ })).toBeVisible();
   const organization = integration.getByRole('combobox', { name: /^Organization\*?$/ });
-  await organization.selectOption({ label: 'Browser Wizard Organization' });
-  await expect(organization.locator('option:checked')).toHaveText('Browser Wizard Organization');
+  await organization.fill('Browser Wizard');
+  await page.getByRole('option', { name: 'Browser Wizard Organization', exact: false }).click();
+  await expect(organization).toHaveValue('Browser Wizard Organization');
   const permissions = page.getByTestId('credential-permission-selector');
   await expect(permissions).toBeVisible();
   await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);

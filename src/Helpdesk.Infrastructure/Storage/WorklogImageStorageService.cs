@@ -16,41 +16,33 @@ public sealed class WorklogImageStorageService(IInlineImageStorageService inline
         if (string.IsNullOrWhiteSpace(html))
             return string.Empty;
 
-        var result = html;
-        var matches = InlineImageRegex.Matches(html);
-        foreach (Match match in matches)
+        var result = new System.Text.StringBuilder(html.Length);
+        var offset = 0;
+        foreach (Match match in InlineImageRegex.Matches(html))
         {
-            var format = match.Groups["type"].Value;
-            var base64 = match.Groups["data"].Value;
+            result.Append(html, offset, match.Index - offset);
+            offset = match.Index + match.Length;
+            var extension = SafeInlineImage.ExtensionForMediaType($"image/{match.Groups["type"].Value}");
+            var base64 = match.Groups["data"];
+            if (extension is null || base64.Length > ((SafeInlineImage.MaxInputBytes + 2) / 3) * 4)
+                continue;
 
-            byte[] bytes;
             try
             {
-                bytes = System.Convert.FromBase64String(base64);
+                var bytes = Convert.FromBase64String(base64.Value);
+                var url = await _inlineImageStorageService.SaveWorklogInlineImageAsync(
+                    worklogId, $"{Guid.NewGuid():N}{extension}", bytes);
+                var source = match.Groups["src"];
+                result.Append(html, match.Index, source.Index - match.Index);
+                result.Append(System.Net.WebUtility.HtmlEncode(url));
+                result.Append(html, source.Index + source.Length, offset - source.Index - source.Length);
             }
-            catch
+            catch (Exception failure) when (failure is FormatException or InlineImageRejectedException)
             {
                 continue;
             }
-
-            var extension = ResolveExtension(format);
-            var fileName = $"{Guid.NewGuid():N}{extension}";
-            var replacement = await _inlineImageStorageService.SaveWorklogInlineImageAsync(worklogId, fileName, bytes);
-            result = result.Replace(match.Groups["src"].Value, replacement, StringComparison.Ordinal);
         }
 
-        return result;
+        return result.Append(html, offset, html.Length - offset).ToString();
     }
-
-    private static string ResolveExtension(string format) =>
-        format.ToLowerInvariant() switch
-        {
-            "jpeg" or "jpg" => ".jpg",
-            "gif" => ".gif",
-            "webp" => ".webp",
-            "bmp" => ".bmp",
-            "svg+xml" => ".svg",
-            _ => ".png"
-        };
-
 }

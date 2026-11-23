@@ -1,3 +1,4 @@
+using Helpdesk.Tests.Fixtures;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -36,7 +37,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
                 NullLogger<InlineImageStorageService>.Instance);
             var resolver = new InboundInlineImageResolver(storage, NullLogger<InboundInlineImageResolver>.Instance);
             var resolved = await resolver.ResolveAsync("incident-images", $"<p>Reply</p><img src={quote}cid:sample{quote}>",
-                [new InboundEmailAttachmentContext("sample.png", "image/png", "sample", [1, 2, 3], IsInline: true)]);
+                [new InboundEmailAttachmentContext("sample.png", "image/png", "sample", SyntheticRaster.Png(35), IsInline: true)]);
             var originalSource = ImageSources(resolved.Html).Single();
             var path = originalSource.Split('?')[0];
             var filename = Path.GetFileName(path);
@@ -60,7 +61,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             Assert.NotEqual(expired, refreshed);
             Assert.Equal("Synthetic reply", delivered.MessageText);
             Assert.Equal(HttpStatusCode.Unauthorized, (await harness.Client.GetAsync(expired)).StatusCode);
-            Assert.Equal(new byte[] { 1, 2, 3 }, await harness.Client.GetByteArrayAsync(refreshed));
+            SyntheticRaster.AssertPng(35, await harness.Client.GetByteArrayAsync(refreshed));
             Assert.Equal(HttpStatusCode.Unauthorized, (await harness.Client.GetAsync(path)).StatusCode);
             await harness.WithDbAsync(async db => Assert.Equal(storedHtml,
                 (await db.TicketTimelineEvents.AsNoTracking().SingleAsync(evt => evt.Id == timelineEvent.Id)).MessageHtml));

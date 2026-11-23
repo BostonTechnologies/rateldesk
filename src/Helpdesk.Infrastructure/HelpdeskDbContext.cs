@@ -1,3 +1,4 @@
+using Helpdesk.Infrastructure.Security;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Services;
@@ -736,6 +737,20 @@ public class HelpdeskDbContext(
             else
                 entity.HasIndex(x => new { x.EventType, x.EmailStatus, x.CreatedUtc, x.Id });
         });
+
+        modelBuilder.Entity<PublicLinkCapability>(entity =>
+        {
+            entity.HasKey(link => link.Id);
+            entity.HasIndex(link => link.LaunchDigest).IsUnique();
+            entity.HasIndex(link => link.ExpiresAt);
+            entity.Property(link => link.LaunchDigest).HasMaxLength(64);
+            entity.Property(link => link.BrowserDigest).HasMaxLength(64);
+            entity.Property(link => link.TicketId).HasMaxLength(128);
+            entity.Property(link => link.OrganizationId).HasMaxLength(128);
+            entity.Property(link => link.TaskId).HasMaxLength(128);
+            entity.Property(link => link.Recipient).HasMaxLength(254);
+        });
+        modelBuilder.Entity<PublicLinkCompatibility>().HasKey(entry => entry.Id);
 
         modelBuilder.Entity<MailboxOutboxEffect>(entity =>
         {

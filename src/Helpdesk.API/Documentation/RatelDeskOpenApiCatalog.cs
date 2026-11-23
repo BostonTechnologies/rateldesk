@@ -1,3 +1,5 @@
+using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using System.Text.Json.Nodes;
 using Helpdesk.API.Authentication;
 using Helpdesk.API.Endpoints.Authentication;
@@ -21,6 +23,7 @@ public static class RatelDeskOpenApiCatalog
     private const string SystemScheme = "SystemToken";
     private const string ServiceIdentityScheme = "ServiceIdentity";
     private const string PairingSetupScheme = "PairingSetup";
+    private const string PublicGrantScheme = "PublicGrant";
 
     private static readonly string[] GroupOrder =
     [
@@ -63,6 +66,7 @@ public static class RatelDeskOpenApiCatalog
         new("Support Groups", "Organizations & Customers", "Support groups."),
         new("Support Group Members", "Organizations & Customers", "Support group membership."),
         new("Support Coverage", "Organizations & Customers", "Support coverage."),
+        new("Public Access", "Ticketing", "Scoped public ticket and approval links."),
         new("Tickets", "Ticketing", "Shared ticket operations."), new("Incidents", "Ticketing", "Incident tickets."), new("Requests", "Ticketing", "Service requests."), new("Request Tasks", "Ticketing", "Request tasks."), new("Request Approvals", "Ticketing", "Request approvals."), new("Changes", "Ticketing", "Change tickets."), new("Work Logs", "Ticketing", "Ticket work logs."), new("Attachments", "Ticketing", "Ticket attachments."), new("Timeline", "Ticketing", "Ticket timeline."),
         new("Services", "Service Catalog & Self-Service", "Service catalog."), new("Request Forms", "Service Catalog & Self-Service", "Request forms."), new("Ticket Categories", "Service Catalog & Self-Service", "Ticket categories."), new("Ticket Lookups", "Service Catalog & Self-Service", "Ticket lookup values."), new("Self-Service", "Service Catalog & Self-Service", "Customer self-service."), new("Public Tickets", "Service Catalog & Self-Service", "Public ticket submission."), new("CAPTCHA", "Service Catalog & Self-Service", "CAPTCHA verification."),
         new("SLA Policies", "Service Levels", "SLA policies."), new("SLA Calendars", "Service Levels", "Working calendars."), new("Tenant SLA Settings", "Service Levels", "Tenant SLA settings."), new("Ticket SLA", "Service Levels", "Ticket SLA state."), new("SLA Reports", "Service Levels", "SLA reporting."), new("SLA Report Subscriptions", "Service Levels", "SLA report subscriptions."),
@@ -192,6 +196,13 @@ public static class RatelDeskOpenApiCatalog
             Name = "Authorization", Type = SecuritySchemeType.ApiKey, In = ParameterLocation.Header,
             Description = "Pairing <setup-secret> with X-Pairing-Peer and X-Pairing-Caller generation proof. Setup access cannot authorize incident or automation business operations."
         };
+        document.Components.SecuritySchemes[PublicGrantScheme] = new OpenApiSecurityScheme
+        {
+            Name = PublicAccessProtocol.GrantHeader,
+            Type = SecuritySchemeType.ApiKey,
+            In = ParameterLocation.Header,
+            Description = "Short-lived grant from the public-link exchange, bound to this access ID, purpose and resource."
+        };
         document.Components.SecuritySchemes[SystemScheme] = new OpenApiSecurityScheme
         {
             Name = "Authorization",
@@ -217,6 +228,11 @@ public static class RatelDeskOpenApiCatalog
             description.RelativePath is not ("api/pairing/v1/metadata" or "api/pairing/v1/exchange"))
         {
             operation.Security = Requirements(document, PairingSetupScheme);
+            return Task.CompletedTask;
+        }
+        if (metadata.OfType<PublicGrantRequiredMetadata>().Any())
+        {
+            operation.Security = Requirements(document, PublicGrantScheme);
             return Task.CompletedTask;
         }
         if (metadata.OfType<IAllowAnonymous>().Any())

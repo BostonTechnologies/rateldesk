@@ -4,6 +4,8 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 @inject IHttpClientFactory HttpClientFactory
+@inject BrowserRequestOrigin RequestOrigin
+@inject ILogger<Setup> Logger
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
@@ -239,7 +241,11 @@
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            var status = await HttpClientFactory.CreateClient("SystemApiNoAuth").GetFromJsonAsync<SetupStatus>("/api/v1/setup/status", timeout.Token);
+            using var client = HttpClientFactory.CreateClient("SystemApiNoAuth");
+            using var request = RequestOrigin.CreateRequest(HttpMethod.Get, "/api/v1/setup/status");
+            using var response = await client.SendAsync(request, timeout.Token);
+            response.EnsureSuccessStatusCode();
+            var status = await response.Content.ReadFromJsonAsync<SetupStatus>(timeout.Token);
             if (status?.State == "Ready") { Navigation.NavigateTo("/login", forceLoad: true); return; }
             if (status?.State == "Restarting") { _ready = true; await WaitForApplicationAsync(); return; }
             _recoveryRequired = status?.State == "RecoveryRequired";
@@ -253,7 +259,7 @@
             if (!string.IsNullOrWhiteSpace(status?.Provider)) _provider = status.Provider;
             ApplyDeploymentDefaults(status?.Defaults);
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
         catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
         {
             _statusError = "RatelDesk could not check the API setup state. The API may still be starting, unavailable or running a different release.";
@@ -267,7 +273,9 @@
         _busy = true; _error = null;
         try
         {
-            using var response = await HttpClientFactory.CreateClient("SystemApiNoAuth").PostAsJsonAsync("/api/v1/setup/session", new { setupCode = _setupCode }, _lifetime.Token);
+            using var client = HttpClientFactory.CreateClient("PublicAccessApi");
+            using var request = RequestOrigin.CreateRequest(HttpMethod.Post, "/api/v1/setup/session", JsonContent.Create(new { setupCode = _setupCode }));
+            using var response = await client.SendAsync(request, _lifetime.Token);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
             {
                 _error = "The setup code was not accepted. Copy the current code from the API container and try again.";
@@ -292,7 +300,7 @@
         catch (HttpRequestException) { _error = "The setup service is unavailable. Please retry."; }
         catch (System.Text.Json.JsonException) { _error = "The setup service returned an invalid response. Check that Web and API use the same release, then retry."; }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested) { _error = "The setup service took too long to respond. Check the API container, then retry."; }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { return; }
         finally { _busy = false; }
     }
 
@@ -303,16 +311,16 @@
         _busy = true; _error = null;
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/setup/storage") { Content = JsonContent.Create(new { provider = _provider, postgreSqlHost = _provider == "PostgreSql" ? _host : null, postgreSqlPort = _provider == "PostgreSql" ? _port : (int?)null, postgreSqlDatabase = _provider == "PostgreSql" ? _database : null, postgreSqlUsername = _provider == "PostgreSql" ? _username : null, postgreSqlPassword = _provider == "PostgreSql" ? _databasePassword : null, postgreSqlUseTls = _useTls }) };
+            using var request = RequestOrigin.CreateRequest(HttpMethod.Post, "/api/v1/setup/storage", JsonContent.Create(new { provider = _provider, postgreSqlHost = _provider == "PostgreSql" ? _host : null, postgreSqlPort = _provider == "PostgreSql" ? _port : (int?)null, postgreSqlDatabase = _provider == "PostgreSql" ? _database : null, postgreSqlUsername = _provider == "PostgreSql" ? _username : null, postgreSqlPassword = _provider == "PostgreSql" ? _databasePassword : null, postgreSqlUseTls = _useTls }));
             request.Headers.Add("X-RatelDesk-Setup-Session", _session);
-            using var response = await HttpClientFactory.CreateClient("SystemApiNoAuth").SendAsync(request, _lifetime.Token);
+            using var response = await HttpClientFactory.CreateClient("PublicAccessApi").SendAsync(request, _lifetime.Token);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden) { ExpireSession(); return; }
             if (!response.IsSuccessStatusCode) { _error = "Storage could not be prepared. Check the connection and extension requirements."; return; }
             _databasePassword = string.Empty; await _stepper.NextStepAsync();
         }
         catch (HttpRequestException) { _error = "The setup service is unavailable. Please retry."; }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested) { _error = "Storage preparation took too long to respond. Check the API and database containers, then retry."; }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { return; }
         finally { _busy = false; }
     }
 
@@ -334,9 +342,9 @@
         _busy = true; _error = null;
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/setup/initialize") { Content = JsonContent.Create(new { email = _email, displayName = _displayName, password = _password, organizationName = _organization, applicationName = _applicationName, applicationUrl = _applicationUrl, timeZoneId = _timeZoneId, supportUrl = _keepDefaults ? null : _supportUrl, supportEmail = _keepDefaults ? null : _supportEmail, logoUrl = _keepDefaults ? null : _logoUrl, compactLogoUrl = _keepDefaults ? null : _compactLogoUrl, emailFromDisplayName = _keepDefaults ? null : _emailFromDisplayName, tagline = _keepDefaults ? null : _tagline }) };
+            using var request = RequestOrigin.CreateRequest(HttpMethod.Post, "/api/v1/setup/initialize", JsonContent.Create(new { email = _email, displayName = _displayName, password = _password, organizationName = _organization, applicationName = _applicationName, applicationUrl = _applicationUrl, timeZoneId = _timeZoneId, supportUrl = _keepDefaults ? null : _supportUrl, supportEmail = _keepDefaults ? null : _supportEmail, logoUrl = _keepDefaults ? null : _logoUrl, compactLogoUrl = _keepDefaults ? null : _compactLogoUrl, emailFromDisplayName = _keepDefaults ? null : _emailFromDisplayName, tagline = _keepDefaults ? null : _tagline }));
             request.Headers.Add("X-RatelDesk-Setup-Session", _session);
-            using var response = await HttpClientFactory.CreateClient("SystemApiNoAuth").SendAsync(request, _lifetime.Token);
+            using var response = await HttpClientFactory.CreateClient("PublicAccessApi").SendAsync(request, _lifetime.Token);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden) { ExpireSession(); return; }
             if (!response.IsSuccessStatusCode)
             {
@@ -349,7 +357,7 @@
         }
         catch (HttpRequestException) { _error = "The setup service is unavailable. Please retry."; }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested) { _error = "Initialization took too long to respond. Check the API setup status before trying again."; }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { return; }
         finally { _busy = false; }
     }
 
@@ -365,10 +373,11 @@
             {
                 try
                 {
-                    using var response = await client.GetAsync("/api/v1/branding", timeout.Token);
+                    using var request = RequestOrigin.CreateRequest(HttpMethod.Get, "/api/v1/branding");
+                    using var response = await client.SendAsync(request, timeout.Token);
                     if (response.IsSuccessStatusCode) { _applicationReady = true; return; }
                 }
-                catch (HttpRequestException) { }
+                catch (HttpRequestException error) { Logger.LogDebug("Waiting for the setup API restart. ErrorType={Type}", error.GetType().Name); }
                 await Task.Delay(TimeSpan.FromSeconds(1), timeout.Token);
             }
         }
@@ -376,7 +385,7 @@
         {
             _error = "Initialization is saved. The application has not restarted yet; check the API container, then check again.";
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { return; }
         finally { _busy = false; }
     }
 

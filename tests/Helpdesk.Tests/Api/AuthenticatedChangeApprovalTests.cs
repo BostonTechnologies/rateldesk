@@ -1,3 +1,5 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
+using Helpdesk.Tests.Fixtures;
 using System.Data;
 using System.Data.Common;
 using System.Net;
@@ -75,10 +77,10 @@ public sealed partial class AuthenticatedChangeApprovalTests
         await using var fixture = await Fixture.StartAsync(postgres);
         using var owner = fixture.Client("owner-a");
         using var signed = fixture.Client("owner-b");
-        var signedBody = new ReviewChangeApprovalRequest("CHG-OWNER", "owner-b@example.test", "signed:owner-b@example.test");
+        var grant = await fixture.GrantAsync("owner-b");
         var responses = await Task.WhenAll(
             owner.PostAsync("/api/v1/changes/change/approval/review", null),
-            signed.PostAsJsonAsync("/api/v1/changes/public/approval/review", signedBody));
+            PublicLinkFixture.SendAsync(signed, grant, "change/decision", new(true)));
         Assert.All(responses, response => Assert.True(response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Conflict));
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
         if (responses[0].StatusCode == HttpStatusCode.Conflict)
@@ -89,10 +91,10 @@ public sealed partial class AuthenticatedChangeApprovalTests
         if (responses[1].StatusCode == HttpStatusCode.Conflict)
         {
             Assert.Equal(HttpStatusCode.OK, (await signed.GetAsync("/api/v1/changes/change/approval/")).StatusCode);
-            Assert.Equal(HttpStatusCode.OK, (await signed.PostAsJsonAsync("/api/v1/changes/public/approval/review", signedBody)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await PublicLinkFixture.SendAsync(signed, grant, "change/decision", new(true))).StatusCode);
         }
         await fixture.AssertStoredAsync(2, ChangeLifecycleState.ApprovedForImplementation, 3, 1);
-        Assert.Equal(HttpStatusCode.OK, (await signed.PostAsJsonAsync("/api/v1/changes/public/approval/review", signedBody)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PublicLinkFixture.SendAsync(signed, grant, "change/decision", new(true))).StatusCode);
         await fixture.AssertStoredAsync(2, ChangeLifecycleState.ApprovedForImplementation, 3, 1);
     }
 
@@ -105,8 +107,9 @@ public sealed partial class AuthenticatedChangeApprovalTests
     {
         await using var fixture = await Fixture.StartAsync(postgres, failCommit: true);
         using var client = fixture.Client("owner-a");
+        var grant = signed ? await fixture.GrantAsync("owner-a") : null;
         var response = signed
-            ? await client.PostAsJsonAsync("/api/v1/changes/public/approval/review", new ReviewChangeApprovalRequest("CHG-OWNER", "owner-a@example.test", "signed:owner-a@example.test"))
+            ? await PublicLinkFixture.SendAsync(client, grant!, "change/decision", new(true))
             : await client.PostAsync("/api/v1/changes/change/approval/review", null);
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         await fixture.AssertStoredAsync(0, ChangeLifecycleState.PendingApproval, 0, 0);
@@ -274,10 +277,10 @@ public sealed partial class AuthenticatedChangeApprovalTests
         using var first = fixture.Client("owner-a");
         using var last = fixture.Client("owner-b");
         Assert.Equal(HttpStatusCode.OK, (await first.PostAsync("/api/v1/changes/change/approval/review", null)).StatusCode);
+        var grant = signed ? await fixture.GrantAsync("owner-b") : null;
         fixture.Commits.Fail = true;
         using var failed = signed
-            ? await last.PostAsJsonAsync("/api/v1/changes/public/approval/review",
-                new ReviewChangeApprovalRequest("CHG-OWNER", "owner-b@example.test", "signed:owner-b@example.test"))
+            ? await PublicLinkFixture.SendAsync(last, grant!, "change/decision", new(true))
             : await last.PostAsync("/api/v1/changes/change/approval/review", null);
         Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
         await fixture.AssertStoredAsync(1, ChangeLifecycleState.PendingApproval, 1, 1);
@@ -346,6 +349,18 @@ public sealed partial class AuthenticatedChangeApprovalTests
             return client;
         }
 
+        public async Task<PublicLinkExchangeResponse> GrantAsync(string actor)
+        {
+            var fail = Commits.Fail;
+            Commits.Fail = false;
+            try
+            {
+                var launch = await PublicLinkFixture.IssueAsync(app.Services, "change", actor + "@example.test", PublicLinkPurpose.ChangeApproval);
+                return await PublicLinkFixture.ExchangeAsync(app.Services, launch);
+            }
+            finally { Commits.Fail = fail; }
+        }
+
         public async Task WithDbAsync(Func<HelpdeskDbContext, Task> action)
         {
             await using var scope = app.Services.CreateAsyncScope();
@@ -380,9 +395,7 @@ public sealed partial class AuthenticatedChangeApprovalTests
             var references = Substitute.For<Helpdesk.Application.Services.Tickets.ITicketRefGeneratorService>();
             references.NextReferenceAsync(Arg.Any<string>()).Returns(call => $"CHG-{Guid.NewGuid():N}");
             builder.Services.AddSingleton(references);
-            var signer = Substitute.For<IPublicTicketLinkSigner>();
-            signer.ValidateToken(Arg.Any<string>(), "CHG-OWNER", Arg.Any<string>()).Returns(call => call.ArgAt<string>(0) == "signed:" + call.ArgAt<string>(2));
-            builder.Services.AddSingleton(signer);
+            PublicLinkFixture.AddServices(builder);
             var timeline = Substitute.For<ITimelineEventBus>();
             var domainEvents = Substitute.For<IDomainEventPublisher>();
             builder.Services.AddSingleton(timeline);

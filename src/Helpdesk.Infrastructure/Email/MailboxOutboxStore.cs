@@ -4,11 +4,13 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.Email;
 
-public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectContext context, TimeProvider timeProvider)
+public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectContext context, TimeProvider timeProvider,
+    IDataProtectionProvider? publicLinkKeys = null)
 {
     public const int MaximumAttempts = 5;
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
@@ -43,7 +45,7 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             row.DeliveryEventId = delivery.Id;
             email = email with { TimelineDeliveryId = delivery.Id, SuppressTimeline = true };
         }
-        row.Payload = JsonSerializer.Serialize(email);
+        row.Payload = SerializeEmail(email, row.Id);
         if (row.Payload.Length > 24 * 1024 * 1024)
             throw new InvalidOperationException("Email delivery payload exceeds the durable queue limit.");
         db.Set<MailboxOutboxEffect>().Add(row);
@@ -84,11 +86,27 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                     AddTimelineEffect(row.ReceiptId, row.EffectKey + ":pending", delivery, now.ToUnixTimeMilliseconds());
                 }
                 row.DeliveryEventId = email.TimelineDeliveryId;
-                row.Payload = JsonSerializer.Serialize(email);
+                row.Payload = SerializeEmail(email, row.Id);
             }
             db.Set<MailboxOutboxEffect>().Add(row);
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    private string SerializeEmail(IngressEmailEffect email, Guid deliveryId) => JsonSerializer.Serialize(email with
+    {
+        Subject = PublicLinkMailContent.Protect(email.Subject, deliveryId, publicLinkKeys),
+        Html = PublicLinkMailContent.Protect(email.Html, deliveryId, publicLinkKeys)
+    });
+
+    internal IngressEmailEffect PrepareEmailForDelivery(MailboxOutboxEffect effect)
+    {
+        var email = Deserialize<IngressEmailEffect>(effect.Payload);
+        return email with
+        {
+            Subject = PublicLinkMailContent.Unprotect(email.Subject, effect.Id, publicLinkKeys),
+            Html = PublicLinkMailContent.Unprotect(email.Html, effect.Id, publicLinkKeys)
+        };
     }
 
     private async Task ValidateDeliveryBindingAsync(IngressEmailEffect email, CancellationToken ct)

@@ -37,7 +37,7 @@ public sealed class RequestTaskApprovalStartupProviderTests
         await using var starting = database.Open(barrier);
         var notifications = Substitute.For<ITicketNotificationService>();
         var service = new RequestTaskApprovalService(starting, new RequestFormSchemaParser(), notifications,
-            Substitute.For<IPublicTicketLinkSigner>(), NullLogger<RequestTaskApprovalService>.Instance);
+            NullLogger<RequestTaskApprovalService>.Instance);
         var snapshot = await starting.RequestTasks.AsNoTracking().SingleAsync();
         var start = service.StartApprovalAsync(snapshot, default);
         await barrier.Entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
@@ -103,7 +103,7 @@ public sealed class RequestTaskApprovalStartupProviderTests
         var snapshot = await db.RequestTasks.AsNoTracking().SingleAsync(x => x.Id == task.Id);
         var notifications = Substitute.For<ITicketNotificationService>();
         var service = new RequestTaskApprovalService(db, new RequestFormSchemaParser(), notifications,
-            Substitute.For<IPublicTicketLinkSigner>(), NullLogger<RequestTaskApprovalService>.Instance);
+            NullLogger<RequestTaskApprovalService>.Instance);
         await service.StartApprovalAsync(snapshot, CancellationToken.None);
         await service.StartApprovalAsync(snapshot, CancellationToken.None);
         await using var readback = database.Open();

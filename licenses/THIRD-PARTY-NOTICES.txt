@@ -30,3 +30,11 @@ Source revision: 8139c5d736164db753cf97cd557a1cedab18fd25
 Generation provenance: src/Helpdesk.Infrastructure/Email/GraphClient/generation-receipt.json
 License: MIT (Microsoft-Graph-MIT.txt)
 The API publish also retains Email/GraphClient/LICENSE.txt alongside the client.
+
+SkiaSharp 4.157.0 and its native raster codecs
+Copyright Microsoft Corporation and Skia contributors
+Source: https://github.com/mono/SkiaSharp
+Source revision: 2a53a3c8641073bc914c63ee158bbf62b8a0bb92
+License: MIT and the native dependency licenses carried with the package.
+The API publish includes Storage/ThirdParty/SkiaSharp-LICENSE.txt and
+Storage/ThirdParty/SkiaSharp-NOTICES.txt.

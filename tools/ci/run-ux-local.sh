@@ -27,6 +27,11 @@ setup_api_log="$artifact_dir/setup-api.log"
 setup_web_log="$artifact_dir/setup-web.log"
 setup_state_dir=$(mktemp -d)
 
+if [[ "${HELPDESK_E2E_DAYBREAK:-}" == true ]]; then
+  export WebGateway__TrustedProxies__0=127.0.0.1 PublicIngress__TrustWebProof=true
+  export Captcha__RequestsPerClientPerMinute=4
+fi
+
 api_pid=''
 web_pid=''
 setup_api_pid=''
@@ -154,7 +159,7 @@ run_setup_wizard_validation() {
   HELPDESK_E2E_IGNORE_HTTPS_ERRORS=true \
   HELPDESK_E2E_SETUP_CODE="$setup_code" \
   HELPDESK_E2E_RUN_SETUP_WIZARD=true \
-  npm run test:ux -- tests/ux/setup.spec.ts --output="$artifact_dir/setup-test-results"
+  npm run test:ux -- tests/ux/setup.spec.ts --trace=retain-on-failure --output="$artifact_dir/setup-test-results"
 
   stop_process "$setup_web_pid"
   setup_web_pid=''
@@ -179,6 +184,20 @@ Bootstrap__Unattended__OrganizationName='Fixture Organization' \
 Bootstrap__Unattended__ApplicationUrl="$web_url" \
 dotnet run --project src/Helpdesk.API/Helpdesk.API.csproj --configuration Release --no-build --no-launch-profile -- --initialize-unattended
 
+if [[ "${HELPDESK_E2E_DAYBREAK:-}" == true ]]; then
+  for collection in incidents worklogs; do
+    storage="$setup_state_dir/e2e-storage/$collection/browser-fixture/inline"
+    mkdir -p "$storage"
+    printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg"><script type="application/json">{"kind":"browser fixture"}</script><text x="10" y="25">Synthetic raster fixture marker</text></svg>' > "$storage/sample.svg"
+    cp "$storage/sample.svg" "$storage/sample.png"
+    base64 --decode > "$storage/raster.png" <<'PNG'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC
+PNG
+  done
+  export HELPDESK_E2E_ASSET_SIGNING_KEY="$e2e_system_secret"
+  export HELPDESK_E2E_ASSET_EXPIRY="$(( $(date +%s) + 1800 ))"
+fi
+
 ASPNETCORE_ENVIRONMENT=Development \
 Bootstrap__StateDirectory="$setup_state_dir/e2e-state" \
 DataProtection__KeyRingPath="$setup_state_dir/e2e-keys" \
@@ -189,6 +208,8 @@ ConnectionStrings__HelpdeskDb="Host=127.0.0.1;Port=${database_port};Database=rat
 EmailIngestion__Enabled=false \
 Helpdesk__E2eSeedData=true \
 StorageOptions__ImageSigningSecret="$e2e_system_secret" \
+StorageOptions__RootPath="$setup_state_dir/e2e-storage" \
+PublicIngress__TrustWebProof=true \
 StorageOptions__PublicApiBaseUrl="$api_url" \
 ExchangeEmail__TenantId=00000000-0000-0000-0000-000000000000 \
 ExchangeEmail__ClientId=00000000-0000-0000-0000-000000000001 \
@@ -225,3 +246,9 @@ HELPDESK_E2E_LOCAL_PASSWORD="$e2e_system_secret" \
 HELPDESK_E2E_IGNORE_HTTPS_ERRORS=true \
 PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/report" \
 npm run test:ux -- "$@"
+
+if [[ "${HELPDESK_E2E_DAYBREAK:-}" == true ]]; then
+  HELPDESK_E2E_ASSET_API_BASE="$api_url" \
+  PLAYWRIGHT_HTML_OUTPUT_DIR="$artifact_dir/login-report" \
+  npx playwright test --config playwright.login.config.ts --grep 'public |logout uses|signed raster' --output="$artifact_dir/login-results"
+fi

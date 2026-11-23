@@ -729,8 +729,9 @@ public sealed class MailboxIngestionCoordinator(IServiceScopeFactory scopes, ICo
     private sealed record Runner(long Version, CancellationTokenSource Cancellation, Task Task);
     private sealed record AcknowledgmentWork(Guid ReceiptId, Guid ClaimId, string TransportKey, EmailInboxSettings Mailbox);
     private sealed class MailboxFenceLostException : Exception { }
-    private sealed class InboundReceiptHoldException(string reason) : Exception(reason)
-    {
-        public string Reason { get; } = reason;
-    }
+}
+
+internal sealed class InboundReceiptHoldException(string reason) : Exception(reason)
+{
+    public string Reason { get; } = reason;
 }

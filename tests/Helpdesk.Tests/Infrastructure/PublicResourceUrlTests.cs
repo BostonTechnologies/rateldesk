@@ -1,3 +1,4 @@
+using Helpdesk.Tests.Fixtures;
 using Helpdesk.Application.Services.Branding;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Storage;
@@ -33,10 +34,10 @@ public sealed class PublicResourceUrlTests
 
             var urls = new[]
             {
-                await inline.SaveIncidentInlineImageAsync("incident", "image.png", [1, 2]),
-                await inline.SaveWorklogInlineImageAsync("worklog", "image.png", [1, 2]),
-                await tenant.SaveLogoAsync(1, "logo.png", [1, 2]),
-                await template.SaveTemplateInlineImageAsync("template", "image.png", [1, 2])
+                await inline.SaveIncidentInlineImageAsync("incident", "image.png", SyntheticRaster.Png()),
+                await inline.SaveWorklogInlineImageAsync("worklog", "image.png", SyntheticRaster.Png()),
+                await tenant.SaveLogoAsync(1, "logo.png", SyntheticRaster.Png()),
+                await template.SaveTemplateInlineImageAsync("template", "image.png", SyntheticRaster.Png())
             };
             Assert.All(urls, url =>
             {

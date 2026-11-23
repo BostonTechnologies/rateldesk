@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager NavigationManager
 @inject IHttpClientFactory HttpClientFactory
+@inject BrowserRequestOrigin RequestOrigin
 
 @if (_ticketSuccessfullyCreated)
 {
@@ -79,7 +80,8 @@
 }
 else
 {
-    <MudPaper Class="pa-4 pa-md-8 mx-auto mt-8" MaxWidth="MaxWidth.Medium">
+    <MudPaper Class="pa-4 pa-md-8 mx-auto mt-8" MaxWidth="MaxWidth.Medium"
+              data-testid="public-ticket-form" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
         @if (_contactInfoConfig is null || _ticketDetailsConfig is null || _attachmentsConfig is null)
         {
             <MudProgressCircular Indeterminate="true" />
@@ -143,7 +145,7 @@ else
                                                          style="height: 50px; user-select: none;" />
                                                 </MudPaper>
                                             }
-                                            <MudButton Variant="Variant.Text" OnClick="RefreshCaptcha">New code</MudButton>
+                                            <MudButton Variant="Variant.Text" OnClick="RefreshCaptcha" Disabled="@_loadingCaptcha">New code</MudButton>
                                         </MudStack>
 
                                         <MudTextField T="string"
@@ -154,7 +156,7 @@ else
                                                       Immediate="true"
                                                       DebounceInterval="150"
                                                       Error="_captchaError"
-                                                      ErrorText="_captchaErrorText" />
+                                                      ErrorText="@_captchaErrorText" />
 
                                     </MudStep>
                                 </ChildContent>
@@ -225,24 +227,26 @@ else
     private string _captchaImageBase64 = string.Empty;
     private Guid _captchaId;
     private bool _captchaError;
+    private bool _loadingCaptcha;
     private string? _captchaErrorText;
     private bool HasCaptchaAnswer() =>
         _captchaId != Guid.Empty && _model.Captcha?.Trim() is { Length: 6 } answer && answer.All(char.IsAsciiDigit);
 
     private HttpClient SystemApi => HttpClientFactory.CreateClient("SystemApi");
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         BuildContactInfoConfig();
         BuildTicketDetailsConfig();
         BuildAttachmentsConfig();
+    }
 
-        var captcha = await SystemApi.GetFromJsonAsync<CaptchaResponse>("api/v1/captcha");
-        if (captcha is not null)
-        {
-            _captchaId = captcha.id;
-            _captchaImageBase64 = captcha.imageBase64;
-        }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await RefreshCaptcha();
+        StateHasChanged();
     }
 
     #region FormCraft Configuration Builders
@@ -343,7 +347,15 @@ else
             CaptchaAnswer = _model.Captcha?.Trim() ?? string.Empty
         };
 
-        var response = await SystemApi.PostAsJsonAsync("api/v1/public/tickets/submit", request);
+        using var client = HttpClientFactory.CreateClient("PublicAccessApi");
+        using var message = RequestOrigin.CreateRequest(HttpMethod.Post, "api/v1/public/tickets/submit", JsonContent.Create(request));
+        using var response = await client.SendAsync(message);
+        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            Snackbar.Add("Too many submissions. Wait a moment and try again.", MudBlazor.Severity.Warning);
+            _isSubmitting = false;
+            return;
+        }
         if (!response.IsSuccessStatusCode)
         {
             await RefreshCaptcha();
@@ -389,13 +401,39 @@ else
 
     private async Task RefreshCaptcha()
     {
-        var captcha = await SystemApi.GetFromJsonAsync<CaptchaResponse>("api/v1/captcha");
-        if (captcha is not null)
+        if (_loadingCaptcha)
+            return;
+        _loadingCaptcha = true;
+        try
         {
-            _captchaId = captcha.id;
-            _captchaImageBase64 = captcha.imageBase64;
-            _model.Captcha = string.Empty;
-            _captchaError = false; _captchaErrorText = null;
+            using var client = HttpClientFactory.CreateClient("PublicAccessApi");
+            using var request = RequestOrigin.CreateRequest(HttpMethod.Get, "api/v1/captcha");
+            using var response = await client.SendAsync(request);
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                _captchaError = true;
+                _captchaErrorText = "Too many code requests. Wait a moment, then choose New code.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var captcha = await response.Content.ReadFromJsonAsync<CaptchaResponse>();
+            if (captcha is not null)
+            {
+                _captchaId = captcha.id;
+                _captchaImageBase64 = captcha.imageBase64;
+                _model.Captcha = string.Empty;
+                _captchaError = false;
+                _captchaErrorText = null;
+            }
+        }
+        catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)
+        {
+            _captchaError = true;
+            _captchaErrorText = "The code could not be loaded. Choose New code to retry.";
+        }
+        finally
+        {
+            _loadingCaptcha = false;
         }
     }
 

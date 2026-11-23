@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure.Changes;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.Security;
 using Helpdesk.Shared.DTOs.Change;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -262,10 +264,14 @@ public sealed partial class AuthenticatedChangeApprovalTests
             string[] expectedSubmitted = submitted
                 ? assignmentChanged ? ["owner-a@example.test", "owner-b@example.test"] : ["owner-a@example.test"] : [];
             Assert.Equal(expectedSubmitted, submitRecipients);
-            var approvalRecipients = emails.Where(email => email.Subject.StartsWith("ChangeApprovalRequired", StringComparison.Ordinal))
-                .SelectMany(email => email.Recipients).Order(StringComparer.Ordinal).ToArray();
+            var approvalEmails = emails.Where(email => email.Subject.StartsWith("ChangeApprovalRequired", StringComparison.Ordinal)).ToArray();
+            var approvalRecipients = approvalEmails.SelectMany(email => email.Recipients).Order(StringComparer.Ordinal).ToArray();
             string[] expectedApprovals = submitted ? ["owner-a@example.test", "owner-b@example.test"] : [];
             Assert.Equal(expectedApprovals, approvalRecipients);
+            Assert.All(approvalEmails, email => Assert.Empty(email.Cc));
+            var decisionRecipients = await db.Set<PublicLinkCapability>().Where(link => link.Purpose == PublicLinkPurpose.ChangeApproval)
+                .OrderBy(link => link.Recipient).Select(link => link.Recipient).ToArrayAsync();
+            Assert.Equal(expectedApprovals, decisionRecipients);
             var timelines = (submitted ? 3 : 0) + (changed && writer == DraftWriter.State ? 1 : 0);
             Assert.Equal(timelines, await db.Set<MailboxOutboxEffect>().CountAsync(effect => effect.Kind == MailboxEffectKind.Timeline));
             Assert.Equal(timelines + emailEffects.Length, await db.TicketTimelineEvents.CountAsync());
