@@ -306,12 +306,24 @@ var helpdeskApiStreamingClient = builder.Services.AddHttpClient("HelpdeskApiStre
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false })
     .AddHttpMessageHandler<TokenAuthorizationHandler>();
 
+// Public callers must receive 429 and ambiguous transport failures from the
+// original attempt before retries can spend another admission or capability.
+var publicAccessApiClient = builder.Services.AddHttpClient("PublicAccessApi", client =>
+    {
+        client.BaseAddress = apiBaseUri;
+        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
+    .RemoveAllLoggers()
+    .RedactLoggedHeaders(_ => true);
+
 #pragma warning disable EXTEXP0001
 helpdeskApiClient.RemoveAllResilienceHandlers();
 selfServiceCommandsClient.RemoveAllResilienceHandlers();
 chatCommandsClient.RemoveAllResilienceHandlers();
 netclawPairingApiClient.RemoveAllResilienceHandlers();
 systemPairingApiClient.RemoveAllResilienceHandlers();
+publicAccessApiClient.RemoveAllResilienceHandlers();
 helpdeskApiClient.AddStandardResilienceHandler(options =>
 {
     options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
@@ -342,17 +354,6 @@ builder.Services.AddHttpClient("SystemApiNoAuth", c =>
     c.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
 
-// Ambiguous transport failures and 429 responses must reach the caller before
-// a retry can spend another admission or redeem, submit, or decide twice.
-builder.Services.AddHttpClient("PublicAccessApi", client =>
-    {
-        client.BaseAddress = apiBaseUri;
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
-    })
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
-    .RemoveAllResilienceHandlers()
-    .RemoveAllLoggers()
-    .RedactLoggedHeaders(_ => true);
 builder.Services.AddSingleton<PublicBrowserAccess>();
 
 builder.Services.AddSingleton<InstanceSetupStatusClient>();
