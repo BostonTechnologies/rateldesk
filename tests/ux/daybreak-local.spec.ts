@@ -1,13 +1,18 @@
-import { createHmac } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { openPublicTicketReview } from './public-ticket-form';
+import { expectSignedRasterIsolation } from './signed-raster-checks';
 
-async function login(page: Page) {
+async function submitLocalLogin(page: Page) {
   await page.goto('/login');
   const form = page.getByTestId('local-login-form');
   await expect(form).toHaveAttribute('data-interactive', 'true');
   await form.getByRole('textbox', { name: 'Email' }).fill(process.env.HELPDESK_E2E_LOCAL_EMAIL!);
   await form.getByLabel('Password').fill(process.env.HELPDESK_E2E_LOCAL_PASSWORD!);
   await form.getByRole('button', { name: 'Sign in', exact: true }).click();
+}
+
+async function login(page: Page) {
+  await submitLocalLogin(page);
   await page.waitForURL('**/home');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
 }
@@ -21,7 +26,7 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
       expect(response.status()).toBe(405);
       expect((await page.request.get('/session/access')).status()).toBe(200);
     }
-    if (entry === 'desktop') await page.getByRole('button', { name: 'Account settings' }).click();
+    if (entry === 'desktop') await page.locator('[aria-label="Account settings"] button').click();
     if (entry === 'mobile') await page.locator('.helpdesk-appbar-mobile-menu button').click();
     await page.getByTestId(entry + '-logout').click();
     await expect(page).toHaveURL(/\/login$/);
@@ -32,19 +37,51 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
 
 test('legacy document assets stay blocked on direct navigation with a real local session', async ({ page }) => {
   await login(page);
-  const signingKey = process.env.HELPDESK_E2E_ASSET_SIGNING_KEY!;
-  const expiry = Math.floor(Date.now() / 1000) + 60;
-  for (const [collection, scope] of [['incidents', 'incident'], ['worklogs', 'worklog']]) {
-    for (const filename of ['sample.svg', 'sample.png']) {
-      const payload = [scope, 'browser-fixture', filename, expiry].join('|');
-      const signature = createHmac('sha256', signingKey).update(payload).digest('base64url');
-      const token = Buffer.from(payload + '|' + signature).toString('base64url');
-      const response = await page.goto('/api/' + collection + '/browser-fixture/images/' + filename + '?token=' + token);
-      expect(response?.status()).toBe(404);
-      expect(response?.headers()['x-content-type-options']).toBe('nosniff');
-      expect(response?.headers()['content-security-policy']).toContain('sandbox');
-      await expect(page.getByText('Synthetic raster fixture marker')).toHaveCount(0);
-    }
-  }
+  await expectSignedRasterIsolation(page, process.env.HELPDESK_E2E_ASSET_SIGNING_KEY!);
   expect((await page.request.get('/session/access')).status()).toBe(200);
+});
+
+test('Web login and the API proxy share a budget while another client still signs in', async ({ page, browser, baseURL }) => {
+  const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.10' } });
+  try {
+    const limitedPage = await first.newPage();
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const response = await limitedPage.request.post('/api/v1/local-auth/login', { data: { email: '', password: '' } });
+      expect(response.status()).toBe(401);
+    }
+    await submitLocalLogin(limitedPage);
+    await expect(limitedPage.getByTestId('local-login-error')).toHaveText('Too many sign-in attempts. Please retry shortly.');
+    await login(page);
+  } finally {
+    await first.close();
+  }
+});
+
+test('Web CAPTCHA refresh and direct proxy requests share the trusted client limit', async ({ page, browser, baseURL }) => {
+  const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.11' } });
+  try {
+    const limitedPage = await first.newPage();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await limitedPage.request.get('/api/v1/captcha');
+      expect(response.status()).toBe(200);
+      expect(response.headers()['cache-control']).toContain('no-store');
+      expect((await response.json()).imageBase64).toMatch(/^data:image\/png;base64,iVBOR/);
+    }
+    await openPublicTicketReview(limitedPage);
+    const captcha = limitedPage.getByAltText('CAPTCHA');
+    await expect(captcha).toBeVisible();
+    const initial = await captcha.getAttribute('src');
+    const refresh = limitedPage.getByRole('button', { name: 'New code' });
+    await refresh.click();
+    await expect(captcha).not.toHaveAttribute('src', initial!);
+    await refresh.click();
+    await expect(limitedPage.getByText(/Too many code requests/i)).toBeVisible();
+    const denied = await limitedPage.request.get('/api/v1/captcha');
+    expect(denied.status()).toBe(429);
+    expect(Number(denied.headers()['retry-after'])).toBeGreaterThan(0);
+    await openPublicTicketReview(page);
+    await expect(page.getByAltText('CAPTCHA')).toBeVisible();
+  } finally {
+    await first.close();
+  }
 });

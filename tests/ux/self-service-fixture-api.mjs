@@ -21,12 +21,17 @@ http.createServer(async (req, res) => {
   if (path === '/fixture/health') return reply({ ok: true });
   if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; tableReview = false; return reply({ ok: true }); }
   if (path === '/fixture/table-review') { tableReview = true; formCard = true; return reply({ synthetic: true }); }
-  if (tableReview && path === '/api/v1/captcha') return reply({ id: '79000000-0000-4000-8000-000000000001', imageBase64: 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="50"><text x="5" y="30">123456</text></svg>').toString('base64') });
+  if (tableReview && path === '/api/v1/captcha') return reply({ id: '79000000-0000-4000-8000-000000000001',
+    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC' });
   if (tableReview && path === '/api/v1/public/tickets/submit') return reply({ id: 'synthetic-public-ticket', trackingId: 'INC-SYNTHETIC' });
   const approvalAccess = '79000000-0000-4000-8000-000000000002';
   if (tableReview && path === '/api/v1/public/access/exchange' && req.method === 'POST')
     return reply({ accessId: approvalAccess, purpose: 3, grant: 'synthetic-table-review', expiresAt: new Date(Date.now() + 600_000).toISOString() });
-  if (tableReview && path === '/api/v1/public/access/' + approvalAccess + '/request' && req.headers['x-rateldesk-public-grant'] === 'synthetic-table-review')
+  const scopedApproval = path === '/api/v1/public/access/' + approvalAccess + '/request' &&
+    req.headers['x-rateldesk-public-grant'] === 'synthetic-table-review';
+  const baselineApproval = process.env.HELPDESK_TABLE_BASELINE === 'true' &&
+    path === '/api/v1/request-approvals/public/REQ-SYN-000/task-0' && url.searchParams.get('token') === 'synthetic';
+  if (tableReview && (scopedApproval || baselineApproval))
     return reply({ trackingId: 'REQ-SYN-000', requestTitle: 'Synthetic public approval',
       requestDescription: 'Read-only completed approval fixture', taskName: 'Synthetic approval', approvalStatus: 2, canReview: false,
       payloadFields: Array.from({ length: 35 }, (_, i) => ({ key: `Field ${i}`, value: `Synthetic long submitted value ${i} for safe read-only review` })) });

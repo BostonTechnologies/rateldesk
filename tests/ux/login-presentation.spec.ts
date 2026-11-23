@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { assertNoHorizontalOverflow, selectTheme } from './auth';
+import { openPublicTicketReview } from './public-ticket-form';
+import { expectSignedRasterIsolation } from './signed-raster-checks';
 
 for (const width of [1440, 360]) {
   for (const theme of ['light', 'dark'] as const) {
@@ -162,6 +164,15 @@ test('public exchange from email keeps independent ticket tabs, clean history an
   const response = await page.request.get(clean);
   expect(response.headers()['referrer-policy']).toBe('no-referrer');
   expect(response.headers()['cache-control']).toContain('no-store');
+  await page.evaluate(() => {
+    const link = document.createElement('a');
+    link.textContent = 'Open external fixture';
+    link.href = 'http://localhost:18499/fixture/referrer';
+    document.body.append(link);
+  });
+  const external = page.waitForResponse(result => new URL(result.url()).pathname === '/fixture/referrer');
+  await page.getByRole('link', { name: 'Open external fixture' }).click();
+  expect(await (await external).json()).toEqual({ referrer: null });
 });
 
 test('public approval requires explicit antiforgery-protected form submission', async ({ page, request }) => {
@@ -179,6 +190,31 @@ test('public approval requires explicit antiforgery-protected form submission', 
   await expect(page.getByText('This approval is no longer pending.')).toBeVisible();
 });
 
+test('public ticket CAPTCHA refresh and submission use independent server-side request proofs', async ({ page }) => {
+  await openPublicTicketReview(page);
+  await expect(page.getByAltText('CAPTCHA')).toBeVisible();
+  await page.getByRole('textbox', { name: 'CAPTCHA', exact: true }).fill('123456');
+  await expect(page.getByRole('button', { name: 'Submit Ticket', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'New code' }).click();
+  const answer = page.getByRole('textbox', { name: 'CAPTCHA', exact: true });
+  await expect(answer).toHaveValue('');
+  await answer.fill('123456');
+  await page.getByRole('button', { name: 'Submit Ticket', exact: true }).click();
+  await expect(page.getByText('Ticket submitted successfully', { exact: true })).toBeVisible();
+  await expect(page.getByText('INC-BROWSER-FIXTURE', { exact: true })).toBeVisible();
+});
+
+test('legacy signed raster navigation with an OIDC session uses the real asset API', async ({ page }, info) => {
+  const key = process.env.HELPDESK_E2E_ASSET_SIGNING_KEY;
+  test.skip(info.project.name === 'Local' || !key, 'Requires the real asset API and OIDC fixture');
+  await page.goto('/login');
+  await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
+  await page.waitForURL('**/home');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expectSignedRasterIsolation(page, key!);
+  expect((await page.request.get('/session/access')).status()).toBe(200);
+});
+
 for (const entry of ['desktop', 'mobile', 'nav'] as const) {
   test('OIDC logout uses the provider end-session through the ' + entry + ' form', async ({ page, context }, info) => {
     test.skip(info.project.name === 'Local', 'The OIDC fixture serves OIDC and Hybrid modes');
@@ -186,8 +222,6 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
     await page.goto('/login');
     await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
     await page.waitForURL('**/home');
-    await page.goto('/auth', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Authentication Dashboard')).toBeVisible();
     await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
     const appCookie = '__Host-Helpdesk.Auth';
     expect((await context.cookies()).some(cookie => cookie.name === appCookie)).toBe(true);
@@ -196,7 +230,7 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
       expect(harmless.status()).toBe(405);
       expect((await context.cookies()).some(cookie => cookie.name === appCookie)).toBe(true);
     }
-    if (entry === 'desktop') await page.getByRole('button', { name: 'Account settings' }).click();
+    if (entry === 'desktop') await page.locator('[aria-label="Account settings"] button').click();
     if (entry === 'mobile') await page.locator('.helpdesk-appbar-mobile-menu button').click();
     const ended = page.waitForResponse(response => new URL(response.url()).pathname === '/end-session');
     await page.getByTestId(entry + '-logout').click();

@@ -45,13 +45,34 @@ public static class SafeInlineImage
         if (mime is null || content.Length > MaxInputBytes || !Admitted.Wait(0))
             throw new InlineImageRejectedException();
 
-        var acquired = false;
+        var elapsed = Stopwatch.StartNew();
+        if (!await Decoders.WaitAsync(ProcessingBudget))
+        {
+            Admitted.Release();
+            throw new InlineImageRejectedException();
+        }
+
+        // Native codecs are synchronous. A timed-out conversion keeps its slot
+        // until it exits, so its resources cannot overlap with another decode.
+        var decoding = Task.Run(() => Decode(content, mime, elapsed));
+        var remaining = ProcessingBudget - elapsed.Elapsed;
         try
         {
-            acquired = await Decoders.WaitAsync(ProcessingBudget);
-            if (!acquired)
-                throw new InlineImageRejectedException();
-            var elapsed = Stopwatch.StartNew();
+            return await decoding.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero)
+                ?? throw new InlineImageRejectedException();
+        }
+        catch (TimeoutException)
+        {
+            throw new InlineImageRejectedException();
+        }
+    }
+
+    private static (byte[] Content, string Extension)? Decode(byte[] content, string mime, Stopwatch elapsed)
+    {
+        try
+        {
+            if (elapsed.Elapsed >= ProcessingBudget)
+                return null;
             using var stream = new SKMemoryStream(content);
             using var codec = SKCodec.Create(stream);
             var format = mime switch
@@ -63,12 +84,12 @@ public static class SafeInlineImage
                 _ => SKEncodedImageFormat.Png
             };
             if (codec is null || codec.EncodedFormat != format)
-                throw new InlineImageRejectedException();
+                return null;
             var source = codec.Info;
             if (source.Width is <= 0 or > MaxDimension || source.Height is <= 0 or > MaxDimension ||
                 (long)source.Width * source.Height > MaxPixels || codec.FrameCount > MaxFrames ||
                 elapsed.Elapsed >= ProcessingBudget)
-                throw new InlineImageRejectedException();
+                return null;
 
             // Keep one raster frame and drop metadata, animation and trailing bytes.
             var info = new SKImageInfo(source.Width, source.Height, SKColorType.Rgba8888, SKAlphaType.Premul);
@@ -76,17 +97,17 @@ public static class SafeInlineImage
             if (!bitmap.TryAllocPixels(info) ||
                 codec.GetPixels(info, bitmap.GetPixels(), bitmap.RowBytes, new SKCodecOptions(0)) != SKCodecResult.Success ||
                 elapsed.Elapsed >= ProcessingBudget)
-                throw new InlineImageRejectedException();
+                return null;
 
             var jpeg = format == SKEncodedImageFormat.Jpeg;
             using var encoded = bitmap.Encode(jpeg ? SKEncodedImageFormat.Jpeg : SKEncodedImageFormat.Png, jpeg ? 90 : 100);
             if (encoded is null || encoded.Size > MaxStoredBytes || elapsed.Elapsed >= ProcessingBudget)
-                throw new InlineImageRejectedException();
+                return null;
             return (encoded.ToArray(), jpeg ? ".jpg" : ".png");
         }
         finally
         {
-            if (acquired) Decoders.Release();
+            Decoders.Release();
             Admitted.Release();
         }
     }

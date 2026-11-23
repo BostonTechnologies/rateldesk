@@ -15,6 +15,7 @@ const jwt = payload => {
 };
 const access = {
   isAuthenticated: true, userId: 'synthetic-oidc-operator', name: 'Synthetic Operator', email: 'operator@example.test',
+  primaryOrganizationId: null, customerId: null, usesScopedPermissions: false,
   isHelpdeskAdmin: true, roleBundles: ['HelpdeskAdmin'], permissions: [], allowedOrganizationIds: [],
   managedOrganizationIds: [], scopedPermissionGrants: []
 };
@@ -32,6 +33,7 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR
 let logo = '/branding/rateldesk-mark.webp';
 let applicationName = 'RatelDesk';
 let publicViews = 0, publicTimelines = 0;
+let captcha = null;
 const origin = 'http://127.0.0.1:18499';
 http.createServer(async (req, res) => {
   const url = new URL(req.url, origin);
@@ -46,6 +48,30 @@ http.createServer(async (req, res) => {
     if (!target) return fail(400);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.end('<a href="' + target.origin + '/public/link#' + 'a'.repeat(43) + '">Open ticket from email</a>');
+  }
+  if (url.pathname === '/fixture/referrer') return reply({ referrer: req.headers.referer ?? null });
+  if (process.env.HELPDESK_E2E_ASSET_API_BASE && /^\/api\/(incidents|worklogs)\/browser-fixture\/images\//.test(url.pathname)) {
+    const asset = await fetch(new URL(url.pathname + url.search, process.env.HELPDESK_E2E_ASSET_API_BASE));
+    res.statusCode = asset.status;
+    for (const header of ['content-type', 'content-security-policy', 'x-content-type-options', 'cache-control', 'referrer-policy']) {
+      if (asset.headers.has(header)) res.setHeader(header, asset.headers.get(header));
+    }
+    return res.end(Buffer.from(await asset.arrayBuffer()));
+  }
+  if (url.pathname === '/api/v1/captcha') {
+    const relay = req.headers['x-rateldesk-client-proof'];
+    if (!relay) return fail(400);
+    captcha = { id: randomUUID(), relay };
+    return reply({ id: captcha.id, imageBase64: 'data:image/png;base64,' + png.toString('base64') });
+  }
+  if (url.pathname === '/api/v1/public/tickets/submit' && req.method === 'POST') {
+    const challenge = captcha;
+    captcha = null;
+    const input = JSON.parse(await body(req));
+    const relay = req.headers['x-rateldesk-client-proof'];
+    if (!challenge || challenge.id !== input.captchaId || input.captchaAnswer !== '123456' || !relay || relay === challenge.relay)
+      return fail(400);
+    return reply({ id: 'synthetic-ticket', trackingId: 'INC-BROWSER-FIXTURE' });
   }
   if (url.pathname === '/api/v1/public/access/exchange') {
     if (req.method !== 'POST' || req.headers.authorization || req.headers.cookie || url.search) return fail(400);

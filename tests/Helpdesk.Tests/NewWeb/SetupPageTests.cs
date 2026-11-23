@@ -2,10 +2,12 @@ extern alias NewWeb;
 
 using System.Net;
 using System.Reflection;
+using Helpdesk.ServiceDefaults.Security;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.HtmlRendering.Infrastructure;
 using Microsoft.AspNetCore.Components.Web.HtmlRendering;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
@@ -176,6 +178,8 @@ public class SetupPageTests
         services.AddLogging();
         services.AddMudServices();
         services.AddSingleton(api);
+        services.AddSingleton(new PublicIngressIdentity(new EphemeralDataProtectionProvider()));
+        services.AddScoped<NewWeb::HelpDesk.NewWeb.Services.BrowserRequestOrigin>();
         services.AddSingleton<NavigationManager>(new SetupNavigation());
         services.AddSingleton(Substitute.For<IJSRuntime>());
         return services.BuildServiceProvider();

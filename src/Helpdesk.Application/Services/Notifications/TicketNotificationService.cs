@@ -392,7 +392,6 @@ public class TicketNotificationService(
             TicketRef = safeTicketRef,
             TicketType = ticketType,
             TicketTypeLower = ticketType.ToLowerInvariant(),
-            TicketLink = await publicLinks.IssueAsync(ticket, safeRecipientEmail, PublicLinkPurpose.Ticket, branding.TemplateBrand.ApplicationUrl, cancellationToken),
             LayoutHtml = layout?.HtmlContent ?? string.Empty,
             BrandName = branding.BrandName,
             Brand = branding.TemplateBrand,
@@ -402,6 +401,16 @@ public class TicketNotificationService(
         };
         ApplyTicketContext(context, ticket);
         if (configureContext is not null) await configureContext(context);
+        if (string.IsNullOrEmpty(context.TicketLink))
+            context.TicketLink = await publicLinks.IssueAsync(ticket, safeRecipientEmail, PublicLinkPurpose.Ticket,
+                branding.TemplateBrand.ApplicationUrl, cancellationToken);
+
+        var includesDecision = !string.IsNullOrEmpty(context.RequestApprovalLink) || !string.IsNullOrEmpty(context.ChangeApprovalLink);
+        var copiedRecipients = includesDecision
+            ? (cc ?? []).Where(address => !string.IsNullOrWhiteSpace(address) &&
+                    !string.Equals(address.Trim(), safeRecipientEmail, StringComparison.OrdinalIgnoreCase))
+                .Select(address => address.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : [];
 
         var subject = RenderSubject(template.Subject ?? string.Empty, context);
         var body = templateRenderer.Render(template.HtmlContent ?? string.Empty, context);
@@ -410,7 +419,7 @@ public class TicketNotificationService(
             new[] { safeRecipientEmail },
             subject,
             body,
-            cc,
+            includesDecision ? null : cc,
             cancellationToken,
             ticket.Id,
             fromName: branding.FromName,
@@ -422,6 +431,23 @@ public class TicketNotificationService(
                 templateName,
                 ticket.TrackingId,
                 safeRecipientEmail);
+        }
+
+        foreach (var copiedRecipient in copiedRecipients)
+        {
+            var view = await publicLinks.IssueAsync(ticket, copiedRecipient,
+                ticket is Change ? PublicLinkPurpose.ChangeView : PublicLinkPurpose.Ticket,
+                branding.TemplateBrand.ApplicationUrl, cancellationToken);
+            context.TicketLink = view;
+            context.ChangeViewLink = view;
+            context.ChangeApprovalLink = view;
+            context.RequestApprovalLink = view;
+            context.RequestRejectLink = view;
+            var copy = "<p>This copy is for information. The designated approver received a separate decision link.</p>" +
+                templateRenderer.Render(template.HtmlContent ?? string.Empty, context);
+            if (!await emailService.SendEmailAsync(new[] { copiedRecipient }, RenderSubject(template.Subject ?? string.Empty, context),
+                    copy, null, cancellationToken, ticket.Id, fromName: branding.FromName, replyTo: branding.ReplyTo))
+                logger.LogWarning("Approval information copy could not be queued for ticket {TicketId}.", ticket.Id);
         }
 
         return sent;
