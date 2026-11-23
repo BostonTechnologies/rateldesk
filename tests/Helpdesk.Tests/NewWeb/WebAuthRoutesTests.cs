@@ -217,12 +217,14 @@ public class WebAuthRoutesTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("RatelDesk", content, StringComparison.Ordinal);
         Assert.Contains("Self-hosted", content, StringComparison.Ordinal);
-        Assert.Contains("Continue to RatelDesk using your authorised account.", content, StringComparison.Ordinal);
+        Assert.Contains("<header class=\"helpdesk-login-header\">", content, StringComparison.Ordinal);
+        Assert.Contains(">RatelDesk</h1>", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Continue to RatelDesk using your authorised account.", content, StringComparison.Ordinal);
         Assert.Contains("Sign in with Authentik", content, StringComparison.Ordinal);
         Assert.Contains("href=\"/login-authentik\"", content, StringComparison.Ordinal);
         Assert.Contains("rateldesk-mark.webp", content, StringComparison.Ordinal);
         Assert.DoesNotContain("Automation Platform", content, StringComparison.Ordinal);
-        Assert.DoesNotContain("<header", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("helpdesk-appbar", content, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Developer account tools", content, StringComparison.Ordinal);
     }
 
