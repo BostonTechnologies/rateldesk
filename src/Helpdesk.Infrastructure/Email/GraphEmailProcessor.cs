@@ -338,7 +338,7 @@ public class GraphEmailProcessor : IGraphEmailProcessor
 
         if (sent && _emailService is IDurableEmailService { QueuesDelivery: true })
         {
-            _logger.LogInformation("Queued '{TemplateName}' notification to {Recipient}", templateName, to);
+            _logger.LogInformation("Queued '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, GetCorrelationId());
             await _domainEvents.PublishAsync(new EmailQueuedEvent(to, templateName, tenantId, ticketRef, GetCorrelationId()),
                 CancellationToken.None);
             return true;
@@ -346,7 +346,7 @@ public class GraphEmailProcessor : IGraphEmailProcessor
 
         if (sent)
         {
-            _logger.LogInformation("Sent '{TemplateName}' notification to {Recipient}", templateName, to);
+            _logger.LogInformation("Sent '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, GetCorrelationId());
         }
 
         await _domainEvents.PublishAsync(

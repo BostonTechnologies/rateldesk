@@ -367,11 +367,10 @@ public class TicketNotificationService(
         if (string.IsNullOrWhiteSpace(safeTicketRef) || string.IsNullOrWhiteSpace(safeRecipientEmail))
         {
             logger.LogWarning(
-                "Skipping {TemplateName} email because tracking ID or recipient email is missing. TicketId={TicketId} TrackingId={TrackingId} Recipient={Recipient}",
+                "Skipping {TemplateName} email because tracking ID or recipient email is missing. TicketId={TicketId} TrackingId={TrackingId}",
                 templateName,
                 ticket.Id,
-                ticket.TrackingId,
-                safeRecipientEmail);
+                ticket.TrackingId);
             return false;
         }
 
@@ -427,10 +426,9 @@ public class TicketNotificationService(
         if (sent)
         {
             logger.LogInformation(
-                "Accepted {TemplateName} notification for {TrackingId} to {Recipient}; queued when durable delivery is enabled.",
+                "Accepted {TemplateName} notification for {TrackingId}.",
                 templateName,
-                ticket.TrackingId,
-                safeRecipientEmail);
+                ticket.TrackingId);
         }
 
         foreach (var copiedRecipient in copiedRecipients)
