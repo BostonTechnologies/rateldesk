@@ -98,8 +98,10 @@ activation share a 30-request per-client budget and a 1,200-request API-instance
 budget each minute. Setup unlock allows 5 per client and 120 per instance. Both
 public ticket submission routes share 5 per client and 300 per instance. Local
 account lockout still applies independently. The API returns 429 with
-`Retry-After` when a budget is exhausted. Each replica owns its window, so these
-numbers apply per replica.
+`Retry-After` when a budget is exhausted. The Web gateway passes that response
+to direct proxy callers and shows a retry message in its forms. Web form relays
+send each operation once. Each replica owns its window, so these numbers apply
+per replica.
 
 For CAPTCHA generation, `Captcha__RequestsPerClientPerMinute` and
 `Captcha__RequestsPerMinute` default to 15 and 300. The API admits up to four

@@ -346,7 +346,7 @@ else
             CaptchaAnswer = _model.Captcha?.Trim() ?? string.Empty
         };
 
-        using var client = HttpClientFactory.CreateClient("SystemApiNoAuth");
+        using var client = HttpClientFactory.CreateClient("PublicAccessApi");
         using var message = RequestOrigin.CreateRequest(HttpMethod.Post, "api/v1/public/tickets/submit", JsonContent.Create(request));
         using var response = await client.SendAsync(message);
         if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
@@ -405,7 +405,7 @@ else
         _loadingCaptcha = true;
         try
         {
-            using var client = HttpClientFactory.CreateClient("SystemApiNoAuth");
+            using var client = HttpClientFactory.CreateClient("PublicAccessApi");
             using var request = RequestOrigin.CreateRequest(HttpMethod.Get, "api/v1/captcha");
             using var response = await client.SendAsync(request);
             if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)

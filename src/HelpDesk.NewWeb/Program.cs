@@ -342,8 +342,15 @@ builder.Services.AddHttpClient("SystemApiNoAuth", c =>
     c.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
 
-builder.Services.AddHttpClient("PublicAccessApi", client => client.BaseAddress = apiBaseUri)
+// Ambiguous transport failures and 429 responses must reach the caller before
+// a retry can spend another admission or redeem, submit, or decide twice.
+builder.Services.AddHttpClient("PublicAccessApi", client =>
+    {
+        client.BaseAddress = apiBaseUri;
+        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+    })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false })
+    .RemoveAllResilienceHandlers()
     .RemoveAllLoggers()
     .RedactLoggedHeaders(_ => true);
 builder.Services.AddSingleton<PublicBrowserAccess>();

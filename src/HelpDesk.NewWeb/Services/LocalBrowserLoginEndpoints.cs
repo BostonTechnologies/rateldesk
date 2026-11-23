@@ -37,7 +37,7 @@ public static class LocalBrowserLoginEndpoints
                     Content = JsonContent.Create(new { email, password, rememberMe })
                 };
                 clientIdentity.AddProof(request, PublicIngressIdentity.FromAddress(context.Connection.RemoteIpAddress));
-                using var client = clients.CreateClient("SystemApiNoAuth");
+                using var client = clients.CreateClient("PublicAccessApi");
                 using var response = await client.SendAsync(request, context.RequestAborted);
                 ForwardLoginCookies(response, context, localCookieName, configuration);
                 if (response.StatusCode == HttpStatusCode.Accepted)
@@ -100,7 +100,7 @@ public static class LocalBrowserLoginEndpoints
             request.Headers.Add("Cookie", $"{challengeCookieName}={context.Request.Cookies[challengeCookieName]}");
             try
             {
-                using var client = clients.CreateClient("SystemApiNoAuth");
+                using var client = clients.CreateClient("PublicAccessApi");
                 using var response = await client.SendAsync(request, context.RequestAborted);
                 ForwardLoginCookies(response, context, localCookieName, configuration);
                 if (response.StatusCode == HttpStatusCode.NoContent && HasCookie(response, localCookieName))

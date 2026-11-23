@@ -273,7 +273,7 @@
         _busy = true; _error = null;
         try
         {
-            using var client = HttpClientFactory.CreateClient("SystemApiNoAuth");
+            using var client = HttpClientFactory.CreateClient("PublicAccessApi");
             using var request = RequestOrigin.CreateRequest(HttpMethod.Post, "/api/v1/setup/session", JsonContent.Create(new { setupCode = _setupCode }));
             using var response = await client.SendAsync(request, _lifetime.Token);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
@@ -313,7 +313,7 @@
         {
             using var request = RequestOrigin.CreateRequest(HttpMethod.Post, "/api/v1/setup/storage", JsonContent.Create(new { provider = _provider, postgreSqlHost = _provider == "PostgreSql" ? _host : null, postgreSqlPort = _provider == "PostgreSql" ? _port : (int?)null, postgreSqlDatabase = _provider == "PostgreSql" ? _database : null, postgreSqlUsername = _provider == "PostgreSql" ? _username : null, postgreSqlPassword = _provider == "PostgreSql" ? _databasePassword : null, postgreSqlUseTls = _useTls }));
             request.Headers.Add("X-RatelDesk-Setup-Session", _session);
-            using var response = await HttpClientFactory.CreateClient("SystemApiNoAuth").SendAsync(request, _lifetime.Token);
+            using var response = await HttpClientFactory.CreateClient("PublicAccessApi").SendAsync(request, _lifetime.Token);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden) { ExpireSession(); return; }
             if (!response.IsSuccessStatusCode) { _error = "Storage could not be prepared. Check the connection and extension requirements."; return; }
             _databasePassword = string.Empty; await _stepper.NextStepAsync();
@@ -344,7 +344,7 @@
         {
             using var request = RequestOrigin.CreateRequest(HttpMethod.Post, "/api/v1/setup/initialize", JsonContent.Create(new { email = _email, displayName = _displayName, password = _password, organizationName = _organization, applicationName = _applicationName, applicationUrl = _applicationUrl, timeZoneId = _timeZoneId, supportUrl = _keepDefaults ? null : _supportUrl, supportEmail = _keepDefaults ? null : _supportEmail, logoUrl = _keepDefaults ? null : _logoUrl, compactLogoUrl = _keepDefaults ? null : _compactLogoUrl, emailFromDisplayName = _keepDefaults ? null : _emailFromDisplayName, tagline = _keepDefaults ? null : _tagline }));
             request.Headers.Add("X-RatelDesk-Setup-Session", _session);
-            using var response = await HttpClientFactory.CreateClient("SystemApiNoAuth").SendAsync(request, _lifetime.Token);
+            using var response = await HttpClientFactory.CreateClient("PublicAccessApi").SendAsync(request, _lifetime.Token);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden) { ExpireSession(); return; }
             if (!response.IsSuccessStatusCode)
             {
