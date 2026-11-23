@@ -3,8 +3,7 @@ using System.IO.Compression;
 using System.IO.Hashing;
 using System.Text;
 using Helpdesk.Infrastructure.Services;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Internal;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Tests.Infrastructure.Services;
 
@@ -15,8 +14,7 @@ public sealed class CaptchaServiceTests
     [InlineData("678901")]
     public void Captcha_png_has_valid_chunks_checksums_and_bounded_visible_rgb_pixels(string challenge)
     {
-        using var cache = new MemoryCache(new MemoryCacheOptions());
-        var png = new CaptchaService(cache).RenderCaptchaImage(challenge);
+        var png = CaptchaService.RenderCaptchaImage(challenge);
         Assert.InRange(png.Length, 100, 37000);
         Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, png[..8]);
         var chunks = new List<string>();
@@ -72,17 +70,15 @@ public sealed class CaptchaServiceTests
     [InlineData("12345a")]
     public void Image_renderer_rejects_non_challenge_input(string challenge)
     {
-        using var cache = new MemoryCache(new MemoryCacheOptions());
-        Assert.Throws<ArgumentException>(() => new CaptchaService(cache).RenderCaptchaImage(challenge));
+        Assert.Throws<ArgumentException>(() => CaptchaService.RenderCaptchaImage(challenge));
     }
 
     [Fact]
     public void Captcha_accepts_the_correct_answer_once_and_consumes_an_incorrect_attempt()
     {
-        using var cache = new MemoryCache(new MemoryCacheOptions());
-        var service = new CaptchaService(cache);
-        var first = service.GenerateCaptcha();
-        var second = service.GenerateCaptcha();
+        var service = Service();
+        var first = Generate(service);
+        var second = Generate(service);
         Assert.NotEqual(first.Id, second.Id);
         Assert.Matches("^[1-9][0-9]{5}$", first.Challenge);
         Assert.True(service.ValidateCaptcha(first.Id, first.Challenge));
@@ -95,9 +91,8 @@ public sealed class CaptchaServiceTests
     [Fact]
     public async Task Concurrent_answers_cannot_consume_the_same_challenge_twice()
     {
-        using var cache = new MemoryCache(new MemoryCacheOptions());
-        var service = new CaptchaService(cache);
-        var challenge = service.GenerateCaptcha();
+        var service = Service();
+        var challenge = Generate(service);
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = Enumerable.Range(0, 32).Select(async _ =>
         {
@@ -112,18 +107,83 @@ public sealed class CaptchaServiceTests
     public void Captcha_expires_at_five_minutes_without_real_time_waits()
     {
         var clock = new CacheClock();
-        using var cache = new MemoryCache(new MemoryCacheOptions { Clock = clock });
-        var service = new CaptchaService(cache);
-        var valid = service.GenerateCaptcha();
-        var expired = service.GenerateCaptcha();
+        var service = Service(clock);
+        var valid = Generate(service);
+        var expired = Generate(service);
         clock.UtcNow = clock.UtcNow.AddMinutes(5).AddTicks(-1);
         Assert.True(service.ValidateCaptcha(valid.Id, valid.Challenge));
         clock.UtcNow = clock.UtcNow.AddTicks(1);
         Assert.False(service.ValidateCaptcha(expired.Id, expired.Challenge));
     }
 
-    private sealed class CacheClock : ISystemClock
+    [Fact]
+    public void Capacity_and_per_client_slots_are_recovered_after_consume_expiry_and_render_failure()
+    {
+        var clock = new CacheClock();
+        var service = Service(clock, new CaptchaOptions { Capacity = 2, OutstandingPerClient = 1 });
+        var a = Generate(service, "client-a");
+        Assert.Null(service.TryGenerate("client-a", default, _ => throw new InvalidOperationException("No rendering on rejection.")));
+        var b = Generate(service, "client-b");
+        Assert.Null(service.TryGenerate("client-c", default, _ => throw new InvalidOperationException("No rendering when full.")));
+        Assert.False(service.ValidateCaptcha(b.Id, "wrong"));
+        Assert.Throws<InvalidOperationException>(() => service.TryGenerate("client-c", default, _ => throw new InvalidOperationException("Renderer failure.")));
+        using var cancelled = new CancellationTokenSource();
+        Assert.Throws<OperationCanceledException>(() => service.TryGenerate("client-c", cancelled.Token, _ =>
+        {
+            cancelled.Cancel();
+            return [1];
+        }));
+        Assert.NotEqual(Guid.Empty, Generate(service, "client-c").Id);
+        clock.UtcNow += TimeSpan.FromMinutes(5);
+        Assert.NotEqual(Guid.Empty, Generate(service, "client-a").Id);
+        Assert.False(service.ValidateCaptcha(a.Id, a.Challenge));
+    }
+
+    [Fact]
+    public async Task Concurrent_render_budget_rejects_without_starting_another_renderer()
+    {
+        var service = Service(options: new CaptchaOptions { ConcurrentRenders = 1 });
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var pending = Task.Run(() => service.TryGenerate("client-a", default, _ =>
+        {
+            entered.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+            return [1];
+        }));
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
+            Assert.Null(service.TryGenerate("client-b", default, _ => throw new InvalidOperationException("A second renderer started.")));
+        }
+        finally
+        {
+            release.Set();
+        }
+        Assert.NotNull(await pending);
+        Assert.NotEqual(Guid.Empty, Generate(service, "client-b").Id);
+    }
+
+    private static CaptchaService Service(TimeProvider? clock = null, CaptchaOptions? options = null)
+    {
+        var configured = Options.Create(options ?? new CaptchaOptions());
+        return new(new CaptchaChallengeStore(configured, clock ?? TimeProvider.System), configured);
+    }
+
+    private static (Guid Id, string Challenge) Generate(CaptchaService service, string client = "fixture")
+    {
+        string answer = string.Empty;
+        var challenge = service.TryGenerate(client, default, value =>
+        {
+            answer = value;
+            return CaptchaService.RenderCaptchaImage(value);
+        });
+        return (Assert.IsType<CaptchaChallenge>(challenge).Id, answer);
+    }
+
+    private sealed class CacheClock : TimeProvider
     {
         public DateTimeOffset UtcNow { get; set; } = new(2026, 10, 19, 12, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 }

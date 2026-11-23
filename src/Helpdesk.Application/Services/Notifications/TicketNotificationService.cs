@@ -1,3 +1,4 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.Tickets;
@@ -16,7 +17,7 @@ public class TicketNotificationService(
     ITenantBrandingResolver tenantBrandingResolver,
     IEmailService emailService,
     IEmailTemplateRenderer templateRenderer,
-    IPublicTicketLinkSigner publicTicketLinkSigner,
+    IPublicLinkIssuer publicLinks,
     IConfiguration configuration,
     ILogger<TicketNotificationService> logger)
     : ITicketNotificationService
@@ -56,6 +57,7 @@ public class TicketNotificationService(
             {
                 context.TicketType = ticketType;
                 context.TicketTypeLower = ticketType.ToLowerInvariant();
+                return Task.CompletedTask;
             },
             cancellationToken);
     }
@@ -73,7 +75,11 @@ public class TicketNotificationService(
             recipientEmail,
             recipientName,
             cc,
-            context => ApplySelfServiceContext(context, request, requestForm),
+            context =>
+            {
+                ApplySelfServiceContext(context, request, requestForm);
+                return Task.CompletedTask;
+            },
             cancellationToken);
 
     public async Task<bool> SendSelfServiceRequestCompletedAsync(
@@ -92,6 +98,7 @@ public class TicketNotificationService(
             {
                 ApplyRequestContext(context, request);
                 context.CompletedAt = FormatTimestamp(request.ClosedAt ?? DateTimeOffset.UtcNow);
+                return Task.CompletedTask;
             },
             cancellationToken);
 
@@ -109,14 +116,14 @@ public class TicketNotificationService(
             recipientEmail,
             recipientName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyRequestContext(context, request);
                 context.FailureReason = string.IsNullOrWhiteSpace(failureReason)
                     ? "The automation workflow reported a failure."
                     : failureReason;
                 context.IncidentRef = incident.TrackingId ?? string.Empty;
-                context.IncidentLink = BuildSignedPublicTicketLink(incident.TrackingId ?? string.Empty, recipientEmail);
+                context.IncidentLink = await publicLinks.IssueAsync(incident, recipientEmail, PublicLinkPurpose.Ticket, context.Brand?.ApplicationUrl, cancellationToken);
             },
             cancellationToken);
 
@@ -138,6 +145,7 @@ public class TicketNotificationService(
             {
                 ApplyTicketContext(context, ticket);
                 context.ResolvedAt = FormatTimestamp(ticket.ClosedAt ?? DateTimeOffset.UtcNow);
+                return Task.CompletedTask;
             },
             cancellationToken);
     }
@@ -157,7 +165,7 @@ public class TicketNotificationService(
             approval.ApproverEmail,
             approval.ApproverName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyRequestContext(context, request);
                 context.RequestRequestedBy = FirstNonEmpty(request.RequesterEmail, request.CustomerId) ?? string.Empty;
@@ -165,8 +173,8 @@ public class TicketNotificationService(
                 context.RequestApprovers = approvers;
                 context.RequestPayloadHtml = payloadHtml;
                 context.RequestApprovalDueAt = task.DueAt.HasValue ? FormatTimestamp(task.DueAt.Value) : string.Empty;
-                context.RequestApprovalLink = BuildSignedRequestApprovalLink(request.TrackingId, task.Id, approval.ApproverEmail, "approve");
-                context.RequestRejectLink = BuildSignedRequestApprovalLink(request.TrackingId, task.Id, approval.ApproverEmail, "reject");
+                context.RequestApprovalLink = await publicLinks.IssueAsync(request, approval.ApproverEmail, PublicLinkPurpose.RequestApproval, context.Brand?.ApplicationUrl, cancellationToken, task.Id);
+                context.RequestRejectLink = context.RequestApprovalLink;
                 context.TicketLink = context.RequestApprovalLink;
             },
             cancellationToken);
@@ -201,6 +209,7 @@ public class TicketNotificationService(
                     : $"{approval.ApproverName} ({approval.ApproverEmail})";
                 context.RequestApprovalRejectionReason = rejectionReason;
                 context.FailureReason = rejectionReason;
+                return Task.CompletedTask;
             },
             cancellationToken);
     }
@@ -221,10 +230,10 @@ public class TicketNotificationService(
             recipientEmail,
             recipientName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
-                context.ChangeViewLink = BuildSignedChangeApprovalLink(change.TrackingId, recipientEmail);
+                context.ChangeViewLink = await publicLinks.IssueAsync(change, recipientEmail, PublicLinkPurpose.ChangeView, context.Brand?.ApplicationUrl, cancellationToken);
                 context.TicketLink = context.ChangeViewLink;
             },
             cancellationToken);
@@ -244,11 +253,11 @@ public class TicketNotificationService(
             approval.ApproverEmail,
             approval.ApproverName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
                 context.ChangeApprovalStatus = approval.Status.ToString();
-                context.ChangeApprovalLink = BuildSignedChangeApprovalLink(change.TrackingId, approval.ApproverEmail);
+                context.ChangeApprovalLink = await publicLinks.IssueAsync(change, approval.ApproverEmail, PublicLinkPurpose.ChangeApproval, context.Brand?.ApplicationUrl, cancellationToken);
                 context.ChangeViewLink = context.ChangeApprovalLink;
                 context.TicketLink = context.ChangeApprovalLink;
             },
@@ -270,11 +279,11 @@ public class TicketNotificationService(
             recipientEmail,
             recipientName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
                 context.ChangeApprovalStatus = "Approved for implementation";
-                context.ChangeViewLink = BuildSignedChangeApprovalLink(change.TrackingId, recipientEmail);
+                context.ChangeViewLink = await publicLinks.IssueAsync(change, recipientEmail, PublicLinkPurpose.ChangeView, context.Brand?.ApplicationUrl, cancellationToken);
                 context.TicketLink = context.ChangeViewLink;
             },
             cancellationToken);
@@ -295,11 +304,11 @@ public class TicketNotificationService(
             recipientEmail,
             recipientName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
                 context.ChangeApprovalStatus = "Implementation in progress";
-                context.ChangeViewLink = BuildSignedChangeApprovalLink(change.TrackingId, recipientEmail);
+                context.ChangeViewLink = await publicLinks.IssueAsync(change, recipientEmail, PublicLinkPurpose.ChangeView, context.Brand?.ApplicationUrl, cancellationToken);
                 context.TicketLink = context.ChangeViewLink;
             },
             cancellationToken);
@@ -321,12 +330,12 @@ public class TicketNotificationService(
             recipientEmail,
             recipientName,
             cc,
-            context =>
+            async context =>
             {
                 ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
                 context.ChangeApprovalStatus = "Implemented";
                 context.ChangeCompletionState = completionState;
-                context.ChangeViewLink = BuildSignedChangeApprovalLink(change.TrackingId, recipientEmail);
+                context.ChangeViewLink = await publicLinks.IssueAsync(change, recipientEmail, PublicLinkPurpose.ChangeView, context.Brand?.ApplicationUrl, cancellationToken);
                 context.TicketLink = context.ChangeViewLink;
             },
             cancellationToken);
@@ -337,7 +346,7 @@ public class TicketNotificationService(
         string recipientEmail,
         string recipientName,
         IEnumerable<string>? cc,
-        Action<EmailTemplateContext>? configureContext,
+        Func<EmailTemplateContext, Task>? configureContext,
         CancellationToken cancellationToken)
     {
         var safeRecipientEmail = recipientEmail?.Trim() ?? string.Empty;
@@ -383,7 +392,7 @@ public class TicketNotificationService(
             TicketRef = safeTicketRef,
             TicketType = ticketType,
             TicketTypeLower = ticketType.ToLowerInvariant(),
-            TicketLink = BuildSignedPublicTicketLink(safeTicketRef, safeRecipientEmail, branding.TemplateBrand.ApplicationUrl),
+            TicketLink = await publicLinks.IssueAsync(ticket, safeRecipientEmail, PublicLinkPurpose.Ticket, branding.TemplateBrand.ApplicationUrl, cancellationToken),
             LayoutHtml = layout?.HtmlContent ?? string.Empty,
             BrandName = branding.BrandName,
             Brand = branding.TemplateBrand,
@@ -392,7 +401,7 @@ public class TicketNotificationService(
             PrimaryColor = branding.PrimaryColor
         };
         ApplyTicketContext(context, ticket);
-        configureContext?.Invoke(context);
+        if (configureContext is not null) await configureContext(context);
 
         var subject = RenderSubject(template.Subject ?? string.Empty, context);
         var body = templateRenderer.Render(template.HtmlContent ?? string.Empty, context);
@@ -664,37 +673,6 @@ public class TicketNotificationService(
         }
 
         return null;
-    }
-
-    private string BuildSignedPublicTicketLink(string trackingId, string email, string? applicationUrl = null)
-    {
-        var configuredUrl = string.IsNullOrWhiteSpace(applicationUrl) ? _publicWebAppUrl : applicationUrl;
-        var baseUrl = string.IsNullOrWhiteSpace(configuredUrl)
-            ? "[YOUR_PUBLIC_URL]"
-            : configuredUrl.TrimEnd('/');
-        var expires = DateTimeOffset.UtcNow.AddDays(7);
-        var token = publicTicketLinkSigner.GenerateToken(trackingId, email, expires);
-        return $"{baseUrl}/view-ticket/{trackingId}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-    }
-
-    private string BuildSignedChangeApprovalLink(string trackingId, string email)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(_publicWebAppUrl)
-            ? "[YOUR_PUBLIC_URL]"
-            : _publicWebAppUrl.TrimEnd('/');
-        var expires = DateTimeOffset.UtcNow.AddDays(7);
-        var token = publicTicketLinkSigner.GenerateToken(trackingId, email, expires);
-        return $"{baseUrl}/change-approval/{trackingId}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-    }
-
-    private string BuildSignedRequestApprovalLink(string trackingId, string taskId, string email, string action)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(_publicWebAppUrl)
-            ? "[YOUR_PUBLIC_URL]"
-            : _publicWebAppUrl.TrimEnd('/');
-        var expires = DateTimeOffset.UtcNow.AddDays(14);
-        var token = publicTicketLinkSigner.GenerateToken($"{trackingId}:{taskId}", email, expires);
-        return $"{baseUrl}/request-approval/{trackingId}/{taskId}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}&action={Uri.EscapeDataString(action)}";
     }
 
     private sealed class ChangeTemplateSnapshot

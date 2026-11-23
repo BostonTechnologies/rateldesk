@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Storage;
 using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.API.Background;
 using Helpdesk.API.Authentication;
@@ -1243,23 +1244,8 @@ public static class IncidentEndpoints
                 return Results.Unauthorized();
             }
 
-            var storageRoot = string.IsNullOrWhiteSpace(storageOptions.Value.RootPath)
-                ? Path.Combine(env.ContentRootPath, "storage")
-                : storageOptions.Value.RootPath;
-            var rootPath = Path.Combine(storageRoot, "incidents");
-            var fullPath = Path.GetFullPath(Path.Combine(rootPath, safeIncidentId, "inline", safeFilename));
-            var fullRoot = Path.GetFullPath(rootPath);
-
-            if (!fullPath.StartsWith(fullRoot, StringComparison.Ordinal))
-                return Results.BadRequest("Invalid path.");
-
-            if (!File.Exists(fullPath))
-                return Results.NotFound();
-
-            logger.LogInformation("Serving incident inline image. IncidentId={IncidentId} Path={Path}", safeIncidentId, fullPath);
-
-            var contentType = ContentTypeHelper.GetContentType(safeFilename);
-            return Results.File(fullPath, contentType);
+            var storageRoot = storageOptions.Value.ResolveRootPath(env.ContentRootPath);
+            return SignedRasterAsset.Serve(httpContext, Path.Combine(storageRoot, "incidents", safeIncidentId, "inline"), safeFilename);
         })
         .WithTags("Incidents")
         .WithName("GetIncidentInlineImage")

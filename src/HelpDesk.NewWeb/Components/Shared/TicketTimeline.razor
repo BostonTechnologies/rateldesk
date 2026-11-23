@@ -18,8 +18,6 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
         <MudText Typo="Typo.h6">Timeline</MudText>
 
-        @if (!PublicMode)
-        {
             <MudButton Variant="Variant.Outlined"
                        Size="Size.Small"
                        StartIcon="@Icons.Material.Filled.ViewAgenda"
@@ -28,11 +26,8 @@
                     ? "Switch to Conversational View"
                     : "Switch to Readable View")
             </MudButton>
-        }
     </MudStack>
 
-    @if (!PublicMode)
-    {
         <div class="d-flex justify-end mb-3">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
@@ -41,7 +36,6 @@
                 Add Note
             </MudButton>
         </div>
-    }
 
     @if (loading)
     {
@@ -56,12 +50,6 @@
 
                 @foreach (var ev in timeline)
                 {
-                    if (PublicMode && ev.EventType == TimelineEventType.InternalNote)
-                        continue;
-
-                    if (PublicMode && IsSystemEvent(ev) && ev.EventType != TimelineEventType.SystemNotification)
-                        continue;
-
                     if (IsSystemEvent(ev))
                     {
                         @RenderSystemEvent(ev)
@@ -83,16 +71,9 @@
 @code {
     [Parameter] public bool ReadOnly { get; set; }
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
-    private HttpClient PublicApi => HttpClientFactory.CreateClient("SystemApiNoAuth");
 
     [Parameter] public string? TicketId { get; set; }
     [Parameter] public string TicketType { get; set; } = "incidents";
-
-    [Parameter] public bool PublicMode { get; set; }
-
-    [Parameter] public string? TrackingId { get; set; }
-    [Parameter] public string? Email { get; set; }
-    [Parameter] public string? Token { get; set; }
 
     [Parameter] public EventCallback OnWorklogAdded { get; set; }
     [Parameter] public EventCallback<List<TicketTimelineEventDto>> OnTimelineLoaded { get; set; }
@@ -119,9 +100,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        var nextLoadKey = PublicMode
-            ? $"public:{TrackingId}:{Email}:{Token}"
-            : $"internal:{TicketId}:{TicketType}";
+        var nextLoadKey = $"{TicketId}:{TicketType}";
 
         if (string.Equals(nextLoadKey, _loadKey, StringComparison.Ordinal))
             return;
@@ -141,7 +120,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!PublicMode && !_streamStarted && !string.IsNullOrWhiteSpace(TicketId))
+        if (!_streamStarted && !string.IsNullOrWhiteSpace(TicketId))
         {
             _streamStarted = true;
 
@@ -196,18 +175,8 @@
         loading = timeline is null;
         try
         {
-            List<TicketTimelineEventDto>? loaded;
-            if (PublicMode)
-            {
-                if (string.IsNullOrWhiteSpace(TrackingId) || string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Token))
-                    loaded = new();
-                else
-                {
-                    var url = $"api/v1/tickets/public/timeline?trackingId={Uri.EscapeDataString(TrackingId)}&email={Uri.EscapeDataString(Email)}&token={Uri.EscapeDataString(Token)}";
-                    loaded = await PublicApi.GetFromJsonAsync<List<TicketTimelineEventDto>>(url);
-                }
-            }
-            else loaded = string.IsNullOrWhiteSpace(TicketId) ? new() : await TimelineClient.GetTimelineAsync(TicketId, "desc", TicketType);
+            var loaded = string.IsNullOrWhiteSpace(TicketId) ? new List<TicketTimelineEventDto>() :
+                await TimelineClient.GetTimelineAsync(TicketId, "desc", TicketType);
             if (scope != scopeVersion || query != timelineLoadVersion) return;
             timeline = loaded ?? new();
             // A live frame delivered during the fetch is newer than that fetch's snapshot.
@@ -268,7 +237,7 @@
 
         try
         {
-            var api = PublicMode ? PublicApi : HelpdeskApi;
+            var api = HelpdeskApi;
             var submittedAt = DateTimeOffset.UtcNow;
             var internalNote = newWorklog.IsInternalNote;
             var response = await api.PostAsJsonAsync(worklogApiUrl, newWorklog);
@@ -341,7 +310,7 @@
 
     private async Task OpenAddWorklogDialog()
     {
-        if (PublicMode || string.IsNullOrWhiteSpace(TicketId))
+        if (string.IsNullOrWhiteSpace(TicketId))
             return;
 
         const string dialogTitle = "Add a new Worklog or Note";
@@ -477,7 +446,7 @@
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
 
                             <MudAvatar Size="Size.Small">
-                                @GetInitials(PublicMode ? GetHumanHeader(ev) : ev.CreatedByUserName)
+                                @GetInitials(ev.CreatedByUserName)
                             </MudAvatar>
 
                             <MudText Typo="Typo.subtitle2">
@@ -585,11 +554,6 @@
     {
         if (ev.EventType == TimelineEventType.InternalNote)
             return "Internal Note";
-
-        if (PublicMode)
-        {
-            return IsCustomerReplyEvent(ev) ? "You" : "Helpdesk";
-        }
 
         if (IsCustomerReplyEvent(ev))
             return "Customer Reply";

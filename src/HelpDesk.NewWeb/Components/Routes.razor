@@ -1,5 +1,6 @@
 @using HelpDesk.NewWeb.Components.Pages
 @using HelpDesk.NewWeb.Components.Shared
+@inject BrowserRequestOrigin RequestOrigin
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
         @if (routeData.PageType == typeof(PublicPortal) || routeData.PageType == typeof(Login) || routeData.PageType == typeof(Setup) || routeData.PageType == typeof(Activate))
@@ -22,3 +23,10 @@
         </LayoutView>
     </NotFound>
 </Router>
+
+@code {
+    [Parameter]
+    public string? ClientAddress { get; set; }
+
+    protected override void OnInitialized() => RequestOrigin.Capture(ClientAddress);
+}

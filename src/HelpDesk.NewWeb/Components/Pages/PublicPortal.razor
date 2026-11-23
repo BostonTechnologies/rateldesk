@@ -44,7 +44,7 @@
             <MudItem xs="12" sm="6" md="5">
                 <MudCard Elevation="0"
                          Class="helpdesk-portal-action"
-                         @onclick="@(() => Navigation.NavigateTo("/view-ticket"))">
+                         @onclick="@(() => Navigation.NavigateTo("/view-ticket", forceLoad: true))">
                     <MudCardActions>
                         <div class="pa-6 text-center">
                             <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Color="Color.Success" Class="helpdesk-portal-action-icon" />

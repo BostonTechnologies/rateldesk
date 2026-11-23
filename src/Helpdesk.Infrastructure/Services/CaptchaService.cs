@@ -2,34 +2,29 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
 using System.Security.Cryptography;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Infrastructure.Services;
 
-/// <summary>
-/// Defines methods for generating and validating CAPTCHA challenges.
-/// </summary>
-/// <remarks>This interface provides functionality to create CAPTCHA challenges and validate user responses. It is
-/// designed to help prevent automated interactions by requiring users to solve a challenge.</remarks>
 public interface ICaptchaService
 {
-    (Guid Id, string Challenge) GenerateCaptcha();
-    byte[] RenderCaptchaImage(string challenge);
+    CaptchaChallenge? TryGenerateCaptcha(string client, CancellationToken cancellationToken);
     bool ValidateCaptcha(Guid id, string answer);
 }
 
-/// <summary>
-/// Provides functionality for generating and validating CAPTCHA challenges.
-/// </summary>
-/// <remarks>This service generates CAPTCHA challenges consisting of a unique identifier and a random string.  The
-/// challenges are stored in memory with a time-to-live (TTL) of 5 minutes.  Callers can validate a CAPTCHA by providing
-/// the identifier and the user's response.</remarks>
-/// <param name="cache"></param>
-public class CaptchaService(IMemoryCache cache) : ICaptchaService
+public sealed record CaptchaChallenge(Guid Id, byte[] Png);
+
+public sealed class CaptchaOptions
 {
-    private readonly IMemoryCache _cache = cache;
-    private readonly Lock _validationLock = new();
-    private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
+    public int Capacity { get; init; } = 1500;
+    public int OutstandingPerClient { get; init; } = 6;
+    public int ConcurrentRenders { get; init; } = 4;
+}
+
+public sealed class CaptchaService(CaptchaChallengeStore store, IOptions<CaptchaOptions> options) : ICaptchaService
+{
+    private readonly SemaphoreSlim _renderSlots = new(options.Value.ConcurrentRenders, options.Value.ConcurrentRenders);
+
     private const int Width = 200;
     private const int Height = 60;
     private const int RowBytes = Width * 3;
@@ -50,15 +45,43 @@ public class CaptchaService(IMemoryCache cache) : ICaptchaService
         ['9'] = ["01110", "10001", "10001", "01111", "00001", "00001", "01110"]
     };
 
-    public (Guid Id, string Challenge) GenerateCaptcha()
+    public CaptchaChallenge? TryGenerateCaptcha(string client, CancellationToken cancellationToken) =>
+        TryGenerate(client, cancellationToken, RenderCaptchaImage);
+
+    internal CaptchaChallenge? TryGenerate(string client, CancellationToken ct, Func<string, byte[]> render)
     {
-        var id = Guid.NewGuid();
-        var text = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
-        _cache.Set(id, text, Ttl);
-        return (id, text);
+        ct.ThrowIfCancellationRequested();
+        if (!_renderSlots.Wait(0))
+            return null;
+        try
+        {
+            if (store.Reserve(client) is not { } id)
+                return null;
+            var rendered = false;
+            try
+            {
+                var answer = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
+                var image = render(answer);
+                ct.ThrowIfCancellationRequested();
+                store.Complete(id, answer);
+                rendered = true;
+                return new CaptchaChallenge(id, image);
+            }
+            finally
+            {
+                if (!rendered) store.Remove(id);
+            }
+        }
+        finally
+        {
+            _renderSlots.Release();
+        }
     }
 
-    public byte[] RenderCaptchaImage(string challenge)
+    public bool ValidateCaptcha(Guid id, string answer) =>
+        store.Consume(id) is { } expected && string.Equals(expected, answer?.Trim(), StringComparison.Ordinal);
+
+    internal static byte[] RenderCaptchaImage(string challenge)
     {
         ArgumentNullException.ThrowIfNull(challenge);
         if (challenge.Length != 6 || challenge.Any(character => !char.IsAsciiDigit(character)))
@@ -165,19 +188,6 @@ public class CaptchaService(IMemoryCache cache) : ICaptchaService
                 error += dx;
                 y1 += sy;
             }
-        }
-    }
-
-    public bool ValidateCaptcha(Guid id, string answer)
-    {
-        lock (_validationLock)
-        {
-            if (_cache.TryGetValue<string>(id, out var expected))
-            {
-                _cache.Remove(id);
-                return string.Equals(expected, answer, StringComparison.OrdinalIgnoreCase);
-            }
-            return false;
         }
     }
 

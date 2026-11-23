@@ -1,3 +1,5 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
+using Helpdesk.Tests.Fixtures;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -222,6 +224,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
         await using var harness = await LiveHistoryFilteringHarness.CreateAsync();
         await harness.SeedAsync(db =>
         {
+            db.Organizations.Add(new Organization { Id = "org-1", Name = "Approval fixture" });
             db.Changes.Add(new Change
             {
                 Id = "chg-approval-view",
@@ -242,9 +245,10 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             });
         });
 
-        var url = "/api/v1/changes/public/approval?trackingId=CHG-VIEW&email=jane%40example.com&token=token:CHG-VIEW:jane%40example.com";
-        var first = await harness.Client.GetAsync(url);
-        var second = await harness.Client.GetAsync(url);
+        var launch = await PublicLinkFixture.IssueAsync(harness.Services, "chg-approval-view", "jane@example.com", PublicLinkPurpose.ChangeApproval);
+        var grant = await PublicLinkFixture.ExchangeAsync(harness.Services, launch);
+        using var first = await PublicLinkFixture.SendAsync(harness.Client, grant, "change");
+        using var second = await PublicLinkFixture.SendAsync(harness.Client, grant, "change");
 
         first.EnsureSuccessStatusCode();
         second.EnsureSuccessStatusCode();
@@ -308,7 +312,9 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             });
         });
 
-        var response = await harness.Client.GetAsync("/api/v1/changes/public/approval?trackingId=CHG-READONLY&email=requested-viewer%40example.com&token=token:CHG-READONLY:requested-viewer%40example.com");
+        var launch = await PublicLinkFixture.IssueAsync(harness.Services, "chg-readonly-view", "requested-viewer@example.com", PublicLinkPurpose.ChangeView);
+        var grant = await PublicLinkFixture.ExchangeAsync(harness.Services, launch);
+        using var response = await PublicLinkFixture.SendAsync(harness.Client, grant, "change");
 
         response.EnsureSuccessStatusCode();
         var view = await response.Content.ReadFromJsonAsync<PublicChangeApprovalDto>();
@@ -1651,6 +1657,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
         }
 
         public HttpClient Client { get; }
+        public IServiceProvider Services => app.Services;
         public CapturingDomainEventPublisher DomainEvents { get; }
 
         public static async Task<LiveHistoryFilteringHarness> CreateAsync(CurrentUserAccessProfile? accessProfile = null,
@@ -1683,7 +1690,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             builder.Services.AddSingleton<CapturingDomainEventPublisher>();
             builder.Services.AddSingleton<IDomainEventPublisher>(sp => sp.GetRequiredService<CapturingDomainEventPublisher>());
             builder.Services.AddSingleton<ICorrelationContext, TestCorrelationContext>();
-            builder.Services.AddSingleton<IPublicTicketLinkSigner, TestPublicTicketLinkSigner>();
+            PublicLinkFixture.AddServices(builder);
             builder.Services.AddSingleton<IImageLinkSigner>(imageLinkSigner ?? new TestImageLinkSigner());
             builder.Services.AddSingleton<ITimelineEventBus>(timelineEventBus ?? new TestTimelineEventBus());
             if (storageOptions is not null)
@@ -1981,13 +1988,6 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
         public string GetCorrelationId() => "corr-live-history-tests";
     }
 
-    private sealed class TestPublicTicketLinkSigner : IPublicTicketLinkSigner
-    {
-        public string GenerateToken(string trackingId, string email, DateTimeOffset expires) => $"token:{trackingId}:{email}";
-
-        public bool ValidateToken(string token, string trackingId, string email) =>
-            token == GenerateToken(trackingId, email, DateTimeOffset.UtcNow.AddDays(1));
-    }
 
     private sealed class TestImageLinkSigner : IImageLinkSigner
     {

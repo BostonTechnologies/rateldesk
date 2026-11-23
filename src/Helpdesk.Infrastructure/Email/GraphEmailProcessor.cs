@@ -171,29 +171,22 @@ public class GraphEmailProcessor : IGraphEmailProcessor
             }
         }
 
-        var domain = fromAddress.Split('@').Last();
-        var organization = await _tenantProvisioningService.GetOrCreateOrganizationByDomainAsync(domain);
-        var (customer, isNewCustomer) = await _tenantProvisioningService.GetOrCreateCustomerAsync(fromAddress, fromName, domain);
-
-        if (customer.State == EntityState.Blocked || organization.State == EntityState.Blocked)
+        Ticket? ticket;
+        try
         {
-            _logger.LogWarning("Sender {SenderEmail} is blocked.", fromAddress);
-            await SendNotificationAsync("AccessDenied", fromAddress, tenantId: organization.Id);
-            await MoveGraphMessageAsync(graphClient, mailboxAddress, graphMessage.Id, blockedFolderId); // use ID
+            ticket = await _tenantProvisioningService.ProcessAsync(fromAddress, fromName, async (customer, isNewCustomer, ct) =>
+            {
+                if (isNewCustomer)
+                    await SendNotificationAsync("WelcomeNewUser", customer.Email, userName: customer.Name, tenantId: customer.OrganizationId);
+                return await ProcessTicketEmailAsync(graphMessage, attachments, customer, ct, internetMessageId);
+            }, token);
+        }
+        catch (RequesterIntakeRejectedException rejection)
+        {
+            _logger.LogWarning("Legacy inbound sender could not be admitted. Reason={Reason}", rejection.Reason);
+            await MoveGraphMessageAsync(graphClient, mailboxAddress, graphMessage.Id, blockedFolderId);
             return;
         }
-
-        if (isNewCustomer)
-        {
-            await SendNotificationAsync("WelcomeNewUser", customer.Email, userName: customer.Name, tenantId: customer.OrganizationId);
-        }
-
-        var ticket = await ProcessTicketEmailAsync(
-            graphMessage,
-            attachments,
-            customer,
-            token,
-            internetMessageId);
 
         await FinalizeGraphMessageAsync(graphClient, mailboxAddress, graphMessage, processedFolderId, ticket, token);
     }

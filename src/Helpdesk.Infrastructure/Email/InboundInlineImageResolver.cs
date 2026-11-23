@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.WorkLogs;
+using Helpdesk.Infrastructure.Storage;
 using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 
@@ -65,12 +66,22 @@ public sealed class InboundInlineImageResolver(
                     continue;
                 }
 
-                url = await storage.SaveIncidentInlineImageAsync(incidentId, selected.Attachment.Name, selected.Attachment.ContentBytes!);
-                foreach (var match in matches)
-                    consumed.Add(match.Index);
+                try
+                {
+                    if (!SafeInlineImage.MatchesDeclaredType(selected.Attachment.Name, selected.Attachment.ContentType))
+                        throw new InlineImageRejectedException();
+                    url = await storage.SaveIncidentInlineImageAsync(incidentId, selected.Attachment.Name, selected.Attachment.ContentBytes!);
+                    foreach (var match in matches)
+                        consumed.Add(match.Index);
+                }
+                catch (InlineImageRejectedException)
+                {
+                    // An explicit attachment remains available through the attachment download flow.
+                    foreach (var match in matches.Where(item => item.Attachment.IsInline == true))
+                        consumed.Add(match.Index);
+                    logger.LogWarning("Inbound inline image blocked. AttachmentId={AttachmentId}", selected.Attachment.AttachmentId);
+                }
                 resolved[cid] = url;
-                logger.LogInformation("Inbound inline image resolved. ContentId={ContentId} AttachmentId={AttachmentId} Name={Name} IsInline={IsInline} StoredPath={StoredPath}",
-                    cid, selected.Attachment.AttachmentId, selected.Attachment.Name, selected.Attachment.IsInline, url.Split('?')[0]);
             }
 
             if (url is not null)

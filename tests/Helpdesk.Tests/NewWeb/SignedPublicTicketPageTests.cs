@@ -1,113 +1,109 @@
 extern alias NewWeb;
+
 using System.Net;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using Bunit;
+using System.Text.RegularExpressions;
 using Helpdesk.Shared.DTOs;
-using Helpdesk.Shared.DTOs.Worklog;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Shared.Enums;
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using MudBlazor.Services;
-using NSubstitute;
-using Page = NewWeb::HelpDesk.NewWeb.Components.Pages.ViewTicket;
-using ITimelineApiClient = NewWeb::HelpDesk.NewWeb.Services.ITimelineApiClient;
-using TimelineStreamService = NewWeb::HelpDesk.NewWeb.Services.TimelineStreamService;
 
 namespace Helpdesk.Tests.NewWeb;
 
 public sealed class SignedPublicTicketPageTests
 {
     [Fact]
-    public async Task AnonymousSignedLinkAndReloadShowOnlyPublicHistoryWithoutSessionExchange()
+    public async Task Anonymous_link_exchange_sets_a_scoped_cookie_and_refreshes_without_staff_credentials()
     {
-        using var api = new Api();
+        using var api = new PublicApi();
+        using var baseFactory = WebAuthRoutesTests.CreateFactory(localAuthentication: true);
+        using var factory = baseFactory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.AddHttpClient("PublicAccessApi").ConfigurePrimaryHttpMessageHandler(() => api)));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false, BaseAddress = new Uri("https://desk.example.test")
+        });
+        using var preview = await client.GetAsync("/public/link");
+        Assert.Equal(0, api.Exchanges);
+        Assert.True(preview.Headers.CacheControl?.NoStore);
+        Assert.Equal("no-referrer", Assert.Single(preview.Headers.GetValues("Referrer-Policy")));
+        var html = await preview.Content.ReadAsStringAsync();
+        var field = Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"");
+        Assert.True(field.Success);
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = field.Groups[1].Value, ["launch"] = new string('a', 43)
+        });
+        using var exchange = await client.PostAsync("/public/link", form);
+        Assert.Equal(HttpStatusCode.SeeOther, exchange.StatusCode);
+        var path = exchange.Headers.Location!.OriginalString;
+        Assert.Equal($"/public/access/{api.AccessId:D}/ticket", path);
+        var cookie = Assert.Single(exchange.Headers.GetValues("Set-Cookie"), item => item.StartsWith("__Secure-RatelDeskPublicGrant="));
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=strict", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"path=/public/access/{api.AccessId:D}", cookie, StringComparison.OrdinalIgnoreCase);
+
         for (var reload = 0; reload < 2; reload++)
         {
-            await using var context = Context(api);
-            context.Services.GetRequiredService<NavigationManager>().NavigateTo("/view-ticket?trackingId=INC-PUBLIC&email=customer%40example.test&token=signed-fixture");
-            var page = context.Render<Page>();
-            page.WaitForAssertion(() =>
-            {
-                Assert.Contains("Signed public ticket", page.Markup);
-                Assert.Contains("Public worklog", page.Markup);
-                Assert.DoesNotContain("Internal-only note", page.Markup);
-            });
-            Assert.Equal(0, api.PrivateSessionRequests);
-            Assert.Equal(0, api.PrivateMarkSeenRequests);
+            using var response = await client.GetAsync(path);
+            var markup = await response.Content.ReadAsStringAsync();
+            Assert.Contains("Synthetic public ticket", markup);
+            Assert.Contains("Public worklog", markup);
+            Assert.Contains(">Helpdesk<", markup);
+            Assert.Contains(">You<", markup);
+            Assert.Contains($"/public/access/{api.AccessId:D}/asset/fixture", markup);
+            Assert.DoesNotContain("synthetic-credential", markup);
         }
-        Assert.Equal(2, api.PublicViewRequests);
-        Assert.Equal(2, api.PublicTimelineRequests);
+        Assert.Equal(1, api.Exchanges);
+        Assert.Equal(2, api.Views);
+        Assert.Equal(2, api.Timelines);
+
+        using var otherVisitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = client.BaseAddress! });
+        var unauthorized = await otherVisitor.GetStringAsync(path);
+        Assert.DoesNotContain("Synthetic public ticket", unauthorized);
+        Assert.Contains("session is unavailable", unauthorized);
+        Assert.Equal(2, api.Views);
     }
 
-    [Fact]
-    public async Task RejectedSignatureDoesNotFallBackToPrivateSessionOrRevealTicket()
+    private sealed class PublicApi : HttpMessageHandler
     {
-        using var api = new Api { SignatureAccepted = false };
-        await using var context = Context(api);
-        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/view-ticket?trackingId=INC-PUBLIC&email=customer%40example.test&token=wrong-signature");
-        var page = context.Render<Page>();
-        page.WaitForAssertion(() => Assert.Contains("Ticket Not Found", page.Markup, StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain("Signed public ticket", page.Markup);
-        Assert.Equal(0, api.PrivateSessionRequests);
-        Assert.Equal(0, api.PublicTimelineRequests);
-    }
+        private const string Grant = "synthetic-credential";
+        internal Guid AccessId { get; } = Guid.NewGuid();
+        internal int Exchanges { get; private set; }
+        internal int Views { get; private set; }
+        internal int Timelines { get; private set; }
 
-    private static BunitContext Context(Api api)
-    {
-        var context = new BunitContext();context.Services.AddMudServices();context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton<IHttpClientFactory>(api);
-        context.Services.AddSingleton<AuthenticationStateProvider>(new Anonymous());
-        context.Services.AddSingleton(Substitute.For<ITimelineApiClient>());
-        context.Services.AddSingleton(new TimelineStreamService(api, NullLogger<TimelineStreamService>.Instance));
-        return context;
-    }
-    private sealed class Anonymous : AuthenticationStateProvider
-    {
-        public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity())));
-    }
-    private sealed class Api : IHttpClientFactory, IDisposable
-    {
-        private readonly List<HttpClient> clients = [];
-        public bool SignatureAccepted { get; set; } = true;
-        public int PrivateSessionRequests { get; set; }
-        public int PrivateMarkSeenRequests { get; set; }
-        public int PublicViewRequests { get; set; }
-        public int PublicTimelineRequests { get; set; }
-        public HttpClient CreateClient(string name)
-        {
-            var client = new HttpClient(new Boundary(this, name)) { BaseAddress = new Uri("https://desk.example.test/") };
-            clients.Add(client);return client;
-        }
-        public void Dispose() { foreach (var client in clients) client.Dispose(); }
-    }
-    private sealed class Boundary(Api api, string clientName) : HttpMessageHandler
-    {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (clientName != "SystemApiNoAuth")
-            {
-                api.PrivateSessionRequests++;
-                throw new HttpRequestException("Synthetic anonymous session cannot be exchanged.");
-            }
             Assert.Null(request.Headers.Authorization);
-            if (request.RequestUri!.AbsolutePath.EndsWith("mark-as-seen", StringComparison.Ordinal)) api.PrivateMarkSeenRequests++;
-            Assert.Equal(HttpMethod.Get, request.Method);
-            Assert.StartsWith("/api/v1/tickets/public/", request.RequestUri.AbsolutePath);
-            if (!api.SignatureAccepted) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
-            if (request.RequestUri.AbsolutePath.EndsWith("/view", StringComparison.Ordinal))
+            Assert.False(request.Headers.Contains("Cookie"));
+            Assert.Empty(request.RequestUri!.Query);
+            var path = request.RequestUri.AbsolutePath;
+            Assert.StartsWith(PublicAccessProtocol.ApiPrefix + "/", path);
+            if (path == PublicAccessProtocol.ApiPrefix + "/exchange")
             {
-                api.PublicViewRequests++;
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new PublicTicketViewDto { Id = "public-ticket", TrackingId = "INC-PUBLIC", Title = "Signed public ticket" }) });
+                Exchanges++;
+                return Reply(new PublicLinkExchangeResponse(AccessId, PublicLinkPurpose.Ticket, Grant, DateTimeOffset.UtcNow.AddMinutes(10)));
             }
-            api.PublicTimelineRequests++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new[]
+            Assert.Equal(Grant, Assert.Single(request.Headers.GetValues(PublicAccessProtocol.GrantHeader)));
+            if (path.EndsWith("/ticket", StringComparison.Ordinal))
             {
-                new TicketTimelineEventDto { EventType = TimelineEventType.Worklog, MessageText = "Public worklog", CreatedUtc = DateTimeOffset.UtcNow },
-                new TicketTimelineEventDto { EventType = TimelineEventType.InternalNote, MessageText = "Internal-only note", CreatedUtc = DateTimeOffset.UtcNow }
-            }) });
+                Views++;
+                return Reply(new PublicTicketViewDto { TrackingId = "INC-PUBLIC", Title = "Synthetic public ticket" });
+            }
+            Assert.EndsWith("/timeline", path);
+            Timelines++;
+            return Reply(new[]
+            {
+                new PublicTicketTimelineItemDto(DateTimeOffset.UtcNow, false, TimelineEventType.Worklog,
+                    $"<p>Public worklog</p><img src='/public/access/{AccessId:D}/asset/fixture'>", "Public worklog", null),
+                new PublicTicketTimelineItemDto(DateTimeOffset.UtcNow, true, TimelineEventType.CustomerReply, null, "My reply", null)
+            });
         }
+
+        private static Task<HttpResponseMessage> Reply<T>(T payload) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(payload) });
     }
 }

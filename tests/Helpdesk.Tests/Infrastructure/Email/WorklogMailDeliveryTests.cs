@@ -594,7 +594,7 @@ public sealed class WorklogMailDeliveryTests
                 new EfRepository<EmailTemplate>(db), new EfRepository<Ticket>(db), new EfRepository<Customer>(db),
                 new EfRepository<TicketTimelineEvent>(db), new IngressTimelineEventBus(timeline, context),
                 new HtmlSanitizerService(), images, new HtmlToPlainTextConverter(), renderer,
-                Substitute.For<IEmailLayoutResolver>(), branding, Substitute.For<IPublicTicketLinkSigner>(), config,
+                Substitute.For<IEmailLayoutResolver>(), branding, Substitute.For<IPublicLinkIssuer>(), config,
                 ingressEffects: context);
         }
 
@@ -636,7 +636,7 @@ public sealed class WorklogMailDeliveryTests
             var branding = Substitute.For<ITenantBrandingResolver>();
             branding.ResolveAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(new TenantBrandingResolved());
             var service = new TimelineService(db, Sender(db, context), renderer, Substitute.For<IEmailLayoutResolver>(), branding,
-                Substitute.For<IPublicTicketLinkSigner>(), timeline, config,
+                Substitute.For<IPublicLinkIssuer>(), timeline, config,
                 new MailboxOutboxStore(db, context, TimeProvider.System));
             return service.RetryEmailAsync(deliveryId, "synthetic-operator", default);
         }

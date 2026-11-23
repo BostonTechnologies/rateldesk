@@ -189,12 +189,10 @@ public sealed partial class RequestTaskApprovalServiceTests
     public async Task GetPublicApprovalAsync_FirstView_AddsTimelineEvent()
     {
         await using var db = CreateDbContext();
-        var signer = Substitute.For<IPublicTicketLinkSigner>();
-        signer.ValidateToken("token", "INC-PENDING:task-pending-approval", "approver@example.com").Returns(true);
-        var service = CreateService(db, Substitute.For<ITicketNotificationService>(), signer: signer);
+        var service = CreateService(db, Substitute.For<ITicketNotificationService>());
         await SeedPendingApprovalAsync(db, RequestTaskStatus.PendingApproval);
 
-        var approval = await service.GetPublicApprovalAsync("INC-PENDING", "task-pending-approval", "approver@example.com", "token", CancellationToken.None);
+        var approval = await service.GetPublicApprovalAsync(new RequestApprovalGrant("request-pending-approval", "tenant-1", "task-pending-approval", "approver@example.com"), CancellationToken.None);
 
         Assert.NotNull(approval);
         var timeline = await db.TicketTimelineEvents.SingleAsync();
@@ -206,12 +204,10 @@ public sealed partial class RequestTaskApprovalServiceTests
     public async Task ApproveAsync_AddsTimelineEvent()
     {
         await using var db = CreateDbContext();
-        var signer = Substitute.For<IPublicTicketLinkSigner>();
-        signer.ValidateToken("token", "INC-PENDING:task-pending-approval", "approver@example.com").Returns(true);
-        var service = CreateService(db, Substitute.For<ITicketNotificationService>(), signer: signer);
+        var service = CreateService(db, Substitute.For<ITicketNotificationService>());
         await SeedPendingApprovalAsync(db, RequestTaskStatus.PendingApproval);
 
-        var result = await service.ApproveAsync("INC-PENDING", "task-pending-approval", "approver@example.com", "token", CancellationToken.None);
+        var result = await service.ReviewForGrantAsync(new RequestApprovalGrant("request-pending-approval", "tenant-1", "task-pending-approval", "approver@example.com"), true, null, () => Task.FromResult(true), CancellationToken.None);
 
         Assert.True(result.Success);
         var timeline = await db.TicketTimelineEvents.SingleAsync();
@@ -223,8 +219,6 @@ public sealed partial class RequestTaskApprovalServiceTests
     public async Task RejectAsync_AddsTimelineEvent()
     {
         await using var db = CreateDbContext();
-        var signer = Substitute.For<IPublicTicketLinkSigner>();
-        signer.ValidateToken("token", "INC-PENDING:task-pending-approval", "approver@example.com").Returns(true);
         var notificationService = Substitute.For<ITicketNotificationService>();
         notificationService.SendRequestApprovalDeclinedAsync(
                 Arg.Any<Request>(),
@@ -237,16 +231,12 @@ public sealed partial class RequestTaskApprovalServiceTests
                 Arg.Any<IEnumerable<string>>(),
                 Arg.Any<CancellationToken>())
             .Returns(true);
-        var service = CreateService(db, notificationService, signer: signer);
+        var service = CreateService(db, notificationService);
         await SeedPendingApprovalAsync(db, RequestTaskStatus.PendingApproval);
 
-        var result = await service.RejectAsync(
-            "INC-PENDING",
-            "task-pending-approval",
-            "approver@example.com",
-            "token",
-            "Too risky for production.",
-            CancellationToken.None);
+        var result = await service.ReviewForGrantAsync(
+            new RequestApprovalGrant("request-pending-approval", "tenant-1", "task-pending-approval", "approver@example.com"), false, "Too risky for production.",
+            () => Task.FromResult(true), CancellationToken.None);
 
         Assert.True(result.Success);
         var timeline = await db.TicketTimelineEvents.SingleAsync();
@@ -269,19 +259,13 @@ public sealed partial class RequestTaskApprovalServiceTests
     public async Task RejectAsync_WithoutReason_DoesNotMutate()
     {
         await using var db = CreateDbContext();
-        var signer = Substitute.For<IPublicTicketLinkSigner>();
-        signer.ValidateToken("token", "INC-PENDING:task-pending-approval", "approver@example.com").Returns(true);
         var notificationService = Substitute.For<ITicketNotificationService>();
-        var service = CreateService(db, notificationService, signer: signer);
+        var service = CreateService(db, notificationService);
         await SeedPendingApprovalAsync(db, RequestTaskStatus.PendingApproval);
 
-        var result = await service.RejectAsync(
-            "INC-PENDING",
-            "task-pending-approval",
-            "approver@example.com",
-            "token",
-            " ",
-            CancellationToken.None);
+        var result = await service.ReviewForGrantAsync(
+            new RequestApprovalGrant("request-pending-approval", "tenant-1", "task-pending-approval", "approver@example.com"), false, " ",
+            () => Task.FromResult(true), CancellationToken.None);
 
         Assert.False(result.Success);
         var approval = await db.RequestTaskApprovals.SingleAsync();
@@ -305,9 +289,7 @@ public sealed partial class RequestTaskApprovalServiceTests
     public async Task RejectAsync_CancelsApprovalAndIncompleteSiblingTasks()
     {
         await using var db = CreateDbContext();
-        var signer = Substitute.For<IPublicTicketLinkSigner>();
-        signer.ValidateToken("token", "INC-PENDING:task-pending-approval", "approver@example.com").Returns(true);
-        var service = CreateService(db, Substitute.For<ITicketNotificationService>(), signer: signer);
+        var service = CreateService(db, Substitute.For<ITicketNotificationService>());
         var (request, _) = await SeedPendingApprovalAsync(db, RequestTaskStatus.PendingApproval);
         db.RequestTasks.AddRange(
             new RequestTask
@@ -342,13 +324,9 @@ public sealed partial class RequestTaskApprovalServiceTests
             });
         await db.SaveChangesAsync();
 
-        var result = await service.RejectAsync(
-            "INC-PENDING",
-            "task-pending-approval",
-            "approver@example.com",
-            "token",
-            "Insufficient details.",
-            CancellationToken.None);
+        var result = await service.ReviewForGrantAsync(
+            new RequestApprovalGrant("request-pending-approval", "tenant-1", "task-pending-approval", "approver@example.com"), false, "Insufficient details.",
+            () => Task.FromResult(true), CancellationToken.None);
 
         Assert.True(result.Success);
         var tasks = await db.RequestTasks.ToDictionaryAsync(x => x.Id);
@@ -365,14 +343,12 @@ public sealed partial class RequestTaskApprovalServiceTests
     private static RequestTaskApprovalService CreateService(
         HelpdeskDbContext db,
         ITicketNotificationService notificationService,
-        IPublicTicketLinkSigner? signer = null,
         ITimelineEventBus? timelineEventBus = null,
         ILogger<RequestTaskApprovalService>? logger = null)
         => new(
             db,
             new RequestFormSchemaParser(),
             notificationService,
-            signer ?? Substitute.For<IPublicTicketLinkSigner>(),
             timelineEventBus ?? Substitute.For<ITimelineEventBus>(),
             logger ?? Substitute.For<ILogger<RequestTaskApprovalService>>());
 

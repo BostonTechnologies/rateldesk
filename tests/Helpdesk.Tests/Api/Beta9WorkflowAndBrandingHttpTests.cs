@@ -1,3 +1,4 @@
+using Helpdesk.Tests.Fixtures;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -77,14 +78,13 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Numeric_branding_accepts_authenticated_multipart_and_serves_exact_signed_bytes(bool postgres)
+    public async Task Numeric_branding_accepts_authenticated_multipart_and_serves_decodable_signed_raster(bool postgres)
     {
         await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
             configureServices: services => services.AddAuthorization(options => options.AddPolicy("HelpdeskAdmin", p => p.RequireRole("HelpdeskAdmin"))),
             configureApp: app => app.MapTenantBrandingEndpoints());
-        var bytes = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=");
         using var content = new MultipartFormDataContent();
-        var file = new ByteArrayContent(bytes);
+        var file = new ByteArrayContent(SyntheticRaster.Png());
         file.Headers.ContentType = new("image/png");
         content.Add(file, "file", "synthetic-logo.png");
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/tenants/17/branding/logo") { Content = content };
@@ -98,7 +98,8 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
         var path = new Uri(url).PathAndQuery.Replace("/prefix/api/", "/api/", StringComparison.Ordinal);
         using var image = await h.Client.GetAsync(path);
         Assert.Equal(HttpStatusCode.OK, image.StatusCode);
-        Assert.Equal(bytes, await image.Content.ReadAsByteArrayAsync());
+        var bytes = await image.Content.ReadAsByteArrayAsync();
+        SyntheticRaster.AssertPng(80, bytes);
         using var invalidToken = await h.Client.GetAsync(path + "tampered");
         Assert.Equal(HttpStatusCode.Unauthorized, invalidToken.StatusCode);
         Beta9Evidence.Record("API-B8-NUMERIC-LOGO-ANTIFORGERY", $"http-{postgres}", new

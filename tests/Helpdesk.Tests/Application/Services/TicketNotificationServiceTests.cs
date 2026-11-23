@@ -54,7 +54,7 @@ public sealed class TicketNotificationServiceTests
         Assert.True(sent);
         Assert.Equal("Your Request Has Been Created REQ-123", subject);
         Assert.Contains("Request REQ-123", body);
-        Assert.Contains("https://public.example/view-ticket/REQ-123?email=customer%40example.com&amp;token=token-REQ-123-customer%40example.com", body);
+        Assert.Contains("https://public.example/public/link#fixture-REQ-123", body);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class TicketNotificationServiceTests
         Assert.Equal("Created REQ-123 Disk capacity report", subject);
         Assert.Contains("Disk capacity report", body);
         Assert.Contains("Collect disk usage", body);
-        Assert.Contains("https://public.example/view-ticket/REQ-123?email=customer%40example.com&amp;token=token-REQ-123-customer%40example.com", body);
+        Assert.Contains("https://public.example/public/link#fixture-REQ-123", body);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public sealed class TicketNotificationServiceTests
         Assert.Equal("Failed REQ-123 INC-999", subject);
         Assert.Contains("External orchestration run failed", body);
         Assert.Contains("INC-999", body);
-        Assert.Contains("https://public.example/view-ticket/INC-999?email=customer%40example.com&amp;token=token-INC-999-customer%40example.com", body);
+        Assert.Contains("https://public.example/public/link#fixture-INC-999", body);
     }
 
     [Fact]
@@ -240,7 +240,7 @@ public sealed class TicketNotificationServiceTests
             brandingResolver,
             emailService,
             new EmailTemplateRenderer(new TemplateEngine()),
-            new TestPublicTicketLinkSigner(),
+            new TestPublicLinkIssuer(),
             config,
             NullLogger<TicketNotificationService>.Instance);
     }
@@ -271,11 +271,10 @@ public sealed class TicketNotificationServiceTests
             .Returns(true);
     }
 
-    private sealed class TestPublicTicketLinkSigner : IPublicTicketLinkSigner
+    private sealed class TestPublicLinkIssuer : IPublicLinkIssuer
     {
-        public string GenerateToken(string trackingId, string email, DateTimeOffset expires) => $"token-{trackingId}-{email}";
-
-        public bool ValidateToken(string token, string trackingId, string email) =>
-            token == GenerateToken(trackingId, email, DateTimeOffset.UtcNow.AddDays(1));
+        public Task<string> IssueAsync(Ticket ticket, string recipient, Helpdesk.Shared.DTOs.PublicAccess.PublicLinkPurpose purpose,
+            string? applicationUrl, CancellationToken cancellationToken, string? taskId = null) =>
+            Task.FromResult($"https://public.example/public/link#fixture-{ticket.TrackingId}");
     }
 }

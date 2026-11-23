@@ -6,12 +6,14 @@ namespace Helpdesk.Application.RequestTasks;
 public interface IRequestTaskApprovalService
 {
     Task<RequestTask> StartApprovalAsync(RequestTask task, CancellationToken ct);
-    Task<PublicRequestTaskApprovalDto?> GetPublicApprovalAsync(string trackingId, string taskId, string email, string token, CancellationToken ct);
-    Task<RequestTaskApprovalReviewResult> ApproveAsync(string trackingId, string taskId, string email, string token, CancellationToken ct);
-    Task<RequestTaskApprovalReviewResult> RejectAsync(string trackingId, string taskId, string email, string token, string? reason, CancellationToken ct);
+    Task<PublicRequestTaskApprovalDto?> GetPublicApprovalAsync(RequestApprovalGrant grant, CancellationToken ct);
+    Task<RequestTaskApprovalReviewResult> ReviewForGrantAsync(RequestApprovalGrant grant, bool approve, string? reason,
+        Func<Task<bool>> authorizeDecision, CancellationToken ct);
     Task<int> RetryUnsentApprovalEmailsAsync(CancellationToken ct);
     Task<int> ExpireOverdueApprovalsAsync(CancellationToken ct);
 }
+
+public sealed record RequestApprovalGrant(string RequestId, string OrganizationId, string TaskId, string Recipient);
 
 public sealed class RequestTaskApprovalReviewResult
 {

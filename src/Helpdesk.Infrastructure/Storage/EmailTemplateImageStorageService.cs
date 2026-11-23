@@ -26,12 +26,11 @@ public sealed class EmailTemplateImageStorageService(
         byte[] content)
     {
         var safeTemplateName = SanitizePathSegment(templateName);
-        var safeFilename = SanitizeFileName(filename);
+        var normalized = await SafeInlineImage.NormalizeAsync(filename, content);
+        var safeFilename = Path.ChangeExtension(SanitizeFileName(filename), normalized.Extension);
         var root = Path.Combine(_storageRoot, "email-templates", safeTemplateName, "inline");
-        Directory.CreateDirectory(root);
-
         var fullPath = Path.Combine(root, safeFilename);
-        await File.WriteAllBytesAsync(fullPath, content);
+        await SafeInlineImage.SaveAsync(root, safeFilename, normalized.Content);
         _logger.LogInformation("Saved email template inline image. Template={Template} Path={Path}", safeTemplateName, fullPath);
 
         var expires = DateTimeOffset.UtcNow.AddHours(24);

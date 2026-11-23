@@ -26,12 +26,11 @@ public sealed class TenantBrandAssetStorageService(
         byte[] content)
     {
         var safeTenantId = SanitizePathSegment(tenantId.ToString());
-        var safeFilename = SanitizeFileName(filename);
+        var normalized = await SafeInlineImage.NormalizeAsync(filename, content);
+        var safeFilename = Path.ChangeExtension(SanitizeFileName(filename), normalized.Extension);
         var root = Path.Combine(_storageRoot, "tenants", safeTenantId, "brand");
-        Directory.CreateDirectory(root);
-
         var fullPath = Path.Combine(root, safeFilename);
-        await File.WriteAllBytesAsync(fullPath, content);
+        await SafeInlineImage.SaveAsync(root, safeFilename, normalized.Content);
         _logger.LogInformation("Saved tenant branding logo. TenantId={TenantId} Path={Path}", safeTenantId, fullPath);
 
         var expires = DateTimeOffset.UtcNow.AddHours(24);

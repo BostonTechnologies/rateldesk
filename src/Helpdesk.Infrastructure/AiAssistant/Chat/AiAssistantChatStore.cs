@@ -40,8 +40,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
     {
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(id, ct);
-        Bind(conversation, ticket, actor);
+        var conversation = await LockBoundAsync(id, ticket, actor, ct);
         if (conversation.State != ChatState.DeliveryUnknown) throw new ChatConflictException("Only unresolved delivery can be checked.");
         if (await AiAssistantChatSessionManager.LatestCompletionAsync(db, conversation, ct) is { ScheduledWorkUnconfirmed: true })
             throw new ChatConflictException("NetClaw session history cannot restore the exact scheduled report.");
@@ -64,8 +63,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             throw new ArgumentException("A conversation ID and expected active message ID are required.");
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket, actor);
+        var conversation = await LockBoundAsync(request.ConversationId, ticket, actor, ct);
         if (request.ScheduledOnly)
         {
             if (conversation.State == ChatState.Archived) throw new ChatConflictException("The conversation was archived.");
@@ -110,8 +108,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({ticket.LockKey}, 0))", ct);
-        var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket, actor);
+        var conversation = await LockBoundAsync(request.ConversationId, ticket, actor, ct);
         var existing = await db.Set<AiAssistantChatEvent>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.ClientMessageId == request.ResolutionId, ct);
         if (existing is not null)
         {
@@ -165,13 +162,20 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
             (x.ProviderKind != ChatProviderKind.CodexAppServer || x.CreatedByUserId == user));
     }
 
-    private async Task<AiAssistantChatConversation> LockAsync(Guid id, CancellationToken ct) =>
-        await db.Set<AiAssistantChatConversation>().FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleOrDefaultAsync(ct)
-            ?? throw new KeyNotFoundException("Conversation not found.");
-
-    private static void Bind(AiAssistantChatConversation conversation, BoundScope ticket, string actor)
+    private async Task<AiAssistantChatConversation> LockBoundAsync(Guid id, BoundScope scope, string actor, CancellationToken ct)
     {
-        if (conversation.Scope != ticket.Kind || conversation.TicketId != ticket.Id || conversation.OrganizationId != ticket.OrganizationId || conversation.TicketType != ticket.Type)
+        var conversation = await db.Set<AiAssistantChatConversation>()
+            .FromSqlInterpolated($"SELECT * FROM \"AiAssistantChatConversations\" WHERE \"Id\" = {id} FOR UPDATE").SingleOrDefaultAsync(ct)
+            ?? throw new KeyNotFoundException("Conversation not found.");
+        Bind(conversation, scope, actor);
+        return conversation;
+    }
+
+    private static void Bind(AiAssistantChatConversation conversation, BoundScope scope, string actor)
+    {
+        if (conversation.Scope != scope.Kind || conversation.TicketId != scope.Id ||
+            conversation.OrganizationId != scope.OrganizationId || conversation.TicketType != scope.Type ||
+            (UsesProviderWorker(conversation) && (string.IsNullOrEmpty(actor) || conversation.CreatedByUserId != actor)))
             throw new KeyNotFoundException("Conversation not found.");
     }
 
@@ -247,8 +251,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         ChatRules.ValidateMessage(request);
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket, actor);
+        var conversation = await LockBoundAsync(request.ConversationId, ticket, actor, ct);
         var existing = await db.Set<AiAssistantChatEvent>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.ClientMessageId == request.ClientMessageId, ct);
         if (existing is not null)
         {
@@ -289,8 +292,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
     {
         var ticket = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, ticket, actor);
+        var conversation = await LockBoundAsync(request.ConversationId, ticket, actor, ct);
         if (conversation.State != ChatState.AwaitingApproval) throw new ChatConflictException("No approval is currently available.");
         var interaction = await db.Set<AiAssistantChatInteraction>().SingleOrDefaultAsync(x => x.ConversationId == conversation.Id && x.CallId == callId, ct)
             ?? throw new KeyNotFoundException("Approval not found.");
@@ -321,8 +323,7 @@ public sealed partial class AiAssistantChatStore(HelpdeskDbContext db, IDomainEv
         {
             if (profiles is not null)
                 await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({ticket.LockKey}, 0))", ct);
-            var old = await LockAsync(id, ct);
-            Bind(old, ticket, actor);
+            var old = await LockBoundAsync(id, ticket, actor, ct);
             ChatRules.RequireIdle(old.State);
             old.State = ChatState.Archived;
             Append(db, old, "archived", "Conversation archived.", actor, atUtc: Now);

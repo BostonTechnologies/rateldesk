@@ -4,11 +4,9 @@ using Helpdesk.Shared.Models;
 
 public class PublicTicketViewDto
 {
-    public string Id { get; set; } = string.Empty;
     public string TrackingId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public TicketState State { get; set; } = TicketState.New;
     public DateTime? LastUpdatedAt { get; set; }
     public string? LastPublicNote { get; set; }
-    public List<PublicTicketTimelineItemDto> Timeline { get; init; } = new();
 }

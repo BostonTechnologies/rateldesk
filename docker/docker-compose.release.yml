@@ -18,6 +18,7 @@ services:
       Bootstrap__StateDirectory: /var/lib/rateldesk/bootstrap
       Bootstrap__DataDirectory: /var/lib/rateldesk/data
       StorageOptions__RootPath: /app/storage
+      PublicIngress__TrustWebProof: "true"
     ports:
       - "127.0.0.1:${RATELDESK_API_PORT:-8222}:8222"
     volumes:

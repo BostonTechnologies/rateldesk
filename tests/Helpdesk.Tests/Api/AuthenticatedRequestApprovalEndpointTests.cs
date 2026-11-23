@@ -1,3 +1,5 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
+using Helpdesk.Tests.Fixtures;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -87,7 +89,7 @@ public sealed class AuthenticatedRequestApprovalEndpointTests
             builder.Services.AddSingleton(accessService);
             builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddSingleton(Substitute.For<ITicketNotificationService>());
-            builder.Services.AddSingleton(Substitute.For<IPublicTicketLinkSigner>());
+            PublicLinkFixture.AddServices(builder);
             builder.Services.AddSingleton(Substitute.For<ITimelineEventBus>());
             builder.Services.AddScoped<RequestTaskApprovalService>();
             builder.Services.AddScoped<IAuthenticatedRequestTaskApprovalService>(provider => provider.GetRequiredService<RequestTaskApprovalService>());

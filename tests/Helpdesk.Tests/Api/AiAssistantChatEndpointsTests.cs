@@ -110,6 +110,87 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
         Assert.Equal("operator", (await check.Set<AiAssistantChatInteraction>().SingleAsync(x => x.ConversationId == conversation)).AnsweredByUserId);
     }
 
+    [Theory]
+    [InlineData(false, ChatProviderKind.CodexAppServer)]
+    [InlineData(true, ChatProviderKind.CodexAppServer)]
+    [InlineData(false, ChatProviderKind.OpenAiAgents)]
+    [InlineData(true, ChatProviderKind.OpenAiAgents)]
+    public async Task Private_chat_mutations_require_the_original_operator(bool organization, ChatProviderKind provider)
+    {
+        var (ticket, id) = await database.CreateAsync();
+        var scope = organization ? ChatScope.Organization("org") : ChatScope.Ticket("incidents", ticket);
+        var route = organization ? "/api/v1/ai/chat/organizations/org" : Route(ticket);
+        var message = Guid.NewGuid();
+        await using (var setup = database.Context())
+        {
+            var chat = await setup.Set<AiAssistantChatConversation>().SingleAsync(row => row.Id == id);
+            await database.Store(setup).AcceptMessageAsync("incidents", ticket, new(id, message, "Synthetic request"), "operator", default);
+            if (organization)
+            {
+                chat.Scope = ChatConversationScope.Organization;
+                chat.TicketId = null;
+                chat.TicketType = null;
+            }
+            chat.ProviderKind = provider;
+            setup.Add(new AiAssistantChatInteraction
+            {
+                ConversationId = id, CallId = "fixture-choice",
+                OptionsJson = JsonSerializer.Serialize(new[] { new ChatOption("deny", "Deny") })
+            });
+            setup.Add(new OpenAiChatDispatch
+            {
+                ConversationId = id, MessageId = message, ActorId = "operator",
+                State = OpenAiDispatchState.Queued, AdmittedAtUtc = DateTimeOffset.UtcNow
+            });
+            await setup.SaveChangesAsync();
+        }
+
+        await using var host = new ChatApi(database);
+        using var colleague = host.Client(role: "HelpdeskAdmin", actor: "second-operator");
+        (string Path, object Request)[] requests =
+        [
+            ("stop-waiting", new ChatStopWaitingRequest(id, message)),
+            ("stop-waiting", new ChatStopWaitingRequest(id, message, ScheduledOnly: true)),
+            ("reconcile", new ChatNewRequest(id)),
+            ("abandon", new ChatAbandonRequest(id, Guid.NewGuid(), message, true)),
+            ("interactions/fixture-choice", new ChatApprovalRequest(id, "deny")),
+            ("messages", new ChatMessageRequest(id, Guid.NewGuid(), "Synthetic follow-up")),
+            ("cancel", new ChatCancelRequest(id, message)),
+            (organization ? "archive" : "new", new ChatNewRequest(id))
+        ];
+        foreach (var (path, request) in requests)
+        {
+            using var response = await colleague.PostAsJsonAsync($"{route}/{path}", request);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+        await using (var check = database.Context())
+        {
+            var chat = await check.Set<AiAssistantChatConversation>().SingleAsync(row => row.Id == id);
+            Assert.Equal(ChatState.Processing, chat.State);
+            Assert.Equal(message, chat.ActiveMessageId);
+            Assert.Equal(2, chat.LastSequence);
+            Assert.Equal(2, await check.Set<AiAssistantChatEvent>().CountAsync(row => row.ConversationId == id));
+            Assert.Null((await check.Set<AiAssistantChatInteraction>().SingleAsync(row => row.ConversationId == id)).SelectedKey);
+            var dispatch = await check.Set<OpenAiChatDispatch>().SingleAsync(row => row.ConversationId == id);
+            Assert.Equal(OpenAiDispatchState.Queued, dispatch.State);
+            Assert.Null(dispatch.CancelRequestedAtUtc);
+        }
+        Assert.Empty(host.Publisher.ReceivedCalls());
+        await host.Transport.DidNotReceiveWithAnyArgs().RespondAsync(default, default!, default!, default);
+        await host.Transport.DidNotReceiveWithAnyArgs().RetireAsync(default, default);
+        await host.Transport.DidNotReceiveWithAnyArgs().ReconcileAsync(default, default);
+        await host.Transport.DidNotReceiveWithAnyArgs().SendAsync(default, default, default!, default);
+
+        using var owner = host.Client();
+        Assert.Equal(HttpStatusCode.Accepted, (await owner.PostAsJsonAsync($"{route}/stop-waiting", new ChatStopWaitingRequest(id, message))).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await owner.PostAsJsonAsync($"{route}/reconcile", new ChatNewRequest(id))).StatusCode);
+        await host.Transport.Received(1).ReconcileAsync(id, Arg.Any<CancellationToken>());
+        await using var verify = database.Context();
+        var saved = await database.Store(verify).LoadAsync(scope, id, 0, "operator", default);
+        Assert.Equal(ChatState.DeliveryUnknown, saved.State);
+        Assert.Contains(saved.Events, evt => evt.Type == "recovery_requested" && evt.CreatedByUserId == "operator");
+    }
+
     [Fact]
     public async Task DisabledChatReturnsUnavailable()
     {
@@ -442,9 +523,10 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
                 }).AddScheme<AuthenticationSchemeOptions, ChatAuthHandler>("ChatTest", _ => { });
             });
         }
-        public HttpClient Client(string role = "Technician", string tenant = "org", string? scopedTenant = null)
+        public HttpClient Client(string role = "Technician", string tenant = "org", string? scopedTenant = null, string actor = "operator")
         {
             var client = CreateClient();
+            client.DefaultRequestHeaders.Add("X-Chat-Test-Actor", actor);
             client.DefaultRequestHeaders.Add("X-Chat-Test-Role", role);
             client.DefaultRequestHeaders.Add("X-Chat-Test-Tenant", tenant);
             if (!string.IsNullOrWhiteSpace(scopedTenant))
@@ -461,7 +543,7 @@ public sealed class AiAssistantChatEndpointsTests(ChatPostgresFixture database, 
             if (!Request.Headers.TryGetValue("X-Chat-Test-Role", out var role)) return Task.FromResult(AuthenticateResult.NoResult());
             var claims = new List<Claim>
             {
-                new(ClaimTypes.NameIdentifier, "operator"),
+                new(ClaimTypes.NameIdentifier, Request.Headers["X-Chat-Test-Actor"].FirstOrDefault() ?? "operator"),
                 new(ClaimTypes.Role, role.ToString()),
                 new("chat_test_tenant", Request.Headers["X-Chat-Test-Tenant"].ToString())
             };

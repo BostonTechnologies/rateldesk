@@ -74,7 +74,8 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             metadata => metadata.Policy == IntegrationCredentialEndpoints.OwnerManagementPolicy);
 
         Assert.Empty(SecuritySchemes(document, "/api/v1/setup/status", "get"));
-        Assert.Empty(SecuritySchemes(document, "/api/v1/tickets/public/view", "get"));
+        Assert.Empty(SecuritySchemes(document, "/api/v1/public/access/exchange", "post"));
+        Assert.Equal(["PublicGrant"], SecuritySchemes(document, "/api/v1/public/access/{accessId}/ticket", "get"));
         Assert.Equal(["JwtBearer", "LocalSession", "McpExecution"], SecuritySchemes(document, "/api/v1/integration-credentials", "get"));
         // Creating another account credential still requires the interactive session
         // policy even though the enclosing group permits owner execution for lifecycle actions.
@@ -155,13 +156,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // owner-bound device connections and subscription profiles.
         // Scoped organization, contact, approver and peer searches add nine operations.
         // Operator closure adds a version-checked operation for requests and one for request tasks.
+        // Scoped public access replaces seven signed routes with nine exchange and access operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(540, operationCount);
+        Assert.Equal(542, operationCount);
 #else
-        Assert.Equal(539, operationCount);
+        Assert.Equal(541, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]
@@ -552,15 +554,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
 
         foreach (var (path, method) in new[]
         {
-            ("/api/v1/request-approvals/public/{trackingId}/{taskId}", "get"),
-            ("/api/v1/request-approvals/public/{trackingId}/{taskId}/approve", "post"),
-            ("/api/v1/request-approvals/public/{trackingId}/{taskId}/reject", "post"),
-            ("/api/v1/changes/public/approval", "get"),
-            ("/api/v1/changes/public/approval/review", "post")
+            ("/api/v1/public/access/{accessId}/request", "get"),
+            ("/api/v1/public/access/{accessId}/request/decision", "post"),
+            ("/api/v1/public/access/{accessId}/change", "get"),
+            ("/api/v1/public/access/{accessId}/change/decision", "post")
         })
         {
-            Assert.Empty(SecuritySchemes(document, path, method));
-            var endpoint = Assert.Single(endpoints, candidate => candidate.RoutePattern.RawText?.TrimEnd('/') == path &&
+            Assert.Equal(["PublicGrant"], SecuritySchemes(document, path, method));
+            var endpoint = Assert.Single(endpoints, candidate => candidate.RoutePattern.RawText?.TrimEnd('/') == path.Replace("{accessId}", "{accessId:guid}", StringComparison.Ordinal) &&
                 candidate.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains(method.ToUpperInvariant()) == true);
             Assert.NotNull(endpoint.Metadata.GetMetadata<IAllowAnonymous>());
         }

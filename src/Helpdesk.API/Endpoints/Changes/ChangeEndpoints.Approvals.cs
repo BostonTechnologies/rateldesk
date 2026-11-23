@@ -1,8 +1,10 @@
+using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.Infrastructure.Security;
+using Helpdesk.Shared.DTOs.PublicAccess;
 using System.Data;
 using System.Security.Claims;
 using System.Text.Json;
 using Helpdesk.Application.Services.Notifications;
-using Helpdesk.Application.Tickets;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Change;
 using Helpdesk.Shared.DTOs.Worklog;
@@ -20,9 +22,10 @@ public static partial class ChangeEndpoints
 {
     public static void MapChangeApprovalEndpoints(this IEndpointRouteBuilder app)
     {
-        var signed = app.MapGroup("/api/v1/changes/public").WithTags("Changes");
-        signed.MapGet("/approval", GetPublicChangeApproval).AllowAnonymous().WithName("GetPublicChangeApproval");
-        signed.MapPost("/approval/review", ReviewPublicChangeApproval).AllowAnonymous().WithName("ReviewPublicChangeApproval");
+        var publicAccess = app.MapGroup(PublicAccessProtocol.ApiPrefix + "/{accessId:guid}/change")
+            .WithTags("Public Access").WithMetadata(new PublicGrantRequiredMetadata()).AllowAnonymous();
+        publicAccess.MapGet("/", GetPublicChangeApproval).Produces<PublicChangeApprovalDto>().WithName("GetPublicChangeApproval");
+        publicAccess.MapPost("/decision", ReviewPublicChangeApproval).WithName("ReviewPublicChangeApproval");
 
         var authenticated = app.MapGroup("/api/v1/changes/{changeId}/approval").WithTags("Changes").RequireAuthorization();
         authenticated.MapGet("/", async (string changeId, ClaimsPrincipal user, [FromServices] ICurrentUserAccessService accessService,
@@ -46,20 +49,22 @@ public static partial class ChangeEndpoints
             .WithName("ReviewAuthenticatedChangeApproval");
     }
 
-    private static async Task<IResult> ReviewPublicChangeApproval([FromBody] ReviewChangeApprovalRequest request,
-        [FromServices] IPublicTicketLinkSigner signer, [FromServices] HelpdeskDbContext db, [FromServices] ITicketNotificationService notificationService,
-        [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
+    private static Task<IResult> ReviewPublicChangeApproval(Guid accessId, PublicApprovalDecision request, HttpContext http,
+        PublicLinkService links, HelpdeskDbContext db, ITicketNotificationService notifications, ILoggerFactory loggerFactory, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.TrackingId) || string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Token))
-            return Results.BadRequest("Tracking ID, email, and token are required.");
-        return await ReviewChangeApprovalAsync(async () =>
+        if (!request.Approve)
+            return Task.FromResult(Results.BadRequest());
+        return ReviewChangeApprovalAsync(async () =>
         {
-            var change = await db.Changes.Include(item => item.Approvals).SingleOrDefaultAsync(item => item.TrackingId == request.TrackingId, ct);
+            if (await PublicLinkEndpoints.AuthorizeAsync(http, links, accessId, ct, forDecision: true) is not
+                { Purpose: PublicLinkPurpose.ChangeApproval } grant)
+                return new(null, null, Results.Unauthorized());
+            var change = await db.Changes.IgnoreQueryFilters().Include(item => item.Approvals)
+                .SingleOrDefaultAsync(item => item.Id == grant.TicketId && item.OrganizationId == grant.OrganizationId, ct);
             if (change is null) return new(null, null, Results.NotFound());
-            if (!signer.ValidateToken(request.Token, change.TrackingId, request.Email)) return new(null, null, Results.Unauthorized());
-            var approvals = change.Approvals.Where(item => string.Equals(item.ApproverEmail, request.Email, StringComparison.OrdinalIgnoreCase)).Take(2).ToArray();
+            var approvals = change.Approvals.Where(item => string.Equals(item.ApproverEmail, grant.Recipient, StringComparison.OrdinalIgnoreCase)).Take(2).ToArray();
             return approvals.Length == 1 ? new(change, approvals[0], null) : new(null, null, Results.Unauthorized());
-        }, null, db, notificationService, loggerFactory, ct);
+        }, null, db, notifications, loggerFactory, ct);
     }
 
     private static async Task<ChangeApprovalSelection> LoadActorChangeApprovalAsync(string changeId, ClaimsPrincipal user,

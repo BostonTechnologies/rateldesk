@@ -1,3 +1,4 @@
+using Helpdesk.Tests.Fixtures;
 using System.Collections.Generic;
 using Helpdesk.Infrastructure.Email;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -102,7 +103,7 @@ public class GraphEmailProcessorTests
             var processor = CreateProcessor(sender, repo, Substitute.For<ITicketAttachmentService>(), Substitute.For<IEmailService>(), templateRepo, inlineImageStorage: storage);
             var customer = new Customer { Id = "customer", OrganizationId = "org", Email = "customer@example.test", Name = "Customer" };
             var message = new Message { Subject = "Screenshots", Body = new ItemBody { ContentType = BodyType.Html, Content = "<img src='cid:body'><img src='cid:signature'>" } };
-            FileAttachment Image(string cid, byte content) => new() { Name = "image001.png", ContentId = cid, ContentBytes = [content], ContentType = "image/png" };
+            FileAttachment Image(string cid, byte content) => new() { Name = "image001.png", ContentId = cid, ContentBytes = SyntheticRaster.Png(content), ContentType = "image/png" };
             await processor.ProcessIncidentAsync(message, [Image("signature", 2), Image("body", 1)], customer, CancellationToken.None);
             var originalHtml = incident.OriginalEmailHtml;
             repo.GetAllAsync().Returns(new[] { incident });
@@ -125,10 +126,10 @@ public class GraphEmailProcessorTests
             }
             var originalBytes = await ReadImages(originalHtml!);
             var replyBytes = await ReadImages(reply.Notes);
-            Assert.Equal(new byte[] { 1 }, originalBytes[0]);
-            Assert.Equal(new byte[] { 2 }, originalBytes[1]);
-            Assert.Equal(new byte[] { 3 }, replyBytes[0]);
-            Assert.Equal(new byte[] { 2 }, replyBytes[1]);
+            SyntheticRaster.AssertPng(1, originalBytes[0]);
+            SyntheticRaster.AssertPng(2, originalBytes[1]);
+            SyntheticRaster.AssertPng(3, replyBytes[0]);
+            SyntheticRaster.AssertPng(2, replyBytes[1]);
             Assert.Equal(3, Directory.GetFiles(root, "*", SearchOption.AllDirectories).Length);
         }
         finally

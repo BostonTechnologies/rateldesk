@@ -64,10 +64,10 @@ public class CreateWorkLogCommandHandlerTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["PublicWebAppUrl"] = "https://app" })
             .Build();
-        var publicTicketLinkSigner = Substitute.For<IPublicTicketLinkSigner>();
+        var publicTicketLinkSigner = Substitute.For<IPublicLinkIssuer>();
         publicTicketLinkSigner
-            .GenerateToken(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>())
-            .Returns("signed-token");
+            .IssueAsync(Arg.Any<Ticket>(), Arg.Any<string>(), Arg.Any<Helpdesk.Shared.DTOs.PublicAccess.PublicLinkPurpose>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
+            .Returns("https://desk.example.test/public/link#synthetic-fixture");
 
         var handler = new CreateWorkLogCommandHandler(
             workLogRepo,
@@ -152,7 +152,7 @@ public class CreateWorkLogCommandHandlerTests
         var layoutResolver = Substitute.For<IEmailLayoutResolver>();
         var tenantBrandingResolver = Substitute.For<ITenantBrandingResolver>();
         var config = new ConfigurationBuilder().Build();
-        var publicTicketLinkSigner = Substitute.For<IPublicTicketLinkSigner>();
+        var publicTicketLinkSigner = Substitute.For<IPublicLinkIssuer>();
 
         var handler = new CreateWorkLogCommandHandler(
             workLogRepo,
@@ -227,10 +227,10 @@ public class CreateWorkLogCommandHandlerTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["PublicWebAppUrl"] = "https://app" })
             .Build();
-        var publicTicketLinkSigner = Substitute.For<IPublicTicketLinkSigner>();
+        var publicTicketLinkSigner = Substitute.For<IPublicLinkIssuer>();
         publicTicketLinkSigner
-            .GenerateToken(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>())
-            .Returns("signed-token");
+            .IssueAsync(Arg.Any<Ticket>(), Arg.Any<string>(), Arg.Any<Helpdesk.Shared.DTOs.PublicAccess.PublicLinkPurpose>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
+            .Returns("https://desk.example.test/public/link#synthetic-fixture");
 
         var handler = new CreateWorkLogCommandHandler(
             workLogRepo,
@@ -304,7 +304,7 @@ public class CreateWorkLogCommandHandlerTests
         var layoutResolver = Substitute.For<IEmailLayoutResolver>();
         var tenantBrandingResolver = Substitute.For<ITenantBrandingResolver>();
         var config = new ConfigurationBuilder().Build();
-        var publicTicketLinkSigner = Substitute.For<IPublicTicketLinkSigner>();
+        var publicTicketLinkSigner = Substitute.For<IPublicLinkIssuer>();
 
         var handler = new CreateWorkLogCommandHandler(
             workLogRepo,
@@ -385,10 +385,10 @@ public class CreateWorkLogCommandHandlerTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["PublicWebAppUrl"] = "https://app" })
             .Build();
-        var publicTicketLinkSigner = Substitute.For<IPublicTicketLinkSigner>();
+        var publicTicketLinkSigner = Substitute.For<IPublicLinkIssuer>();
         publicTicketLinkSigner
-            .GenerateToken(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>())
-            .Returns("signed-token");
+            .IssueAsync(Arg.Any<Ticket>(), Arg.Any<string>(), Arg.Any<Helpdesk.Shared.DTOs.PublicAccess.PublicLinkPurpose>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
+            .Returns("https://desk.example.test/public/link#synthetic-fixture");
 
         var handler = new CreateWorkLogCommandHandler(
             workLogRepo,
@@ -452,7 +452,7 @@ public class CreateWorkLogCommandHandlerTests
         tenantBrandingResolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new TenantBrandingResolved());
         var config = new ConfigurationBuilder().Build();
-        var publicTicketLinkSigner = Substitute.For<IPublicTicketLinkSigner>();
+        var publicTicketLinkSigner = Substitute.For<IPublicLinkIssuer>();
         var ticketSlaService = Substitute.For<ITicketSlaService>();
 
         var handler = new CreateWorkLogCommandHandler(

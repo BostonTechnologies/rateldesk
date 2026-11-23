@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Storage;
 using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Persistence;
@@ -261,17 +262,21 @@ public static class EmailTemplateEndpoints
             if (file is null || file.Length == 0)
                 return Results.BadRequest("Image file is required.");
 
-            if (string.IsNullOrWhiteSpace(file.ContentType) || !file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-                return Results.BadRequest("Only image uploads are allowed.");
+            if (file.Length > SafeInlineImage.MaxInputBytes ||
+                !SafeInlineImage.MatchesDeclaredType(file.FileName, file.ContentType))
+                return Results.BadRequest("A supported raster image is required.");
 
-            await using var stream = file.OpenReadStream();
             await using var memory = new MemoryStream();
-            await stream.CopyToAsync(memory);
-
-            var url = await imageStorage.SaveTemplateInlineImageAsync(
-                name,
-                file.FileName,
-                memory.ToArray());
+            await file.CopyToAsync(memory);
+            string url;
+            try
+            {
+                url = await imageStorage.SaveTemplateInlineImageAsync(name, file.FileName, memory.ToArray());
+            }
+            catch (InlineImageRejectedException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
 
             return Results.Ok(new { url });
         })
@@ -300,22 +305,8 @@ public static class EmailTemplateEndpoints
                 return Results.Unauthorized();
             }
 
-            var storageRoot = string.IsNullOrWhiteSpace(storageOptions.Value.RootPath)
-                ? Path.Combine(env.ContentRootPath, "storage")
-                : storageOptions.Value.RootPath;
-            var rootPath = Path.Combine(storageRoot, "email-templates");
-            var fullPath = Path.GetFullPath(Path.Combine(rootPath, safeTemplateName, "inline", safeFilename));
-            var fullRoot = Path.GetFullPath(rootPath);
-
-            if (!fullPath.StartsWith(fullRoot, StringComparison.Ordinal))
-                return Results.BadRequest("Invalid path.");
-
-            if (!File.Exists(fullPath))
-                return Results.NotFound();
-
-            logger.LogInformation("Serving template inline image. Template={Template} Path={Path}", safeTemplateName, fullPath);
-            var contentType = ContentTypeHelper.GetContentType(safeFilename);
-            return Results.File(fullPath, contentType);
+            var storageRoot = storageOptions.Value.ResolveRootPath(env.ContentRootPath);
+            return SignedRasterAsset.Serve(httpContext, Path.Combine(storageRoot, "email-templates", safeTemplateName, "inline"), safeFilename);
         })
         .WithTags("Email Templates")
         .WithName("GetEmailTemplateImage")

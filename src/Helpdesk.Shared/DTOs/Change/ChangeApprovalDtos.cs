@@ -18,7 +18,6 @@ public class ChangeApprovalDto
 
 public class PublicChangeApprovalDto
 {
-    public string ChangeId { get; set; } = string.Empty;
     public string TrackingId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
@@ -26,7 +25,6 @@ public class PublicChangeApprovalDto
     public ChangeLifecycleState LifecycleState { get; set; }
     public string? OrganizationName { get; set; }
     public string? RequestedForName { get; set; }
-    public string? ImplementorName { get; set; }
     public DateTime? ImplementationStartAt { get; set; }
     public DateTime? ImplementationEndAt { get; set; }
     public string? ScopeOfChange { get; set; }

@@ -17,7 +17,7 @@ export default defineConfig({
   testDir: './tests/ux',
   // These suites own synthetic API hosts and role-specific Web instances. Their
   // dedicated configurations run in the workspace-ux acceptance job.
-  testIgnore: [...testIgnore, '**/login-presentation.spec.ts', '**/assignee-picker.spec.ts',
+  testIgnore: [...testIgnore, ...(process.env.HELPDESK_E2E_DAYBREAK === 'true' ? [] : ['**/daybreak-local.spec.ts']), '**/login-presentation.spec.ts', '**/assignee-picker.spec.ts',
     '**/email-display.spec.ts', '**/ticket-filters.spec.ts', '**/ticket-customer-layout.spec.ts', '**/ticket-details.spec.ts', '**/ticket-details-roles.spec.ts',
     '**/operations-workspace.spec.ts', '**/request-editor.spec.ts', '**/pending-mail.spec.ts', '**/native-zoom.spec.ts', '**/self-service-workspace.spec.ts', '**/self-service-submission.spec.ts',
     '**/admin-directories.spec.ts', '**/premium-cards.spec.ts', '**/team-directory.spec.ts', '**/team-oidc-mode.spec.ts',

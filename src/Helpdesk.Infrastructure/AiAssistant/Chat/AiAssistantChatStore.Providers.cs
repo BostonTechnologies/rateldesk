@@ -31,8 +31,9 @@ public sealed partial class AiAssistantChatStore
 
     private async Task RecordProviderDecisionAsync(AiAssistantChatConversation conversation, string callId, string key, string actor, CancellationToken ct)
     {
-        if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents) return;
+        if (!UsesProviderWorker(conversation)) return;
         await profiles!.EnsureAdmissionAsync(conversation, actor, ct);
+        if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents) return;
         var decision = await db.Set<OpenAiChatDecision>().SingleOrDefaultAsync(row =>
             row.ConversationId == conversation.Id && row.CallId == callId, ct)
             ?? throw new KeyNotFoundException("The provider decision is unavailable.");
@@ -55,8 +56,7 @@ public sealed partial class AiAssistantChatStore
     {
         var bound = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(request.ConversationId, ct);
-        Bind(conversation, bound, actor);
+        var conversation = await LockBoundAsync(request.ConversationId, bound, actor, ct);
         if (!UsesProviderWorker(conversation) || conversation.State is ChatState.Idle or ChatState.Archived ||
             request.ExpectedMessageId != conversation.ActiveMessageId)
             throw new ChatConflictException("There is no matching OpenAI turn to cancel.");
@@ -78,8 +78,7 @@ public sealed partial class AiAssistantChatStore
     {
         var bound = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(id, ct);
-        Bind(conversation, bound, actor);
+        var conversation = await LockBoundAsync(id, bound, actor, ct);
         if (conversation.ProviderKind != ChatProviderKind.OpenAiAgents || conversation.AiAssistantSessionId is null)
             throw new ChatConflictException("There is no OpenAI session to delete.");
         if (conversation.State is not (ChatState.Idle or ChatState.Archived))

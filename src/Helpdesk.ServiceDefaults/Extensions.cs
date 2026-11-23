@@ -1,3 +1,4 @@
+using Helpdesk.ServiceDefaults.Security;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
@@ -178,10 +179,12 @@ public static class Extensions
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
+                            && !PublicAccessResponse.IsPublicLinkPath(context.Request.Path)
                     )
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
-                    .AddHttpClientInstrumentation();
+                    .AddHttpClientInstrumentation(options => options.FilterHttpRequestMessage = request =>
+                        !PublicAccessResponse.IsPublicLinkPath(request.RequestUri?.AbsolutePath ?? ""));
 
                 if (useOtlpExporter)
                 {

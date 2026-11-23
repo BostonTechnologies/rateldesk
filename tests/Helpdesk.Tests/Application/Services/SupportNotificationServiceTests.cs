@@ -148,9 +148,9 @@ public sealed class SupportNotificationServiceTests
         var brandingResolver = Substitute.For<ITenantBrandingResolver>();
         brandingResolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new TenantBrandingResolved());
-        var signer = Substitute.For<IPublicTicketLinkSigner>();
-        signer.GenerateToken(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>())
-            .Returns("token");
+        var signer = Substitute.For<IPublicLinkIssuer>();
+        signer.IssueAsync(Arg.Any<Ticket>(), Arg.Any<string>(), Arg.Any<Helpdesk.Shared.DTOs.PublicAccess.PublicLinkPurpose>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
+            .Returns("https://desk.example.test/public/link#synthetic-fixture");
         var email = Substitute.For<IEmailService>();
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>

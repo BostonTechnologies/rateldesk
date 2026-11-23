@@ -1,3 +1,4 @@
+using Helpdesk.Tests.Fixtures;
 using Helpdesk.Infrastructure.Storage;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Hosting;
@@ -31,7 +32,7 @@ public class TenantBrandAssetStorageServiceTests
             signer,
             NullLogger<TenantBrandAssetStorageService>.Instance);
 
-        var url = await service.SaveLogoAsync(42, "logo.png", new byte[] { 1, 2, 3 });
+        var url = await service.SaveLogoAsync(42, "logo.png", SyntheticRaster.Png());
 
         var uri = new Uri(url);
         Assert.Contains("/api/tenants/42/branding/logo/logo.png", uri.AbsolutePath, StringComparison.Ordinal);

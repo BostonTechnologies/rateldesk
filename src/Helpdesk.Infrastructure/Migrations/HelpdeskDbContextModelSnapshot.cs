@@ -1145,6 +1145,81 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("NotificationReads", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCapability", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BrowserDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("GrantExpiresAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("LaunchDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("Legacy")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("Purpose")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<long?>("RevokedAt")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TaskId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("LaunchDigest")
+                        .IsUnique();
+
+                    b.ToTable("PublicLinkCapability");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCompatibility", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<long>("LegacyCutoffUnix")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PublicLinkCompatibility");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.ServiceIdentity.ServiceIdentityConfiguration", b =>
                 {
                     b.Property<int>("Id")

@@ -182,8 +182,9 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await integration.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(integration.getByRole('combobox', { name: /^Organization\*?$/ })).toBeVisible();
   const organization = integration.getByRole('combobox', { name: /^Organization\*?$/ });
-  await organization.selectOption({ label: 'Browser Wizard Organization' });
-  await expect(organization.locator('option:checked')).toHaveText('Browser Wizard Organization');
+  await organization.fill('Browser Wizard');
+  await page.getByRole('option', { name: 'Browser Wizard Organization', exact: false }).click();
+  await expect(organization).toHaveValue('Browser Wizard Organization');
   const permissions = page.getByTestId('credential-permission-selector');
   await expect(permissions).toBeVisible();
   await expect(permissions.getByRole('checkbox', { checked: true })).toHaveCount(0);

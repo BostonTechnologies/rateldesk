@@ -1,35 +1,31 @@
-@page "/request-approval/{TrackingId}/{TaskId}"
+@page "/public/access/{AccessId:guid}/request"
 @layout PublicLayout
 @attribute [AllowAnonymous]
-@rendermode InteractiveServer
+@attribute [ExcludeFromInteractiveRouting]
 
 @using Helpdesk.Shared.DTOs.Request
 @using Helpdesk.Shared.Models
-@using Microsoft.AspNetCore.WebUtilities
 
-@inject IHttpClientFactory HttpClientFactory
-@inject ISnackbar Snackbar
-@inject NavigationManager NavigationManager
+
+@inject PublicBrowserAccess PublicAccess
 
 <PageTitle>Request Approval</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="mt-6 mb-12">
     <MudPaper Class="pa-6 pa-md-8" Elevation="2">
-        @if (loading)
-        {
-            <MudStack AlignItems="AlignItems.Center" Class="py-8">
-                <MudProgressCircular Indeterminate="true" />
-            </MudStack>
-        }
-        else if (approval is null)
+        @if (approval is null)
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
-                This approval link could not be opened. Please use the latest link from your email.
+                This approval session is unavailable. Open the original email to continue or request a replacement link.
             </MudAlert>
         }
         else
         {
             <MudStack Spacing="3">
+                @if (ReviewUnavailable)
+                {
+                    <MudAlert Severity="Severity.Error">The decision could not be recorded. Check the current approval status before trying again.</MudAlert>
+                }
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <img src="/branding/rateldesk-mark.webp" alt="RatelDesk" style="max-height:46px; max-width:220px;" />
                     <MudText Typo="Typo.caption" Color="Color.Secondary">@approval.TrackingId</MudText>
@@ -51,10 +47,6 @@
                     <MudItem xs="12" sm="6">
                         <MudText Typo="Typo.overline">Approval Task</MudText>
                         <MudText Typo="Typo.body1">@approval.TaskName</MudText>
-                    </MudItem>
-                    <MudItem xs="12" sm="6">
-                        <MudText Typo="Typo.overline">Approver</MudText>
-                        <MudText Typo="Typo.body1">@approval.ApproverName (@approval.ApproverEmail)</MudText>
                     </MudItem>
                     <MudItem xs="12" sm="6">
                         <MudText Typo="Typo.overline">Due</MudText>
@@ -95,157 +87,36 @@
                 }
                 else
                 {
-                    <MudStack Row="true" Spacing="2">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@submitting" OnClick="Approve">
-                            Approve
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@submitting" OnClick="Reject">
-                            Reject
-                        </MudButton>
-                    </MudStack>
+                    <form method="post" action="@DecisionPath" data-enhance="false">
+                        <AntiforgeryToken />
+                        <button class="mud-button-root mud-button-filled mud-button-filled-primary" type="submit" name="decision" value="approve">Approve</button>
+                    </form>
+                    <details>
+                        <summary>Reject</summary>
+                        <form method="post" action="@DecisionPath" data-enhance="false">
+                            <AntiforgeryToken />
+                            <label for="review-reason">Reason for rejection</label>
+                            <textarea id="review-reason" name="reason" maxlength="1000" required></textarea>
+                            <button class="mud-button-root mud-button-outlined mud-button-outlined-error" type="submit" name="decision" value="reject">Reject Request</button>
+                        </form>
+                    </details>
                 }
             </MudStack>
         }
     </MudPaper>
 </MudContainer>
 
-<MudDialog @bind-Visible="rejectDialogOpen" Options="rejectDialogOptions">
-    <TitleContent>
-        <MudText Typo="Typo.h6">Reject Request</MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                Enter the reason the requester should see.
-            </MudText>
-            <MudTextField @bind-Value="rejectReason"
-                          Label="Reject reason"
-                          Variant="Variant.Outlined"
-                          Lines="5"
-                          MaxLength="1000"
-                          Counter="1000"
-                          Immediate="true"
-                          AutoFocus="true"
-                          Required="true" />
-        </MudStack>
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="CloseRejectDialog" Disabled="@submitting">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Error"
-                   Disabled="@(submitting || string.IsNullOrWhiteSpace(rejectReason))"
-                   OnClick="ConfirmReject">
-            Reject Request
-        </MudButton>
-    </DialogActions>
-</MudDialog>
-
 @code {
-    [Parameter] public string TrackingId { get; set; } = string.Empty;
-    [Parameter] public string TaskId { get; set; } = string.Empty;
+    [Parameter] public Guid AccessId { get; set; }
+    [SupplyParameterFromQuery(Name = "review")] public string? Review { get; set; }
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+    private PublicRequestReviewDto? approval;
+    private bool ReviewUnavailable => Review == "unavailable";
+    private string DecisionPath => PublicBrowserAccess.AccessPath(AccessId) + "/request/decision";
 
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("SystemApi");
-    private PublicRequestTaskApprovalDto? approval;
-    private string email = string.Empty;
-    private string token = string.Empty;
-    private bool loading = true;
-    private bool submitting;
-    private bool rejectDialogOpen;
-    private string rejectReason = string.Empty;
-    private readonly DialogOptions rejectDialogOptions = new()
+    protected override async Task OnInitializedAsync()
     {
-        CloseOnEscapeKey = true,
-        MaxWidth = MaxWidth.Small,
-        FullWidth = true
-    };
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender)
-        {
-            return;
-        }
-
-        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
-        var query = QueryHelpers.ParseQuery(uri.Query);
-        email = query.TryGetValue("email", out var emailValue) ? emailValue.ToString().Trim() : string.Empty;
-        token = query.TryGetValue("token", out var tokenValue) ? tokenValue.ToString().Trim() : string.Empty;
-
-        await LoadApproval();
-        StateHasChanged();
-    }
-
-    private async Task LoadApproval()
-    {
-        loading = true;
-        try
-        {
-            var url = $"api/v1/request-approvals/public/{Uri.EscapeDataString(TrackingId)}/{Uri.EscapeDataString(TaskId)}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-            var response = await HelpdeskApi.GetAsync(url);
-            approval = response.IsSuccessStatusCode
-                ? await response.Content.ReadFromJsonAsync<PublicRequestTaskApprovalDto>()
-                : null;
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Unable to load request approval: {ex.Message}", Severity.Error);
-            approval = null;
-        }
-        finally
-        {
-            loading = false;
-        }
-    }
-
-    private async Task Approve() => await Submit("approve", "Request approved.");
-
-    private Task Reject()
-    {
-        rejectReason = string.Empty;
-        rejectDialogOpen = true;
-        return Task.CompletedTask;
-    }
-
-    private void CloseRejectDialog()
-    {
-        rejectDialogOpen = false;
-        rejectReason = string.Empty;
-    }
-
-    private async Task ConfirmReject()
-    {
-        if (string.IsNullOrWhiteSpace(rejectReason))
-        {
-            Snackbar.Add("Enter a rejection reason.", Severity.Warning);
-            return;
-        }
-
-        rejectDialogOpen = false;
-        await Submit("reject", "Request rejected.", rejectReason.Trim());
-    }
-
-    private async Task Submit(string action, string successMessage, string? reason = null)
-    {
-        submitting = true;
-        try
-        {
-            var response = await HelpdeskApi.PostAsJsonAsync(
-                $"api/v1/request-approvals/public/{Uri.EscapeDataString(TrackingId)}/{Uri.EscapeDataString(TaskId)}/{action}",
-                new PublicRequestApprovalReviewRequest(email, token, reason));
-            if (!response.IsSuccessStatusCode)
-            {
-                Snackbar.Add("Unable to submit approval. Please use the latest link from your email.", Severity.Error);
-                return;
-            }
-
-            await LoadApproval();
-            Snackbar.Add(successMessage, Severity.Success);
-            rejectReason = string.Empty;
-        }
-        finally
-        {
-            submitting = false;
-        }
+        approval = await PublicAccess.ReadAsync<PublicRequestReviewDto>(HttpContext, AccessId, "request");
     }
 
     private static string FormatDate(DateTimeOffset? value) =>

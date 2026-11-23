@@ -62,7 +62,7 @@
                             </MudMenuItem>
                         </MudMenu>
                     </MudTooltip>
-                    <MudMenu Icon="@Icons.Material.Filled.Settings">
+                    <MudMenu Icon="@Icons.Material.Filled.Settings" aria-label="Account settings">
                         <MudMenuItem>Profile</MudMenuItem>
                         <MudMenuItem>Preferences</MudMenuItem>
                         <MudDivider />
@@ -75,7 +75,7 @@
                             <MudMenuItem Href="/account/change-password">Change passphrase</MudMenuItem>
                             <MudMenuItem Href="/account/authenticator">Authenticator app</MudMenuItem>
                         }
-                        <MudMenuItem Href="/logout">Logout</MudMenuItem>
+                        <button class="mud-menu-item mud-ripple" type="submit" form="rateldesk-logout" data-testid="desktop-logout">Logout</button>
                     </MudMenu>
                 </div>
                 <div class="helpdesk-appbar-mobile-actions">
@@ -83,7 +83,7 @@
                              Color="Color.Inherit"
                              AnchorOrigin="Origin.BottomRight"
                              TransformOrigin="Origin.TopRight"
-                             Class="helpdesk-appbar-mobile-menu">
+                             Class="helpdesk-appbar-mobile-menu" aria-label="More options">
                         <MudMenuItem Href="/api/docs/" Icon="@Icons.Material.Filled.Api">API Docs</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.NewReleases">
                             @_appBarVersion.DisplayVersion
@@ -106,7 +106,9 @@
                             <MudMenuItem Href="/account/change-password" Icon="@Icons.Material.Filled.Password">Change passphrase</MudMenuItem>
                             <MudMenuItem Href="/account/authenticator" Icon="@Icons.Material.Filled.Security">Authenticator app</MudMenuItem>
                         }
-                        <MudMenuItem Href="/logout" Icon="@Icons.Material.Filled.Logout">Logout</MudMenuItem>
+                        <button class="mud-menu-item mud-ripple" type="submit" form="rateldesk-logout" data-testid="mobile-logout">
+                            <MudIcon Icon="@Icons.Material.Filled.Logout" /> Logout
+                        </button>
                     </MudMenu>
                 </div>
             </Authorized>

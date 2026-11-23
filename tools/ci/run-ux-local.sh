@@ -179,6 +179,17 @@ Bootstrap__Unattended__OrganizationName='Fixture Organization' \
 Bootstrap__Unattended__ApplicationUrl="$web_url" \
 dotnet run --project src/Helpdesk.API/Helpdesk.API.csproj --configuration Release --no-build --no-launch-profile -- --initialize-unattended
 
+if [[ "${HELPDESK_E2E_DAYBREAK:-}" == true ]]; then
+  for collection in incidents worklogs; do
+    storage="$setup_state_dir/e2e-storage/$collection/browser-fixture/inline"
+    mkdir -p "$storage"
+    printf '%s
+' '<svg xmlns="http://www.w3.org/2000/svg"><text x="10" y="25">Synthetic raster fixture marker</text></svg>' > "$storage/sample.svg"
+    cp "$storage/sample.svg" "$storage/sample.png"
+  done
+  export HELPDESK_E2E_ASSET_SIGNING_KEY="$e2e_system_secret"
+fi
+
 ASPNETCORE_ENVIRONMENT=Development \
 Bootstrap__StateDirectory="$setup_state_dir/e2e-state" \
 DataProtection__KeyRingPath="$setup_state_dir/e2e-keys" \
@@ -189,6 +200,8 @@ ConnectionStrings__HelpdeskDb="Host=127.0.0.1;Port=${database_port};Database=rat
 EmailIngestion__Enabled=false \
 Helpdesk__E2eSeedData=true \
 StorageOptions__ImageSigningSecret="$e2e_system_secret" \
+StorageOptions__RootPath="$setup_state_dir/e2e-storage" \
+PublicIngress__TrustWebProof=true \
 StorageOptions__PublicApiBaseUrl="$api_url" \
 ExchangeEmail__TenantId=00000000-0000-0000-0000-000000000000 \
 ExchangeEmail__ClientId=00000000-0000-0000-0000-000000000001 \

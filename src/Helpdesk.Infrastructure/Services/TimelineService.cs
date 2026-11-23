@@ -1,3 +1,4 @@
+using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.Tickets;
@@ -19,7 +20,7 @@ public class TimelineService(
     IEmailTemplateRenderer templateRenderer,
     IEmailLayoutResolver layoutResolver,
     ITenantBrandingResolver tenantBrandingResolver,
-    IPublicTicketLinkSigner publicTicketLinkSigner,
+    IPublicLinkIssuer publicLinks,
     ITimelineEventBus timelineEventBus,
     IConfiguration config,
     MailboxOutboxStore? mailboxOutbox = null,
@@ -221,7 +222,7 @@ public class TimelineService(
         {
             UserName = customer?.Name ?? "Customer",
             TicketRef = ticketRef,
-            TicketLink = BuildSignedPublicTicketLink(publicUrl, ticketRef, recipient),
+            TicketLink = await publicLinks.IssueAsync(ticket, recipient, PublicLinkPurpose.Ticket, publicUrl, ct),
             UpdateMessageHtml = updateHtml ?? string.Empty,
             UpdateMessageText = updateText ?? string.Empty,
             LayoutHtml = layout?.HtmlContent ?? string.Empty,
@@ -282,10 +283,4 @@ public class TimelineService(
         };
     }
 
-    private string BuildSignedPublicTicketLink(string publicUrl, string trackingId, string email)
-    {
-        var expires = DateTimeOffset.UtcNow.AddDays(7);
-        var token = publicTicketLinkSigner.GenerateToken(trackingId, email, expires);
-        return $"{publicUrl}/view-ticket/{trackingId}?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-    }
 }

@@ -269,10 +269,6 @@ public sealed class RequestTaskApprovalDecisionProviderTests
     {
         public ServiceIdentityMigrationTests.DatabaseFixture Database { get; } = database;
         public ITimelineEventBus TimelineBus { get; } = Substitute.For<ITimelineEventBus>();
-        private readonly PublicTicketLinkSigner signer = new(Options.Create(new StorageOptions
-        {
-            ImageSigningSecret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32))
-        }), NullLogger<PublicTicketLinkSigner>.Instance);
         private static readonly CurrentUserAccessProfile Access = new(true, "Designated approver", OwnerEmail, "org-approval", "Synthetic organization",
             null, true, new HashSet<string>(), new HashSet<string> { HelpdeskPermissions.HelpdeskAdmin },
             new HashSet<string> { "org-approval" }, new HashSet<string> { "org-approval" });
@@ -295,16 +291,15 @@ public sealed class RequestTaskApprovalDecisionProviderTests
                     await db.SaveChangesAsync(call.Arg<CancellationToken>());
                     return true;
                 });
-            return new RequestTaskApprovalService(db, new RequestFormSchemaParser(), notifications, signer, TimelineBus,
+            return new RequestTaskApprovalService(db, new RequestFormSchemaParser(), notifications, TimelineBus,
                 NullLogger<RequestTaskApprovalService>.Instance);
         }
 
         public Task<RequestTaskApprovalReviewResult> ReviewAsync(RequestTaskApprovalService service, bool authenticated, bool approve, CancellationToken ct)
         {
             if (authenticated) return service.ReviewForActorAsync(TaskId, OwnerId, Access, approve, "Synthetic rejection reason.", ct);
-            var token = signer.GenerateToken($"{TrackingId}:{TaskId}", OwnerEmail, DateTimeOffset.UtcNow.AddHours(1));
-            return approve ? service.ApproveAsync(TrackingId, TaskId, OwnerEmail, token, ct)
-                : service.RejectAsync(TrackingId, TaskId, OwnerEmail, token, "Synthetic rejection reason.", ct);
+            return service.ReviewForGrantAsync(new(RequestId, "org-approval", TaskId, OwnerEmail), approve,
+                "Synthetic rejection reason.", () => Task.FromResult(true), ct);
         }
 
         public static async Task<Fixture> CreateAsync(bool postgres, bool overdue = false)

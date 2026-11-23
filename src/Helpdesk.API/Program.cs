@@ -1,3 +1,5 @@
+using Helpdesk.ServiceDefaults.Security;
+using Helpdesk.API.Endpoints.PublicIngress;
 using Dodo.Primitives;
 using FluentValidation;
 using Helpdesk.API.Authentication;
@@ -302,14 +304,14 @@ if (bootstrapDescriptor is not null && bootstrapDescriptor.State is not Bootstra
     builder.Services.AddSingleton<PostgreSqlSetupPreflightService>();
     builder.Services.AddHostedService<BootstrapRuntimeTransitionWatcher>();
     builder.Services.AddProblemDetails();
-    builder.Services.AddRateLimiter(BootstrapEndpoints.ConfigureRateLimiting);
+    PublicAdmission.Configure(builder);
 
     var bootstrapApp = builder.Build();
     if (bootstrapDescriptor.State is BootstrapState.Unconfigured or BootstrapState.Configuring)
         bootstrapApp.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RatelDesk.Setup")
             .LogInformation("RatelDesk setup is required. Open /setup and retrieve the setup code by running dotnet /app/Helpdesk.API.dll --show-setup-code in the API container. For non-secret diagnostics, run dotnet /app/Helpdesk.API.dll --setup-status. The setup code is not written to logs.");
     bootstrapApp.UseExceptionHandler();
-    bootstrapApp.UseRateLimiter();
+    PublicAdmission.Use(bootstrapApp);
     bootstrapApp.MapGet("/health/live", () => Results.Ok(new { status = "alive" })).AllowAnonymous();
     bootstrapApp.MapGet("/health/ready", () => bootstrapDescriptor.State == BootstrapState.RecoveryRequired
         ? Results.Json(new { status = "recovery-required" }, statusCode: StatusCodes.Status503ServiceUnavailable)
@@ -320,6 +322,8 @@ if (bootstrapDescriptor is not null && bootstrapDescriptor.State is not Bootstra
 }
 
 builder.AddServiceDefaults();
+PublicAdmission.Configure(builder);
+builder.Services.AddSingleton<PublicTicketAssets>();
 // Keep database instrumentation with the host that owns Npgsql.
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddNpgsql());
@@ -470,37 +474,10 @@ builder.Services.AddSingleton<AppServices.Email.IImapEmailService, AppServices.E
 //builder.Services.AddSingleton<IEmailService, PostalEmailService>();
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddPolicy("TicketSubmission", httpContext =>
-    {
-        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: ip,
-            factory: partition => new FixedWindowRateLimiterOptions
-            {
-                AutoReplenishment = true,
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0
-            });
-    });
     options.AddPolicy("IntegrationPairing", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { AutoReplenishment = true, PermitLimit = 3000,
                 Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
-    options.AddPolicy("LocalLogin", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                AutoReplenishment = true,
-                PermitLimit = 100,
-                Window = TimeSpan.FromMinutes(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0
-            }));
-
     options.OnRejected = (context, ct) =>
     {
         if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry))
@@ -573,7 +550,7 @@ builder.Services.AddAuthentication(options =>
             if (iss.Contains("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) ||
                 iss.Contains("sts.windows.net", StringComparison.OrdinalIgnoreCase)) return "Azure";
         }
-        catch { /* fall through */ }
+        catch (Exception) { return "Azure"; }
 
         return "Azure";
     };
@@ -1035,7 +1012,10 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
+// The host diagnostics category includes request queries before middleware runs.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 var app = builder.Build();
+app.UsePublicLinkResponseHeaders();
 
 if (!skipDatabaseStartup)
 {
@@ -1105,6 +1085,7 @@ if (app.Environment.IsDevelopment())
         .WithSummary("Write test log entry");
 }
 
+PublicAdmission.Use(app);
 app.UseAuthentication();
 app.UseMiddleware<SetupVerificationExecutionBoundaryMiddleware>();
 app.UseMiddleware<Helpdesk.API.Middleware.LocalCookieCsrfMiddleware>();
@@ -1160,6 +1141,7 @@ app.MapPresenceEndpoints();
 app.MapDashboardEndpoints();
 app.MapTicketEndpoints();
 app.MapTicketSlaEndpoints();
+app.MapPublicLinkEndpoints();
 app.MapPublicTicketEndpoints();
 app.MapTicketSubmissionEndpoints();
 app.MapTicketingLookupEndpoints();
@@ -1299,9 +1281,9 @@ app.MapPost("/api/v1/ingestEmail", async (
     {
         await ticketSlaInitializer.InitializeAsync(ticket);
     }
-    catch
+    catch (Exception error)
     {
-        // Email ingestion should not fail if SLA initialization fails.
+        app.Logger.LogWarning("Incident SLA initialization failed. ErrorType={Type}", error.GetType().Name);
     }
 
     return Results.Created($"/api/v1/incidents/{ticket.Id}", ticket); // 201
@@ -1419,10 +1401,13 @@ app.Run();
 
 static SymmetricSecurityKey BuildSymmetricKey(string secret)
 {
-    // If you store hex/base64, decode; otherwise fall back to UTF8.
-    try { return new SymmetricSecurityKey(Convert.FromHexString(secret)); } catch { }
-    try { return new SymmetricSecurityKey(Convert.FromBase64String(secret)); } catch { }
-    return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+    // Prefer hex to base64 for stored values that satisfy both formats.
+    if (secret.Length % 2 == 0 && secret.All(char.IsAsciiHexDigit))
+        return new SymmetricSecurityKey(Convert.FromHexString(secret));
+    var decoded = new byte[secret.Length];
+    return Convert.TryFromBase64String(secret, decoded, out var written) && written > 0
+        ? new SymmetricSecurityKey(decoded[..written])
+        : new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
 }
 
 static void MapCrudEndpoints<T>(WebApplication app, string route) where T : class

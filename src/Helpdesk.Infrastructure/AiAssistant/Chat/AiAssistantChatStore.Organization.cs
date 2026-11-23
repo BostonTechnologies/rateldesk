@@ -107,8 +107,7 @@ public sealed partial class AiAssistantChatStore
     {
         var bound = await ResolveScopeAsync(scope, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var conversation = await LockAsync(id, ct);
-        Bind(conversation, bound, actor);
+        var conversation = await LockBoundAsync(id, bound, actor, ct);
         if (conversation.State == ChatState.Archived) return;
         ChatRules.RequireIdle(conversation.State);
         conversation.State = ChatState.Archived;

@@ -1,4 +1,5 @@
 using Helpdesk.API.Bootstrap;
+using Helpdesk.API.Endpoints.PublicIngress;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
@@ -33,9 +34,9 @@ public sealed class BootstrapStartupTests : IDisposable
         builder.Services.AddSingleton<BootstrapInitializationService>();
         builder.Services.AddSingleton<PostgreSqlSetupPreflightService>();
         builder.Services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
-        builder.Services.AddRateLimiter(BootstrapEndpoints.ConfigureRateLimiting);
+        PublicAdmission.Configure(builder);
         await using var app = builder.Build();
-        app.UseRateLimiter();
+        PublicAdmission.Use(app);
         app.MapBootstrapEndpoints();
         await app.StartAsync();
         using var client = app.GetTestClient();

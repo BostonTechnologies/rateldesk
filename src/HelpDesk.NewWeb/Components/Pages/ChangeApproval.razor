@@ -1,35 +1,31 @@
-@page "/change-approval/{TrackingId}"
+@page "/public/access/{AccessId:guid}/change"
 @layout PublicLayout
 @attribute [AllowAnonymous]
-@rendermode InteractiveServer
+@attribute [ExcludeFromInteractiveRouting]
 
 @using Helpdesk.Shared.DTOs.Change
 @using Helpdesk.Shared.Models
-@using Microsoft.AspNetCore.WebUtilities
 
-@inject IHttpClientFactory HttpClientFactory
-@inject ISnackbar Snackbar
-@inject NavigationManager NavigationManager
+
+@inject PublicBrowserAccess PublicAccess
 
 <PageTitle>Change Review</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="mt-6 mb-12">
     <MudPaper Class="pa-6 pa-md-8" Elevation="2">
-        @if (loading)
-        {
-            <MudStack AlignItems="AlignItems.Center" Class="py-8">
-                <MudProgressCircular Indeterminate="true" />
-            </MudStack>
-        }
-        else if (change is null)
+        @if (change is null)
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
-                This approval link could not be opened. Please use the latest link from your email.
+                This approval session is unavailable. Open the original email to continue or request a replacement link.
             </MudAlert>
         }
         else
         {
             <MudStack Spacing="3">
+                @if (ReviewUnavailable)
+                {
+                    <MudAlert Severity="Severity.Error">The decision could not be recorded. Check the current approval status before trying again.</MudAlert>
+                }
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <img src="/branding/rateldesk-mark.webp" alt="RatelDesk" style="max-height:46px; max-width:220px;" />
                     <MudText Typo="Typo.caption" Color="Color.Secondary">@change.TrackingId</MudText>
@@ -62,10 +58,6 @@
                     <MudItem xs="12" sm="6">
                         <MudText Typo="Typo.overline">Requested For</MudText>
                         <MudText Typo="Typo.body1">@change.RequestedForName</MudText>
-                    </MudItem>
-                    <MudItem xs="12" sm="6">
-                        <MudText Typo="Typo.overline">Implementor</MudText>
-                        <MudText Typo="Typo.body1">@change.ImplementorName</MudText>
                     </MudItem>
                     <MudItem xs="12" sm="6">
                         <MudText Typo="Typo.overline">Implementation Start</MudText>
@@ -124,17 +116,10 @@
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               Disabled="@submitting"
-                               OnClick="SubmitReview"
-                               Size="Size.Large">
-                        @if (submitting)
-                        {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                        }
-                        Reviewed / Approve
-                    </MudButton>
+                    <form method="post" action="@DecisionPath" data-enhance="false">
+                        <AntiforgeryToken />
+                        <button class="mud-button-root mud-button-filled mud-button-filled-primary" type="submit" name="decision" value="approve">Reviewed / Approve</button>
+                    </form>
                 }
             </MudStack>
         }
@@ -142,87 +127,20 @@
 </MudContainer>
 
 @code {
-    [Parameter] public string TrackingId { get; set; } = string.Empty;
-
-    private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("SystemApi");
+    [Parameter] public Guid AccessId { get; set; }
+    [SupplyParameterFromQuery(Name = "review")] public string? Review { get; set; }
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
     private PublicChangeApprovalDto? change;
-    private string email = string.Empty;
-    private string token = string.Empty;
-    private bool loading = true;
-    private bool submitting;
+    private bool ReviewUnavailable => Review == "unavailable";
+    private string DecisionPath => PublicBrowserAccess.AccessPath(AccessId) + "/change/decision";
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (!firstRender)
-        {
-            return;
-        }
-
-        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
-        var query = QueryHelpers.ParseQuery(uri.Query);
-        if (query.TryGetValue("email", out var emailValue))
-        {
-            email = emailValue.ToString().Trim();
-        }
-        if (query.TryGetValue("token", out var tokenValue))
-        {
-            token = tokenValue.ToString().Trim();
-        }
-
-        await LoadApproval();
-        StateHasChanged();
+        change = await PublicAccess.ReadAsync<PublicChangeApprovalDto>(HttpContext, AccessId, "change");
     }
 
-    private async Task LoadApproval()
-    {
-        loading = true;
-        try
-        {
-            var url = $"api/v1/changes/public/approval?trackingId={Uri.EscapeDataString(TrackingId)}&email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
-            var response = await HelpdeskApi.GetAsync(url);
-            change = response.IsSuccessStatusCode
-                ? await response.Content.ReadFromJsonAsync<PublicChangeApprovalDto>()
-                : null;
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Unable to load change approval: {ex.Message}", Severity.Error);
-            change = null;
-        }
-        finally
-        {
-            loading = false;
-        }
-    }
-
-    private async Task SubmitReview()
-    {
-        submitting = true;
-        try
-        {
-            var response = await HelpdeskApi.PostAsJsonAsync(
-                "api/v1/changes/public/approval/review",
-                new ReviewChangeApprovalRequest(TrackingId, email, token));
-            if (!response.IsSuccessStatusCode)
-            {
-                Snackbar.Add("Unable to submit approval. Please use the latest link from your email.", Severity.Error);
-                return;
-            }
-
-            await LoadApproval();
-            Snackbar.Add("Change reviewed successfully.", Severity.Success);
-        }
-        finally
-        {
-            submitting = false;
-        }
-    }
-
-    private static string FormatDate(DateTime? value) =>
-        value.HasValue ? value.Value.ToString("yyyy/MM/dd HH:mm") : "Not set";
-
-    private static string DisplayText(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "Not provided" : value;
+    private static string FormatDate(DateTime? value) => value?.ToString("g") ?? "Not set";
+    private static string DisplayText(string? value) => string.IsNullOrWhiteSpace(value) ? "Not provided" : value;
 
     private static RenderFragment RenderListSection(string title, IReadOnlyCollection<string> values) => builder =>
     {

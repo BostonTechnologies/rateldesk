@@ -81,7 +81,7 @@ public sealed class SqliteProviderRegressionTests
         var withoutDate = AddApproval(db, "no-date", null);
         await db.SaveChangesAsync();
         var service = new RequestTaskApprovalService(db, new RequestFormSchemaParser(),
-            Substitute.For<ITicketNotificationService>(), Substitute.For<IPublicTicketLinkSigner>(),
+            Substitute.For<ITicketNotificationService>(),
             Substitute.For<ITimelineEventBus>(), NullLogger<RequestTaskApprovalService>.Instance);
         var job = new RequestTaskApprovalTimeoutHangfireJob(new RequestTaskApprovalTimeoutProcessor(service));
 

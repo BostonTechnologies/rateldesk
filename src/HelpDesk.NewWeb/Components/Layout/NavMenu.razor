@@ -83,7 +83,10 @@
                         <HelpdeskNavLink Href="/admin/branding" Match="NavLinkMatch.Prefix" Aliases="@BrandingAliases" Icon="@Icons.Material.Filled.Palette" Title="Branding &amp; Identity">Branding &amp; Identity</HelpdeskNavLink>
                     </HelpdeskNavGroup>
                 </AuthorizeView>
-                <HelpdeskNavLink Href="/logout" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Logout" Title="Logout">Logout</HelpdeskNavLink>
+                <button class="mud-nav-link helpdesk-nav-logout" type="submit" form="rateldesk-logout" data-testid="nav-logout">
+                    <MudIcon Class="mud-nav-link-icon" Icon="@Icons.Material.Filled.Logout" />
+                    <span class="mud-nav-link-text">Logout</span>
+                </button>
             </div>
         </Authorized>
         <NotAuthorized>

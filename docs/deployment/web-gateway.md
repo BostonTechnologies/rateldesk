@@ -72,12 +72,55 @@ keys passed to the Web process, independent of Compose interpolation names.
 | `WebGateway:TrustedProxies` | `WebGateway__TrustedProxies__0` etc. | IP-address allowlist |
 | `WebGateway:TrustedNetworks` | `WebGateway__TrustedNetworks__0` etc. | CIDR allowlist |
 
-MCP selection requires PublicOrigin or PublicResourceUri and a valid
-Destination. Empty trusted-proxy lists retain the existing permissive forwarding
-behavior for compatibility. Configure explicit proxy/network lists at production
-ingress; those restrict trust to configured entries plus loopback. Linked OIDC
-uses the processed forwarded values. Outer ingress must also preserve the correct
-public scheme/host and accept only its intended upstream traffic.
+MCP selection requires a public origin or resource URI and a valid destination.
+The Web host accepts forwarded scheme, host and client address from the listed
+proxy addresses or networks. With empty lists it uses the connection values.
+Configure every trusted hop in the reverse proxy chain, up to four hops, and have
+the public ingress replace forwarded headers from callers. This also preserves
+the public scheme and host used for OIDC redirects.
+
+### Public request admission
+
+The source and release Compose files enable `PublicIngress__TrustWebProof` on the
+API. The Web host signs a short-lived client assertion with the deployment's
+shared ASP.NET Core Data Protection key ring. This applies to both setup and
+initialized API hosts and covers YARP, browser sign-in and server-side form
+callbacks. Share the key ring and application name only with the Web and API
+instances that belong to this trust boundary. On a native or custom deployment,
+set the API option after configuring that shared key ring. Direct API clients use
+their connection address. An API behind a separate trusted ingress can set
+`PublicIngress__TrustedProxies__0` and `PublicIngress__TrustedNetworks__0` as
+needed. Use these explicit settings in place of unrestricted framework
+forwarding.
+
+Admission uses IPv4 addresses and IPv6 /64 prefixes. Login, second-factor and
+activation share a 30-request per-client budget and a 1,200-request API-instance
+budget each minute. Setup unlock allows 5 per client and 120 per instance. Both
+public ticket submission routes share 5 per client and 300 per instance. Local
+account lockout still applies independently. The API returns 429 with
+`Retry-After` when a budget is exhausted. Each replica owns its window, so these
+numbers apply per replica.
+
+For CAPTCHA generation, `Captcha__RequestsPerClientPerMinute` and
+`Captcha__RequestsPerMinute` default to 15 and 300. The API admits up to four
+parallel renders, 1,500 outstanding challenges, and six challenges per client
+by default. Configure these limits with `Captcha__ConcurrentRenders`,
+`Captcha__Capacity`, and `Captcha__OutstandingPerClient`. The generating
+replica holds each answer for five minutes or until the first attempt. Route
+generation and submission to the same replica when deploying multiple API
+instances.
+
+### Emailed public links and ingress logs
+
+New links carry an opaque launch value in the URL fragment. The browser exchanges
+it by POST and continues at a clean URL. Configure the outer proxy, access-log
+pipeline and integrations to omit query strings, referrers and request bodies
+for `/view-ticket`, `/change-approval`, `/request-approval`, `/public/link` and
+`/public/access`. Legacy links can reach the proxy with a sensitive query before
+the browser clears it. Also omit the public grant and client proof headers from
+request telemetry. Apply the same settings to any direct API ingress for
+`/api/v1/public/access` and the retired signed-query API paths. Use HTTPS on
+published browser origins so the browser can use the secure scoped cookies.
 
 ```json
 {
