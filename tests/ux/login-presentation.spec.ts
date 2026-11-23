@@ -1,7 +1,110 @@
-import { expect, test } from '@playwright/test';
+import { chromium, expect, test, type Page } from '@playwright/test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { assertNoHorizontalOverflow, selectTheme } from './auth';
 import { openPublicTicketReview } from './public-ticket-form';
 import { expectSignedRasterIsolation } from './signed-raster-checks';
+
+const brandingFixture = 'http://127.0.0.1:18499/fixture/branding';
+const longApplicationName = 'Example Organization Customer Operations and Technology Service Desk';
+
+async function expectSignInReachable(page: Page, mode: string) {
+  const form = page.getByTestId('local-login-form');
+  if (mode !== 'Oidc') {
+    const controls = [form.getByRole('textbox', { name: 'Email' }), form.getByLabel('Password'),
+      form.getByRole('checkbox', { name: 'Keep me signed in' }), form.getByRole('button', { name: 'Sign in', exact: true })];
+    for (const control of controls) {
+      await control.focus();
+      await expect(control).toBeFocused();
+      await control.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+      await expect(control).toBeInViewport({ ratio: 1 });
+    }
+  }
+  if (mode !== 'Local') {
+    const provider = page.getByTestId('oidc-login-link');
+    await provider.focus();
+    await expect(provider).toBeFocused();
+    await provider.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+    await expect(provider).toBeInViewport({ ratio: 1 });
+  }
+  await assertNoHorizontalOverflow(page);
+}
+
+for (const [width, height] of [[1366, 768], [1280, 720]]) {
+  for (const name of ['RatelDesk', longApplicationName]) {
+    const branding = name === 'RatelDesk' ? 'default' : 'long';
+    test(`both configured actions fit the initial ${width}×${height} viewport with ${branding} branding`, async ({ page, request }, info) => {
+      await request.get(brandingFixture, { params: { name } });
+      await page.setViewportSize({ width, height });
+      await page.goto('/login');
+      await expect(page.getByTestId('login-page')).toHaveAttribute('data-interactive', 'true');
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
+      const local = page.getByRole('button', { name: 'Sign in', exact: true });
+      const provider = page.getByTestId('oidc-login-link');
+      if (info.project.name === 'Oidc') await expect(local).toHaveCount(0);
+      else await expect(local).toBeInViewport({ ratio: 1 });
+      if (info.project.name === 'Local') await expect(provider).toHaveCount(0);
+      else await expect(provider).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+      await assertNoHorizontalOverflow(page);
+      await page.screenshot({ path: info.outputPath(`login-${branding}-${width}x${height}-viewport.png`) });
+
+      if (info.project.name === 'Hybrid') {
+        await page.getByRole('textbox', { name: 'Email' }).focus();
+        for (const control of [page.getByLabel('Password'), page.getByRole('checkbox', { name: 'Keep me signed in' }), local, provider]) {
+          await page.keyboard.press('Tab');
+          await expect(control).toBeFocused();
+        }
+      }
+    });
+  }
+}
+
+for (const [width, height] of [[320, 568], [360, 640], [390, 844], [720, 320]]) {
+  test(`errors and actions remain reachable at ${width}×${height}`, async ({ page, request }, info) => {
+    const name = 'ExampleOrganizationWithAnUnbrokenLongServiceDeskName';
+    await request.get(brandingFixture, { params: { name } });
+    await page.setViewportSize({ width, height });
+    await page.goto('/login?status=' + encodeURIComponent(info.project.name === 'Local' ? 'Sign-in failed' : 'Authentication failed'));
+    await expect(page.getByTestId('login-page')).toHaveAttribute('data-interactive', 'true');
+    await expect(page.getByTestId('local-login-error')).toBeVisible();
+    await expectSignInReachable(page, info.project.name);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
+    await page.screenshot({ path: info.outputPath(`login-error-${width}x${height}.png`), fullPage: true });
+  });
+}
+
+test('sign-in actions remain reachable at native browser zoom of 200 percent', async ({ baseURL, request }, info) => {
+  await request.get(brandingFixture, { params: { name: longApplicationName } });
+  const profile = await mkdtemp(path.join(tmpdir(), 'rateldesk-login-zoom-'));
+  const extension = path.resolve('tests/ux/native-zoom-extension');
+  const executablePath = process.env.HELPDESK_E2E_CHROMIUM_PATH;
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: executablePath ? undefined : 'chromium', executablePath,
+    viewport: { width: 1280, height: 720 },
+    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
+  });
+  try {
+    await expect.poll(() => context.serviceWorkers().length).toBeGreaterThan(0);
+    const page = await context.newPage();
+    await page.goto(`${baseURL}/login`);
+    const zoom = await context.serviceWorkers()[0].evaluate(async url => {
+      const chrome = (globalThis as any).chrome;
+      const [tab] = await chrome.tabs.query({ url });
+      await chrome.tabs.setZoom(tab.id, 2);
+      return chrome.tabs.getZoom(tab.id);
+    }, `${baseURL}/login`);
+    expect(zoom).toBe(2);
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(640);
+    await expect(page.getByTestId('login-page')).toHaveAttribute('data-interactive', 'true');
+    await expectSignInReachable(page, info.project.name);
+    await page.screenshot({ path: info.outputPath('login-200-percent.png'), fullPage: true });
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
 
 for (const width of [1440, 360]) {
   for (const theme of ['light', 'dark'] as const) {
@@ -17,7 +120,7 @@ for (const width of [1440, 360]) {
       await expect(page.getByTestId('login-page')).toHaveAttribute('data-interactive', 'true');
       await expect(page.locator('html')).toHaveAttribute('data-helpdesk-theme', theme);
       const local = page.getByTestId('local-login-form');
-      const provider = page.getByRole('link', { name: 'Sign in with Example Organization' });
+      const provider = page.getByTestId('oidc-login-link');
       await expect(local).toHaveCount(info.project.name === 'Oidc' ? 0 : 1);
       await expect(provider).toHaveCount(info.project.name === 'Local' ? 0 : 1);
       if (info.project.name !== 'Oidc') {
@@ -31,6 +134,9 @@ for (const width of [1440, 360]) {
       await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
       await assertNoHorizontalOverflow(page);
       if (info.project.name !== 'Local') {
+        await expect(provider).toHaveAccessibleName(info.project.name === 'Hybrid'
+          ? 'Sign in with ExampleOrganizationIdentityProviderForManagedServiceAccounts'
+          : 'Sign in with Example Organization');
         await expect(provider).toHaveAttribute('href', '/login-authentik');
         expect(await provider.evaluate(link => link.closest('form') === null)).toBe(true);
         expect((await provider.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -62,13 +168,48 @@ test('external link navigates without local credentials or form validation', asy
     await expect(page.getByTestId('oidc-login-link')).toHaveCount(0);
     return;
   }
-  await page.route('http://127.0.0.1:18499/authorize**', route => route.fulfill({ body: 'Synthetic provider challenge reached' }));
   const localPosts: string[] = [];
   page.on('request', req => { if (req.method() === 'POST' && req.url().endsWith('/local-login')) localPosts.push(req.url()); });
   await page.goto('/login');
-  await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
-  await expect(page).toHaveURL(/18499\/authorize/);
+  const providerChallenge = page.waitForRequest(req => new URL(req.url()).origin === 'http://127.0.0.1:18499' && new URL(req.url()).pathname === '/authorize');
+  await page.getByTestId('oidc-login-link').click();
+  expect(new URL((await providerChallenge).url()).searchParams.get('client_id')).toBe('presentation-client');
+  await expect(page).toHaveURL(/\/home$/);
   expect(localPosts).toEqual([]);
+});
+
+test('shared account panels keep their controls reachable on a narrow screen', async ({ page }, info) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/activate');
+  await expect(page.getByTestId('app-public-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByRole('heading', { name: 'Activate local account' })).toBeVisible();
+  const activate = page.getByRole('button', { name: 'Activate account' });
+  await activate.scrollIntoViewIfNeeded();
+  await expect(activate).toBeInViewport({ ratio: 1 });
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: info.outputPath('activate.png'), fullPage: true });
+
+  if (info.project.name !== 'Local') {
+    await page.goto('/login?returnUrl=%2Faccount%2Fauthenticator');
+    await page.getByTestId('oidc-login-link').click();
+    await expect(page).toHaveURL(/\/account\/authenticator$/);
+    await expect(page.getByRole('heading', { name: 'Authenticator app' })).toBeVisible();
+    const setup = page.getByRole('button', { name: 'Set up authenticator' });
+    await expect(setup).toBeEnabled();
+    await setup.scrollIntoViewIfNeeded();
+    await expect(setup).toBeInViewport({ ratio: 1 });
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({ path: info.outputPath('authenticator.png'), fullPage: true });
+
+    await page.goto('/account/change-password');
+    await expect(page.getByRole('heading', { name: 'Change passphrase' })).toBeVisible();
+    const save = page.getByRole('button', { name: 'Change passphrase' });
+    await expect(save).toBeEnabled();
+    await save.scrollIntoViewIfNeeded();
+    await expect(save).toBeInViewport({ ratio: 1 });
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({ path: info.outputPath('change-passphrase.png'), fullPage: true });
+  }
 });
 
 test('custom opaque and transparent logos keep their intrinsic proportions', async ({ page, request }, info) => {
@@ -208,7 +349,7 @@ test('legacy signed raster navigation with an OIDC session uses the real asset A
   const key = process.env.HELPDESK_E2E_ASSET_SIGNING_KEY;
   test.skip(info.project.name === 'Local' || !key, 'Requires the real asset API and OIDC fixture');
   await page.goto('/login');
-  await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
+  await page.getByTestId('oidc-login-link').click();
   await page.waitForURL('**/home');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   await expectSignedRasterIsolation(page, key!);
@@ -220,7 +361,7 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
     test.skip(info.project.name === 'Local', 'The OIDC fixture serves OIDC and Hybrid modes');
     if (entry === 'mobile') await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/login');
-    await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
+    await page.getByTestId('oidc-login-link').click();
     await page.waitForURL('**/home');
     await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
     const appCookie = '__Host-Helpdesk.Auth';
@@ -237,7 +378,7 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
     expect((await ended).status()).toBe(302);
     await expect.poll(async () => (await context.cookies()).some(cookie => cookie.name === appCookie)).toBe(false);
     await page.goto('/login');
-    await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
+    await page.getByTestId('oidc-login-link').click();
     await page.waitForURL('**/home');
     await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   });

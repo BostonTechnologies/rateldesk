@@ -15,20 +15,15 @@
 <PageTitle>@_branding.ApplicationName</PageTitle>
 <HeadContent><link rel="icon" href="@_branding.FaviconUrl" /></HeadContent>
 
-<section class="helpdesk-login-page" data-testid="login-page" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
+<section class="helpdesk-login-page helpdesk-sign-in" data-testid="login-page" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
     <MudPaper Elevation="2" Class="helpdesk-login-panel">
-        <MudStack AlignItems="AlignItems.Center" Spacing="1" Class="helpdesk-login-header">
-            <img class="helpdesk-login-logo" src="@_branding.CompactLogoUrl" alt="@_branding.ApplicationName" />
-            <MudText Typo="Typo.overline" HtmlTag="p" Class="helpdesk-login-product">Service management</MudText>
+        <header class="helpdesk-login-header">
+            <img class="helpdesk-login-logo" src="@_branding.CompactLogoUrl" width="64" height="64" alt="" />
             <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-login-title">@_branding.ApplicationName</MudText>
             <MudText Typo="Typo.body2" HtmlTag="p" Class="helpdesk-login-environment">@EnvironmentLabel</MudText>
-        </MudStack>
+        </header>
 
-        <MudStack Spacing="2" Class="helpdesk-login-actions">
-            <MudText Typo="Typo.body1" Align="Align.Center" Class="helpdesk-login-copy">
-                Continue to @_branding.ApplicationName using your authorised account.
-            </MudText>
-
+        <div class="helpdesk-login-actions">
             @if (SignInError is not null)
             {
                 <MudAlert Severity="Severity.Error" data-testid="local-login-error">@SignInError</MudAlert>
@@ -43,35 +38,29 @@
                     <form method="post" action="/local-login/two-factor" class="helpdesk-login-local-form" data-testid="local-two-factor-form" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
                         <AntiforgeryToken />
                         <input type="hidden" name="returnUrl" value="@ReturnPath" />
-                        <MudTextField T="string" Name="code" Disabled="@(!RendererInfo.IsInteractive)" Label="Verification code" autocomplete="one-time-code" Required="true" Variant="Variant.Outlined" FullWidth="true" />
-                        <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" Disabled="@(!RendererInfo.IsInteractive)" Size="Size.Large" Color="Color.Primary" FullWidth="true" Class="mt-3">Verify and sign in</MudButton>
+                        <MudTextField T="string" Name="code" Disabled="@(!RendererInfo.IsInteractive)" Label="Verification code" autocomplete="one-time-code" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" FullWidth="true" />
+                        <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" Disabled="@(!RendererInfo.IsInteractive)" Size="Size.Large" Color="Color.Primary" FullWidth="true" Class="helpdesk-login-submit">Verify and sign in</MudButton>
                     </form>
-                    <MudLink Href="@LoginReturnUrl.WithReturn("/login", ReturnPath)" Class="align-self-center">Back to sign in</MudLink>
+                    <MudLink Href="@LoginReturnUrl.WithReturn("/login", ReturnPath)" Class="helpdesk-login-back">Back to sign in</MudLink>
                 }
                 else
                 {
                     <form method="post" action="/local-login" class="helpdesk-login-local-form" data-testid="local-login-form" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
                         <AntiforgeryToken />
                         <input type="hidden" name="returnUrl" value="@ReturnPath" />
-                        <MudTextField T="string" Name="email" Disabled="@(!RendererInfo.IsInteractive)" Label="Email" InputType="InputType.Email" autocomplete="username" Required="true" Variant="Variant.Outlined" FullWidth="true" />
-                        <MudTextField T="string" Name="password" Disabled="@(!RendererInfo.IsInteractive)" Label="Password" InputType="InputType.Password" autocomplete="current-password" Required="true" Variant="Variant.Outlined" FullWidth="true" Class="mt-3" />
-                        <MudCheckBox T="bool" Name="rememberMe" Disabled="@(!RendererInfo.IsInteractive)" Label="Keep me signed in" Color="Color.Primary" Class="mt-2" />
-                        <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" Disabled="@(!RendererInfo.IsInteractive)" Size="Size.Large" Color="Color.Primary" FullWidth="true" Class="mt-3" StartIcon="@Icons.Material.Filled.Login">
+                        <MudTextField T="string" Name="email" Disabled="@(!RendererInfo.IsInteractive)" Label="Email" InputType="InputType.Email" autocomplete="username" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" FullWidth="true" />
+                        <MudTextField T="string" Name="password" Disabled="@(!RendererInfo.IsInteractive)" Label="Password" InputType="InputType.Password" autocomplete="current-password" Required="true" Margin="Margin.Dense" Variant="Variant.Outlined" FullWidth="true" />
+                        <MudCheckBox T="bool" Name="rememberMe" Disabled="@(!RendererInfo.IsInteractive)" Label="Keep me signed in" Color="Color.Primary" />
+                        <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" Disabled="@(!RendererInfo.IsInteractive)" Size="Size.Large" Color="Color.Primary" FullWidth="true" Class="helpdesk-login-submit" StartIcon="@Icons.Material.Filled.Login">
                             Sign in
                         </MudButton>
                     </form>
                 }
             }
 
-            @if (!IsSecondFactorStep && SupportsLocalAccounts && SupportsOidc)
-            {
-                <MudDivider Class="my-4" />
-                <MudText Typo="Typo.body2" Align="Align.Center">or use your organization sign-in</MudText>
-            }
-
             @if (!IsSecondFactorStep && SupportsOidc)
             {
-                <nav class="helpdesk-login-providers" aria-label="Organization sign-in">
+                <nav aria-label="Organization sign-in">
                     <a class="helpdesk-login-provider-link" href="@LoginReturnUrl.WithReturn("/login-authentik", ReturnPath)" data-testid="oidc-login-link">
                         <MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Small" aria-hidden="true" />
                         <span>Sign in with @ProviderDisplayName</span>
@@ -93,7 +82,7 @@
                     Sign in as local operator
                 </MudButton>
             }
-        </MudStack>
+        </div>
     </MudPaper>
 </section>
 
