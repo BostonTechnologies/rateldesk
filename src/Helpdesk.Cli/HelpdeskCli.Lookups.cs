@@ -129,6 +129,8 @@ internal static partial class HelpdeskCli
         self.AddCommand(GetByStringIdCommand(runtime, globals, "get-request", "/api/v1/self-service/requests/{id}", "id"));
         self.AddCommand(BodyCommand(runtime, globals, "create-request", HttpMethod.Post, "/api/v1/self-service/requests",
             ("--request-form-id", "requestFormId"),
+            ("--target-organization-id", "targetOrganizationId"),
+            ("--submission-id", "submissionId"),
             ("--service-id", "serviceId"),
             ("--title", "title"),
             ("--description", "description"),
@@ -136,7 +138,13 @@ internal static partial class HelpdeskCli
             ("--requester-email", "requesterEmail")));
         var query = new Option<string?>("--query") { Description = "User search query." };
         var pageSize = new Option<int?>("--page-size") { Description = "Page size." };
-        self.AddCommand(GetListCommand(runtime, globals, "request-users", "/api/v1/self-service/request-users", (query, "query"), (pageSize, "pageSize")));
+        var requesterOrganization = new Option<string?>("--target-organization-id") { Description = "Restrict requester lookup to an eligible organization." };
+        self.AddCommand(GetListCommand(runtime, globals, "request-users", "/api/v1/self-service/request-users",
+            (query, "query"), (pageSize, "pageSize"), (requesterOrganization, "targetOrganizationId")));
+        var formId = new Option<string?>("--request-form-id") { Required = true, Description = "Request form ID." };
+        var target = new Option<string?>("--target-organization-id") { Description = "Select an eligible organization." };
+        self.AddCommand(GetListCommand(runtime, globals, "submission-context", "/api/v1/self-service/submission-context",
+            (formId, "requestFormId"), (target, "targetOrganizationId")));
         return self;
     }
 

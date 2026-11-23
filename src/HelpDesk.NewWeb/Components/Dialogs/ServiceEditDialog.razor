@@ -22,7 +22,10 @@
                 <MudTextField @bind-Value="model.Description"
                               Label="Description"
                               Margin="Margin.Dense" />
-
+                @if (selectedOrgIds.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">Not visible in self service. Assign organizations in Manage access.</MudText>
+                }
             </MudStack>
         </MudForm>
     </DialogContent>
@@ -93,8 +96,7 @@
                 var dto = new UpdateServiceDto
                 {
                     Name = model.Name!,
-                    Description = model.Description,
-                    AllowedOrganizationIds = selectedOrgIds.ToList()
+                    Description = model.Description
                 };
                 resp = await Api.PutAsJsonAsync($"api/v1/services/{ServiceId}", dto);
             }

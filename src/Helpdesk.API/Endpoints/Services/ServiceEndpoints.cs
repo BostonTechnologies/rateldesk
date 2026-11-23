@@ -5,12 +5,14 @@ using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.DTOs.Service;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using EntityState = Helpdesk.Shared.Models.EntityState;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -26,240 +28,35 @@ public static class ServiceEndpoints
             .RequireAuthorization(HelpdeskPermissions.SelfServiceUser);
 
         itemsGroup.MapGet("/search", async (
-            [FromServices] IRepository<Service> servicesRepo,
-            [FromServices] IRepository<RequestForm> formsRepo,
-            [FromServices] HelpdeskDbContext db,
-            [FromServices] ITenantContext tenant,
-            [FromServices] ICurrentUserAccessService accessService,
-            [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
-            ClaimsPrincipal user,
-            [FromQuery] string? q,
-            [FromQuery] int? pageSize,
-            CancellationToken token,
+            SelfServiceAudienceService audience, ClaimsPrincipal user,
+            [FromQuery] string? q, [FromQuery] int? pageSize, CancellationToken token,
             [FromQuery] bool includeTotal = true) =>
         {
-            var term = q?.Trim();
             var take = Math.Clamp(pageSize ?? 6, 1, 25);
-            var isAdmin = tenant.IsHelpdeskAdmin;
-            var access = await accessService.ResolveAsync(user, token);
-            var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
-            var organizationId = tenant.TenantId;
-
-            var servicesQuery = servicesRepo.Query().AsNoTracking().IgnoreQueryFilters();
-            var formsQuery = selfServiceAudienceService.ApplyAudienceFilter(
-                formsRepo.Query().AsNoTracking().IgnoreQueryFilters(),
-                isAdmin,
-                isTestUser,
-                organizationId);
-
-            if (!string.IsNullOrWhiteSpace(term))
-            {
-                var like = $"%{term}%";
-                if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
-                {
-                    servicesQuery = servicesQuery.Where(s =>
-                        EF.Functions.ILike(s.Name, like) ||
-                        EF.Functions.ILike(s.Description, like));
-                    formsQuery = formsQuery.Where(f =>
-                        EF.Functions.ILike(f.Title, like) ||
-                        EF.Functions.ILike(f.Description!, like));
-                }
-                else
-                {
-                    servicesQuery = servicesQuery.Where(s =>
-                        EF.Functions.Like(s.Name, like) ||
-                        EF.Functions.Like(s.Description, like));
-                    formsQuery = formsQuery.Where(f =>
-                        EF.Functions.Like(f.Title, like) ||
-                        EF.Functions.Like(f.Description!, like));
-                }
-            }
-
-            var serviceRows = await servicesQuery.Select(s => new
-            {
-                Id = s.Id,
-                Name = s.Name,
-                Description = s.Description,
-                AllowedOrganizationIds = s.AllowedOrganizationIds,
-                AllowedCustomerIds = s.AllowedCustomerIds
-            }).ToListAsync(token);
-
-            var visibilityRows = string.IsNullOrWhiteSpace(term)
-                ? serviceRows.Select(service => new
-                {
-                    service.Id,
-                    service.AllowedOrganizationIds,
-                    service.AllowedCustomerIds
-                }).ToList()
-                : await servicesRepo.Query()
-                    .AsNoTracking()
-                    .IgnoreQueryFilters()
-                    .Select(service => new
-                    {
-                        service.Id,
-                        service.AllowedOrganizationIds,
-                        service.AllowedCustomerIds
-                    })
-                    .ToListAsync(token);
-            var visibleServiceIds = visibilityRows
-                .Where(service => isAdmin
-                    || (IsAllowedForTenant(service.AllowedOrganizationIds, organizationId)
-                        && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId)))
-                .Select(service => service.Id)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            if (!isAdmin)
-            {
-                serviceRows = serviceRows
-                    .Where(service => IsAllowedForTenant(service.AllowedOrganizationIds, organizationId)
-                        && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId))
-                    .ToList();
-            }
-
-            var serviceItems = serviceRows.Select(service => new ServiceItemDto
-            {
-                Id = service.Id,
-                Name = service.Name,
-                Description = service.Description,
-                ItemType = ServiceItemType.Service,
-                AvailableRequestCount = 0,
-                AllowedOrganizationIds = service.AllowedOrganizationIds,
-                ReleaseStatus = null
-            }).ToList();
-
-            var formRows = await formsQuery.Select(f => new
-            {
-                f.ServiceId,
-                Item = new ServiceItemDto
-                {
-                    Id = f.Id,
-                    Name = f.Title,
-                    Description = f.Description ?? string.Empty,
-                    ItemType = ServiceItemType.RequestForm,
-                    AvailableRequestCount = 0,
-                    AllowedOrganizationIds = f.AllowedOrganizationIds,
-                    ReleaseStatus = f.ReleaseStatus
-                }
-            }).ToListAsync(token);
-            if (!isAdmin)
-            {
-                formRows = formRows
-                    .Where(form => string.IsNullOrWhiteSpace(form.ServiceId)
-                        || visibleServiceIds.Contains(form.ServiceId))
-                    .ToList();
-            }
-            var formItems = formRows.Select(form => form.Item).ToList();
-
-            var combined = serviceItems.Concat(formItems).OrderBy(x => x.Name).ToList();
+            var term = q?.Trim();
+            var catalogue = await ReadCatalogueAsync(audience, user, token);
+            var combined = catalogue
+                .Where(entry => string.IsNullOrEmpty(term) ||
+                    entry.Item.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    entry.Item.Description.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.Item)
+                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Id, StringComparer.Ordinal)
+                .ToList();
             var items = combined.Take(take).ToList();
-
             return Results.Ok(new PagedResponse<ServiceItemDto>
             {
-                Page = 1,
-                PageSize = take,
-                TotalCount = includeTotal ? combined.Count : items.Count,
-                Items = items
+                Page = 1, PageSize = take, TotalCount = includeTotal ? combined.Count : items.Count, Items = items
             });
         })
         .WithName("SearchServiceItems")
         .WithSummary("Search requestable self-service catalog items.");
 
         itemsGroup.MapGet("/{parentServiceId?}", async (
-            string? parentServiceId,
-            IRepository<Service> servicesRepo,
-            IRepository<RequestForm> formsRepo,
-            ITenantContext tenant,
-            ICurrentUserAccessService accessService,
-            ClaimsPrincipal user,
-            ISelfServiceAudienceService selfServiceAudienceService,
-            CancellationToken token) =>
+            string? parentServiceId, SelfServiceAudienceService audience, ClaimsPrincipal user, CancellationToken token) =>
         {
-            var isAdmin = tenant.IsHelpdeskAdmin;
-            var access = await accessService.ResolveAsync(user, token);
-            var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
-            var organizationId = tenant.TenantId;
-
-            var allServices = await servicesRepo.Query()
-                .AsNoTracking()
-                .IgnoreQueryFilters()
-                .Select(s => new
-                {
-                    s.Id,
-                    s.Name,
-                    s.Description,
-                    s.ParentServiceId,
-                    s.AllowedOrganizationIds,
-                    s.AllowedCustomerIds
-                })
-                .ToListAsync(token);
-
-            if (!isAdmin)
-            {
-                allServices = allServices
-                    .Where(s => IsAllowedForTenant(s.AllowedOrganizationIds, organizationId)
-                        && IsAllowedForCustomer(s.AllowedCustomerIds, access.CustomerId))
-                    .ToList();
-            }
-
-            var visibleServiceIds = allServices
-                .Select(service => service.Id)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!isAdmin
-                && !string.IsNullOrWhiteSpace(parentServiceId)
-                && !visibleServiceIds.Contains(parentServiceId))
-            {
-                return Results.Ok(Array.Empty<ServiceItemDto>());
-            }
-
-            var services = allServices
-                .Where(s => s.ParentServiceId == parentServiceId)
-                .ToList();
-
-            var formRows = await selfServiceAudienceService
-                .ApplyAudienceFilter(formsRepo.Query().AsNoTracking().IgnoreQueryFilters(), isAdmin, isTestUser, organizationId)
-                .Select(f => new
-                {
-                    f.Id,
-                    f.Title,
-                    f.Description,
-                    f.ServiceId,
-                    f.AllowedOrganizationIds,
-                    f.ReleaseStatus
-                })
-                .ToListAsync(token);
-            var forms = isAdmin
-                ? formRows
-                : formRows.Where(form => string.IsNullOrWhiteSpace(form.ServiceId)
-                    || visibleServiceIds.Contains(form.ServiceId)).ToList();
-
-            var requestCounts = BuildAvailableRequestCounts(
-                allServices.Select(s => new ServiceCountNode(s.Id, s.ParentServiceId)),
-                forms.Select(f => f.ServiceId));
-
-            var result = new List<ServiceItemDto>();
-            result.AddRange(services.Select(s => new ServiceItemDto
-            {
-                Id = s.Id,
-                Name = s.Name,
-                Description = s.Description,
-                ItemType = ServiceItemType.Service,
-                AvailableRequestCount = requestCounts.GetValueOrDefault(s.Id),
-                AllowedOrganizationIds = s.AllowedOrganizationIds
-            }));
-            var parentForms = string.IsNullOrWhiteSpace(parentServiceId)
-                ? forms.Where(form => string.IsNullOrWhiteSpace(form.ServiceId))
-                : forms.Where(form => form.ServiceId == parentServiceId);
-            result.AddRange(parentForms.Select(f => new ServiceItemDto
-            {
-                Id = f.Id,
-                Name = f.Title,
-                Description = f.Description ?? string.Empty,
-                ItemType = ServiceItemType.RequestForm,
-                AllowedOrganizationIds = f.AllowedOrganizationIds,
-                ReleaseStatus = f.ReleaseStatus
-            }));
-
-            return Results.Ok(result);
+            var catalogue = await ReadCatalogueAsync(audience, user, token);
+            return Results.Ok(catalogue.Where(entry => entry.ParentId == parentServiceId).Select(entry => entry.Item));
         })
         .WithName("GetServiceItems")
         .WithSummary("List all items (services and forms) for a parent service.");
@@ -282,82 +79,50 @@ public static class ServiceEndpoints
         .WithDescription("Retrieves all services with computed depth.");
 
         services.MapGet("/{id}", async (
-            string id,
-            [FromServices] IRepository<Service> repo,
-            [FromServices] ITenantContext tenant,
-            [FromServices] ICurrentUserAccessService accessService,
-            ClaimsPrincipal user,
-            CancellationToken token) =>
+            string id, SelfServiceAudienceService audience, ClaimsPrincipal user, CancellationToken token) =>
         {
-            var entity = await repo.GetByIdAsync(id);
-            if (entity is null) return Results.NotFound();
-            var access = await accessService.ResolveAsync(user, token);
-            if (!tenant.IsHelpdeskAdmin
-                && (!IsAllowedForTenant(entity.AllowedOrganizationIds, tenant.TenantId)
-                    || !IsAllowedForCustomer(entity.AllowedCustomerIds, access.CustomerId)))
-            {
-                return Results.Forbid();
-            }
-
-            var all = await repo.GetAllAsync();
-            if (!tenant.IsHelpdeskAdmin)
-            {
-                all = all.Where(service =>
-                    IsAllowedForTenant(service.AllowedOrganizationIds, tenant.TenantId)
-                    && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId));
-            }
-            var dto = ToDtoWithDepth(entity, all.ToDictionary(s => s.Id));
-            if (!tenant.IsHelpdeskAdmin)
+            var authority = await audience.ResolveAuthorityAsync(user, token);
+            var catalogue = await audience.LoadCatalogueAsync(authority, token);
+            if (!catalogue.CanViewFolder(id)) return Results.NotFound();
+            var dto = ToDtoWithDepth(catalogue.Folders[id], catalogue.Folders);
+            if (!authority.Access.IsHelpdeskAdmin)
             {
                 dto.AllowedCustomerIds = [];
                 dto.AllowedOrganizationIds = [];
             }
             return Results.Ok(dto);
         })
-        .RequireAuthorization()
         .WithName("GetServiceById")
         .WithSummary("Get a single service by id");
 
         services.MapGet("/{id}/breadcrumb", async (
-            string id,
-            [FromServices] IRepository<Service> repo,
-            [FromServices] ITenantContext tenant,
-            [FromServices] ICurrentUserAccessService accessService,
-            ClaimsPrincipal user,
-            CancellationToken token) =>
+            string id, SelfServiceAudienceService audience, ClaimsPrincipal user, CancellationToken token) =>
         {
-            var all = await repo.GetAllAsync();
-            var dict = all.ToDictionary(s => s.Id);
-            if (!dict.TryGetValue(id, out var current)) return Results.NotFound();
-            var access = await accessService.ResolveAsync(user, token);
-            if (!tenant.IsHelpdeskAdmin
-                && (!IsAllowedForTenant(current.AllowedOrganizationIds, tenant.TenantId)
-                    || !IsAllowedForCustomer(current.AllowedCustomerIds, access.CustomerId)))
-            {
-                return Results.Forbid();
-            }
-
-            var visibleServices = tenant.IsHelpdeskAdmin
-                ? all
-                : all.Where(service =>
-                    IsAllowedForTenant(service.AllowedOrganizationIds, tenant.TenantId)
-                    && IsAllowedForCustomer(service.AllowedCustomerIds, access.CustomerId));
-            var chain = BuildBreadcrumb(current, visibleServices.ToDictionary(service => service.Id));
-            return Results.Ok(chain);
+            var authority = await audience.ResolveAuthorityAsync(user, token);
+            var catalogue = await audience.LoadCatalogueAsync(authority, token);
+            if (!catalogue.CanViewFolder(id)) return Results.NotFound();
+            return Results.Ok(BuildBreadcrumb(catalogue.Folders[id], catalogue.Folders));
         })
-        .RequireAuthorization()
         .WithName("GetServiceBreadcrumb")
         .WithSummary("Get breadcrumb chain from root to this service");
 
-        services.MapPost("/", async ([FromBody] CreateServiceDto dto, [FromServices] IRepository<Service> repo) =>
+        services.MapPost("/", async ([FromBody] CreateServiceDto dto, IRepository<Service> repo,
+            HelpdeskDbContext db, CancellationToken token) =>
         {
+            var audience = NormalizeAllowedOrganizations(dto.AllowedOrganizationIds);
+            var parentId = dto.ParentId;
+            if (await HasUnavailableOrganizationsAsync(db, audience, null, token))
+                return Results.BadRequest("One or more organizations are unavailable for assignment.");
+            if (parentId is not null && !await db.Services.AnyAsync(folder => folder.Id == parentId, token))
+                return Results.BadRequest("The selected parent folder is unavailable.");
+
             var service = new Service
             {
                 Name = dto.Name,
                 Description = dto.Description ?? string.Empty,
-                ParentServiceId = dto.ParentId,
+                ParentServiceId = parentId,
                 AllowedCustomerIds = dto.AllowedCustomerIds?.ToList() ?? new List<string>(),
-                AllowedOrganizationIds = dto.AllowedOrganizationIds?.ToList() ?? new()
+                AllowedOrganizationIds = audience
             };
 
             var created = await repo.CreateAsync(service);
@@ -373,27 +138,45 @@ public static class ServiceEndpoints
         .WithSummary("Create service")
         .WithDescription("Creates a new service (optionally nested).");
 
-        services.MapPut("/{id}", async (string id, [FromBody] UpdateServiceDto dto, [FromServices] IRepository<Service> repo) =>
+        services.MapPut("/{id}", async (string id, [FromBody] UpdateServiceDto dto, IRepository<Service> repo,
+            HelpdeskDbContext db, CancellationToken token) =>
         {
             var existing = await repo.GetByIdAsync(id);
             if (existing is null) return Results.NotFound();
 
-            existing.Name = dto.Name;
-            existing.Description = dto.Description ?? string.Empty;
+            if (dto.AllowedOrganizationIds is not null)
+            {
+                var audience = NormalizeAllowedOrganizations(dto.AllowedOrganizationIds);
+                if (await HasUnavailableOrganizationsAsync(db, audience, existing.AllowedOrganizationIds, token))
+                    return Results.BadRequest("One or more organizations are unavailable for assignment.");
+                existing.AllowedOrganizationIds = audience;
+            }
+
+            if (dto.ParentIdHasValue || dto.ParentId is not null)
+            {
+                if (dto.ParentId is not null)
+                {
+                    var folders = await db.Services.AsNoTracking()
+                        .ToDictionaryAsync(folder => folder.Id, folder => folder.ParentServiceId, token);
+                    var visited = new HashSet<string>(StringComparer.Ordinal) { existing.Id };
+                    for (var ancestor = dto.ParentId; ancestor is not null; ancestor = folders[ancestor])
+                    {
+                        if (!visited.Add(ancestor) || !folders.ContainsKey(ancestor))
+                            return Results.BadRequest("Choose an existing parent outside this folder's descendants.");
+                    }
+                }
+                existing.ParentServiceId = dto.ParentId;
+            }
+
+            existing.Name = dto.Name ?? existing.Name;
+            existing.Description = dto.Description ?? existing.Description;
             if (dto.AllowedCustomerIds is not null)
                 existing.AllowedCustomerIds = dto.AllowedCustomerIds;
 
-            if (dto.AllowedOrganizationIds is not null)
-                existing.AllowedOrganizationIds = dto.AllowedOrganizationIds;
-
-            // move service (optional)
-            if (dto.ParentId != existing.ParentServiceId)
-                existing.ParentServiceId = dto.ParentId;
-
-            var updated = await repo.UpdateAsync(existing);
+            await db.SaveChangesAsync(token);
 
             var all = await repo.GetAllAsync();
-            var dtoOut = ToDtoWithDepth(updated, all.ToDictionary(s => s.Id));
+            var dtoOut = ToDtoWithDepth(existing, all.ToDictionary(s => s.Id));
 
             return Results.Ok(dtoOut);
         })
@@ -426,32 +209,27 @@ public static class ServiceEndpoints
             .RequireAuthorization(HelpdeskPermissions.SelfServiceUser);
 
         formsTop.MapGet("/{id}", async (
-            string id,
-            [FromServices] IRepository<RequestForm> repo,
-            [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
-            ITenantContext tenant,
-            CancellationToken token) =>
+            string id, SelfServiceAudienceService audience, ClaimsPrincipal user, CancellationToken token) =>
         {
-            var f = await repo.GetByIdAsync(id);
-            if (f is null) return Results.NotFound();
-            if (!tenant.IsHelpdeskAdmin && !await selfServiceAudienceService.CanAccessRequestFormAsync(f, token))
+            var authority = await audience.ResolveAuthorityAsync(user, token);
+            var form = await audience.FindFormAsync(authority, id, token);
+            if (form is null) return Results.NotFound();
+            var catalogue = await audience.LoadCatalogueAsync(authority, token, form.Id);
+            var organizations = catalogue.FormOrganizations(form);
+            if (!authority.Access.IsHelpdeskAdmin && organizations.Count == 0) return Results.NotFound();
+            return Results.Ok(new RequestFormDto
             {
-                return Results.Forbid();
-            }
-
-            var dto = new RequestFormDto
-            {
-                Id = f.Id,
-                ServiceId = f.ServiceId,
-                Title = f.Title,
-                Description = f.Description ?? string.Empty,
-                JsonSchema = f.JsonSchema.RootElement.GetRawText(),
-                OrganizationId = f.OrganizationId,
-                AllowedOrganizationIds = f.AllowedOrganizationIds,
-                ReleaseStatus = f.ReleaseStatus
-            };
-
-            return Results.Ok(dto);
+                Id = form.Id,
+                ServiceId = form.ServiceId,
+                Title = form.Title,
+                Description = form.Description,
+                JsonSchema = form.JsonSchema.RootElement.GetRawText(),
+                OrganizationId = form.OrganizationId,
+                AllowedOrganizationIds = authority.Access.IsHelpdeskAdmin ? form.AllowedOrganizationIds : [],
+                ParentOrganizationIds = authority.Access.IsHelpdeskAdmin ? catalogue.ParentOrganizationIds(form.ServiceId) : null,
+                EligibleOrganizations = organizations.Where(org => authority.CanSubmitAsSelf(org.Id)).ToList(),
+                ReleaseStatus = form.ReleaseStatus
+            });
         })
         .WithName("GetRequestFormById");
 
@@ -462,7 +240,7 @@ public static class ServiceEndpoints
                                      [FromServices] IRequestFormDatasetBindingValidator bindingValidator,
                                      [FromServices] IDomainEventPublisher domainEvents,
                                      [FromServices] ICorrelationContext correlationContext,
-                                     ITenantContext tenant,
+                                     ITenantContext tenant, HelpdeskDbContext db,
                                      CancellationToken token) =>
         {
             if (string.IsNullOrWhiteSpace(dto.ServiceId))
@@ -475,7 +253,12 @@ public static class ServiceEndpoints
                 return Results.BadRequest(validationError);
             }
 
-            var organizationId = ResolveRequestFormOrganizationId(dto.OrganizationId, dto.AllowedOrganizationIds, tenant.TenantId);
+            var audience = NormalizeAllowedOrganizations(dto.AllowedOrganizationIds);
+            var organizationId = ResolveRequestFormOrganizationId(dto.OrganizationId, audience, tenant.TenantId);
+            if (await HasUnavailableOrganizationsAsync(db, WithOwner(audience, organizationId), null, token))
+                return Results.BadRequest("One or more organizations are unavailable for assignment.");
+            if (!await db.Services.AnyAsync(folder => folder.Id == dto.ServiceId, token))
+                return Results.BadRequest("The selected folder is unavailable.");
             var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
             if (bindingError is not null)
             {
@@ -489,7 +272,7 @@ public static class ServiceEndpoints
                 Description = dto.Description ?? string.Empty,
                 JsonSchema = schemaDoc,
                 OrganizationId = organizationId,
-                AllowedOrganizationIds = NormalizeAllowedOrganizations(dto.OrganizationId, dto.AllowedOrganizationIds),
+                AllowedOrganizationIds = audience,
                 ReleaseStatus = dto.ReleaseStatus
             };
 
@@ -529,66 +312,66 @@ public static class ServiceEndpoints
                                         [FromServices] IRequestFormDatasetBindingValidator bindingValidator,
                                         [FromServices] IDomainEventPublisher domainEvents,
                                         [FromServices] ICorrelationContext correlationContext,
-                                        CancellationToken token) =>
+                                        HelpdeskDbContext db, CancellationToken token) =>
         {
             var f = await repo.GetByIdAsync(id);
             if (f is null) return Results.NotFound();
 
-            f.Title = dto.Title ?? f.Title;
+            var organizationId = dto.OrganizationId is null
+                ? f.OrganizationId : ResolveRequestFormOrganizationId(dto.OrganizationId, null, null);
+            var audience = dto.AllowedOrganizationIds is null
+                ? f.AllowedOrganizationIds : NormalizeAllowedOrganizations(dto.AllowedOrganizationIds);
+            if (await HasUnavailableOrganizationsAsync(db, WithOwner(audience, organizationId),
+                WithOwner(f.AllowedOrganizationIds, f.OrganizationId), token))
+                return Results.BadRequest("One or more organizations are unavailable for assignment.");
+
+            var schemaDoc = f.JsonSchema;
             if (!string.IsNullOrWhiteSpace(dto.JsonSchema))
             {
-                var schemaDoc = JsonDocument.Parse(dto.JsonSchema);
+                schemaDoc = JsonDocument.Parse(dto.JsonSchema);
                 var validationError = ValidateTaskDependencyGraph(schemaDoc, schemaParser, dependencyGraphValidator);
-                if (validationError is not null)
-                {
-                    return Results.BadRequest(validationError);
-                }
-
-                var updatedOrganizationId = dto.OrganizationId is not null
-                    ? ResolveRequestFormOrganizationId(dto.OrganizationId, dto.AllowedOrganizationIds?.Count > 0 ? dto.AllowedOrganizationIds : f.AllowedOrganizationIds, f.OrganizationId)
-                    : f.OrganizationId;
-                var bindingError = await bindingValidator.ValidateAsync(updatedOrganizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
-                if (bindingError is not null)
-                {
-                    return Results.BadRequest(bindingError);
-                }
-
-                f.JsonSchema = schemaDoc;
+                if (validationError is not null) return Results.BadRequest(validationError);
             }
-            if (dto.Description is not null)
-                f.Description = dto.Description;
-            if (dto.ServiceIdHasValue) // optional move
-                f.ServiceId = dto.ServiceId;
+            if (schemaDoc != f.JsonSchema || organizationId != f.OrganizationId)
+            {
+                var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
+                if (bindingError is not null) return Results.BadRequest(bindingError);
+            }
 
-            if (dto.AllowedOrganizationIds is not null)
-                f.AllowedOrganizationIds = NormalizeAllowedOrganizations(dto.OrganizationId, dto.AllowedOrganizationIds);
-            if (dto.OrganizationId is not null)
-                f.OrganizationId = ResolveRequestFormOrganizationId(dto.OrganizationId, f.AllowedOrganizationIds, f.OrganizationId);
-            if (dto.ReleaseStatus.HasValue)
-                f.ReleaseStatus = dto.ReleaseStatus.Value;
+            if (dto.ServiceIdHasValue && !string.IsNullOrEmpty(dto.ServiceId) &&
+                !await db.Services.AnyAsync(folder => folder.Id == dto.ServiceId, token))
+                return Results.BadRequest("The selected folder is unavailable.");
 
-            var updated = await repo.UpdateAsync(f);
+            f.Title = dto.Title ?? f.Title;
+            f.Description = dto.Description ?? f.Description;
+            f.JsonSchema = schemaDoc;
+            if (dto.ServiceIdHasValue) f.ServiceId = dto.ServiceId ?? string.Empty;
+            f.AllowedOrganizationIds = audience;
+            f.OrganizationId = organizationId;
+            if (dto.ReleaseStatus.HasValue) f.ReleaseStatus = dto.ReleaseStatus.Value;
+
+            await db.SaveChangesAsync(token);
             await domainEvents.PublishAsync(
                 new RequestFormUpdatedDomainEvent(
-                    updated.Id,
-                    updated.ServiceId,
-                    updated.Title,
-                    CountTaskTemplates(updated.JsonSchema),
-                    updated.OrganizationId,
+                    f.Id,
+                    f.ServiceId,
+                    f.Title,
+                    CountTaskTemplates(f.JsonSchema),
+                    f.OrganizationId,
                     DateTimeOffset.UtcNow,
                     GetCorrelationId(correlationContext)),
                 token);
 
             var result = new RequestFormDto
             {
-                Id = updated.Id,
-                ServiceId = updated.ServiceId,
-                Title = updated.Title,
-                Description = updated.Description ?? string.Empty,
-                JsonSchema = updated.JsonSchema.RootElement.GetRawText(),
-                OrganizationId = updated.OrganizationId,
-                AllowedOrganizationIds = updated.AllowedOrganizationIds,
-                ReleaseStatus = updated.ReleaseStatus
+                Id = f.Id,
+                ServiceId = f.ServiceId,
+                Title = f.Title,
+                Description = f.Description ?? string.Empty,
+                JsonSchema = f.JsonSchema.RootElement.GetRawText(),
+                OrganizationId = f.OrganizationId,
+                AllowedOrganizationIds = f.AllowedOrganizationIds,
+                ReleaseStatus = f.ReleaseStatus
             };
             return Results.Ok(result);
         })
@@ -634,7 +417,7 @@ public static class ServiceEndpoints
                                         [FromServices] IRequestFormDatasetBindingValidator bindingValidator,
                                         [FromServices] IDomainEventPublisher domainEvents,
                                         [FromServices] ICorrelationContext correlationContext,
-                                        ITenantContext tenant,
+                                        ITenantContext tenant, HelpdeskDbContext db,
                                         CancellationToken token) =>
         {
             var schemaDoc = JsonDocument.Parse(dto.JsonSchema);
@@ -644,7 +427,12 @@ public static class ServiceEndpoints
                 return Results.BadRequest(validationError);
             }
 
-            var organizationId = ResolveRequestFormOrganizationId(dto.OrganizationId, dto.AllowedOrganizationIds, tenant.TenantId);
+            var audience = NormalizeAllowedOrganizations(dto.AllowedOrganizationIds);
+            var organizationId = ResolveRequestFormOrganizationId(dto.OrganizationId, audience, tenant.TenantId);
+            if (await HasUnavailableOrganizationsAsync(db, WithOwner(audience, organizationId), null, token))
+                return Results.BadRequest("One or more organizations are unavailable for assignment.");
+            if (!await db.Services.AnyAsync(folder => folder.Id == serviceId, token))
+                return Results.BadRequest("The selected folder is unavailable.");
             var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
             if (bindingError is not null)
             {
@@ -658,7 +446,7 @@ public static class ServiceEndpoints
                 Description = dto.Description,
                 JsonSchema = schemaDoc,
                 OrganizationId = organizationId,
-                AllowedOrganizationIds = NormalizeAllowedOrganizations(dto.OrganizationId, dto.AllowedOrganizationIds),
+                AllowedOrganizationIds = audience,
                 ReleaseStatus = dto.ReleaseStatus
             };
             var created = await repo.CreateAsync(form);
@@ -693,11 +481,55 @@ public static class ServiceEndpoints
     }
 
     // ---------- helpers ----------
+    private sealed record CatalogueEntry(string? ParentId, ServiceItemDto Item);
+
+    private static async Task<List<CatalogueEntry>> ReadCatalogueAsync(
+        SelfServiceAudienceService audience, ClaimsPrincipal user, CancellationToken token)
+    {
+        var authority = await audience.ResolveAuthorityAsync(user, token);
+        var catalogue = await audience.LoadCatalogueAsync(authority, token);
+        var admin = authority.Access.IsHelpdeskAdmin;
+        var folders = catalogue.Folders.Values.Where(folder => catalogue.CanViewFolder(folder.Id)).ToList();
+        var forms = await audience.CandidateForms(authority).ToListAsync(token);
+        var entries = new List<CatalogueEntry>();
+        foreach (var form in forms)
+        {
+            IReadOnlyList<SelfServiceTargetOrganizationDto> organizations = admin ? [] : catalogue.FormOrganizations(form);
+            if (!admin && organizations.Count == 0) continue;
+            entries.Add(new CatalogueEntry(string.IsNullOrEmpty(form.ServiceId) ? null : form.ServiceId, new ServiceItemDto
+            {
+                Id = form.Id,
+                Name = form.Title,
+                Description = form.Description,
+                ItemType = ServiceItemType.RequestForm,
+                AllowedOrganizationIds = admin ? form.AllowedOrganizationIds : null,
+                ParentOrganizationIds = admin ? catalogue.ParentOrganizationIds(form.ServiceId) : null,
+                EligibleOrganizations = organizations,
+                ReleaseStatus = form.ReleaseStatus
+            }));
+        }
+
+        var counts = BuildAvailableRequestCounts(
+            folders.Select(folder => new ServiceCountNode(folder.Id, folder.ParentServiceId)),
+            entries.Select(entry => entry.ParentId));
+        entries.InsertRange(0, folders.Select(folder => new CatalogueEntry(folder.ParentServiceId, new ServiceItemDto
+        {
+            Id = folder.Id,
+            Name = folder.Name,
+            Description = folder.Description,
+            ItemType = ServiceItemType.Service,
+            AvailableRequestCount = counts.GetValueOrDefault(folder.Id),
+            AllowedOrganizationIds = admin ? folder.AllowedOrganizationIds : null,
+            ParentOrganizationIds = admin ? catalogue.ParentOrganizationIds(folder.ParentServiceId) : null
+        })));
+        return entries;
+    }
+
     private sealed record ServiceCountNode(string Id, string? ParentServiceId);
 
     private static Dictionary<string, int> BuildAvailableRequestCounts(
         IEnumerable<ServiceCountNode> services,
-        IEnumerable<string> requestFormServiceIds)
+        IEnumerable<string?> requestFormServiceIds)
     {
         var counts = services.ToDictionary(s => s.Id, _ => 0, StringComparer.OrdinalIgnoreCase);
         var parentByServiceId = services.ToDictionary(s => s.Id, s => s.ParentServiceId, StringComparer.OrdinalIgnoreCase);
@@ -719,7 +551,7 @@ public static class ServiceEndpoints
         return counts;
     }
 
-    private static ServiceDto ToDtoWithDepth(Service s, IDictionary<string, Service> dict)
+    private static ServiceDto ToDtoWithDepth(Service s, IReadOnlyDictionary<string, Service> dict)
     {
         int depth = 0;
         var seen = new HashSet<string>();
@@ -744,13 +576,14 @@ public static class ServiceEndpoints
         };
     }
 
-    private static List<BreadcrumbDto> BuildBreadcrumb(Service leaf, IDictionary<string, Service> dict)
+    private static List<BreadcrumbDto> BuildBreadcrumb(Service leaf, IReadOnlyDictionary<string, Service> dict)
     {
         var stack = new Stack<BreadcrumbDto>();
         var current = leaf;
 
         // climb to root
-        while (true)
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (visited.Add(current.Id))
         {
             stack.Push(new BreadcrumbDto { Id = current.Id, Name = current.Name });
 
@@ -895,64 +728,33 @@ public static class ServiceEndpoints
         return correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
     }
 
-    private static bool IsAllowedForTenant(IReadOnlyCollection<string>? allowedOrganizationIds, string? tenantId)
-    {
-        if (string.IsNullOrWhiteSpace(tenantId))
-        {
-            return false;
-        }
-
-        return allowedOrganizationIds == null
-               || allowedOrganizationIds.Count == 0
-               || allowedOrganizationIds.Contains(tenantId, StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static bool IsAllowedForCustomer(IReadOnlyCollection<string>? allowedCustomerIds, string? customerId)
-    {
-        if (allowedCustomerIds == null || allowedCustomerIds.Count == 0)
-        {
-            return true;
-        }
-
-        return !string.IsNullOrWhiteSpace(customerId)
-               && allowedCustomerIds.Contains(customerId, StringComparer.OrdinalIgnoreCase);
-    }
-
     private static string? ResolveRequestFormOrganizationId(
-        string? explicitOrganizationId,
-        IReadOnlyCollection<string>? allowedOrganizationIds,
-        string? fallbackTenantId)
+        string? organizationId, IReadOnlyCollection<string>? allowedOrganizationIds, string? fallbackTenantId)
     {
-        if (!string.IsNullOrWhiteSpace(explicitOrganizationId))
-        {
-            return explicitOrganizationId.Trim();
-        }
+        // An empty primary selection explicitly creates an ownerless form. The
+        // omitted value retains the legacy ownership default for existing clients.
+        if (organizationId is not null)
+            return string.IsNullOrWhiteSpace(organizationId) ? null : organizationId.Trim();
 
-        var normalizedAllowed = NormalizeAllowedOrganizations(null, allowedOrganizationIds);
-        if (normalizedAllowed.Count == 1)
-        {
-            return normalizedAllowed[0];
-        }
-
-        return string.IsNullOrWhiteSpace(fallbackTenantId) ? null : fallbackTenantId.Trim();
+        var explicitAudience = NormalizeAllowedOrganizations(allowedOrganizationIds);
+        return explicitAudience.Count == 1 ? explicitAudience[0] : fallbackTenantId;
     }
 
-    private static List<string> NormalizeAllowedOrganizations(
-        string? explicitOrganizationId,
-        IReadOnlyCollection<string>? allowedOrganizationIds)
-    {
-        var values = (allowedOrganizationIds ?? [])
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x.Trim())
+    private static List<string> NormalizeAllowedOrganizations(IReadOnlyCollection<string>? allowedOrganizationIds) =>
+        (allowedOrganizationIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (!string.IsNullOrWhiteSpace(explicitOrganizationId)
-            && !values.Contains(explicitOrganizationId.Trim(), StringComparer.OrdinalIgnoreCase))
-        {
-            values.Add(explicitOrganizationId.Trim());
-        }
+    private static IEnumerable<string> WithOwner(IEnumerable<string>? audience, string? organizationId) =>
+        string.IsNullOrWhiteSpace(organizationId) ? audience ?? [] : (audience ?? []).Append(organizationId);
 
-        return values;
+    private static async Task<bool> HasUnavailableOrganizationsAsync(
+        HelpdeskDbContext db, IEnumerable<string> organizationIds, IEnumerable<string>? current, CancellationToken token)
+    {
+        var added = organizationIds.Except(current ?? [], StringComparer.Ordinal).ToArray();
+        return added.Length > 0 && await db.Organizations.AsNoTracking()
+            .CountAsync(org => org.State == EntityState.Enabled && added.Contains(org.Id), token) != added.Length;
     }
 }

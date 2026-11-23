@@ -11,6 +11,7 @@ using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Resources;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
@@ -29,6 +30,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
+using System.Net;
 
 namespace Helpdesk.Tests.Api;
 
@@ -57,6 +59,24 @@ public sealed class ServiceItemsEndpointsTests
     }
 
     [Fact]
+    public async Task Folder_audience_edits_leave_content_and_parent_until_an_explicit_move()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
+        using var clear = await harness.Client.PutAsJsonAsync("/api/v1/services/child-a", new { allowedOrganizationIds = Array.Empty<string>() });
+        clear.EnsureSuccessStatusCode();
+        var child = (await harness.Client.GetFromJsonAsync<ServiceDto>("/api/v1/services/child-a"))!;
+        Assert.Empty(child.AllowedOrganizationIds);
+        Assert.Equal("root-a", child.ParentServiceId);
+        Assert.Equal("Visible child", child.Description);
+        Assert.Equal("Child A", child.Name);
+        using var invalid = await harness.Client.PutAsJsonAsync("/api/v1/services/root-a", new { parentId = "child-a" });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        using var move = await harness.Client.PutAsJsonAsync("/api/v1/services/child-a", new UpdateServiceDto { ParentIdHasValue = true });
+        move.EnsureSuccessStatusCode();
+        Assert.Null((await move.Content.ReadFromJsonAsync<ServiceDto>())!.ParentServiceId);
+    }
+
+    [Fact]
     public async Task Request_form_edit_preserves_omitted_audience_and_accepts_explicit_clear()
     {
         await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
@@ -71,6 +91,14 @@ public sealed class ServiceItemsEndpointsTests
         cleared.EnsureSuccessStatusCode();
         var after = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
         Assert.Empty(after!.AllowedOrganizationIds);
+        Assert.Equal("tenant-1", after.OrganizationId);
+        using var reopenedSave = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root",
+            new { organizationId = after.OrganizationId, description = "Updated after reopening", allowedOrganizationIds = after.AllowedOrganizationIds });
+        reopenedSave.EnsureSuccessStatusCode();
+        Assert.Empty((await reopenedSave.Content.ReadFromJsonAsync<RequestFormDto>())!.AllowedOrganizationIds);
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "SelfService");
+        using var hidden = await harness.Client.GetAsync("/api/v1/request-forms/form-root");
+        Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
     }
 
     [Fact]
@@ -162,7 +190,7 @@ public sealed class ServiceItemsEndpointsTests
         Assert.DoesNotContain(search.Items, item => item.Id == "form-hidden");
         Assert.DoesNotContain(search.Items, item => item.Id == "form-customer-two");
         Assert.DoesNotContain(search.Items, item => item.Id == "form-customer-parent");
-        Assert.Contains(search.Items, item => item.Id == "form-customer-child");
+        Assert.DoesNotContain(search.Items, item => item.Id == "form-customer-child");
         Assert.Contains(items!, item => item.Id == "form-root-level");
 
         var hiddenParentItems = await harness.Client.GetFromJsonAsync<List<ServiceItemDto>>(
@@ -171,12 +199,12 @@ public sealed class ServiceItemsEndpointsTests
 
         var visibleChildItems = await harness.Client.GetFromJsonAsync<List<ServiceItemDto>>(
             "/api/v1/service-items/customer-one-child");
-        Assert.Contains(visibleChildItems!, item => item.Id == "form-customer-child");
+        Assert.Empty(visibleChildItems!);
 
         var formOnlySearch = await harness.Client.GetFromJsonAsync<PagedResponse<ServiceItemDto>>(
             "/api/v1/service-items/search?q=needle&pageSize=25");
         Assert.NotNull(formOnlySearch);
-        Assert.Contains(formOnlySearch!.Items, item => item.Id == "form-customer-child");
+        Assert.Equal("form-root", Assert.Single(formOnlySearch!.Items).Id);
         Assert.DoesNotContain(formOnlySearch.Items, item => item.Id == "customer-one-child");
 
         var customerServiceResponse = await harness.Client.GetAsync("/api/v1/services/customer-one");
@@ -185,26 +213,24 @@ public sealed class ServiceItemsEndpointsTests
         Assert.NotNull(customerService);
         Assert.Empty(customerService!.AllowedCustomerIds);
         Assert.Empty(customerService.AllowedOrganizationIds);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden,
+        Assert.Equal(HttpStatusCode.NotFound,
             (await harness.Client.GetAsync("/api/v1/services/customer-two")).StatusCode);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden,
+        Assert.Equal(HttpStatusCode.NotFound,
             (await harness.Client.GetAsync("/api/v1/services/customer-cross-org")).StatusCode);
 
         Assert.Equal(System.Net.HttpStatusCode.OK,
             (await harness.Client.GetAsync("/api/v1/services/customer-one/breadcrumb")).StatusCode);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden,
+        Assert.Equal(HttpStatusCode.NotFound,
             (await harness.Client.GetAsync("/api/v1/services/customer-two/breadcrumb")).StatusCode);
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden,
+        Assert.Equal(HttpStatusCode.NotFound,
             (await harness.Client.GetAsync("/api/v1/services/customer-cross-org/breadcrumb")).StatusCode);
 
-        var child = await harness.Client.GetFromJsonAsync<ServiceDto>(
-            "/api/v1/services/customer-one-child");
-        Assert.NotNull(child);
-        Assert.Equal(0, child!.Depth);
-
-        var childBreadcrumb = await harness.Client.GetFromJsonAsync<List<BreadcrumbDto>>(
-            "/api/v1/services/customer-one-child/breadcrumb");
-        Assert.Equal("customer-one-child", Assert.Single(childBreadcrumb!).Id);
+        foreach (var route in new[] { "/api/v1/services/customer-one-child", "/api/v1/services/customer-one-child/breadcrumb",
+            "/api/v1/request-forms/form-customer-child" })
+        {
+            using var denied = await harness.Client.GetAsync(route);
+            Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+        }
     }
 
     [Fact]
@@ -218,7 +244,7 @@ public sealed class ServiceItemsEndpointsTests
         Assert.Contains(customerOne!.Items, item => item.Id == "customer-one");
         Assert.DoesNotContain(customerOne.Items, item => item.Id == "customer-two");
 
-        harness.AccessService.CustomerId = "customer-2";
+        await harness.SwitchCustomerAsync("customer-2");
 
         var customerTwo = await harness.Client.GetFromJsonAsync<PagedResponse<ServiceItemDto>>(
             "/api/v1/service-items/search?pageSize=25");
@@ -264,17 +290,10 @@ public sealed class ServiceItemsEndpointsTests
     {
         await using var harness = await ServiceItemsTestHarness.CreateAsync();
 
-        var response = await harness.Client.GetFromJsonAsync<List<BreadcrumbDto>>(
-            "/api/v1/services/tenant-child/breadcrumb");
-
-        var breadcrumb = Assert.Single(response!);
-        Assert.Equal("tenant-child", breadcrumb.Id);
-        Assert.Equal("Tenant child", breadcrumb.Name);
-
-        var service = await harness.Client.GetFromJsonAsync<ServiceDto>(
-            "/api/v1/services/tenant-child");
-        Assert.NotNull(service);
-        Assert.Equal(0, service!.Depth);
+        using var breadcrumb = await harness.Client.GetAsync("/api/v1/services/tenant-child/breadcrumb");
+        using var service = await harness.Client.GetAsync("/api/v1/services/tenant-child");
+        Assert.Equal(HttpStatusCode.NotFound, breadcrumb.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, service.StatusCode);
     }
 
     [Fact]
@@ -332,19 +351,23 @@ public sealed class ServiceItemsEndpointsTests
             SqliteConnection connection,
             WebApplication app,
             HttpClient client,
-            TestDashboardSender dashboardSender,
-            TestCurrentUserAccessService accessService)
+            TestDashboardSender dashboardSender)
         {
             _connection = connection;
             _app = app;
             Client = client;
             DashboardSender = dashboardSender;
-            AccessService = accessService;
         }
 
         public HttpClient Client { get; }
         public TestDashboardSender DashboardSender { get; }
-        public TestCurrentUserAccessService AccessService { get; }
+        public async Task SwitchCustomerAsync(string customerId)
+        {
+            await using var scope = _app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            (await db.CustomerAuthLinks.SingleAsync()).CustomerId = customerId;
+            await db.SaveChangesAsync();
+        }
 
         public static async Task<ServiceItemsTestHarness> CreateAsync(
             bool isHelpdeskAdmin = false,
@@ -370,11 +393,10 @@ public sealed class ServiceItemsEndpointsTests
             builder.Services.AddSingleton(Substitute.For<IDomainEventPublisher>());
             builder.Services.AddSingleton(Substitute.For<ICorrelationContext>());
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("tenant-1", "user-1", isHelpdeskAdmin));
-            builder.Services.AddScoped<ISelfServiceAudienceService, TestSelfServiceAudienceService>();
+            builder.Services.AddScoped<SelfServiceAudienceService>();
             var dashboardSender = new TestDashboardSender();
             builder.Services.AddSingleton<IRequestSender>(dashboardSender);
-            var accessService = new TestCurrentUserAccessService(customerId);
-            builder.Services.AddSingleton<ICurrentUserAccessService>(accessService);
+            builder.Services.AddScoped<ICurrentUserAccessService, CurrentUserAccessService>();
             builder.Services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = "Test";
@@ -402,10 +424,20 @@ public sealed class ServiceItemsEndpointsTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await db.Database.EnsureCreatedAsync();
+                db.Organizations.AddRange(new Organization { Id = "tenant-1", Name = "Organization A" },
+                    new Organization { Id = "tenant-2", Name = "Organization B" });
+                db.Users.Add(new User { Id = "user-1", Name = "Requester", Email = "owner@example.test", OrganizationId = "tenant-1" });
+                if (selfServiceAccess)
+                    db.ScopedRoleAssignments.Add(new ScopedRoleAssignment
+                    { UserId = "user-1", RoleKey = ScopedRoleCatalog.SelfServiceUser, OrganizationId = "tenant-1" });
+                db.Customers.AddRange(new Customer { Id = "customer-1", OrganizationId = "tenant-1", Email = "owner@example.test" },
+                    new Customer { Id = "customer-2", OrganizationId = "tenant-1", Email = "other@example.test" });
+                if (customerId is not null)
+                    db.CustomerAuthLinks.Add(new CustomerAuthLink { CustomerId = customerId, LocalAccountId = "user-1", DomainUserId = "user-1" });
 
                 db.Services.AddRange(
-                    new Service { Id = "root-a", Name = "Root A", Description = "Visible root" },
-                    new Service { Id = "child-a", Name = "Child A", Description = "Visible child", ParentServiceId = "root-a" },
+                    new Service { Id = "root-a", Name = "Root A", Description = "Visible root", AllowedOrganizationIds = ["tenant-1"] },
+                    new Service { Id = "child-a", Name = "Child A", Description = "Visible child", ParentServiceId = "root-a", AllowedOrganizationIds = ["tenant-1"] },
                     new Service { Id = "root-b", Name = "Root B", Description = "Hidden root", AllowedOrganizationIds = ["tenant-2"] },
                     new Service { Id = "private-parent", Name = "Private parent", Description = "Hidden parent", AllowedOrganizationIds = ["tenant-2"] },
                     new Service { Id = "tenant-child", Name = "Tenant child", Description = "Visible child", ParentServiceId = "private-parent", AllowedOrganizationIds = ["tenant-1"] },
@@ -416,15 +448,15 @@ public sealed class ServiceItemsEndpointsTests
                     new Service { Id = "customer-one-child", Name = "Customer one child", ParentServiceId = "customer-private-parent", AllowedOrganizationIds = ["tenant-1"], AllowedCustomerIds = ["customer-1"] });
 
                 db.RequestForms.AddRange(
-                    new RequestForm { Id = "form-root", Title = "Root request", Description = "Direct request", ServiceId = "root-a", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-child-1", Title = "Child request 1", Description = "Child request", ServiceId = "child-a", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-child-2", Title = "Child request 2", Description = "Child request", ServiceId = "child-a", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-hidden", Title = "Hidden request", Description = "Hidden", ServiceId = "root-b", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-testing", Title = "Testing request", Description = "Testing", ServiceId = "root-a", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.InTesting },
-                    new RequestForm { Id = "form-root-level", Title = "Root level request", ServiceId = string.Empty, OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-customer-two", Title = "Customer two request", ServiceId = "customer-two", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-customer-parent", Title = "Restricted parent request", ServiceId = "customer-private-parent", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production },
-                    new RequestForm { Id = "form-customer-child", Title = "Needle only form", ServiceId = "customer-one-child", OrganizationId = "tenant-1", ReleaseStatus = RequestFormReleaseStatus.Production });
+                    new RequestForm { Id = "form-root", Title = "Root request", Description = "Needle eligible request", ServiceId = "root-a", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-child-1", Title = "Child request 1", Description = "Child request", ServiceId = "child-a", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-child-2", Title = "Child request 2", Description = "Child request", ServiceId = "child-a", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-hidden", Title = "Hidden request", Description = "Hidden", ServiceId = "root-b", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-testing", Title = "Testing request", Description = "Testing", ServiceId = "root-a", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.InTesting },
+                    new RequestForm { Id = "form-root-level", Title = "Root level request", ServiceId = string.Empty, OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-customer-two", Title = "Customer two request", ServiceId = "customer-two", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-customer-parent", Title = "Restricted parent request", ServiceId = "customer-private-parent", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production },
+                    new RequestForm { Id = "form-customer-child", Title = "Needle only form", ServiceId = "customer-one-child", OrganizationId = "tenant-1", AllowedOrganizationIds = ["tenant-1"], ReleaseStatus = RequestFormReleaseStatus.Production });
 
                 await db.SaveChangesAsync();
             }
@@ -436,7 +468,7 @@ public sealed class ServiceItemsEndpointsTests
                 : selfServiceAccess ? "SelfService" : "NoSelfService";
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", actor);
 
-            var harness = new ServiceItemsTestHarness(connection, app, client, dashboardSender, accessService);
+            var harness = new ServiceItemsTestHarness(connection, app, client, dashboardSender);
             return harness;
         }
 
@@ -447,43 +479,11 @@ public sealed class ServiceItemsEndpointsTests
         }
     }
 
-    private sealed class TestSelfServiceAudienceService : ISelfServiceAudienceService
-    {
-        public Task<bool> IsTestUserAsync(CancellationToken cancellationToken) => Task.FromResult(false);
-
-        public Task<bool> CanAccessRequestFormAsync(RequestForm requestForm, CancellationToken cancellationToken) =>
-            Task.FromResult(requestForm.ReleaseStatus == RequestFormReleaseStatus.Production);
-
-        public IQueryable<RequestForm> ApplyAudienceFilter(
-            IQueryable<RequestForm> query,
-            bool isAdmin,
-            bool isTestUser,
-            string? tenantId)
-        {
-            if (isAdmin)
-            {
-                return query;
-            }
-
-            return query.Where(f =>
-                (string.IsNullOrWhiteSpace(f.OrganizationId) || f.OrganizationId == tenantId)
-                && f.ReleaseStatus == RequestFormReleaseStatus.Production);
-        }
-    }
-
     private sealed class TestTenantContext(string? tenantId, string? userId, bool isHelpdeskAdmin) : ITenantContext
     {
         public string? TenantId { get; } = tenantId;
         public string? UserId { get; } = userId;
         public bool IsHelpdeskAdmin { get; } = isHelpdeskAdmin;
-    }
-
-    private sealed class TestCurrentUserAccessService(string? customerId) : ICurrentUserAccessService
-    {
-        public string? CustomerId { get; set; } = customerId;
-
-        public Task<CurrentUserAccessProfile> ResolveAsync(ClaimsPrincipal user, CancellationToken ct = default) =>
-            Task.FromResult(CurrentUserAccessProfile.FromClaims(user) with { CustomerId = this.CustomerId });
     }
 
     private sealed class TestDashboardSender : IRequestSender
@@ -529,6 +529,7 @@ public sealed class ServiceItemsEndpointsTests
             }
             else if (!string.Equals(actor, "NoSelfService", StringComparison.Ordinal))
             {
+                claims.Add(new Claim("auth_mode", "local"));
                 claims.Add(new Claim(ClaimTypes.Role, HelpdeskPermissions.SelfServiceUser));
             }
 

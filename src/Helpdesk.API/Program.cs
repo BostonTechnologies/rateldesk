@@ -446,7 +446,7 @@ if (!skipDatabaseStartup)
     builder.Services.AddHostedService<BackgroundJobRunner>();
     builder.Services.AddHostedService<Helpdesk.Infrastructure.Email.MailboxIngestionCoordinator>();
 }
-builder.Services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
+builder.Services.AddScoped<SelfServiceAudienceService>();
 
 builder.Services.AddSignalR();
 builder.Services.AddRequestBus(typeof(Program).Assembly, typeof(CreateIncidentCommand).Assembly);

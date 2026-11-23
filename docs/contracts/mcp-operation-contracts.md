@@ -7,7 +7,7 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The current catalog revision `2026-11-11.premium-workspaces-v31` contains 390
+The current catalog revision `2026-11-23.self-service-organizations-v35` contains 393
 operations on 37 tools. The retained [inventory delta](mcp-operation-inventory-delta-beta13.json)
 compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
 with beta.11 at revision `2026-10-25.beta11-contracts-v25`: all 389 prior
@@ -18,12 +18,18 @@ while preserving delivery and rule audit history. The
 earlier operator expansion. These source mappings remain distinct from fresh
 runtime acceptance evidence.
 
-Self-service creation resolves the requester from an enabled login link or
-trusted persisted account and domain-user membership. Its organization must be
-compatible with the form and saved automation bindings. An email match does not
-establish ownership. Optional `request.submissionId` is a stable UUID: repeat an
-identical submission with that UUID to recover the original receipt; changed
-content returns a conflict. Every retry revalidates current eligibility.
+Self-service creation resolves the requester from an enabled login link or a
+trusted persisted application account and domain identity. Read
+`eligibleOrganizations` with `helpdesk_request_forms` operation `get` before
+choosing `request.targetOrganizationId`. Omission is accepted when one
+organization is eligible. The selected organization must satisfy the current
+permission grant, folder path, form audience, datasets and saved automation
+connection. An account-bound credential retains its approved organization.
+
+Reuse `request.submissionId` and the original requester, organization and
+payload after an uncertain response. The API rechecks authority before
+returning the original receipt. Reusing the UUID for a changed intent returns a
+conflict.
 
 `delete_user` retires application access, revokes application sessions and
 credentials, and preserves historical attribution. It is separate from
@@ -64,7 +70,7 @@ their documented fields, and arrays that support clearing accept `[]`.
 | AI report | `invocationId`, `eventId`, `ticketId`, `ticketType`, `correlationId`, `status`, `message`; statuses Queued, Started, Progress, Finding, ActionAwaitingApproval, Completed, Failed, Cancelled |
 | Change state/lifecycle/bulk | `newState` and `lifecycleState` have distinct enums; bulk operations require `ids` and their state/assignment fields |
 | Task edit | At least one supported edit; `assignedToId` conflicts with `clearAssignment:true`, and `dueDate` conflicts with `clearDueDate:true`; supported attachment/asset arrays can clear with `[]` |
-| Self-service create | `requestFormId`; `payloadJson` defaults to `{}` and must satisfy the selected form; requested-for selection has its documented source/authority prerequisites and does not require a pre-existing `requestId` |
+| Self-service create | `requestFormId`; `targetOrganizationId` when multiple eligible organizations remain; `payloadJson` defaults to `{}` and must satisfy the selected form; requested-for selection has its documented source/authority prerequisites and does not require a pre-existing `requestId` |
 | Scoped role create/update | Required name and permissions; create additionally requires `ownerOrganizationId`; permission dependencies and delegable ceilings apply |
 | Service create | Use the API's `parentId` for nesting; the unused `parentServiceId` field is absent from the advertised contract |
 

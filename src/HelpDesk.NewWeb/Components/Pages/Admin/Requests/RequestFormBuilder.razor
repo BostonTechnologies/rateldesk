@@ -64,6 +64,34 @@
 
                             <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Primary Organization" Value="@model.OrganizationId" ValueChanged="OnOrganizationChanged" SelectedItemLoaded="RememberOrganization" SelectionChanged="RememberOrganization" Required="false" Placeholder="No primary organization" />
 
+                            <MudText Typo="Typo.subtitle2">Self-service audience</MudText>
+                            @if (selectedOrgIds.Count == 0)
+                            {
+                                <MudText Typo="Typo.body2">Not visible in self service. Assign at least one organization.</MudText>
+                            }
+                            else
+                            {
+                                <MudChipSet T="string" Filter="false">
+                                    @foreach (var id in selectedOrgIds.OrderBy(GetAudienceOrganizationName))
+                                    {
+                                        <MudChip T="string" @key="id" Value="@id" Closeable="true" OnClose="@(() => selectedOrgIds.Remove(id))">
+                                            @GetAudienceOrganizationName(id)
+                                        </MudChip>
+                                    }
+                                </MudChipSet>
+                            }
+                            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true"
+                                                      AutoSelectSingle="false" ClearAfterSelection="true" Required="false"
+                                                      Label="Add audience organization" SelectionChanged="AddAudienceOrganization" />
+                            @if (selectedOrgIds.Count > 0 && model.OrganizationId is { Length: > 0 } primary && selectedOrgIds.Any(id => id != primary))
+                            {
+                                <MudAlert Severity="Severity.Warning" Dense="true">The primary organization limits this form to @GetAudienceOrganizationName(primary). Assign that organization to publish the form.</MudAlert>
+                            }
+                            @if (parentAudience is not null && selectedOrgIds.Any(id => !parentAudience.Contains(id)))
+                            {
+                                <MudAlert Severity="Severity.Warning" Dense="true">A parent folder blocks some assigned organizations. Each parent folder must assign the organization.</MudAlert>
+                            }
+
                             @if (SelectedOrganization is not null)
                             {
                                 <MudText Typo="Typo.caption" Class="request-form-builder-subtitle">
@@ -943,7 +971,21 @@
     };
 
     private void RememberOrganization(OrganizationDto? organization) => SelectedOrganization = organization;
-    private HashSet<string> selectedOrgIds { get; set; } = new();
+    [Parameter] public IReadOnlyList<OrganizationDto> Organizations { get; set; } = [];
+    private readonly HashSet<string> selectedOrgIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> audienceNames = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<string>? parentAudience;
+
+    private void AddAudienceOrganization(OrganizationDto? organization)
+    {
+        if (organization is null) return;
+        audienceNames[organization.Id] = organization.Name;
+        selectedOrgIds.Add(organization.Id);
+    }
+
+    private string GetAudienceOrganizationName(string id) =>
+        audienceNames.GetValueOrDefault(id) ?? Organizations.FirstOrDefault(org => org.Id == id)?.Name ??
+        (SelectedOrganization?.Id == id ? SelectedOrganization.Name : null) ?? id;
     private List<DatasetDefinitionDto> availableDatasets = new();
     private List<UserDto> users = new();
     private readonly Dictionary<Guid, AutomationBindingEditorModel> automationBindings = new();
@@ -1150,14 +1192,10 @@
         model.Title = formDto.Title;
         model.Description = formDto.Description;
         model.ReleaseStatus = formDto.ReleaseStatus;
-        model.OrganizationId = string.IsNullOrWhiteSpace(formDto.OrganizationId) && (formDto.AllowedOrganizationIds?.Count ?? 0) == 1
-            ? formDto.AllowedOrganizationIds[0]
-            : formDto.OrganizationId;
-        selectedOrgIds = new HashSet<string>(formDto.AllowedOrganizationIds ?? new());
-        if (!string.IsNullOrWhiteSpace(model.OrganizationId))
-        {
-            selectedOrgIds.Add(model.OrganizationId);
-        }
+        model.OrganizationId = formDto.OrganizationId;
+        selectedOrgIds.Clear();
+        selectedOrgIds.UnionWith(formDto.AllowedOrganizationIds ?? []);
+        parentAudience = formDto.ParentOrganizationIds;
         _ = LoadAvailableDatasetsAsync();
 
         try
@@ -2021,7 +2059,7 @@
                     ServiceId = ServiceId!,
                     Title = model.Title ?? string.Empty,
                     Description = model.Description,
-                    OrganizationId = model.OrganizationId,
+                    OrganizationId = model.OrganizationId ?? string.Empty,
                     AllowedOrganizationIds = selectedOrgIds.ToList(),
                     ReleaseStatus = model.ReleaseStatus,
                     JsonSchema = jsonSchema
@@ -2034,7 +2072,7 @@
                 {
                     Title = model.Title,
                     Description = model.Description,
-                    OrganizationId = model.OrganizationId,
+                    OrganizationId = model.OrganizationId ?? string.Empty,
                     AllowedOrganizationIds = selectedOrgIds.ToList(),
                     ReleaseStatus = model.ReleaseStatus,
                     JsonSchema = jsonSchema,
@@ -2095,9 +2133,6 @@
     private async Task OnOrganizationChanged(string? organizationId)
     {
         model.OrganizationId = string.IsNullOrWhiteSpace(organizationId) ? null : organizationId;
-        selectedOrgIds = string.IsNullOrWhiteSpace(model.OrganizationId)
-            ? new HashSet<string>()
-            : new HashSet<string>(new[] { model.OrganizationId });
         if (SelectedBinding is not null && !SelectedBindingTargetIsVisible)
         {
             ResetSelectedPayloadMappingJobParamDraft();

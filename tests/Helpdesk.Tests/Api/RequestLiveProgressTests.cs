@@ -124,11 +124,14 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(bool postgres)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Own_detail_resynchronizes_over_strict_gateway_stream_without_operator_data_or_actions(bool postgres, bool secondaryOrganization)
     {
         await using var harness = await Harness.CreateAsync(postgres);
+        if (secondaryOrganization) await harness.UseSecondaryRequesterOrganizationAsync();
         var factory = await harness.ClientsAsync("requester");
         await using var context = Context(factory, "SelfService.User");
         var page = context.Render<OwnDetail>(p => p.Add(x => x.Id, "live-request"));
@@ -319,7 +322,8 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             builder.Services.AddScoped<IRequestTaskLifecycleService, RequestTaskLifecycleService>();
             builder.Services.AddScoped<IRequestTaskStateService, RequestTaskStateService>();
             builder.Services.AddSingleton<ITimelineEventBus, TimelineEventBus>();
-            builder.Services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
+            builder.Services.AddScoped<SelfServiceAudienceService>();
+            builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             var correlation = Substitute.For<ICorrelationContext>(); correlation.GetCorrelationId().Returns("live-acceptance");
             builder.Services.AddSingleton(correlation);
             builder.Services.AddSingleton(Substitute.For<ITicketNotificationService>());
@@ -410,6 +414,31 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
                 await db.SaveChangesAsync();
             });
         }
+        public Task UseSecondaryRequesterOrganizationAsync() => WithDbAsync(async db =>
+        {
+            const string organizationId = "live-org-secondary";
+            const string customerId = "secondary-customer";
+            db.Organizations.Add(new Organization { Id = organizationId, Name = "Synthetic secondary organization" });
+            db.Customers.Add(new Customer
+            {
+                Id = customerId, IdentityUserId = "requester", Name = "Synthetic requester",
+                Email = "requester@example.test", OrganizationId = organizationId
+            });
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment
+            {
+                UserId = "requester", RoleKey = "live-self-service", OrganizationId = organizationId
+            });
+            var request = await db.Requests.SingleAsync();
+            request.OrganizationId = organizationId;
+            request.CustomerId = customerId;
+            foreach (var task in await db.RequestTasks.ToListAsync())
+            {
+                task.OrganizationId = organizationId;
+                task.CustomerId = customerId;
+            }
+            await db.SaveChangesAsync();
+        });
+
         public async Task CompleteAllAsync()
         {
             await using var scope = api.Services.CreateAsyncScope();

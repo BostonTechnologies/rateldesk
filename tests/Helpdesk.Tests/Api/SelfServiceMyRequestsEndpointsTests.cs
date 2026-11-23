@@ -1,3 +1,4 @@
+using Helpdesk.Application.RequestTasks;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -230,7 +231,8 @@ public sealed class SelfServiceMyRequestsEndpointsTests
                 else options.UseNpgsql(container.GetConnectionString());
             });
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("tenant-1", "user-1", isHelpdeskAdmin: false));
-            builder.Services.AddScoped<ISelfServiceAudienceService, AllowingSelfServiceAudienceService>();
+            builder.Services.AddScoped<SelfServiceAudienceService>();
+            builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddScoped<ICurrentUserAccessService, ClaimsCurrentUserAccessService>();
             builder.Services.AddSingleton<IDomainEventPublisher, TestDomainEventPublisher>();
             builder.Services.AddScoped<ICorrelationContext>(_ => new TestCorrelationContext("corr-self-service-tests"));
@@ -313,6 +315,8 @@ public sealed class SelfServiceMyRequestsEndpointsTests
                     CreatedAt = DateTime.UtcNow
                 };
 
+                db.Organizations.AddRange(new Organization { Id = "tenant-1", Name = "Organization A" },
+                    new Organization { Id = "tenant-2", Name = "Organization B" });
                 db.Users.Add(user);
                 db.Customers.Add(customer);
                 db.RequestForms.Add(form);
@@ -372,23 +376,6 @@ public sealed class SelfServiceMyRequestsEndpointsTests
     private sealed class TestDomainEventPublisher : IDomainEventPublisher
     {
         public Task PublishAsync(DomainEvent domainEvent, CancellationToken ct) => Task.CompletedTask;
-    }
-
-    private sealed class AllowingSelfServiceAudienceService : ISelfServiceAudienceService
-    {
-        public Task<bool> IsTestUserAsync(CancellationToken cancellationToken) => Task.FromResult(false);
-
-        public Task<bool> CanAccessRequestFormAsync(RequestForm requestForm, CancellationToken cancellationToken) =>
-            Task.FromResult(true);
-
-        public IQueryable<RequestForm> ApplyAudienceFilter(
-            IQueryable<RequestForm> query,
-            bool isAdmin,
-            bool isTestUser,
-            string? tenantId) =>
-            query.Where(f =>
-                f.OrganizationId == tenantId &&
-                f.ReleaseStatus == RequestFormReleaseStatus.Production);
     }
 
     private sealed class TestCorrelationContext(string correlationId) : ICorrelationContext

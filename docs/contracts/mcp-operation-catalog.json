@@ -1,7 +1,7 @@
 {
-  "schemaHash": "357ddb1595834a167499471cdbe60e4d95d2b6a74b6f4e7ebebc2004c7631785",
-  "catalogRevision": "2026-11-22.request-closure-v34",
-  "catalogHash": "fbb4e81625ecee04a8da819bd9c16a5d4561a3572549cb948e83b47e3042c423",
+  "schemaHash": "8e5998192db0f0752df7a92acd8929a10e8c0fa246ee45b7c93f18f4de016311",
+  "catalogRevision": "2026-11-23.self-service-organizations-v35",
+  "catalogHash": "e48d71d9ebce045c6d70c5d564aa6f9cb3c42cb35075b1f09180633b6e63022b",
   "operationCount": 393,
   "operations": [
     {
@@ -11630,17 +11630,25 @@
             "minLength": 1
           },
           "name": {
-            "type": "string",
-            "minLength": 1
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "description": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "parentId": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "parentIdHasValue": {
+            "type": "boolean"
           },
           "allowedCustomerIds": {
             "type": [
@@ -11662,8 +11670,7 @@
           }
         },
         "required": [
-          "serviceId",
-          "name"
+          "serviceId"
         ],
         "description": "AdministrativeMutationRequest for helpdesk_admin_mutations operation update_service. All operation-specific fields belong inside this request object, never at the tool root."
       }
@@ -13028,7 +13035,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "SelfService.User or HelpdeskAdmin, audience-eligible request form and valid payload. Requested-for customer is resolved from the caller\u0027s enabled link, trusted persisted account/domain-user membership, or an explicit authorized requestedForPersonId/requestedForPersonSource selection. The enabled requester organization must match the form audience and saved automation bindings; email similarity never establishes ownership.",
+      "authority": "SelfService.User or HelpdeskAdmin, audience-eligible request form and valid payload. Requested-for customer is resolved from the caller\u0027s enabled link, trusted persisted account/domain-user membership, or an explicit authorized requestedForPersonId/requestedForPersonSource selection. Supply targetOrganizationId when the form has multiple eligible organizations. The same organization must satisfy current grants, the full folder path, the form audience, and its datasets and automation bindings.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -13042,7 +13049,7 @@
       "identifiers": [],
       "prerequisites": [
         "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
-        "Enabled requested-for customer/organization resolved through an enabled link, trusted persisted account/domain-user membership, or explicit authorized requestedForPersonId plus requestedForPersonSource. Select an audience-eligible form and schema-valid payloadJson. Preserve the optional submissionId UUID across identical retries; new content requires a new identity. Retry never bypasses current requester, organization or form eligibility."
+        "Enabled requested-for customer/organization resolved through an enabled link, trusted persisted account/domain-user membership, or explicit authorized requestedForPersonId plus requestedForPersonSource. Read eligibleOrganizations with helpdesk_request_forms get. Include targetOrganizationId when more than one target is eligible. Keep submissionId, the selected organization, requester and payload stable when retrying an uncertain result. A changed intent conflicts with a recorded submission."
       ],
       "requestSchema": {
         "type": "object",
@@ -13054,6 +13061,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "targetOrganizationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Organization from eligibleOrganizations. Required when several organizations are available."
           },
           "requestFormId": {
             "type": "string",
@@ -37980,24 +37994,21 @@
         "schemaValidConfirmed": {
           "operation": "update_service",
           "request": {
-            "serviceId": "Example",
-            "name": "Example"
+            "serviceId": "Example"
           },
           "confirm": true
         },
         "schemaValidPreview": {
           "operation": "update_service",
           "request": {
-            "serviceId": "Example",
-            "name": "Example"
+            "serviceId": "Example"
           },
           "confirm": false
         },
         "schemaInvalid": {
           "operation": "not_a_supported_operation",
           "request": {
-            "serviceId": "Example",
-            "name": "Example"
+            "serviceId": "Example"
           },
           "confirm": true
         },
@@ -46066,17 +46077,25 @@
                     "minLength": 1
                   },
                   "name": {
-                    "type": "string",
-                    "minLength": 1
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "description": {
-                    "type": "string"
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "parentId": {
                     "type": [
                       "string",
                       "null"
                     ]
+                  },
+                  "parentIdHasValue": {
+                    "type": "boolean"
                   },
                   "allowedCustomerIds": {
                     "type": [
@@ -46098,8 +46117,7 @@
                   }
                 },
                 "required": [
-                  "serviceId",
-                  "name"
+                  "serviceId"
                 ],
                 "description": "AdministrativeMutationRequest for helpdesk_admin_mutations operation update_service. All operation-specific fields belong inside this request object, never at the tool root."
               }
@@ -47205,6 +47223,13 @@
                       "null"
                     ],
                     "format": "uuid"
+                  },
+                  "targetOrganizationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Organization from eligibleOrganizations. Required when several organizations are available."
                   },
                   "requestFormId": {
                     "type": "string",

@@ -262,6 +262,45 @@ A signed change-approval email link delegates a decision to its particular
 recipient and change. `Change.Approve` separately permits the authenticated
 tenant-wide approval action; neither a reader nor a writer role implies it.
 
+## Self-service catalogue and My Requests
+
+A signed-in requester sees the catalogue across the enabled organizations where
+they hold **Self-service User**. One of those organizations must be explicitly
+assigned to the request form and to every folder above it. Customer restrictions
+apply at each folder. The form's release stage, primary organization, datasets
+and saved automation connections also determine eligibility. An organization
+grant for the folder and a different grant for the form cannot be combined.
+
+Under **Administration → Requests → Service Catalog**, use **Manage access** on
+each folder and each request form. Assign each organization to the folders in its
+path and to each form you intend to publish. For example, assign A, B and C to
+a shared New starter folder, and assign just one organization to each of its
+three forms. A person with the A and B grants sees one folder with two forms.
+An empty audience displays **Not visible in self service**. Existing unassigned
+definitions and data are retained. Instance administrators can still open them
+for configuration. Changing a form's primary organization changes ownership
+and execution context. Its saved audience is edited separately.
+
+The submission page shows the selected organization. If two or more
+organizations are eligible, choose one before submitting. A requester can use
+one account across those organizations. Submitting may create a managed
+requester contact in the selected organization and keeps the original contact
+and authentication link. On-behalf submissions still require a separate
+authorized selection and confirmation.
+
+**My Requests** shows owned receipts and live task progress across the
+requester's currently authorized organizations. Removing a form or folder
+audience hides it from new submissions while otherwise eligible receipts remain
+available. History still applies the surviving form's release status. Removing
+the requester's permission, disabling their organization or requester profile,
+or retiring their account removes access to the affected receipts and streams.
+
+SQLite and PostgreSQL apply the forward requester-index migration on upgrade.
+It preserves contacts, role assignments, authentication links, and historical
+request attribution. The previous schema can represent only one managed
+contact per identity. Use the normal pre-upgrade database backup for rollback
+once the instance has created contacts in additional organizations.
+
 ## Tenant display settings
 
 `Tenant.Settings.Manage` enables **Tenant settings** for the assigned

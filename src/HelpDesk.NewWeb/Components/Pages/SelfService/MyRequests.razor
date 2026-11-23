@@ -63,6 +63,7 @@
           <HeaderContent>
               <MudTh Class="my-requests-tracking" aria-sort="@AriaSortFor("trackingId")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("trackingId")" aria-label="Sort by tracking ID" OnClick="@(() => ToggleSortAsync("trackingId"))">Tracking ID</MudButton></MudTh>
               <MudTh aria-sort="@AriaSortFor("title")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("title")" aria-label="Sort by title" OnClick="@(() => ToggleSortAsync("title"))">Title</MudButton></MudTh>
+              <MudTh>Organization</MudTh>
               <MudTh>Release stage</MudTh>
               <MudTh aria-sort="@AriaSortFor("state")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("state")" aria-label="Sort by status" OnClick="@(() => ToggleSortAsync("state"))">Status</MudButton></MudTh>
               <MudTh aria-sort="@AriaSortFor("created")"><MudButton Size="Size.Small" Class="my-requests-sort" EndIcon="@SortIconFor("created")" aria-label="Sort by created time" OnClick="@(() => ToggleSortAsync("created"))">Created</MudButton></MudTh>
@@ -71,6 +72,7 @@
           <RowTemplate>
               <MudTd DataLabel="Tracking ID" Class="my-requests-tracking"><a href="@($"/self-service/my-requests/{Uri.EscapeDataString(context.Id)}")" aria-label="@($"Open request {context.TrackingId}: {context.Title}")">@context.TrackingId</a></MudTd>
               <MudTd DataLabel="Title"><span class="my-requests-title" title="@context.Title">@context.Title</span></MudTd>
+              <MudTd DataLabel="Organization">@context.OrganizationName</MudTd>
               <MudTd DataLabel="Release stage"><span class="my-requests-metadata">@(context.ReleaseStatus is null ? "—" : context.ReleaseStatus == RequestFormReleaseStatus.Production ? "Production" : "In testing")</span></MudTd>
               <MudTd DataLabel="Status"><span class="my-requests-status">@StatusText(context.State)</span></MudTd>
               <MudTd DataLabel="Created"><time datetime="@context.CreatedAt.ToString("O")" title="@context.CreatedAt.ToString("O")">@context.CreatedAt.LocalDateTime.ToString("g")</time></MudTd>

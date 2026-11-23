@@ -5,6 +5,8 @@ namespace Helpdesk.Shared.DTOs.Request;
 public sealed class MyRequestListItemDto
 {
     public string Id { get; set; } = string.Empty;
+    public string? OrganizationId { get; set; }
+    public string? OrganizationName { get; set; }
     public string TrackingId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public TicketState State { get; set; } = TicketState.New;
@@ -16,6 +18,8 @@ public sealed class MyRequestListItemDto
 public sealed class MyRequestDetailDto
 {
     public string Id { get; set; } = string.Empty;
+    public string? OrganizationId { get; set; }
+    public string? OrganizationName { get; set; }
     public string TrackingId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }

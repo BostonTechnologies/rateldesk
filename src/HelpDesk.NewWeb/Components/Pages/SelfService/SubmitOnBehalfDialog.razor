@@ -69,6 +69,8 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
 
+    [Parameter] public string? TargetOrganizationId { get; set; }
+
     private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
 
     private readonly List<SelfServiceRequestUserDto> people = new();
@@ -100,8 +102,9 @@
         try
         {
             var query = Uri.EscapeDataString(searchText ?? string.Empty);
+            var scope = TargetOrganizationId is null ? string.Empty : $"&targetOrganizationId={Uri.EscapeDataString(TargetOrganizationId)}";
             var results = await Api.GetFromJsonAsync<List<SelfServiceRequestUserDto>>(
-                $"api/v1/self-service/request-users?query={query}&pageSize=25",
+                $"api/v1/self-service/request-users?query={query}&pageSize=25{scope}",
                 token);
             if (token.IsCancellationRequested)
             {
@@ -113,6 +116,7 @@
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            return;
         }
         catch
         {

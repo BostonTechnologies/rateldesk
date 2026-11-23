@@ -9,6 +9,7 @@ using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -164,6 +165,57 @@ public sealed class SelfServiceRequesterLinkHttpTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Linked_oidc_identity_uses_both_grants_and_keeps_its_canonical_contact(bool postgres)
+    {
+        await using var h = await CreateAsync("authentik_user_id", postgres: postgres);
+        const string secondary = "oidc-secondary";
+        await h.EditAsync(async db =>
+        {
+            db.Organizations.Add(new Organization { Id = secondary, Name = "Secondary organization" });
+            db.Users.Add(new User { Id = "oidc-domain", OrganizationId = h.OrganizationId, Name = "OIDC requester", Email = "oidc@example.test" });
+            db.CustomerAuthLinks.Add(new CustomerAuthLink
+            {
+                CustomerId = h.CustomerId, OidcIssuer = Issuer, OidcSubject = Subject, DomainUserId = "oidc-domain",
+                InviteStatus = CustomerInviteStatus.Active
+            });
+            foreach (var id in new[] { h.OrganizationId, secondary })
+                db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "oidc-domain", OrganizationId = id, RoleKey = ScopedRoleCatalog.SelfServiceUser });
+            db.RequestForms.Add(new RequestForm
+            {
+                Id = "oidc-secondary-form", Title = "Secondary request", OrganizationId = secondary,
+                AllowedOrganizationIds = [secondary], ReleaseStatus = RequestFormReleaseStatus.Production
+            });
+            await Task.CompletedTask;
+        });
+
+        using var context = await SendAsync(h, HttpMethod.Get, "/api/v1/self-service/submission-context?requestFormId=oidc-secondary-form");
+        Assert.Equal(secondary, (await context.Content.ReadFromJsonAsync<SelfServiceSubmissionContextDto>())!.OrganizationId);
+        await h.EditAsync(async db => Assert.Single(await db.Customers.ToListAsync()));
+
+        using var primaryCreated = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", Submission());
+        Assert.Equal(HttpStatusCode.OK, primaryCreated.StatusCode);
+        using var secondaryCreated = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests",
+            new SubmitSelfServiceRequestDto { RequestFormId = "oidc-secondary-form", SubmissionId = Guid.NewGuid(), TargetOrganizationId = secondary });
+        Assert.Equal(HttpStatusCode.OK, secondaryCreated.StatusCode);
+        using var history = await SendAsync(h, HttpMethod.Get, "/api/v1/self-service/requests");
+        var receipts = (await history.Content.ReadFromJsonAsync<PagedResponse<MyRequestListItemDto>>())!;
+        Assert.Equal(2, receipts.TotalCount);
+
+        await h.EditAsync(async db =>
+        {
+            var link = Assert.Single(await db.CustomerAuthLinks.ToListAsync());
+            Assert.Equal(h.CustomerId, link.CustomerId);
+            Assert.Equal(Subject, link.OidcSubject);
+            Assert.Null(link.LocalAccountId);
+            var requester = Assert.Single(await db.Customers.Where(customer => customer.IdentityUserId == "oidc-domain").ToListAsync());
+            Assert.Equal(secondary, requester.OrganizationId);
+            Assert.Equal(secondary, (await db.Requests.IgnoreQueryFilters().SingleAsync(request => request.CustomerId == requester.Id)).OrganizationId);
+        });
+    }
+
     private static SubmitSelfServiceRequestDto Submission() => new()
     {
         RequestFormId = "legacy-form", SubmissionId = Guid.NewGuid(), PayloadJson = "{}",
@@ -202,12 +254,12 @@ public sealed class SelfServiceRequesterLinkHttpTests
         return await h.Client.SendAsync(request);
     }
 
-    private static async Task<IncidentReceiverTests.Harness> CreateAsync(string legacyClaim, bool localAccount = false, string? priorCustomerId = null)
+    private static async Task<IncidentReceiverTests.Harness> CreateAsync(string legacyClaim, bool localAccount = false, string? priorCustomerId = null, bool postgres = false)
     {
-        var h = await IncidentReceiverTests.Harness.CreateAsync(postgres: false, serviceIdentity: true,
+        var h = await IncidentReceiverTests.Harness.CreateAsync(postgres: postgres, serviceIdentity: true,
             configureServices: services =>
             {
-                services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
+                services.AddScoped<SelfServiceAudienceService>();
                 services.AddSingleton(new RequesterClaims(legacyClaim, localAccount, priorCustomerId));
                 if (priorCustomerId is not null) services.AddScoped<ICurrentUserAccessService, PriorRequesterAccess>();
                 services.AddAuthentication(options =>
@@ -220,12 +272,16 @@ public sealed class SelfServiceRequesterLinkHttpTests
                     .AddScheme<AuthenticationSchemeOptions, RequesterAuthentication>("Requester", _ => { });
                 services.AddAuthorization(options => options.AddPolicy("SelfService.User", policy =>
                     policy.RequireRole("SelfService.User", "HelpdeskAdmin")));
-            }, configureApp: app => app.MapSelfServiceRequestEndpoints());
+            }, configureApp: app =>
+            {
+                app.MapSelfServiceRequestEndpoints();
+                app.MapSelfServiceMyRequestsEndpoints();
+            });
         await h.EditAsync(db =>
         {
             db.RequestForms.Add(new RequestForm
             {
-                Id = "legacy-form", Title = "Synthetic legacy request", OrganizationId = h.OrganizationId,
+                Id = "legacy-form", AllowedOrganizationIds = [h.OrganizationId], Title = "Synthetic legacy request", OrganizationId = h.OrganizationId,
                 ReleaseStatus = RequestFormReleaseStatus.Production,
                 JsonSchema = JsonDocument.Parse("""{"title":"Synthetic legacy request","fields":[],"tasks":[]}""")
             });

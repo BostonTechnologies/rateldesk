@@ -2,12 +2,12 @@ import { captureTables } from './table-evidence';
 import { expect, test, type Page } from '@playwright/test';
 
 const fixture = 'http://127.0.0.1:18440/fixture';
-async function form(page: Page) {
+async function form(page: Page, organization?: string) {
   await page.goto('/self-service/request/form-synthetic');
   await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true', { timeout: 30_000 });
   await expect(page.getByRole('heading', { name: 'Synthetic access request', exact: true })).toBeVisible();
   await expect(page.getByTestId('submission-organization')).toContainText('Synthetic Owner');
-  await expect(page.getByTestId('submission-organization')).toContainText('Example Organization');
+  if (organization) await expect(page.getByTestId('submission-organization')).toContainText(organization);
   await page.getByRole('textbox', { name: 'Request reason' }).fill('Harmless rendered submission test');
   await page.getByRole('textbox', { name: 'Additional note (optional)' }).fill('Retain this note while correcting the request.');
 }
@@ -19,7 +19,7 @@ test.beforeEach(async ({ page, request }) => {
 for (const mode of ['empty-401', 'empty-403', 'empty-400', 'empty-500', 'malformed-error', 'invalid-success']) {
   test(`rendered form retains values and a safe retry receipt after ${mode}`, async ({ page, request }) => {
     await request.get(`${fixture}/fault?mode=${mode}`);
-    await form(page);
+    await form(page, 'Example Organization');
     await page.getByRole('button', { name: 'Submit', exact: true }).click();
     const alert = page.locator('.self-service-form-page .mud-alert');
     await expect(alert).toBeVisible();
@@ -28,16 +28,19 @@ for (const mode of ['empty-401', 'empty-403', 'empty-400', 'empty-500', 'malform
     await expect(page.getByRole('heading', { name: 'Request submitted', exact: true })).toHaveCount(0);
     await expect(page.getByRole('textbox', { name: 'Request reason' })).toHaveValue('Harmless rendered submission test');
     await expect(page.getByRole('textbox', { name: 'Additional note (optional)' })).toHaveValue('Retain this note while correcting the request.');
-    await expect(page.getByRole('button', { name: 'Submit', exact: true })).toBeEnabled();
+    const retryLabel = ['empty-500', 'malformed-error', 'invalid-success'].includes(mode) ? 'Retry previous submission' : 'Submit';
+    const retry = page.getByRole('button', { name: retryLabel, exact: true });
+    await expect(retry).toBeEnabled();
     const first = await (await request.get(`${fixture}/state`)).json();
     expect(first.submissions).toHaveLength(1);
     expect(first.submissions[0].submissionId).toMatch(/^[a-f0-9-]{36}$/);
     await request.get(`${fixture}/fault`);
-    await page.getByRole('button', { name: 'Submit', exact: true }).click();
+    await retry.click();
     await expect(page.getByRole('heading', { name: 'Request submitted', exact: true })).toBeVisible();
     const final = await (await request.get(`${fixture}/state`)).json();
     expect(final.submissions).toHaveLength(2);
-    expect(final.submissions[1].submissionId).toBe(first.submissions[0].submissionId);
+    expect(final.submissions[1]).toEqual(first.submissions[0]);
+    expect(final.submissions[1].targetOrganizationId).toBe('org-synthetic');
     expect(final.receiptCount).toBe(1);
     await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
   });
@@ -48,26 +51,50 @@ for (const mode of ['missing-requester', 'disabled-requester', 'wrong-organizati
     await request.get(`${fixture}/fault?mode=${mode}`);
     await form(page);
     await expect(page.locator('.self-service-form-page .mud-alert')).toContainText(mode === 'wrong-organization' ? 'different organization' : 'requester profile is unavailable');
-    await page.getByRole('button', { name: 'Submit', exact: true }).click();
-    await expect(page.locator('.self-service-form-page .mud-alert').filter({ hasText: 'HTTP 403' })).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Request reason' })).toHaveValue('Harmless rendered submission test');
+    const submit = page.getByRole('button', { name: 'Submit', exact: true });
+    await expect(submit).toBeDisabled();
+    expect((await (await request.get(`${fixture}/state`)).json()).submissions).toEqual([]);
     await request.get(`${fixture}/fault`);
-    await page.getByRole('button', { name: 'Submit', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh organization choices' }).click();
+    await expect(page.getByRole('textbox', { name: 'Request reason' })).toHaveValue('Harmless rendered submission test');
+    await submit.click();
     await expect(page.getByRole('heading', { name: 'Request submitted', exact: true })).toBeVisible();
-    const state = await (await request.get(`${fixture}/state`)).json();
-    expect(state.receiptCount).toBe(1);
-    expect(state.submissions[0].submissionId).toBe(state.submissions[1].submissionId);
+    expect((await (await request.get(`${fixture}/state`)).json()).receiptCount).toBe(1);
   });
 }
 
-test('self submit rejects duplicate button events and on-behalf retains explicit recipient confirmation', async ({ page, request }) => {
+test('multiple choices require a deliberate organization and an uncertain send keeps its original selection', async ({ page, request }, info) => {
+  await request.get(`${fixture}/multiple-organizations`);
+  await request.get(`${fixture}/fault?mode=invalid-success`);
   await form(page);
+  const submit = page.getByRole('button', { name: 'Submit', exact: true });
+  await expect(submit).toBeDisabled();
+  const organization = page.getByRole('combobox', { name: 'Organization' });
+  await organization.fill('Second');
+  await page.getByRole('option', { name: 'Second Organization' }).click();
+  await expect(page.getByTestId('submission-organization')).toContainText('Second Organization');
+  await page.screenshot({ path: info.outputPath('selected-organization.png'), fullPage: true });
+  await submit.click();
+  await expect(page.getByText('We could not confirm the submission.', { exact: false })).toBeVisible();
+  await expect(organization).toBeDisabled();
+  await request.get(`${fixture}/fault`);
+  await page.getByRole('button', { name: 'Retry previous submission' }).click();
+  await expect(page.getByRole('heading', { name: 'Request submitted', exact: true })).toBeVisible();
+  await expect(page.getByText('Organization: Second Organization', { exact: true })).toBeVisible();
+  const state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.submissions).toHaveLength(2);
+  expect(state.submissions[0]).toEqual(state.submissions[1]);
+  expect(state.submissions[0].targetOrganizationId).toBe('org-secondary');
+});
+
+test('self submit rejects duplicate button events and on-behalf retains explicit recipient confirmation', async ({ page, request }) => {
+  await form(page, 'Example Organization');
   await page.getByRole('button', { name: 'Submit', exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
   await expect(page.getByRole('heading', { name: 'Request submitted', exact: true })).toBeVisible();
   let state = await (await request.get(`${fixture}/state`)).json();
   expect(state.submissions).toHaveLength(1);
   expect(state.submissions[0].requestedForPersonId).toBeNull();
-  await form(page);
+  await form(page, 'Example Organization');
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('row', { name: /Synthetic Recipient/ }).getByRole('button').click();

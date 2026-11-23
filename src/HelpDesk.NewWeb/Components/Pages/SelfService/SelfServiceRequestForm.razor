@@ -33,8 +33,16 @@
             <MudText Typo="Typo.h4" HtmlTag="h1" Class="helpdesk-page-title">Request submitted</MudText>
             <MudText Typo="Typo.body1" Class="mt-2" data-testid="submitted-request-receipt" data-request-id="@submitted.RequestId" data-tracking-id="@submitted.TrackingId">Tracking ID: <b>@submitted.TrackingId</b></MudText>
             <MudText Typo="Typo.body2">Request ID: @submitted.RequestId</MudText>
+            @if (submitted.OrganizationName is { } organization)
+            {
+                <MudText Typo="Typo.body2">Organization: @organization</MudText>
+            }
             <MudStack Row="true" Spacing="2" Class="self-service-form-actions mt-4">
                 <MudButton Variant="Variant.Outlined" OnClick="GoToCatalog">Back to catalog</MudButton>
+                @if (requestedForPerson is null)
+                {
+                    <MudButton Variant="Variant.Text" Href="@($"/self-service/my-requests/{Uri.EscapeDataString(submitted.RequestId)}")">View in My Requests</MudButton>
+                }
                 @if (canOpenTechnicianView)
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenSubmittedRequest">Open Request</MudButton>
@@ -62,11 +70,26 @@
             @if (requestedForPerson is null && submissionContext is not null)
             {
                 <MudText Typo="Typo.body2" Class="mb-2" data-testid="submission-organization">
-                    Requester: @submissionContext.RequestedForName · Organization: @(submissionContext.OrganizationName ?? "Not available")
+                    Requester: @submissionContext.RequestedForName
+                    @if (SelectedOrganizationName is { } selectedName)
+                    {
+                        <span> · Organization: @selectedName</span>
+                    }
                 </MudText>
-                @if (!submissionContext.CanSubmit)
+                @if (EligibleOrganizations.Count > 1)
                 {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">@submissionContext.Message</MudAlert>
+                    <CreationSearchPicker TItem="SelfServiceTargetOrganizationDto" LookupUrl="@OrganizationLookupUrl"
+                                          Label="Organization" Kind="organizations" Placeholder="Choose an organization"
+                                          Value="@targetOrganizationId" ItemId="@(org => org.Id)" ItemLabel="@(org => org.Name)"
+                                          Required="true" Disabled="@(submissionPending || uncertainAttempt is not null)"
+                                          SelectionChanged="OnOrganizationSelected" />
+                }
+                @if (EligibleOrganizations.Count == 0 && !submissionContext.CanSubmit)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                        @submissionContext.Message
+                        <MudButton Size="Size.Small" OnClick="LoadSubmissionContextAsync">Refresh organization choices</MudButton>
+                    </MudAlert>
                 }
             }
 
@@ -80,7 +103,8 @@
                                 case "text":
                                     @if (item.Field.DataBinding is not null)
                                     {
-                                        <MudAutocomplete T="DatasetOptionDto"
+                                        <MudAutocomplete T="DatasetOptionDto" @key="(item.Key, EffectiveOrganizationId)"
+                                                         Disabled="@(EffectiveOrganizationId is null || submissionPending || uncertainAttempt is not null)"
                                                          Value="@GetBoundOption(item.Key)"
                                                          ValueChanged="@(v => OnBoundOptionChanged(item, v))"
                                                          SearchFunc="@( (string text, CancellationToken ct) => SearchDatasetOptionsAsync(item, text, ct) )"
@@ -229,12 +253,14 @@
                                                Size="Size.Small"
                                                Color="Color.Default"
                                                aria-label="Clear selected requester"
+                                               Disabled="@(submissionPending || uncertainAttempt is not null)"
                                                OnClick="ClearRequestedFor" />
                             }
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Primary"
                                        Size="Size.Small"
                                        StartIcon="@Icons.Material.Filled.ManageAccounts"
+                                       Disabled="@(submissionPending || uncertainAttempt is not null)"
                                        OnClick="OpenSubmitOnBehalfDialog">
                                 Select
                             </MudButton>
@@ -244,7 +270,9 @@
 
                 <MudStack Row="true" Spacing="2" Class="self-service-form-actions mt-3">
                     <MudButton Variant="Variant.Text" OnClick="GoToCatalog">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(submitting || submissionPending)" OnClick="SubmitAsync">Submit</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               Disabled="@(submitting || submissionPending || (uncertainAttempt is null && EffectiveOrganizationId is null))"
+                               OnClick="SubmitAsync">@(uncertainAttempt is null ? "Submit" : "Retry previous submission")</MudButton>
                 </MudStack>
             </MudForm>
         </MudPaper>
@@ -265,6 +293,15 @@
     private bool submissionPending;
     private readonly Guid submissionId = Guid.NewGuid();
     private SelfServiceSubmissionContextDto? submissionContext;
+    private string? targetOrganizationId;
+    private SubmitSelfServiceRequestDto? uncertainAttempt;
+    private IReadOnlyList<SelfServiceTargetOrganizationDto> EligibleOrganizations => submissionContext?.EligibleOrganizations ?? [];
+    private string? SelectedOrganizationName =>
+        EligibleOrganizations.FirstOrDefault(org => org.Id == targetOrganizationId)?.Name ?? submissionContext?.OrganizationName;
+    private string? EffectiveOrganizationId => requestedForPerson?.OrganizationId ?? targetOrganizationId;
+    private string OrganizationLookupUrl =>
+        $"api/v1/self-service/submission-organizations?requestFormId={Uri.EscapeDataString(RequestFormId)}";
+
     private bool canOpenTechnicianView;
     private string? loadError;
     private string? submitError;
@@ -285,7 +322,8 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadFormAsync();
-        await LoadSubmissionContextAsync();
+        if (loadError is null) await LoadSubmissionContextAsync();
+        loading = false;
         await ResolveRoleAsync();
     }
 
@@ -319,26 +357,28 @@
         {
             loadError = "Could not load this request form. Refresh the page or sign in again.";
         }
-        finally
-        {
-            loading = false;
-        }
     }
 
     private async Task LoadSubmissionContextAsync()
     {
+        var previous = EffectiveOrganizationId;
         try
         {
             submissionContext = await Api.GetFromJsonAsync<SelfServiceSubmissionContextDto>(
                 $"api/v1/self-service/submission-context?requestFormId={Uri.EscapeDataString(RequestFormId)}");
+            targetOrganizationId = EligibleOrganizations.Count == 1 ? EligibleOrganizations[0].Id
+                : EligibleOrganizations.Any(org => org.Id == targetOrganizationId) ? targetOrganizationId
+                : submissionContext?.CanSubmit == true ? submissionContext.OrganizationId : null;
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException)
         {
             submissionContext = new SelfServiceSubmissionContextDto
             {
-                Message = "Requester organization could not be loaded. Submission will recheck your account; refresh or sign in again if it remains unavailable."
+                Message = "Could not load your eligible organizations. Try refreshing or sign in again."
             };
+            targetOrganizationId = null;
         }
+        ClearBoundValuesWhenOrganizationChanges(previous);
     }
 
     private void ParseSchema(string schema)
@@ -403,6 +443,16 @@
     {
         submitError = null;
         fieldErrors.Clear();
+        if (uncertainAttempt is { } prior)
+        {
+            await SendSubmissionAsync(prior);
+            return;
+        }
+        if (EffectiveOrganizationId is not { } organizationId)
+        {
+            submitError = "Choose an organization before submitting.";
+            return;
+        }
 
         if (!ValidateRequiredFields())
         {
@@ -433,20 +483,22 @@
         }
 
         var payloadJson = payloadRoot.ToJsonString(JsonOptions);
-        var authUser = await ResolveAuthenticatedUserAsync();
         var dto = new SubmitSelfServiceRequestDto
         {
             SubmissionId = submissionId,
+            TargetOrganizationId = organizationId,
             RequestFormId = RequestFormId,
             Title = formTitle,
             Description = string.IsNullOrWhiteSpace(userNote) ? formDescription : userNote,
             PayloadJson = payloadJson,
-            RequesterEmail = authUser.Email,
-            RequesterName = authUser.Name,
             RequestedForPersonId = requestedForPerson?.Id,
             RequestedForPersonSource = requestedForPerson?.Source
         };
+        await SendSubmissionAsync(dto);
+    }
 
+    private async Task SendSubmissionAsync(SubmitSelfServiceRequestDto dto)
+    {
         submitting = true;
         try
         {
@@ -454,6 +506,8 @@
                 .PostAsJsonAsync("api/v1/self-service/requests", dto);
             if (!response.IsSuccessStatusCode)
             {
+                if ((int)response.StatusCode >= 500 || response.StatusCode == System.Net.HttpStatusCode.RequestTimeout)
+                    uncertainAttempt = dto;
                 submitError = await SelfServiceSubmissionErrors.ReadAsync(response);
                 return;
             }
@@ -461,20 +515,45 @@
             var receipt = await response.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>(JsonOptions);
             if (receipt is null || string.IsNullOrWhiteSpace(receipt.RequestId) || string.IsNullOrWhiteSpace(receipt.TrackingId))
             {
-                submitError = "We could not confirm the submission. Your values are retained. Retry this submission safely or check My Requests.";
+                RememberUnconfirmed(dto);
                 return;
             }
+            uncertainAttempt = null;
             submitted = receipt;
 
             Snackbar.Add("Request submitted successfully.", Severity.Success);
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException)
         {
-            submitError = "We could not confirm the submission. Your values are retained. Retry this submission safely or check My Requests.";
+            RememberUnconfirmed(dto);
         }
         finally
         {
             submitting = false;
+        }
+    }
+
+    private void RememberUnconfirmed(SubmitSelfServiceRequestDto dto)
+    {
+        uncertainAttempt = dto;
+        submitError = "We could not confirm the submission. Retry the same submission or check My Requests.";
+    }
+
+    private void OnOrganizationSelected(SelfServiceTargetOrganizationDto? organization)
+    {
+        var before = EffectiveOrganizationId;
+        targetOrganizationId = organization?.Id;
+        ClearBoundValuesWhenOrganizationChanges(before);
+    }
+
+    private void ClearBoundValuesWhenOrganizationChanges(string? previousOrganizationId)
+    {
+        if (previousOrganizationId == EffectiveOrganizationId) return;
+        foreach (var key in boundSelections.Keys.ToList())
+        {
+            boundSelections[key] = null;
+            values[key] = null;
+            fieldErrors.Remove(key);
         }
     }
 
@@ -487,11 +566,17 @@
             CloseButton = true,
             CloseOnEscapeKey = true
         };
-        var dialog = await DialogService.ShowAsync<SubmitOnBehalfDialog>("Submit on behalf of", options);
+        var parameters = new DialogParameters
+        {
+            [nameof(SubmitOnBehalfDialog.TargetOrganizationId)] = EligibleOrganizations.Count > 1 ? targetOrganizationId : null
+        };
+        var dialog = await DialogService.ShowAsync<SubmitOnBehalfDialog>("Submit on behalf of", parameters, options);
         var result = await dialog.Result;
         if (result is not null && !result.Canceled && result.Data is SelfServiceRequestUserDto person)
         {
+            var before = EffectiveOrganizationId;
             requestedForPerson = person;
+            ClearBoundValuesWhenOrganizationChanges(before);
         }
     }
 
@@ -513,48 +598,9 @@
 
     private void ClearRequestedFor()
     {
+        var before = EffectiveOrganizationId;
         requestedForPerson = null;
-    }
-
-    private async Task<(string? Email, string? Name)> ResolveAuthenticatedUserAsync()
-    {
-        if (AuthenticationStateTask is null)
-        {
-            return (null, null);
-        }
-
-        var authState = await AuthenticationStateTask;
-        var user = authState.User;
-        var email = FirstNonEmpty(
-            user.FindFirstValue(ClaimTypes.Email),
-            user.FindFirstValue("email"),
-            user.FindFirstValue("preferred_username"),
-            user.FindFirstValue("upn"),
-            user.FindFirstValue("unique_name"),
-            LooksLikeEmail(user.Identity?.Name) ? user.Identity?.Name : null);
-        var name = FirstNonEmpty(
-            user.FindFirstValue("name"),
-            user.FindFirstValue(ClaimTypes.Name),
-            LooksLikeEmail(user.Identity?.Name) ? null : user.Identity?.Name,
-            email);
-
-        return (email, name);
-    }
-
-    private static bool LooksLikeEmail(string? value) =>
-        !string.IsNullOrWhiteSpace(value) && value.Contains('@', StringComparison.Ordinal);
-
-    private static string? FirstNonEmpty(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value.Trim();
-            }
-        }
-
-        return null;
+        ClearBoundValuesWhenOrganizationChanges(before);
     }
 
     private bool ValidateRequiredFields()
@@ -685,12 +731,14 @@
 
     private async Task<IEnumerable<DatasetOptionDto>> SearchCoreAsync(string datasetId, string? searchText, CancellationToken cancellationToken)
     {
+        var organizationId = EffectiveOrganizationId;
+        if (organizationId is null) return [];
         try
         {
             var result = await Api.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResult<DatasetOptionDto>>(
-                $"api/v1/self-service/datasets/{datasetId}/options?query={Uri.EscapeDataString(searchText ?? string.Empty)}&page=1&pageSize=20",
+                $"api/v1/self-service/datasets/{Uri.EscapeDataString(datasetId)}/options?query={Uri.EscapeDataString(searchText ?? string.Empty)}&page=1&pageSize=20&targetOrganizationId={Uri.EscapeDataString(organizationId)}",
                 cancellationToken);
-            return result?.Items ?? Enumerable.Empty<DatasetOptionDto>();
+            return organizationId == EffectiveOrganizationId ? result?.Items ?? [] : [];
         }
         catch (HttpRequestException)
         {

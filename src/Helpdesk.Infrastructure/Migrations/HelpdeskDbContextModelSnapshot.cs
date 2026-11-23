@@ -2215,7 +2215,7 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"IdentityUserId\" IS NULL");
 
-                    b.HasIndex("IdentityUserId")
+                    b.HasIndex("IdentityUserId", "OrganizationId")
                         .IsUnique()
                         .HasFilter("\"IdentityUserId\" IS NOT NULL");
 
