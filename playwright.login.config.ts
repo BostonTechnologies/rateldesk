@@ -21,7 +21,9 @@ export default defineConfig(base, {
         Authentication__AllowInsecureLocalhost: 'true', Authentication__Authentik__Authority: 'http://127.0.0.1:18499/id',
         Authentication__Authentik__RequireHttpsMetadata: 'false', Authentication__Authentik__ClientId: 'presentation-client',
         Authentication__Authentik__ApiScope: 'helpdesk-api', AUTHENTIK_CLIENT_SECRET: 'synthetic-presentation-secret',
-        LoginUi__ProviderDisplayName: 'Example Organization'
+        LoginUi__ProviderDisplayName: mode === 'Hybrid'
+          ? 'ExampleOrganizationIdentityProviderForManagedServiceAccounts'
+          : 'Example Organization'
       }
     }))
   ]

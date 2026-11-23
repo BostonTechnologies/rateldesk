@@ -38,7 +38,9 @@ The bundled browser defaults are `/branding/rateldesk-mark.webp`, `/branding/rat
 
 Login and portal compact logos preserve transparency and aspect ratio in both themes. Custom opaque images retain their own background; custom transparent images should provide contrast against both light and dark surfaces. No theme-specific white backing or crop is added by the application.
 
-In Hybrid mode, local sign-in remains the main form action and external sign-in uses a compact provider link. Set `LoginUi__ProviderDisplayName` on Web to customize its label (default: `Authentik`). This is a display label for the configured provider and does not change its authority or challenge endpoint.
+The sign-in card uses a 64 px logo area, shows the full application name and wraps long names. In Hybrid mode it presents the local **Sign in** button and the organization provider link together. Both actions fit within representative laptop viewports. On shorter or zoomed displays, the page scrolls so both actions remain reachable.
+
+Set `LoginUi__ProviderDisplayName` on Web to customize the provider label, which defaults to `Authentik`. The configured authority and challenge endpoint determine where the link goes.
 
 ## Email templates
 
