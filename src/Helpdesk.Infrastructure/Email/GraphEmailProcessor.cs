@@ -336,17 +336,18 @@ public class GraphEmailProcessor : IGraphEmailProcessor
             fromName: branding.FromName,
             replyTo: branding.ReplyTo);
 
+        var correlationId = GetCorrelationId();
         if (sent && _emailService is IDurableEmailService { QueuesDelivery: true })
         {
-            _logger.LogInformation("Queued '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, GetCorrelationId());
-            await _domainEvents.PublishAsync(new EmailQueuedEvent(to, templateName, tenantId, ticketRef, GetCorrelationId()),
+            _logger.LogInformation("Queued '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, correlationId);
+            await _domainEvents.PublishAsync(new EmailQueuedEvent(to, templateName, tenantId, ticketRef, correlationId),
                 CancellationToken.None);
             return true;
         }
 
         if (sent)
         {
-            _logger.LogInformation("Sent '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, GetCorrelationId());
+            _logger.LogInformation("Sent '{TemplateName}' notification. CorrelationId={CorrelationId}", templateName, correlationId);
         }
 
         await _domainEvents.PublishAsync(
@@ -355,7 +356,7 @@ public class GraphEmailProcessor : IGraphEmailProcessor
                 TemplateName: templateName,
                 TenantId: tenantId,
                 Reference: ticketRef,
-                CorrelationId: GetCorrelationId(),
+                CorrelationId: correlationId,
                 Success: sent,
                 Details: sent ? "Email sent successfully." : "Email send returned false."),
             CancellationToken.None);
