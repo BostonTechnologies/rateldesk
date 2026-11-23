@@ -32,6 +32,7 @@ public sealed class CustomerAuthEndpointsTests
 {
     [Theory]
     [InlineData("active")]
+    [InlineData("secondary")]
     [InlineData("retired")]
     [InlineData("missing")]
     public async Task Managed_identity_without_a_link_never_advertises_or_creates_an_external_login(string ownerState)
@@ -44,7 +45,8 @@ public sealed class CustomerAuthEndpointsTests
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
             (await db.Customers.SingleAsync(customer => customer.Id == "customer-1")).IdentityUserId = "managed-owner";
             if (ownerState != "missing") db.Users.Add(new User { Id = "managed-owner", Name = "Managed owner",
-                Email = "managed@example.test", OrganizationId = "organization-1", IsDeleted = ownerState == "retired" });
+                Email = "managed@example.test", OrganizationId = ownerState == "secondary" ? "home-organization" : "organization-1",
+                IsDeleted = ownerState == "retired" });
             await db.SaveChangesAsync();
         }
         using var client = factory.CreateClient();
@@ -55,7 +57,13 @@ public sealed class CustomerAuthEndpointsTests
             string.Join("\n", errors.Select(error => $"{error.ExceptionType}: {error.ExceptionMessage}")));
         var status = await statusResponse.Content.ReadFromJsonAsync<CustomerAuthStatusDto>();
         Assert.NotNull(status);
-        Assert.Equal(ownerState == "active" ? CustomerInviteStatus.Failed : CustomerInviteStatus.Disabled, status.InviteStatus);
+        Assert.Equal(ownerState switch
+        {
+            "active" => CustomerInviteStatus.Failed,
+            "secondary" => CustomerInviteStatus.NotInvited,
+            _ => CustomerInviteStatus.Disabled
+        }, status.InviteStatus);
+        if (ownerState == "secondary") Assert.Equal("Managed requester profile", status.StatusText);
         Assert.False(status.CanInvite);
         Assert.False(status.CanResend);
         Assert.False(status.CanDisableLogin);

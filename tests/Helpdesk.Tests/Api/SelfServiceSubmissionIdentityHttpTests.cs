@@ -236,6 +236,34 @@ public sealed class SelfServiceSubmissionIdentityHttpTests
         using var changed = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests", shared);
         Assert.Equal(HttpStatusCode.Conflict, changed.StatusCode);
 
+        await using (var scope = h.App.Services.CreateAsyncScope())
+        {
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            var credential = await identity.IntegrationCredentials.SingleAsync(row => row.Id == h.CredentialId);
+            credential.Permissions = HelpdeskPermissions.SelfServiceUser;
+            await identity.SaveChangesAsync();
+        }
+        using var credentialCatalogue = await h.GetAsync("/api/v1/service-items/starter");
+        Assert.Equal(HttpStatusCode.OK, credentialCatalogue.StatusCode);
+        Assert.Equal("self-form", Assert.Single((await credentialCatalogue.Content.ReadFromJsonAsync<List<ServiceItemDto>>())!).Id);
+        using var credentialContext = await h.GetAsync("/api/v1/self-service/submission-context?requestFormId=multi");
+        var credentialOptions = (await credentialContext.Content.ReadFromJsonAsync<SelfServiceSubmissionContextDto>())!;
+        Assert.True(credentialOptions.CanSubmit);
+        Assert.Equal(a, Assert.Single(credentialOptions.EligibleOrganizations).Id);
+        using var credentialDirect = await h.GetAsync("/api/v1/request-forms/starter-b");
+        Assert.Equal(HttpStatusCode.NotFound, credentialDirect.StatusCode);
+        using var credentialSubmission = new HttpRequestMessage(HttpMethod.Post, "/api/v1/self-service/requests")
+        {
+            Content = JsonContent.Create(new SubmitSelfServiceRequestDto { RequestFormId = "multi", TargetOrganizationId = b })
+        };
+        h.Authorize(credentialSubmission);
+        using var credentialDenied = await h.Client.SendAsync(credentialSubmission);
+        Assert.Equal(HttpStatusCode.Forbidden, credentialDenied.StatusCode);
+        using var credentialHistory = await h.GetAsync("/api/v1/self-service/requests");
+        Assert.Equal(HttpStatusCode.OK, credentialHistory.StatusCode);
+        var credentialReceipts = (await credentialHistory.Content.ReadFromJsonAsync<PagedResponse<MyRequestListItemDto>>())!;
+        Assert.Equal(new[] { receiptA.RequestId, sharedReceipt.RequestId }.Order(), credentialReceipts.Items.Select(item => item.Id).Order());
+
         await h.EditAsync(async db =>
         {
             var profiles = await db.Customers.Where(customer => customer.IdentityUserId == "owner").ToListAsync();
