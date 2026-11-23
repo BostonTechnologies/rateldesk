@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 
 export async function openPublicTicketReview(page: Page) {
   await page.goto('/submit-ticket');
+  await expect(page.getByTestId('public-ticket-form')).toHaveAttribute('data-interactive', 'true');
   await page.getByRole('textbox', { name: /^Your Name\*?$/ }).fill('Synthetic public requester');
   await page.getByRole('textbox', { name: /^Email(?: Address)?\*?$/ }).fill('requester@example.test');
   await page.getByRole('textbox', { name: /^Confirm Email Address\*?$/ }).fill('requester@example.test');

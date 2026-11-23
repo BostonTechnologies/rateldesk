@@ -80,7 +80,8 @@
 }
 else
 {
-    <MudPaper Class="pa-4 pa-md-8 mx-auto mt-8" MaxWidth="MaxWidth.Medium">
+    <MudPaper Class="pa-4 pa-md-8 mx-auto mt-8" MaxWidth="MaxWidth.Medium"
+              data-testid="public-ticket-form" data-interactive="@(RendererInfo.IsInteractive ? "true" : "false")">
         @if (_contactInfoConfig is null || _ticketDetailsConfig is null || _attachmentsConfig is null)
         {
             <MudProgressCircular Indeterminate="true" />
