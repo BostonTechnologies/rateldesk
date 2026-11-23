@@ -42,11 +42,12 @@ test('legacy document assets stay blocked on direct navigation with a real local
 });
 
 test('Web login and the API proxy share a budget while another client still signs in', async ({ page, browser, baseURL }) => {
-  const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.10' } });
+  const headers = { 'X-Forwarded-For': '192.0.2.10', 'X-Requested-With': 'XMLHttpRequest' };
+  const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: headers });
   try {
     const limitedPage = await first.newPage();
     for (let attempt = 0; attempt < 30; attempt++) {
-      const response = await limitedPage.request.post('/api/v1/local-auth/login', { data: { email: '', password: '' } });
+      const response = await limitedPage.request.post('/api/v1/local-auth/login', { headers, data: { email: '', password: '' } });
       expect(response.status()).toBe(401);
     }
     await submitLocalLogin(limitedPage);
@@ -58,29 +59,28 @@ test('Web login and the API proxy share a budget while another client still sign
 });
 
 test('Web CAPTCHA refresh and direct proxy requests share the trusted client limit', async ({ page, browser, baseURL }) => {
-  const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.11' } });
+  const headers = { 'X-Forwarded-For': '192.0.2.11' };
+  const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: headers });
   try {
     const limitedPage = await first.newPage();
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await limitedPage.request.get('/api/v1/captcha');
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await limitedPage.request.get('/api/v1/captcha', { headers });
       expect(response.status()).toBe(200);
       expect(response.headers()['cache-control']).toContain('no-store');
       expect((await response.json()).imageBase64).toMatch(/^data:image\/png;base64,iVBOR/);
     }
-    await openPublicTicketReview(limitedPage);
-    const captcha = limitedPage.getByAltText('CAPTCHA');
-    await expect(captcha).toBeVisible();
-    const initial = await captcha.getAttribute('src');
-    const refresh = limitedPage.getByRole('button', { name: 'New code' });
-    await refresh.click();
-    await expect(captcha).not.toHaveAttribute('src', initial!);
-    await refresh.click();
-    await expect(limitedPage.getByText(/Too many code requests/i)).toBeVisible();
-    const denied = await limitedPage.request.get('/api/v1/captcha');
+    const denied = await limitedPage.request.get('/api/v1/captcha', { headers });
     expect(denied.status()).toBe(429);
     expect(Number(denied.headers()['retry-after'])).toBeGreaterThan(0);
+
+    await openPublicTicketReview(limitedPage);
+    await expect(limitedPage.getByText(/Too many code requests/i)).toBeVisible();
     await openPublicTicketReview(page);
-    await expect(page.getByAltText('CAPTCHA')).toBeVisible();
+    const captcha = page.getByAltText('CAPTCHA');
+    await expect(captcha).toBeVisible();
+    const initial = await captcha.getAttribute('src');
+    await page.getByRole('button', { name: 'New code' }).click();
+    await expect(captcha).not.toHaveAttribute('src', initial!);
   } finally {
     await first.close();
   }

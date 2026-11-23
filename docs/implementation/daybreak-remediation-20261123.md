@@ -28,6 +28,27 @@ CAPTCHA still uses the managed PNG encoder. The dependency does not change the
 published CLI, stdio MCP, HTTP MCP or Web runtime profiles. The API publish
 carries the decoder's license notices under `Storage/ThirdParty`.
 
+Framework-dependent Linux API publishes used the repository SDK, the release
+Dockerfile's architecture selection, and `UseAppHost=false`. Each candidate
+contains the one native decoder for its target architecture.
+
+| Target | Main publish bytes | Candidate publish bytes | Main gzip bytes | Candidate gzip bytes |
+| --- | ---: | ---: | ---: | ---: |
+| `linux-x64` | 46,362,965 | 59,648,723 | 15,878,960 | 21,019,860 |
+| `linux-arm64` | 46,426,483 | 59,585,827 | 15,896,030 | 20,878,440 |
+
+The byte comparison uses the starting main revision and candidate `f14043c1`.
+Gzip values measure a tar stream of the publish directory. PostgreSQL and
+SQLite tests ran on the native x64 runtime. The arm64 measurement verifies
+cross-publish output.
+
+The integrated review checked the authorization boundary of each native chat
+mutation, both signed asset serving paths, lock order for anonymous intake,
+caller provenance across Web relays, grant revocation and replacement, and
+browser antiforgery. Review changes protect queued launch fragments, retain
+the ticket's original sender routing, separate decision links from email
+copies, and enforce a request deadline while native raster work holds its slot.
+
 The pre-existing [live Codex provider acceptance](https://github.com/BostonTechnologies/RatelDesk/issues/441)
 is a separate dependency. The PostgreSQL tests exercise the authorization and
 persistence behavior with synthetic transports.

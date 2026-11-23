@@ -76,11 +76,12 @@ test('first-run setup initializes, survives restart, and supports isolated scope
   await expect(page.getByText('Command copied. Run it on your Docker host.', { exact: true })).toBeVisible();
   const setupCodeInput = page.getByLabel('Setup code');
   if (process.env.HELPDESK_E2E_DAYBREAK === 'true') {
-    const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.12' } });
+    const headers = { 'X-Forwarded-For': '192.0.2.12', 'X-Requested-With': 'XMLHttpRequest' };
+    const first = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, extraHTTPHeaders: headers });
     try {
       const limitedPage = await first.newPage();
       for (let attempt = 0; attempt < 5; attempt++) {
-        const rejected = await limitedPage.request.post('/api/v1/setup/session', { data: { setupCode: 'synthetic-invalid-code' } });
+        const rejected = await limitedPage.request.post('/api/v1/setup/session', { headers, data: { setupCode: 'synthetic-invalid-code' } });
         expect(rejected.status()).toBe(401);
       }
       await limitedPage.goto('/setup');

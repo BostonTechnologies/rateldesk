@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { expect, type Page } from '@playwright/test';
 
 export async function expectSignedRasterIsolation(page: Page, signingKey: string) {
-  const expiry = Math.floor(Date.now() / 1000) + 180;
+  const expiry = Number(process.env.HELPDESK_E2E_ASSET_EXPIRY);
   for (const [collection, scope] of [['incidents', 'incident'], ['worklogs', 'worklog']]) {
     for (const filename of ['sample.svg', 'sample.png', 'raster.png']) {
       const payload = [scope, 'browser-fixture', filename, expiry].join('|');

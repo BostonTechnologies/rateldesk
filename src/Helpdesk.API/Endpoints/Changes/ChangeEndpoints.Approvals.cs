@@ -50,7 +50,7 @@ public static partial class ChangeEndpoints
     }
 
     private static Task<IResult> ReviewPublicChangeApproval(Guid accessId, PublicApprovalDecision request, HttpContext http,
-        PublicLinkService links, HelpdeskDbContext db, ITicketNotificationService notifications, ILoggerFactory loggerFactory, CancellationToken ct)
+        [FromServices] PublicLinkService links, HelpdeskDbContext db, ITicketNotificationService notifications, ILoggerFactory loggerFactory, CancellationToken ct)
     {
         if (!request.Approve)
             return Task.FromResult(Results.BadRequest());

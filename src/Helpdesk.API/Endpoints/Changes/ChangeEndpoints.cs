@@ -1362,7 +1362,7 @@ public static partial class ChangeEndpoints
         access.HasPermission(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeRead, organizationId);
 
     private static async Task<IResult> GetPublicChangeApproval(Guid accessId, HttpContext http,
-        PublicLinkService links, HelpdeskDbContext db, ITimelineEventBus timelineEventBus, CancellationToken ct)
+        [FromServices] PublicLinkService links, HelpdeskDbContext db, ITimelineEventBus timelineEventBus, CancellationToken ct)
     {
         if (await PublicLinkEndpoints.AuthorizeAsync(http, links, accessId, ct) is not
             { Purpose: PublicLinkPurpose.ChangeView or PublicLinkPurpose.ChangeApproval } grant)

@@ -1,6 +1,6 @@
 // Loopback presentation fixture. Authentication correctness is tested through the real API in .NET.
 import http from 'node:http';
-import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 
 const issuer = 'http://127.0.0.1:18499/id';
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -30,6 +30,19 @@ const localWeb = url => {
   return parsed && parsed.origin.match(/^http:\/\/127\.0\.0\.1:1850[0-2]$/) ? parsed : null;
 };
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC', 'base64');
+const assetRequests = new Map();
+if (process.env.HELPDESK_E2E_ASSET_API_BASE) {
+  for (const [collection, scope] of [['incidents', 'incident'], ['worklogs', 'worklog']]) {
+    for (const filename of ['sample.svg', 'sample.png', 'raster.png']) {
+      const path = `/api/${collection}/browser-fixture/images/${filename}`;
+      const payload = [scope, 'browser-fixture', filename, process.env.HELPDESK_E2E_ASSET_EXPIRY].join('|');
+      const signature = createHmac('sha256', process.env.HELPDESK_E2E_ASSET_SIGNING_KEY).update(payload).digest('base64url');
+      const url = new URL(path, process.env.HELPDESK_E2E_ASSET_API_BASE);
+      url.searchParams.set('token', Buffer.from(payload + '|' + signature).toString('base64url'));
+      assetRequests.set(path, url);
+    }
+  }
+}
 let logo = '/branding/rateldesk-mark.webp';
 let applicationName = 'RatelDesk';
 let publicViews = 0, publicTimelines = 0;
@@ -50,8 +63,10 @@ http.createServer(async (req, res) => {
     return res.end('<a href="' + target.origin + '/public/link#' + 'a'.repeat(43) + '">Open ticket from email</a>');
   }
   if (url.pathname === '/fixture/referrer') return reply({ referrer: req.headers.referer ?? null });
-  if (process.env.HELPDESK_E2E_ASSET_API_BASE && /^\/api\/(incidents|worklogs)\/browser-fixture\/images\//.test(url.pathname)) {
-    const asset = await fetch(new URL(url.pathname + url.search, process.env.HELPDESK_E2E_ASSET_API_BASE));
+  const assetRequest = assetRequests.get(url.pathname);
+  if (assetRequest) {
+    if (assetRequest.search !== url.search) return fail(404);
+    const asset = await fetch(assetRequest);
     res.statusCode = asset.status;
     for (const header of ['content-type', 'content-security-policy', 'x-content-type-options', 'cache-control', 'referrer-policy']) {
       if (asset.headers.has(header)) res.setHeader(header, asset.headers.get(header));

@@ -237,6 +237,8 @@ for (const entry of ['desktop', 'mobile', 'nav'] as const) {
     expect((await ended).status()).toBe(302);
     await expect.poll(async () => (await context.cookies()).some(cookie => cookie.name === appCookie)).toBe(false);
     await page.goto('/login');
-    await expect(page.getByRole('link', { name: 'Sign in with Example Organization' })).toBeVisible();
+    await page.getByRole('link', { name: 'Sign in with Example Organization' }).click();
+    await page.waitForURL('**/home');
+    await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
   });
 }
