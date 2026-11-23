@@ -513,13 +513,14 @@ public sealed partial class RequestTaskApprovalService(
         IEnumerable<RequestTaskApproval> approvalRows,
         CancellationToken ct)
     {
+        var approverAddresses = approvalRows.Select(row => row.ApproverEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sent = await notificationService.SendRequestApprovalRequiredAsync(
             request,
             task,
             approval,
             FormatApprovers(approvalRows),
             BuildPayloadHtml(request.PayloadJson),
-            request.CcRecipients.Where(x => !string.Equals(x, approval.ApproverEmail, StringComparison.OrdinalIgnoreCase)),
+            request.CcRecipients.Where(address => !approverAddresses.Contains(address)),
             ct);
         if (sent)
         {

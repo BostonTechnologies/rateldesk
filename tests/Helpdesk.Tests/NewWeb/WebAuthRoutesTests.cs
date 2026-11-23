@@ -163,6 +163,7 @@ public class WebAuthRoutesTests
     [InlineData("SystemApi")]
     [InlineData("SystemApiNoAuth")]
     [InlineData("SystemPairingApi")]
+    [InlineData("PublicAccessApi")]
     public void Shared_api_handlers_never_store_browser_cookies(string name)
     {
         using var factory = CreateFactory(localAuthentication: true, stubApi: false);
@@ -381,8 +382,12 @@ public class WebAuthRoutesTests
     [InlineData(429, "rate-limited")]
     public async Task Local_login_distinguishes_invalid_credentials_from_api_service_failures(int status, string expectedStatus)
     {
-        using var factory = CreateFactory(localAuthentication: true,
-            loginApi: (_, _) => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status)));
+        var attempts = 0;
+        using var factory = CreateFactory(localAuthentication: true, loginApi: (_, _) =>
+        {
+            attempts++;
+            return Task.FromResult(new HttpResponseMessage((HttpStatusCode)status));
+        });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var token = await ReadFormTokenAsync(client, "/login");
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -391,6 +396,7 @@ public class WebAuthRoutesTests
         });
         var response = await client.PostAsync("/local-login", form);
         Assert.Equal("/login?status=" + expectedStatus, response.Headers.Location?.OriginalString);
+        Assert.Equal(1, attempts);
     }
 
     [Theory]
@@ -738,7 +744,7 @@ public class WebAuthRoutesTests
             {
                 if (stubApi)
                 {
-                    foreach (var clientName in new[] { "HelpdeskApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth", "SystemPairingApi" })
+                    foreach (var clientName in new[] { "HelpdeskApi", "HelpdeskApiStreaming", "SystemApi", "SystemApiNoAuth", "SystemPairingApi", "PublicAccessApi" })
                         services.AddHttpClient(clientName).ConfigurePrimaryHttpMessageHandler(() => new BrandingApiHandler(loginApi, systemConnectionApi));
                 }
 

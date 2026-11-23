@@ -2216,6 +2216,8 @@ public static partial class ChangeEndpoints
 
             if (EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval)
             {
+                var approverAddresses = change.Approvals.Select(approval => approval.ApproverEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var informationCopies = change.CcRecipients.Where(address => !approverAddresses.Contains(address)).ToArray();
                 foreach (var approval in change.Approvals)
                 {
                     var approvalQueued = await notificationService.SendChangeApprovalRequiredAsync(
@@ -2225,7 +2227,7 @@ public static partial class ChangeEndpoints
                         requestedForName,
                         implementorName,
                         approvers,
-                        change.CcRecipients.Where(x => !string.Equals(x, approval.ApproverEmail, StringComparison.OrdinalIgnoreCase)),
+                        informationCopies,
                         token);
                     queued &= approvalQueued;
                     if (approvalQueued) approval.TokenSentAtUtc = DateTimeOffset.UtcNow;
