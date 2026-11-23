@@ -568,7 +568,7 @@ public sealed class RequestCreateEndpointsTests
             builder.Services.AddSingleton<IAutomationBindingPayloadContractService, PassingAutomationBindingPayloadContractService>();
             builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddSingleton<ISelfServiceDatasetBindingResolver, PassingSelfServiceDatasetBindingResolver>();
-            builder.Services.AddSingleton<ISelfServiceAudienceService, AllowingSelfServiceAudienceService>();
+            builder.Services.AddScoped<SelfServiceAudienceService>();
             builder.Services.AddSingleton<IRequestTaskGenerationService, NoopRequestTaskGenerationService>();
             builder.Services.AddSingleton<IWorkflowEngine, NoopWorkflowEngine>();
             builder.Services.AddSingleton<ITicketSlaInitializer, NoopTicketSlaInitializer>();
@@ -622,14 +622,20 @@ public sealed class RequestCreateEndpointsTests
 
         public async Task SeedRequestFormAsync()
         {
-            await requestForms.CreateAsync(new RequestForm
+            await using var scope = app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Services.Add(new Service { Id = "service-1", Name = "Hardware", AllowedOrganizationIds = ["org-1"] });
+            db.RequestForms.Add(new RequestForm
             {
                 Id = "form-1",
                 Title = "Laptop Request",
                 ServiceId = "service-1",
                 OrganizationId = "org-1",
+                AllowedOrganizationIds = ["org-1"],
+                ReleaseStatus = RequestFormReleaseStatus.Production,
                 JsonSchema = JsonDocument.Parse("""{"title":"Laptop Request","description":"Request hardware","fields":[]}""")
             });
+            await db.SaveChangesAsync();
         }
 
         public async Task SeedOrganizationAsync(string id, string name, string? itSupportOrganizationId = null)
@@ -748,21 +754,6 @@ public sealed class RequestCreateEndpointsTests
             string payloadJson,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<(bool, string, IReadOnlyList<string>)>((true, payloadJson, []));
-    }
-
-    private sealed class AllowingSelfServiceAudienceService : ISelfServiceAudienceService
-    {
-        public Task<bool> IsTestUserAsync(CancellationToken cancellationToken) => Task.FromResult(false);
-
-        public Task<bool> CanAccessRequestFormAsync(RequestForm requestForm, CancellationToken cancellationToken) =>
-            Task.FromResult(true);
-
-        public IQueryable<RequestForm> ApplyAudienceFilter(
-            IQueryable<RequestForm> query,
-            bool isAdmin,
-            bool isTestUser,
-            string? tenantId) =>
-            query;
     }
 
     private sealed class NoopDomainEventPublisher : IDomainEventPublisher

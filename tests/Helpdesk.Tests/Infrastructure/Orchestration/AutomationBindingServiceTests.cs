@@ -12,6 +12,42 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 
 public sealed class AutomationBindingServiceTests
 {
+    [Fact]
+    public async Task Self_service_runtime_reads_only_bindings_for_the_authorized_submission_organization()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<HelpdeskDbContext>().UseSqlite(connection).Options;
+        var tenant = new TestTenantContext();
+        await using var db = new HelpdeskDbContext(options, tenant, new HttpContextAccessor());
+        await db.Database.EnsureCreatedAsync();
+
+        db.RequestForms.AddRange(
+            new RequestForm { Id = "form-1", OrganizationId = "org-1", Title = "Home form" },
+            new RequestForm { Id = "form-2", OrganizationId = "org-2", Title = "Secondary form" });
+        var templateId = Guid.NewGuid();
+        var home = CreateBinding("home-binding", templateId, DateTimeOffset.UtcNow);
+        var secondary = CreateBinding("secondary-binding", templateId, DateTimeOffset.UtcNow);
+        secondary.OrganizationId = "org-2";
+        secondary.RequestFormId = "form-2";
+        secondary.SystemConnectionId = Guid.NewGuid();
+        db.AutomationBindings.AddRange(home, secondary);
+        await db.SaveChangesAsync();
+        var service = new AutomationBindingService(db, tenant, new RequestFormSchemaParser());
+
+        Assert.Null(await service.GetByTaskTemplateAsync(secondary.RequestFormId, templateId));
+        using (db.BindSelfServiceOrganization(secondary.OrganizationId))
+        {
+            var resolved = await service.GetByTaskTemplateAsync(secondary.RequestFormId, templateId);
+            Assert.NotNull(resolved);
+            Assert.Equal(secondary.SystemConnectionId, resolved.SystemConnectionId);
+            Assert.Equal(secondary.OrganizationId, resolved.OrganizationId);
+            Assert.Null(await service.GetByTaskTemplateAsync(home.RequestFormId, templateId));
+        }
+        Assert.Equal(home.Id, (await service.GetByTaskTemplateAsync(home.RequestFormId, templateId))?.Id);
+        Assert.Null(await service.GetByTaskTemplateAsync(secondary.RequestFormId, templateId));
+    }
+
     [Theory]
     [InlineData(false, "org-1", 2)]
     [InlineData(true, "different-home-org", 2)]

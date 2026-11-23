@@ -8,6 +8,9 @@ const originalRequests = Array.from({ length: 137 }, (_, i) => ({
   state: i % 7, releaseStatus: i % 2,
   createdAt: '2026-11-01T12:00:00Z', updatedAt: new Date(Date.UTC(2026, 10, 2, 12, i)).toISOString()
 }));
+const homeOrganization = { id: 'org-synthetic', name: 'Example Organization' };
+const secondOrganization = { id: 'org-secondary', name: 'Second Organization' };
+let multipleOrganizations = false;
 let count = 7, fault = '', requests = [], rows = structuredClone(originalRequests), submissions = [], receipts = new Map(), formCard = false, tableReview = false;
 const catalogue = () => formCard ? [{ id: 'form-synthetic', name: 'Synthetic access request', description: 'Harmless rendered submission fixture', itemType: 1 }]
   : Array.from({ length: count }, (_, i) => ({ id: `service-${i}`, name: `Service ${i + 1} for synthetic access and device support`,
@@ -19,7 +22,7 @@ http.createServer(async (req, res) => {
   const path = url.pathname.replace(/\/$/, '');
   const reply = (value, status = 200) => { if (!res.destroyed) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); } };
   if (path === '/fixture/health') return reply({ ok: true });
-  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; tableReview = false; return reply({ ok: true }); }
+  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; tableReview = false; multipleOrganizations = false; return reply({ ok: true }); }
   if (path === '/fixture/table-review') { tableReview = true; formCard = true; return reply({ synthetic: true }); }
   if (tableReview && path === '/api/v1/captcha') return reply({ id: '79000000-0000-4000-8000-000000000001',
     imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC' });
@@ -35,6 +38,7 @@ http.createServer(async (req, res) => {
     return reply({ trackingId: 'REQ-SYN-000', requestTitle: 'Synthetic public approval',
       requestDescription: 'Read-only completed approval fixture', taskName: 'Synthetic approval', approvalStatus: 2, canReview: false,
       payloadFields: Array.from({ length: 35 }, (_, i) => ({ key: `Field ${i}`, value: `Synthetic long submitted value ${i} for safe read-only review` })) });
+  if (path === '/fixture/multiple-organizations') { multipleOrganizations = true; return reply({ ok: true }); }
   if (path === '/fixture/form-card') { formCard = true; return reply({ ok: true }); }
   if (path === '/fixture/state') return reply({ requests, count, submissions, receiptCount: receipts.size });
   if (path === '/fixture/catalogue') { count = Math.max(0, Math.min(100, Number(url.searchParams.get('count') ?? 7))); return reply({ ok: true }); }
@@ -57,9 +61,16 @@ http.createServer(async (req, res) => {
     jsonSchema: JSON.stringify({ title: 'Synthetic access request', description: 'Harmless rendered submission fixture', fields: [{ key: 'reason', label: 'Request reason', type: 'text', required: true }], tasks: [] }) });
   if (path === '/api/v1/self-service/submission-context') {
     const denied = ['missing-requester', 'disabled-requester', 'wrong-organization'].includes(fault);
-    return reply({ organizationId: 'org-synthetic', organizationName: 'Example Organization', requestedForName: 'Synthetic Owner', canSubmit: !denied,
+    const eligibleOrganizations = denied ? [] : multipleOrganizations ? [homeOrganization, secondOrganization] : [homeOrganization];
+    const only = eligibleOrganizations.length === 1 ? eligibleOrganizations[0] : null;
+    return reply({ organizationId: only?.id, organizationName: only?.name, eligibleOrganizations, requestedForName: 'Synthetic Owner', canSubmit: !!only,
       errorCode: fault === 'wrong-organization' ? 'request_organization_mismatch' : denied ? 'requester_unavailable' : null,
       message: fault === 'wrong-organization' ? 'This form uses a different organization. Choose a form available to Example Organization.' : denied ? 'Your requester profile is unavailable. Ask an administrator to review your enabled account and organization membership.' : null });
+  }
+  if (path === '/api/v1/self-service/submission-organizations') {
+    const organizations = multipleOrganizations ? [homeOrganization, secondOrganization] : [homeOrganization];
+    const id = url.searchParams.get('id'), query = (url.searchParams.get('q') ?? '').toLowerCase();
+    return reply({ items: organizations.filter(org => id ? org.id === id : org.name.toLowerCase().includes(query)), totalEligible: organizations.length, hasMore: false });
   }
   if (path === '/api/v1/self-service/request-users') return reply([{ id: 'synthetic-recipient', name: 'Synthetic Recipient', email: 'recipient@example.test', source: 0, organizationId: 'org-synthetic', organizationName: 'Example Organization' }]);
   if (path === '/api/v1/self-service/requests' && req.method === 'POST') {
@@ -71,7 +82,9 @@ http.createServer(async (req, res) => {
     if (fault === 'missing-requester' || fault === 'disabled-requester') return reply({ code: 'requester_unavailable', traceId: 'synthetic-requester-reference' }, 403);
     if (fault === 'wrong-organization') return reply({ code: 'request_organization_mismatch', traceId: 'synthetic-org-reference' }, 403);
     if (fault === 'invalid-success') return reply({});
-    if (!receipts.has(payload.submissionId)) receipts.set(payload.submissionId, { requestId: `new-request-${receipts.size + 1}`, trackingId: `REQ-NEW-${receipts.size + 1}` });
+    const organization = payload.targetOrganizationId === secondOrganization.id ? secondOrganization : homeOrganization;
+    if (!receipts.has(payload.submissionId)) receipts.set(payload.submissionId, { requestId: `new-request-${receipts.size + 1}`,
+      trackingId: `REQ-NEW-${receipts.size + 1}`, organizationId: organization.id, organizationName: organization.name });
     const receipt = receipts.get(payload.submissionId);
     return setTimeout(() => reply(receipt), 250);
   }

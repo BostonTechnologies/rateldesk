@@ -23,10 +23,10 @@
                     <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
                     <MudTextField @bind-Value="model.Email" Label="Email" Required="true" />
 
-                    <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Value="@model.OrganizationId" ValueChanged="@(id => model.OrganizationId = id ?? string.Empty)" Clearable="false" Disabled="@(authStatus?.IsLinkedLogin == true)" />
-                    @if (authStatus?.IsLinkedLogin == true)
+                    <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Value="@model.OrganizationId" ValueChanged="@(id => model.OrganizationId = id ?? string.Empty)" Clearable="false" Disabled="@OrganizationLocked" />
+                    @if (OrganizationLocked)
                     {
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">A linked login keeps its current organization access. Use the explicit access workflow to move it.</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">This contact keeps its assigned organization. Manage the person's organization access in Team.</MudText>
                     }
 
                     <MudSwitch T="bool"
@@ -117,6 +117,7 @@
     private MudForm form = default!;
     private EditCustomerModel model = new();
     private CustomerAuthStatusDto? authStatus;
+    private bool OrganizationLocked => authStatus?.IsLinkedLogin == true || authStatus?.AuthProviderType == "Application";
     private string? localActivationToken;
 
     protected override void OnParametersSet()

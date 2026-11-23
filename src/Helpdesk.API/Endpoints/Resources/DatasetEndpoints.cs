@@ -492,6 +492,7 @@ public static class DatasetEndpoints
             [FromQuery] string? query,
             [FromQuery] int page,
             [FromQuery] int pageSize,
+            [FromQuery] string? targetOrganizationId,
             ClaimsPrincipal user,
             ICurrentUserAccessService accessService,
             IDataManagementService dataManagementService,
@@ -504,7 +505,8 @@ public static class DatasetEndpoints
             }
 
             var access = await accessService.ResolveAsync(user, token);
-            if (!access.HasPermission(HelpdeskPermissions.SelfServiceUser, dataset.OrganizationId))
+            if (!access.HasPermission(HelpdeskPermissions.SelfServiceUser, dataset.OrganizationId) ||
+                (targetOrganizationId is not null && targetOrganizationId != dataset.OrganizationId))
             {
                 return Results.NotFound();
             }

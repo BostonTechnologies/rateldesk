@@ -99,7 +99,7 @@
                             }
                             else
                             {
-                                <MudText Typo="Typo.body2" Class="mud-text-secondary">No assigned organizations</MudText>
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">Not visible in self service</MudText>
                             }
                         </div>
                         <div class="svc-metadata">
@@ -239,6 +239,7 @@
                 Title = $"{source.Title} (Copy)",
                 Description = source.Description,
                 JsonSchema = source.JsonSchema,
+                OrganizationId = source.OrganizationId ?? string.Empty,
                 AllowedOrganizationIds = source.AllowedOrganizationIds?.ToList(),
                 ReleaseStatus = source.ReleaseStatus
             };
@@ -274,36 +275,9 @@
 
         try
         {
-            HttpResponseMessage resp;
-
-            if (item.ItemType == ServiceItemType.Service)
-            {
-                var svc = await HelpdeskApi.GetFromJsonAsync<ServiceDto>($"api/v1/services/{item.Id}");
-                if (svc is null) { throw new InvalidOperationException("Service not found"); }
-
-                var dto = new UpdateServiceDto
-                {
-                    Name = svc.Name,
-                    Description = svc.Description,
-                    AllowedOrganizationIds = after
-                };
-                resp = await HelpdeskApi.PutAsJsonAsync($"api/v1/services/{item.Id}", dto);
-            }
-            else
-            {
-                var rf = await HelpdeskApi.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{item.Id}");
-                if (rf is null) { throw new InvalidOperationException("Form not found"); }
-
-                var dto = new UpdateRequestFormDto
-                {
-                    Title = rf.Title,
-                    Description = rf.Description,
-                    JsonSchema = rf.JsonSchema,
-                    AllowedOrganizationIds = after,
-                    ReleaseStatus = rf.ReleaseStatus
-                };
-                resp = await HelpdeskApi.PutAsJsonAsync($"api/v1/request-forms/{item.Id}", dto);
-            }
+            using var resp = item.ItemType == ServiceItemType.Service
+                ? await HelpdeskApi.PutAsJsonAsync($"api/v1/services/{item.Id}", new UpdateServiceDto { AllowedOrganizationIds = after })
+                : await HelpdeskApi.PutAsJsonAsync($"api/v1/request-forms/{item.Id}", new UpdateRequestFormDto { AllowedOrganizationIds = after });
 
             if (resp.IsSuccessStatusCode)
             {
@@ -381,7 +355,11 @@
 
     private async Task OpenFormBuilderDialog(ServiceItemDto? existingRequestForm)
     {
-        var parameters = new DialogParameters { { nameof(RequestFormBuilder.ServiceId), ServiceId } };
+        var parameters = new DialogParameters
+        {
+            [nameof(RequestFormBuilder.ServiceId)] = ServiceId,
+            [nameof(RequestFormBuilder.Organizations)] = organizations
+        };
         if (existingRequestForm is not null)
             parameters.Add(nameof(RequestFormBuilder.RequestFormId), existingRequestForm.Id);
 

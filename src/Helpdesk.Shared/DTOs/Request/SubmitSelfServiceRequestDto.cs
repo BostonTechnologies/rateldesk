@@ -3,6 +3,7 @@ namespace Helpdesk.Shared.DTOs.Request;
 public sealed class SubmitSelfServiceRequestDto
 {
     public Guid? SubmissionId { get; set; }
+    public string? TargetOrganizationId { get; set; }
     public string RequestFormId { get; set; } = string.Empty;
     public string? Title { get; set; }
     public string? Description { get; set; }
@@ -13,8 +14,11 @@ public sealed class SubmitSelfServiceRequestDto
     public SelfServiceRequestPersonSource? RequestedForPersonSource { get; set; }
 }
 
+public sealed record SelfServiceTargetOrganizationDto(string Id, string Name);
+
 public sealed class SelfServiceSubmissionContextDto
 {
+    public IReadOnlyList<SelfServiceTargetOrganizationDto> EligibleOrganizations { get; set; } = [];
     public string? OrganizationId { get; set; }
     public string? OrganizationName { get; set; }
     public string? RequestedForName { get; set; }
@@ -27,6 +31,8 @@ public sealed class SelfServiceRequestSubmittedDto
 {
     public string RequestId { get; set; } = string.Empty;
     public string TrackingId { get; set; } = string.Empty;
+    public string? OrganizationId { get; set; }
+    public string? OrganizationName { get; set; }
 }
 
 public enum SelfServiceRequestPersonSource

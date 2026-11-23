@@ -113,6 +113,10 @@
                         {
                             <span class="self-service-card-meta">@GetRequestCountText(item.AvailableRequestCount)</span>
                         }
+                        else if (item.EligibleOrganizations.Count == 1)
+                        {
+                            <span class="self-service-card-meta">@item.EligibleOrganizations[0].Name</span>
+                        }
                         else
                         {
                             <span class="self-service-card-meta">Request</span>

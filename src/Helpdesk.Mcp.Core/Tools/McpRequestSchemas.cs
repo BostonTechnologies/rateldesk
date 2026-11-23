@@ -231,17 +231,19 @@ internal static class McpRequestSchemas
         }
         if (operation == "update_organization_branding")
             foreach (var name in new[] { "brandName", "logoUrl", "footerHtml", "primaryColor", "fromName", "replyTo" }) fields[name] = Nullable(Text(false));
-        if (operation is "create_organization" or "update_organization" or "create_customer" or "update_customer" or "create_user" or "update_user" or "create_category" or "update_category" or "create_service" or "update_service")
+        if (operation is "create_organization" or "update_organization" or "create_customer" or "update_customer" or "create_user" or "update_user" or "create_category" or "update_category" or "create_service")
             Require(required, "name");
         if (operation is "create_customer" or "update_customer") { Require(required, "email"); Require(required, "organizationId"); }
         if (operation is "create_user" or "update_user") { Require(required, "email"); Require(required, "role"); }
         if (operation == "create_self_service_request")
         {
             Require(required, "requestFormId");
+            fields["targetOrganizationId"] = Nullable(Text(false));
+            fields["targetOrganizationId"]!["description"] = "Organization from eligibleOrganizations. Required when several organizations are available.";
             schema["dependentRequired"] = new JsonObject { ["requestedForPersonId"] = new JsonArray("requestedForPersonSource") };
         }
         fields.Remove("password");
-        if (operation == "create_service") fields.Remove("parentServiceId"); // API uses ParentId; ParentServiceId is ignored by this create handler.
+        if (operation == "create_service") fields.Remove("parentServiceId"); // Service creation accepts ParentId.
         // These are identity/model response fields, never accepted as MCP edits.
         if (type == typeof(Organization)) { fields.Remove("orchestrationTenantLinkedAtUtc"); }
         if (operation.StartsWith("update_", StringComparison.Ordinal)) fields.Remove("id");

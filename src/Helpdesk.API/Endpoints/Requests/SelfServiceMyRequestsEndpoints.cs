@@ -7,6 +7,7 @@ using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using EntityState = Helpdesk.Shared.Models.EntityState;
 using System.Security.Claims;
 
 namespace Helpdesk.API.Endpoints.Requests;
@@ -39,9 +40,8 @@ public static partial class SelfServiceMyRequestsEndpoints
     private static async Task<IResult> GetMyRequests(
         ClaimsPrincipal user,
         [FromServices] HelpdeskDbContext db,
-        [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
+        [FromServices] SelfServiceAudienceService audience,
         [FromServices] ITenantContext tenant,
-        [FromServices] ICurrentUserAccessService accessService,
         [FromServices] IDomainEventPublisher domainEvents,
         [FromServices] ICorrelationContext correlationContext,
         [FromQuery] int? page,
@@ -75,41 +75,9 @@ public static partial class SelfServiceMyRequestsEndpoints
                 detail: "Choose a supported sort, status and release stage, with a start date before the end date.");
         }
 
-        var access = await accessService.ResolveAsync(user, token);
-        var isAdmin = access.IsHelpdeskAdmin;
-        var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
-        var currentCustomer = isAdmin ? null : await ResolveCurrentCustomerAsync(db, access.CustomerId, token);
-        var currentCustomerId = currentCustomer?.Id;
-        if (!isAdmin && (string.IsNullOrWhiteSpace(currentCustomerId) ||
-                         !IsOrganizationAllowed(access, currentCustomer?.OrganizationId)))
-        {
-            return Results.Ok(new PagedResponse<MyRequestListItemDto>
-            {
-                Page = 1,
-                PageSize = resolvedPageSize,
-                TotalCount = 0,
-                Items = []
-            });
-        }
-
-        var effectiveOrganizationId = currentCustomer?.OrganizationId;
-
-        var accessibleForms = BuildAccessibleRequestFormsQuery(
-            db,
-            selfServiceAudienceService,
-            isAdmin,
-            isTestUser,
-            effectiveOrganizationId);
-        var accessibleFormIds = accessibleForms.Select(f => f.Id);
-
-        var query = db.Requests
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .Where(r => (isAdmin || r.CustomerId == currentCustomerId)
-                        && (effectiveOrganizationId == null || r.OrganizationId == effectiveOrganizationId)
-                        && (isAdmin
-                            || string.IsNullOrWhiteSpace(r.RequestFormId)
-                            || accessibleFormIds.Contains(r.RequestFormId!)))
+        var authority = await audience.ResolveAuthorityAsync(user, token);
+        var accessibleForms = HistoryForms(db, authority);
+        var query = OwnedRequests(db, authority, accessibleForms)
             .Select(r => new
             {
                 Request = r,
@@ -161,6 +129,9 @@ public static partial class SelfServiceMyRequestsEndpoints
                 TrackingId = r.Request.TrackingId,
                 Title = r.Request.Title,
                 State = r.Request.State,
+                OrganizationId = r.Request.OrganizationId,
+                OrganizationName = db.Organizations.Where(org => org.Id == r.Request.OrganizationId)
+                    .Select(org => org.Name).FirstOrDefault(),
                 ReleaseStatus = r.ReleaseStatus,
                 CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(r.Request.CreatedAt, DateTimeKind.Utc)),
                 UpdatedAt = r.Request.UpdatedAt.HasValue
@@ -171,12 +142,12 @@ public static partial class SelfServiceMyRequestsEndpoints
 
         await domainEvents.PublishAsync(
             new MyRequestsViewedEvent(
-                currentCustomerId ?? tenant.UserId,
+                authority.Identity?.HomeCustomer?.Id ?? tenant.UserId,
                 resolvedPage,
                 resolvedPageSize,
                 string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
                 items.Count,
-                effectiveOrganizationId,
+                authority.Organizations.Count == 1 ? authority.Organizations.Keys.Single() : null,
                 DateTimeOffset.UtcNow,
                 GetCorrelationId(correlationContext)),
             token);
@@ -198,14 +169,13 @@ public static partial class SelfServiceMyRequestsEndpoints
         [FromRoute] string id,
         ClaimsPrincipal user,
         [FromServices] HelpdeskDbContext db,
-        [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
+        [FromServices] SelfServiceAudienceService audience,
         [FromServices] ITenantContext tenant,
-        [FromServices] ICurrentUserAccessService accessService,
         [FromServices] IDomainEventPublisher domainEvents,
         [FromServices] ICorrelationContext correlationContext,
         CancellationToken token)
     {
-        var request = await GetOwnedRequestAsync(user, db, selfServiceAudienceService, accessService, id, token);
+        var request = await GetOwnedRequestAsync(user, db, audience, id, token);
         if (request is null)
         {
             return Results.NotFound();
@@ -216,7 +186,7 @@ public static partial class SelfServiceMyRequestsEndpoints
                 tenant.UserId,
                 request.Id,
                 request.TrackingId,
-                tenant.TenantId,
+                request.OrganizationId,
                 DateTimeOffset.UtcNow,
                 GetCorrelationId(correlationContext)),
             token);
@@ -228,6 +198,8 @@ public static partial class SelfServiceMyRequestsEndpoints
             Title = request.Title,
             Description = request.Description,
             State = request.State,
+            OrganizationId = request.OrganizationId,
+            OrganizationName = request.OrganizationName,
             ReleaseStatus = request.RequestFormReleaseStatus,
             CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(request.CreatedAt, DateTimeKind.Utc)),
             UpdatedAt = request.UpdatedAt.HasValue
@@ -244,19 +216,18 @@ public static partial class SelfServiceMyRequestsEndpoints
         ClaimsPrincipal user,
         [FromRoute] string id,
         [FromServices] HelpdeskDbContext db,
-        [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
-        [FromServices] ICurrentUserAccessService accessService,
+        [FromServices] SelfServiceAudienceService audience,
         CancellationToken token)
     {
-        var request = await GetOwnedRequestAsync(user, db, selfServiceAudienceService, accessService, id, token);
+        var request = await GetOwnedRequestAsync(user, db, audience, id, token);
         if (request is null)
         {
             return Results.NotFound();
         }
 
-        var tasks = await db.RequestTasks.AsNoTracking()
-            .Where(t => t.RequestId == request.Id)
-            .OrderBy(t => t.Order)
+        var ownedTasks = db.RequestTasks.IgnoreQueryFilters().AsNoTracking()
+            .Where(task => task.RequestId == request.Id && task.OrganizationId == request.OrganizationId);
+        var tasks = await ownedTasks.OrderBy(t => t.Order)
             .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
             .Select(t => new MyRequestTaskDto
             {
@@ -282,7 +253,7 @@ public static partial class SelfServiceMyRequestsEndpoints
                 .Where(x => taskIds.Contains(x.RequestTaskId)
                     && x.Status == RequestTaskApprovalStatus.Pending)
                 .Join(
-                    db.RequestTasks.AsNoTracking(),
+                    ownedTasks,
                     approval => approval.RequestTaskId,
                     task => task.Id,
                     (approval, task) => new MyRequestPendingApprovalDto
@@ -313,110 +284,53 @@ public static partial class SelfServiceMyRequestsEndpoints
     }
 
     private static async Task<RequestWithReleaseStatus?> GetOwnedRequestAsync(
-        ClaimsPrincipal user,
-        HelpdeskDbContext db,
-        ISelfServiceAudienceService selfServiceAudienceService,
-        ICurrentUserAccessService accessService,
-        string requestId,
-        CancellationToken token)
+        ClaimsPrincipal user, HelpdeskDbContext db, SelfServiceAudienceService audience,
+        string requestId, CancellationToken token)
     {
-        var access = await accessService.ResolveAsync(user, token);
-        var isAdmin = access.IsHelpdeskAdmin;
-        var isTestUser = await selfServiceAudienceService.IsTestUserAsync(token);
-        var currentCustomer = isAdmin ? null : await ResolveCurrentCustomerAsync(db, access.CustomerId, token);
-        var currentCustomerId = currentCustomer?.Id;
-        if (!isAdmin && (string.IsNullOrWhiteSpace(currentCustomerId) ||
-                         !IsOrganizationAllowed(access, currentCustomer?.OrganizationId)))
-        {
-            return null;
-        }
-
-        var effectiveOrganizationId = currentCustomer?.OrganizationId;
-        var accessibleForms = BuildAccessibleRequestFormsQuery(
-            db,
-            selfServiceAudienceService,
-            isAdmin,
-            isTestUser,
-            effectiveOrganizationId);
-        var accessibleFormIds = accessibleForms.Select(f => f.Id);
-
-        return await db.Requests
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .Where(r => r.Id == requestId
-                        && (isAdmin || r.CustomerId == currentCustomerId)
-                        && (effectiveOrganizationId == null || r.OrganizationId == effectiveOrganizationId)
-                        && (isAdmin
-                            || string.IsNullOrWhiteSpace(r.RequestFormId)
-                            || accessibleFormIds.Contains(r.RequestFormId!)))
+        var authority = await audience.ResolveAuthorityAsync(user, token);
+        var forms = HistoryForms(db, authority);
+        return await OwnedRequests(db, authority, forms).Where(r => r.Id == requestId)
             .Select(r => new RequestWithReleaseStatus(
                 r.Id,
                 r.TrackingId,
                 r.Title,
                 r.Description,
                 r.State,
+                r.OrganizationId,
+                db.Organizations.Where(org => org.Id == r.OrganizationId).Select(org => org.Name).FirstOrDefault(),
                 r.PayloadJson,
                 r.CreatedAt,
                 r.UpdatedAt,
                 r.WorkflowStatus,
                 r.WorkflowBlockReason,
                 r.WorkflowUpdatedAt,
-                string.IsNullOrWhiteSpace(r.RequestFormId)
-                    ? (RequestFormReleaseStatus?)null
-                    : accessibleForms
-                        .Where(f => f.Id == r.RequestFormId)
-                        .Select(f => (RequestFormReleaseStatus?)f.ReleaseStatus)
-                        .FirstOrDefault()))
+                forms.Where(f => f.Id == r.RequestFormId).Select(f => (RequestFormReleaseStatus?)f.ReleaseStatus).FirstOrDefault()))
             .FirstOrDefaultAsync(token);
     }
 
-    private static IQueryable<RequestForm> BuildAccessibleRequestFormsQuery(
-        HelpdeskDbContext db,
-        ISelfServiceAudienceService selfServiceAudienceService,
-        bool isAdmin,
-        bool isTestUser,
-        string? effectiveOrganizationId)
+    private static IQueryable<RequestForm> HistoryForms(HelpdeskDbContext db, SelfServiceAuthority authority)
     {
-        if (isAdmin)
-        {
-            return db.RequestForms.IgnoreQueryFilters().AsNoTracking();
-        }
-
-        if (!string.IsNullOrWhiteSpace(effectiveOrganizationId))
-        {
-            return selfServiceAudienceService.ApplyAudienceFilter(
-                db.RequestForms.IgnoreQueryFilters().AsNoTracking(),
-                isAdmin,
-                isTestUser,
-                effectiveOrganizationId);
-        }
-
-        return db.RequestForms.IgnoreQueryFilters().AsNoTracking()
-            .Where(f => f.ReleaseStatus == RequestFormReleaseStatus.Production || isTestUser);
+        // Publication controls new requests. Existing receipts retain the form's
+        // release/test boundary independently of its current audience or folder.
+        var forms = db.RequestForms.IgnoreQueryFilters().AsNoTracking();
+        return authority.IsTestUser ? forms : forms.Where(form => form.ReleaseStatus == RequestFormReleaseStatus.Production);
     }
 
-    private static async Task<Customer?> ResolveCurrentCustomerAsync(
-        HelpdeskDbContext db,
-        string? customerId,
-        CancellationToken token)
+    private static IQueryable<Request> OwnedRequests(
+        HelpdeskDbContext db, SelfServiceAuthority authority, IQueryable<RequestForm> releaseVisibleForms)
     {
-        if (string.IsNullOrWhiteSpace(customerId))
-        {
-            return null;
-        }
+        var requests = db.Requests.IgnoreQueryFilters().AsNoTracking();
+        if (authority.Access.IsHelpdeskAdmin) return requests;
 
-        return await db.Customers
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == customerId && x.State == Helpdesk.Shared.Models.EntityState.Enabled, token);
+        var organizations = authority.Organizations.Keys.ToArray();
+        var customerIds = authority.Customers.Values.Where(customer => customer.IsEnabled &&
+            authority.Organizations.ContainsKey(customer.OrganizationId)).Select(customer => customer.Id).ToArray();
+        return requests.Where(request => organizations.Contains(request.OrganizationId) &&
+            db.Customers.Any(customer => customer.Id == request.CustomerId && customerIds.Contains(customer.Id) &&
+                customer.OrganizationId == request.OrganizationId && customer.State == EntityState.Enabled) &&
+            (string.IsNullOrWhiteSpace(request.RequestFormId) ||
+                releaseVisibleForms.Any(form => form.Id == request.RequestFormId)));
     }
-
-    // Customer identity identifies who submitted a request; it is not a grant
-    // to that customer's home organization. This check is required because the
-    // endpoint intentionally uses IgnoreQueryFilters for customer-owned data.
-    private static bool IsOrganizationAllowed(CurrentUserAccessProfile access, string? organizationId) =>
-        access.IsHelpdeskAdmin ||
-        (!string.IsNullOrWhiteSpace(organizationId) && access.AllowedOrganizationIds.Contains(organizationId));
 
     private static string GetCorrelationId(ICorrelationContext correlation)
     {
@@ -429,6 +343,8 @@ public static partial class SelfServiceMyRequestsEndpoints
         string Title,
         string? Description,
         TicketState State,
+        string OrganizationId,
+        string? OrganizationName,
         string? PayloadJson,
         DateTime CreatedAt,
         DateTime? UpdatedAt,

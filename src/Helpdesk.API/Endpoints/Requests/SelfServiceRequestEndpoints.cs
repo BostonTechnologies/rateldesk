@@ -12,6 +12,7 @@ using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -38,7 +39,10 @@ public static class SelfServiceRequestEndpoints
             .WithSummary("Search users and customer contacts available for submit-on-behalf self-service requests.");
         selfService.MapGet("/submission-context", GetSubmissionContext)
             .WithName("GetSelfServiceSubmissionContext")
-            .WithSummary("Describe the persisted requester organization and form eligibility without changing identity links.");
+            .WithSummary("Describe eligible requester organizations without changing identity links.");
+        selfService.MapGet("/submission-organizations", SearchSubmissionOrganizations)
+            .WithName("SearchSelfServiceSubmissionOrganizations")
+            .WithSummary("Search the eligible organizations for a self-service form.");
 
         var group = app.MapGroup("/api/v1/self-service/requests")
             .WithTags("Self Service")
@@ -53,18 +57,16 @@ public static class SelfServiceRequestEndpoints
     private static async Task<IResult> SubmitRequest(
         [FromBody] SubmitSelfServiceRequestDto dto,
         [FromServices] HelpdeskDbContext db,
-        [FromServices] IRepository<RequestForm> requestForms,
         [FromServices] IRepository<Request> requests,
         [FromServices] IAutomationBindingPayloadContractService automationPayloadContractService,
         [FromServices] IRequestFormSchemaParser schemaParser,
         [FromServices] ISelfServiceDatasetBindingResolver datasetBindingResolver,
-        [FromServices] ISelfServiceAudienceService selfServiceAudienceService,
+        [FromServices] SelfServiceAudienceService audience,
         [FromServices] IRequestTaskGenerationService requestTaskGeneration,
         [FromServices] IWorkflowEngine workflowEngine,
         [FromServices] ITicketSlaInitializer ticketSlaInitializer,
         [FromServices] AppTicketServices.ITicketRefGeneratorService refs,
         [FromServices] ITicketNotificationService ticketNotificationService,
-        [FromServices] ITenantContext tenant,
         [FromServices] ICurrentUserAccessService accessService,
         [FromServices] IDomainEventPublisher domainEvents,
         [FromServices] ICorrelationContext correlation,
@@ -98,71 +100,85 @@ public static class SelfServiceRequestEndpoints
             return Results.BadRequest("PayloadJson must be valid JSON.");
         }
 
-        var requestForm = await requestForms.GetAsync(dto.RequestFormId);
-        if (requestForm is null)
-        {
-            return Results.NotFound("RequestForm not found.");
-        }
+        if (dto.TargetOrganizationId is not null && string.IsNullOrWhiteSpace(dto.TargetOrganizationId))
+            return SubmissionError(http, 400, "request_organization_required", "Choose an eligible organization for this request.");
 
-        if (!await selfServiceAudienceService.CanAccessRequestFormAsync(requestForm, token))
-        {
-            return SubmissionError(http, 403, "request_form_denied", "This form is not available to your account. Choose an eligible form or ask an administrator to review its audience.");
-        }
-
-        var access = await accessService.ResolveAsync(user, token);
-        var submitterEmail = access.Email;
-
-        var submitterKey = SubmissionOwner(user, access);
+        var requestedTarget = dto.TargetOrganizationId?.Trim();
         var submissionId = dto.SubmissionId?.ToString("N");
-        var submissionHash = SubmissionHash(dto);
+        var submitterKey = SubmissionOwner(user, await accessService.ResolveAsync(user, token));
         await using var tx = await db.Database.BeginTransactionAsync(token);
         if (db.Database.IsNpgsql() && submitterKey is not null)
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({submitterKey}, 0))", token);
-        access = await accessService.ResolveAsync(user, token);
+
+        var authority = await audience.ResolveAuthorityAsync(user, token);
+        var access = authority.Access;
+        if (submissionId is not null && (submitterKey is null || submitterKey != SubmissionOwner(user, access)))
+            return SubmissionError(http, 403, "requester_unavailable", SelfServiceRequesterResolver.UnavailableMessage);
+
+        var requestForm = await audience.FindFormAsync(authority, dto.RequestFormId, token);
+        if (requestForm is null)
+            return SubmissionError(http, 404, "request_form_denied", "This form is unavailable. Choose a form from your catalogue.");
+        var catalogue = await audience.LoadCatalogueAsync(authority, token, requestForm.Id);
+        var catalogueOrganizations = catalogue.FormOrganizations(requestForm);
+        if (!access.IsHelpdeskAdmin && catalogueOrganizations.Count == 0)
+            return SubmissionError(http, 404, "request_form_denied", "This form is unavailable. Choose a form from your catalogue.");
+
+        var onBehalf = !string.IsNullOrWhiteSpace(dto.RequestedForPersonId);
+        var identityDb = http.RequestServices.GetService<RatelDeskIdentityDbContext>();
+        RequestedPerson? recipient = null;
+        string organizationId;
         Customer? customer;
-        string? requestedForNameResult;
-        if (string.IsNullOrWhiteSpace(dto.RequestedForPersonId))
+        if (onBehalf)
         {
-            var requester = await SelfServiceRequesterResolver.ResolveAsync(db,
-                http.RequestServices.GetService<RatelDeskIdentityDbContext>(), access, user, token);
-            if (!requester.IsEligible)
-                return SubmissionError(http, 403, requester.ErrorCode!, requester.Message!);
-            if (!await IsCompatibleOrganizationAsync(db, requestForm, requester.OrganizationId, token))
+            recipient = await ResolveRequestedPersonAsync(dto, db, authority, identityDb, token);
+            if (recipient is null)
+                return SubmissionError(http, 403, "requester_unavailable", "The selected requester is unavailable or outside your permitted organizations.");
+            organizationId = recipient.OrganizationId;
+            customer = recipient.Customer;
+            if ((requestedTarget is not null && requestedTarget != organizationId) ||
+                (!access.IsHelpdeskAdmin && !catalogueOrganizations.Any(org => org.Id == organizationId)) ||
+                !catalogue.AllowsRecipient(requestForm, organizationId, customer?.Id))
                 return SubmissionError(http, 409, "request_organization_mismatch", OrganizationMismatchMessage);
-            customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db, requester, token);
-            requestedForNameResult = requester.Name;
         }
         else
         {
-            (customer, requestedForNameResult) = await ResolveRequestedForCustomerAsync(dto, db, access,
-                http.RequestServices.GetService<RatelDeskIdentityDbContext>(), token);
+            if (authority.Identity is null)
+                return SubmissionError(http, 403, "requester_unavailable", SelfServiceRequesterResolver.UnavailableMessage);
+
+            var eligible = catalogueOrganizations.Where(org => authority.CanSubmitAsSelf(org.Id)).ToList();
+            var target = requestedTarget is null
+                ? eligible.Count == 1 ? eligible[0] : null
+                : eligible.SingleOrDefault(org => org.Id == requestedTarget);
+            if (target is null)
+            {
+                if (requestedTarget is not null)
+                    return SubmissionError(http, 403, "request_organization_denied", "That organization is unavailable for this form. Refresh and choose an eligible organization.");
+                return eligible.Count == 0
+                    ? SubmissionError(http, 409, "request_organization_mismatch", OrganizationMismatchMessage)
+                    : SubmissionError(http, 400, "request_organization_required", "Choose an organization before submitting this request.");
+            }
+            organizationId = target.Id;
+            customer = authority.CustomerFor(organizationId);
         }
-        if (customer is null)
-        {
-            return SubmissionError(http, 403, "requester_unavailable", "The selected requester is unavailable or outside your permitted organizations. Choose an eligible requester and retry.");
-        }
-        if (!await db.Organizations.AsNoTracking().AnyAsync(x => x.Id == customer.OrganizationId && x.IsEnabled, token))
-            return SubmissionError(http, 403, "request_organization_denied", "The requester's organization is unavailable. Ask an administrator to review its access.");
-        if (!await IsCompatibleOrganizationAsync(db, requestForm, customer.OrganizationId, token))
-            return SubmissionError(http, 409, "request_organization_mismatch", OrganizationMismatchMessage);
 
         if (submissionId is not null)
         {
-            if (submitterKey is null)
-                return SubmissionError(http, 403, "requester_unavailable", "Your account has no eligible requester profile. Sign in again or ask an administrator to review it.");
-            var prior = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x =>
+            var prior = await db.Requests.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
                 x.SelfServiceSubmitterId == submitterKey && x.SelfServiceSubmissionId == submissionId, token);
             if (prior is not null)
-                return prior.SelfServiceSubmissionHash == submissionHash
-                    ? Results.Ok(new SelfServiceRequestSubmittedDto { RequestId = prior.Id, TrackingId = prior.TrackingId })
-                    : SubmissionError(http, 409, "submission_already_created", "This submission already created a request. Open My Requests to view its progress before starting another request.");
+            {
+                if (prior.OrganizationId == organizationId && customer is not null && prior.CustomerId == customer.Id &&
+                    (prior.SelfServiceSubmissionHash == SubmissionHash(dto, organizationId, customer.Id) ||
+                     prior.SelfServiceSubmissionHash == LegacySubmissionHash(dto)))
+                    return Results.Ok(SubmissionReceipt(prior, authority.Organizations[organizationId]));
+                return SubmissionError(http, 409, "submission_already_created", "This submission already created a request. Open My Requests to view its progress before starting another request.");
+            }
         }
 
-        var requestedForName = requestedForNameResult ?? customer.Name;
-
+        using var organizationScope = db.BindSelfServiceOrganization(organizationId);
         var parsedSchema = schemaParser.Parse(requestForm.JsonSchema);
         var normalizedPayload = await datasetBindingResolver.NormalizePayloadAsync(
-            customer.OrganizationId,
+            organizationId,
             parsedSchema.Fields,
             dto.PayloadJson,
             token);
@@ -180,6 +196,18 @@ public static class SelfServiceRequestEndpoints
             return Results.BadRequest(string.Join(Environment.NewLine, automationPayloadValidation.Errors));
         }
 
+        if (!onBehalf)
+        {
+            customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db, authority.Identity!, organizationId, token);
+        }
+        else if (recipient is { NeedsHomeLink: true, DomainUser: { } domainUser })
+        {
+            customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db, new(customer, domainUser, false),
+                organizationId, token, recipient.HasLocalAccount, createHomeLink: true);
+        }
+        if (customer is null)
+            return SubmissionError(http, 403, "requester_unavailable", SelfServiceRequesterResolver.UnavailableMessage);
+
         var schema = ExtractSchemaMetadata(requestForm.JsonSchema);
         var request = new Request
         {
@@ -192,15 +220,15 @@ public static class SelfServiceRequestEndpoints
             CustomerId = customer.Id,
             SelfServiceSubmitterId = submitterKey,
             SelfServiceSubmissionId = submissionId,
-            SelfServiceSubmissionHash = submissionId is null ? null : submissionHash,
+            SelfServiceSubmissionHash = submissionId is null ? null : SubmissionHash(dto, organizationId, customer.Id),
             RequesterEmail = customer.Email,
             TrackingId = await refs.NextReferenceAsync("REQ"),
             Priority = TicketPriority.Low,
             State = TicketState.New
         };
-        if (!string.IsNullOrWhiteSpace(dto.RequestedForPersonId))
+        if (onBehalf)
         {
-            request.CcRecipients = BuildListeners(customer.Email, submitterEmail);
+            request.CcRecipients = BuildListeners(customer.Email, access.Email);
         }
 
         var created = await requests.CreateAsync(request);
@@ -244,50 +272,72 @@ public static class SelfServiceRequestEndpoints
             created,
             requestForm,
             customer.Email,
-            requestedForName,
+            recipient?.DomainUser?.Name ?? customer.Name,
             created.CcRecipients,
             token);
 
-        return Results.Ok(new SelfServiceRequestSubmittedDto
-        {
-            RequestId = created.Id,
-            TrackingId = created.TrackingId
-        });
+        return Results.Ok(SubmissionReceipt(created, authority.Organizations[organizationId]));
     }
+
+    private static SelfServiceRequestSubmittedDto SubmissionReceipt(Request request, SelfServiceTargetOrganizationDto organization) =>
+        new()
+        {
+            RequestId = request.Id, TrackingId = request.TrackingId,
+            OrganizationId = organization.Id, OrganizationName = organization.Name
+        };
 
     private static async Task<IResult> GetSubmissionContext(
         [FromQuery] string requestFormId,
-        [FromServices] HelpdeskDbContext db,
-        [FromServices] IRepository<RequestForm> requestForms,
-        [FromServices] ICurrentUserAccessService accessService,
-        [FromServices] ISelfServiceAudienceService audience,
+        [FromQuery] string? targetOrganizationId,
+        SelfServiceAudienceService audience,
         HttpContext http, CancellationToken token)
     {
-        var form = await requestForms.GetAsync(requestFormId);
-        if (form is null) return Results.NotFound();
-        var access = await accessService.ResolveAsync(http.User, token);
-        var requester = await SelfServiceRequesterResolver.ResolveAsync(db,
-            http.RequestServices.GetService<RatelDeskIdentityDbContext>(), access, http.User, token);
-        var compatible = requester.IsEligible && await audience.CanAccessRequestFormAsync(form, token)
-            && await IsCompatibleOrganizationAsync(db, form, requester.OrganizationId, token);
+        var context = await ResolveSubmissionTargetsAsync(audience, http.User, requestFormId, token);
+        if (context is null) return Results.NotFound();
+        var (authority, eligible) = context.Value;
+
+        var selected = targetOrganizationId is null
+            ? eligible.Count == 1 ? eligible[0] : null
+            : eligible.SingleOrDefault(org => org.Id == targetOrganizationId.Trim());
+        var (code, message) = selected is not null ? (null, null)
+            : authority.Identity is null ? ("requester_unavailable", SelfServiceRequesterResolver.UnavailableMessage)
+            : targetOrganizationId is not null ? ("request_organization_denied", "Choose an eligible organization for this request.")
+            : eligible.Count > 1 ? ("request_organization_required", "Choose an organization for this request.")
+            : ("request_organization_mismatch", OrganizationMismatchMessage);
         return Results.Ok(new SelfServiceSubmissionContextDto
         {
-            OrganizationId = requester.OrganizationId, OrganizationName = requester.OrganizationName,
-            RequestedForName = requester.Name, CanSubmit = compatible,
-            ErrorCode = requester.ErrorCode ?? (compatible ? null : "request_organization_mismatch"),
-            Message = requester.Message ?? (compatible ? null : OrganizationMismatchMessage)
+            EligibleOrganizations = eligible, OrganizationId = selected?.Id, OrganizationName = selected?.Name,
+            RequestedForName = authority.Identity?.Name, CanSubmit = selected is not null,
+            ErrorCode = code, Message = message
         });
     }
 
-    private static Task<bool> IsCompatibleOrganizationAsync(HelpdeskDbContext db, RequestForm form, string? organizationId, CancellationToken ct)
+    private static async Task<IResult> SearchSubmissionOrganizations(
+        [FromQuery] string requestFormId, [FromQuery] string? q, [FromQuery] string? id, [FromQuery] int? limit,
+        SelfServiceAudienceService audience, ClaimsPrincipal user, CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(organizationId) ||
-            (!string.IsNullOrWhiteSpace(form.OrganizationId) && form.OrganizationId != organizationId) ||
-            (form.AllowedOrganizationIds is { Count: > 0 } && !form.AllowedOrganizationIds.Contains(organizationId)))
-            return Task.FromResult(false);
-        return NoForeignBindingsAsync();
-        async Task<bool> NoForeignBindingsAsync() => !await db.AutomationBindings.AsNoTracking()
-            .AnyAsync(x => x.RequestFormId == form.Id && x.Enabled && x.OrganizationId != organizationId, ct);
+        var context = await ResolveSubmissionTargetsAsync(audience, user, requestFormId, token);
+        if (context is null) return Results.NotFound();
+        var organizations = context.Value.Organizations;
+        var search = q?.Trim();
+        var filtered = id is not null ? organizations.Where(org => org.Id == id)
+            : organizations.Where(org => string.IsNullOrEmpty(search) || org.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+        var take = Math.Clamp(limit ?? 20, 1, 50);
+        var items = filtered.Take(take + 1).ToList();
+        return Results.Ok(new CreationLookupResult<SelfServiceTargetOrganizationDto>(
+            items.Take(take).ToList(), organizations.Count, items.Count > take));
+    }
+
+    private static async Task<(SelfServiceAuthority Authority, List<SelfServiceTargetOrganizationDto> Organizations)?> ResolveSubmissionTargetsAsync(
+        SelfServiceAudienceService audience, ClaimsPrincipal user, string requestFormId, CancellationToken token)
+    {
+        var authority = await audience.ResolveAuthorityAsync(user, token);
+        var form = await audience.FindFormAsync(authority, requestFormId, token);
+        if (form is null) return null;
+        var catalogue = await audience.LoadCatalogueAsync(authority, token, form.Id);
+        var organizations = catalogue.FormOrganizations(form);
+        if (!authority.Access.IsHelpdeskAdmin && organizations.Count == 0) return null;
+        return (authority, organizations.Where(org => authority.CanSubmitAsSelf(org.Id)).ToList());
     }
 
     private static IResult SubmissionError(HttpContext http, int status, string code, string message) =>
@@ -302,43 +352,34 @@ public static class SelfServiceRequestEndpoints
         return string.IsNullOrWhiteSpace(access.CustomerId) ? null : "customer:" + access.CustomerId;
     }
 
-    private static string SubmissionHash(SubmitSelfServiceRequestDto dto) =>
+    private static string LegacySubmissionHash(SubmitSelfServiceRequestDto dto) =>
+        HashSubmission(JsonSerializer.Serialize(new
+        { dto.RequestFormId, dto.Title, dto.Description, dto.PayloadJson, dto.RequestedForPersonId, dto.RequestedForPersonSource }));
+
+    private static string SubmissionHash(SubmitSelfServiceRequestDto dto, string organizationId, string customerId) =>
+        HashSubmission(JsonSerializer.Serialize(new
+        { dto.RequestFormId, dto.Title, dto.Description, dto.PayloadJson, dto.RequestedForPersonId, dto.RequestedForPersonSource,
+            OrganizationId = organizationId, CustomerId = customerId }));
+
+    private static string HashSubmission(string intent) =>
         Convert.ToHexStringLower(global::System.Security.Cryptography.SHA256.HashData(
-            global::System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-            { dto.RequestFormId, dto.Title, dto.Description, dto.PayloadJson, dto.RequestedForPersonId, dto.RequestedForPersonSource }))));
+            global::System.Text.Encoding.UTF8.GetBytes(intent)));
 
     private static async Task<IResult> SearchRequestUsers(
-        [FromQuery] string? query,
-        [FromQuery] int? pageSize,
-        [FromServices] HelpdeskDbContext db,
-        [FromServices] ITenantContext tenant,
-        [FromServices] ICurrentUserAccessService accessService,
-        ClaimsPrincipal user,
-        CancellationToken token)
+        [FromQuery] string? query, [FromQuery] int? pageSize, [FromQuery] string? targetOrganizationId,
+        HelpdeskDbContext db, SelfServiceAudienceService audience,
+        ClaimsPrincipal user, CancellationToken token)
     {
-        var access = await accessService.ResolveAsync(user, token);
-        var visibleOrganizationIds = await ResolveVisibleOrganizationIdsAsync(db, access, token);
-        var isAdmin = access.IsHelpdeskAdmin || tenant.IsHelpdeskAdmin;
+        var authority = await audience.ResolveAuthorityAsync(user, token);
+        var visibleOrganizationIds = authority.Organizations.Keys
+            .Where(id => targetOrganizationId is null || id == targetOrganizationId).ToArray();
         var take = Math.Clamp(pageSize ?? 25, 1, 100);
         var search = query?.Trim();
 
-        var organizationNames = await db.Organizations
-            .AsNoTracking()
-            .Where(x => isAdmin || visibleOrganizationIds.Contains(x.Id))
-            .ToDictionaryAsync(x => x.Id, x => x.Name, token);
-
-        var usersQuery = db.Users.AsNoTracking().Where(x => !x.IsDeleted);
-        if (!isAdmin)
-        {
-            usersQuery = usersQuery.Where(x => x.OrganizationId != null && visibleOrganizationIds.Contains(x.OrganizationId));
-        }
-
-        var customersQuery = db.Customers.AsNoTracking()
-            .Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled);
-        if (!isAdmin)
-        {
-            customersQuery = customersQuery.Where(x => visibleOrganizationIds.Contains(x.OrganizationId));
-        }
+        var usersQuery = db.Users.AsNoTracking().Where(x => !x.IsDeleted &&
+            x.OrganizationId != null && visibleOrganizationIds.Contains(x.OrganizationId) && x.Email != "");
+        var customersQuery = db.Customers.AsNoTracking().Where(x =>
+            x.State == Helpdesk.Shared.Models.EntityState.Enabled && visibleOrganizationIds.Contains(x.OrganizationId) && x.Email != "");
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -396,150 +437,52 @@ public static class SelfServiceRequestEndpoints
         foreach (var result in results)
         {
             if (!string.IsNullOrWhiteSpace(result.OrganizationId)
-                && organizationNames.TryGetValue(result.OrganizationId, out var organizationName))
+                && authority.Organizations.TryGetValue(result.OrganizationId, out var organization))
             {
-                result.OrganizationName = organizationName;
+                result.OrganizationName = organization.Name;
             }
         }
 
         return Results.Ok(results);
     }
 
-    private static async Task<(Customer? Customer, string? Name)> ResolveRequestedForCustomerAsync(
-        SubmitSelfServiceRequestDto dto,
-        HelpdeskDbContext db,
-        CurrentUserAccessProfile access,
-        RatelDeskIdentityDbContext? identityDb,
-        CancellationToken token)
+    private sealed record RequestedPerson(string OrganizationId, Customer? Customer, User? DomainUser = null, bool HasLocalAccount = false, bool NeedsHomeLink = false);
+
+    private static async Task<RequestedPerson?> ResolveRequestedPersonAsync(
+        SubmitSelfServiceRequestDto dto, HelpdeskDbContext db, SelfServiceAuthority authority,
+        RatelDeskIdentityDbContext? identityDb, CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(dto.RequestedForPersonId))
+        if (dto.RequestedForPersonSource == SelfServiceRequestPersonSource.Customer)
         {
-            var customer = string.IsNullOrWhiteSpace(access.CustomerId)
-                ? null
-                : await db.Customers.FirstOrDefaultAsync(
-                    candidate => candidate.Id == access.CustomerId && candidate.State == Helpdesk.Shared.Models.EntityState.Enabled,
-                    token);
-            return customer is not null && access.HasPermission(HelpdeskPermissions.SelfServiceUser, customer.OrganizationId)
-                ? (customer, customer.Name)
-                : (null, null);
+            var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == dto.RequestedForPersonId, token);
+            if (customer?.IsEnabled != true || !authority.Organizations.ContainsKey(customer.OrganizationId) ||
+                (customer.IdentityUserId is not null && !await db.Users.AsNoTracking()
+                    .AnyAsync(x => x.Id == customer.IdentityUserId && !x.IsDeleted, token)))
+                return null;
+            return new RequestedPerson(customer.OrganizationId, customer);
         }
+        if (dto.RequestedForPersonSource != SelfServiceRequestPersonSource.User) return null;
 
-        if (dto.RequestedForPersonSource is null)
-        {
-            return (null, null);
-        }
+        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == dto.RequestedForPersonId, token);
+        if (user is null || user.IsDeleted || string.IsNullOrWhiteSpace(user.OrganizationId) ||
+            string.IsNullOrWhiteSpace(user.Email) || !authority.Organizations.ContainsKey(user.OrganizationId))
+            return null;
+        var account = identityDb is null ? null : await identityDb.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == user.Id, token);
+        if (account is { IsEnabled: false } or { IsDeleted: true }) return null;
 
-        var visibleOrganizationIds = await ResolveVisibleOrganizationIdsAsync(db, access, token);
-        var isAdmin = access.IsHelpdeskAdmin;
-        return dto.RequestedForPersonSource.Value switch
-        {
-            SelfServiceRequestPersonSource.Customer => await ResolveRequestedCustomerAsync(
-                db,
-                dto.RequestedForPersonId,
-                visibleOrganizationIds,
-                isAdmin,
-                token),
-            SelfServiceRequestPersonSource.User => await ResolveRequestedUserAsCustomerAsync(
-                db,
-                identityDb,
-                dto.RequestedForPersonId,
-                visibleOrganizationIds,
-                isAdmin,
-                token),
-            _ => (null, null)
-        };
-    }
-
-    private static async Task<(Customer? Customer, string? Name)> ResolveRequestedCustomerAsync(
-        HelpdeskDbContext db,
-        string id,
-        IReadOnlySet<string> visibleOrganizationIds,
-        bool isAdmin,
-        CancellationToken token)
-    {
-        var customer = await db.Customers
-            .FirstOrDefaultAsync(x => x.Id == id && x.State == Helpdesk.Shared.Models.EntityState.Enabled, token);
-        if (customer is null || (customer.IdentityUserId is not null && !await db.Users.AnyAsync(x => x.Id == customer.IdentityUserId && !x.IsDeleted, token))
-            || !CanUseOrganization(customer.OrganizationId, visibleOrganizationIds, isAdmin))
-        {
-            return (null, null);
-        }
-
-        return (customer, customer.Name);
-    }
-
-    private static async Task<(Customer? Customer, string? Name)> ResolveRequestedUserAsCustomerAsync(
-        HelpdeskDbContext db,
-        RatelDeskIdentityDbContext? identityDb,
-        string id,
-        IReadOnlySet<string> visibleOrganizationIds,
-        bool isAdmin,
-        CancellationToken token)
-    {
-        var selectedUser = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
-        if (selectedUser is null || selectedUser.IsDeleted
-            || string.IsNullOrWhiteSpace(selectedUser.OrganizationId)
-            || string.IsNullOrWhiteSpace(selectedUser.Email)
-            || !CanUseOrganization(selectedUser.OrganizationId, visibleOrganizationIds, isAdmin))
-        {
-            return (null, null);
-        }
-        if (identityDb is not null && await identityDb.Users.AsNoTracking()
-            .AnyAsync(account => account.Id == selectedUser.Id && !account.IsEnabled, token))
-            return (null, null);
-
-        var link = await db.CustomerAuthLinks.SingleOrDefaultAsync(x => x.DomainUserId == selectedUser.Id || x.LocalAccountId == selectedUser.Id, token);
+        var link = await db.CustomerAuthLinks.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.DomainUserId == user.Id || x.LocalAccountId == user.Id, token);
         if (link is not null)
         {
-            var linkedCustomer = await db.Customers.SingleOrDefaultAsync(x => x.Id == link.CustomerId, token);
+            var linked = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == link.CustomerId, token);
             return link.DisabledAtUtc is null && link.InviteStatus != CustomerInviteStatus.Disabled &&
-                linkedCustomer?.IsEnabled == true && linkedCustomer.OrganizationId == selectedUser.OrganizationId
-                ? (linkedCustomer, selectedUser.Name) : (null, null);
+                linked?.IsEnabled == true && linked.OrganizationId == user.OrganizationId
+                ? new RequestedPerson(user.OrganizationId, linked, user) : null;
         }
-        var existing = await db.Customers.SingleOrDefaultAsync(x => x.IdentityUserId == selectedUser.Id, token);
-        if (existing is not null && (!existing.IsEnabled || existing.OrganizationId != selectedUser.OrganizationId)) return (null, null);
-        var hasLocalAccount = identityDb is not null && await identityDb.Users.AnyAsync(x => x.Id == selectedUser.Id && x.IsEnabled, token);
-        var customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db,
-            new SelfServiceRequester(existing, selectedUser, selectedUser.OrganizationId, null, selectedUser.Name, null, null), token, hasLocalAccount);
-        return (customer, selectedUser.Name);
+        var existing = await db.Customers.AsNoTracking().SingleOrDefaultAsync(
+            x => x.IdentityUserId == user.Id && x.OrganizationId == user.OrganizationId, token);
+        return existing is { IsEnabled: false } ? null : new RequestedPerson(user.OrganizationId, existing, user, account is not null, NeedsHomeLink: true);
     }
-
-    private static async Task<HashSet<string>> ResolveVisibleOrganizationIdsAsync(
-        HelpdeskDbContext db,
-        CurrentUserAccessProfile access,
-        CancellationToken token)
-    {
-        var organizationIds = access.OrganizationIdsFor(HelpdeskPermissions.SelfServiceUser)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (!string.IsNullOrWhiteSpace(access.PrimaryOrganizationId)
-            && access.HasPermission(HelpdeskPermissions.SelfServiceUser, access.PrimaryOrganizationId))
-        {
-            organizationIds.Add(access.PrimaryOrganizationId);
-        }
-
-        if (access.IsHelpdeskAdmin)
-        {
-            var allEnabled = await db.Organizations
-                .AsNoTracking()
-                .Where(x => x.State == Helpdesk.Shared.Models.EntityState.Enabled)
-                .Select(x => x.Id)
-                .ToListAsync(token);
-            foreach (var organizationId in allEnabled)
-            {
-                organizationIds.Add(organizationId);
-            }
-        }
-
-        return organizationIds;
-    }
-
-    private static bool CanUseOrganization(
-        string? organizationId,
-        IReadOnlySet<string> visibleOrganizationIds,
-        bool isAdmin) =>
-        isAdmin || !string.IsNullOrWhiteSpace(organizationId) && visibleOrganizationIds.Contains(organizationId);
 
     private static List<string> BuildListeners(params string?[] emails)
     {

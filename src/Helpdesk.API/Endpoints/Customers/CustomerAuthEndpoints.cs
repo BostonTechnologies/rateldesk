@@ -218,16 +218,19 @@ public static class CustomerAuthEndpoints
 
         if (customer.IdentityUserId is { } managedId)
         {
-            var activeOwner = await db.Users.AsNoTracking().AnyAsync(owner => owner.Id == managedId && !owner.IsDeleted, ct);
+            var owner = await db.Users.AsNoTracking().Where(user => user.Id == managedId && !user.IsDeleted)
+                .Select(user => new { user.OrganizationId }).SingleOrDefaultAsync(ct);
             var account = await users.FindByIdAsync(managedId);
-            if (!activeOwner || account is { IsDeleted: true } or { IsEnabled: false } || links.Count == 0)
+            var disabled = owner is null || account is { IsDeleted: true } or { IsEnabled: false };
+            if (disabled || links.Count == 0)
             {
-                var disabled = !activeOwner || account is { IsDeleted: true } or { IsEnabled: false };
+                var secondary = !disabled && owner?.OrganizationId is { Length: > 0 } homeOrganizationId &&
+                    !string.Equals(homeOrganizationId, customer.OrganizationId, StringComparison.OrdinalIgnoreCase);
                 return new CustomerAuthStatusDto
                 {
                     CustomerId = customer.Id,
-                    InviteStatus = disabled ? CustomerInviteStatus.Disabled : CustomerInviteStatus.Failed,
-                    StatusText = disabled ? "Application access unavailable" : "Application sign-in link unavailable",
+                    InviteStatus = disabled ? CustomerInviteStatus.Disabled : secondary ? CustomerInviteStatus.NotInvited : CustomerInviteStatus.Failed,
+                    StatusText = disabled ? "Application access unavailable" : secondary ? "Managed requester profile" : "Application sign-in link unavailable",
                     IsLinkedLogin = links.Count > 0,
                     AuthProviderType = "Application",
                     IdentitySummary = "Manage this identity in Team. External invitations cannot replace its application access."

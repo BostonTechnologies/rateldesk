@@ -26,7 +26,7 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
         await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
             configureServices: services =>
             {
-                services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
+                services.AddScoped<SelfServiceAudienceService>();
                 services.AddSingleton<TicketServices.ITicketRefGeneratorService, TicketServices.TicketRefGeneratorService>();
                 services.AddAuthorization(options => options.AddPolicy("SelfService.User", p => p.RequireAuthenticatedUser()));
             }, configureApp: app => app.MapSelfServiceRequestEndpoints());
@@ -38,7 +38,7 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
             approvalApprovers = new[] { new { source = "Customer", id = h.CustomerId, name = "Approver", email = "approver@example.test" } } });
         await h.EditAsync(async db =>
         {
-            db.RequestForms.Add(new RequestForm { Id = "beta9-form", Title = "Approval fixture", OrganizationId = h.OrganizationId,
+            db.RequestForms.Add(new RequestForm { Id = "beta9-form", Title = "Approval fixture", OrganizationId = h.OrganizationId, AllowedOrganizationIds = [h.OrganizationId],
                 JsonSchema = JsonSerializer.SerializeToDocument(new { title = "Approval fixture", fields = Array.Empty<object>(), tasks }) });
         });
         using var submitted = await h.AdminAsync(HttpMethod.Post, "/api/v1/self-service/requests", new SubmitSelfServiceRequestDto

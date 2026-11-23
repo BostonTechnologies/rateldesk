@@ -137,6 +137,22 @@ visible canonical worklogs directly, so those historical worklog values remain
 known. The Web timeline displays unavailable effort explicitly and preserves
 fractional hours after refresh.
 
+## Self-service requests
+
+Run `rateldesk self-service submission-context --request-form-id FORM_ID` to
+see eligible organizations and the default when exactly one is available. Use
+`--target-organization-id ORGANIZATION_ID` on
+`rateldesk self-service create-request` to choose a target.
+Keep the same `--submission-id` UUID, organization, requester and payload if
+you need to retry an uncertain response. The API checks current authority and
+returns the existing receipt for the same admitted submission.
+
+Stdio MCP reads the eligible choices with `helpdesk_request_forms` operation
+`get` and accepts `targetOrganizationId` and `submissionId` in the confirmed
+`helpdesk_admin_mutations.create_self_service_request` operation. CLI and MCP
+calls stay within the organization approved on the credential, even if its
+owner's interactive sign-in can use additional organizations.
+
 ## Profiles and persistence
 
 Native named profiles use per-user application data under

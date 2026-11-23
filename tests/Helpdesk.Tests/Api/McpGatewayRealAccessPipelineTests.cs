@@ -1,3 +1,4 @@
+using Helpdesk.Application.RequestTasks;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -434,7 +435,8 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialManagementSessionHandler>();
             builder.Services.AddScoped<IAuthorizationHandler, IntegrationCredentialOwnerManagementHandler>();
             builder.Services.AddSingleton(TimeProvider.System);
-            builder.Services.AddScoped<ISelfServiceAudienceService, SelfServiceAudienceService>();
+            builder.Services.AddScoped<SelfServiceAudienceService>();
+            builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddScoped<IRepository<Incident>, EfRepository<Incident>>();
             builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
             builder.Services.AddSingleton(Substitute.For<ITicketSlaService>());

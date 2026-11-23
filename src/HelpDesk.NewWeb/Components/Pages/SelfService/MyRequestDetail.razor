@@ -47,6 +47,10 @@
                     <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined" data-testid="own-request-state">@RequestProgressLabels.Readable(request.State.ToString())</MudChip>
                 </MudStack>
                 <MudText Typo="Typo.body2" Class="mt-2"><b>Tracking ID:</b> @request.TrackingId</MudText>
+                @if (request.OrganizationName is { } organization)
+                {
+                    <MudText Typo="Typo.body2" data-testid="own-request-organization"><b>Organization:</b> @organization</MudText>
+                }
                 <MudText Typo="Typo.body2"><b>Created:</b> @request.CreatedAt.LocalDateTime.ToString("g")</MudText>
                 <MudText Typo="Typo.body2"><b>Updated:</b> @((request.UpdatedAt ?? request.CreatedAt).LocalDateTime.ToString("g"))</MudText>
                 <MudText Typo="Typo.body2" Class="mt-2" data-testid="own-request-workflow">Workflow: @RequestProgressLabels.Readable(request.WorkflowStatus ?? "Not started")</MudText>

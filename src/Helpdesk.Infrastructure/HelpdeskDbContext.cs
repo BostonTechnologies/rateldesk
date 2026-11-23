@@ -23,6 +23,24 @@ public class HelpdeskDbContext(
 
     private bool _ingressScope;
     private string? _ingressOrganizationId;
+    private string? _selfServiceOrganizationId;
+    internal string? SelfServiceOrganizationId => _selfServiceOrganizationId;
+
+    // Use only after checking the actor, the entire catalogue path and the
+    // selected requester. The scope narrows downstream ticket/form queries.
+    public IDisposable BindSelfServiceOrganization(string organizationId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+        var previous = _selfServiceOrganizationId;
+        _selfServiceOrganizationId = organizationId;
+        return new RestoreSelfServiceOrganization(this, previous);
+    }
+
+    private sealed class RestoreSelfServiceOrganization(HelpdeskDbContext db, string? previous) : IDisposable
+    {
+        public void Dispose() => db._selfServiceOrganizationId = previous;
+    }
+
 
     internal string? IngressOrganizationId => _ingressOrganizationId;
 
@@ -305,6 +323,7 @@ public class HelpdeskDbContext(
         });
         modelBuilder.Entity<Ticket>().HasQueryFilter(ticket =>
             _ingressScope ? ticket.OrganizationId == _ingressOrganizationId :
+            _selfServiceOrganizationId != null ? ticket.OrganizationId == _selfServiceOrganizationId :
             _tenantContext.IsHelpdeskAdmin ||
             string.IsNullOrWhiteSpace(_tenantContext.TenantId) ||
             ticket.OrganizationId == _tenantContext.TenantId ||
@@ -832,7 +851,7 @@ public class HelpdeskDbContext(
             .HasIndex(c => c.Email)
             .IsUnique().HasFilter("\"IdentityUserId\" IS NULL");
         modelBuilder.Entity<Customer>().Property(customer => customer.IdentityUserId).HasMaxLength(128);
-        modelBuilder.Entity<Customer>().HasIndex(customer => customer.IdentityUserId)
+        modelBuilder.Entity<Customer>().HasIndex(customer => new { customer.IdentityUserId, customer.OrganizationId })
             .IsUnique().HasFilter("\"IdentityUserId\" IS NOT NULL");
 
         modelBuilder.Entity<User>()
@@ -1100,7 +1119,9 @@ public class HelpdeskDbContext(
         modelBuilder.ApplyConfiguration(new ServiceConfiguration());
         modelBuilder.ApplyConfiguration(new RequestFormConfiguration(_tenantContext, isPostgreSql));
         modelBuilder.Entity<RequestForm>().HasQueryFilter(form =>
-            _tenantContext.IsHelpdeskAdmin ||
+            _selfServiceOrganizationId != null
+                ? (string.IsNullOrWhiteSpace(form.OrganizationId) || form.OrganizationId == _selfServiceOrganizationId)
+                : _tenantContext.IsHelpdeskAdmin ||
             string.IsNullOrWhiteSpace(_tenantContext.TenantId) ||
             form.OrganizationId == _tenantContext.TenantId ||
             Organizations.Any(organization =>

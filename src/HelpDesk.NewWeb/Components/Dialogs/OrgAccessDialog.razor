@@ -12,9 +12,13 @@
 
     <DialogContent>
         <div class="organization-access-review">
-        <MudText Typo="Typo.body2" Class="mb-2">@selectedOrgIds.Count assigned organizations</MudText>
-        @if (selectedOrgIds.Count > 0)
+        @if (selectedOrgIds.Count == 0)
         {
+            <MudText Typo="Typo.body2" Class="mb-2">Not visible in self service. Assign at least one organization.</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-2">@selectedOrgIds.Count assigned organizations</MudText>
             <div class="organization-access-selected" role="region" aria-label="Assigned organizations" tabindex="0">
             <MudChipSet T="string"
                         AllClosable="true"
@@ -32,6 +36,11 @@
                 }
             </MudChipSet>
             </div>
+        }
+
+        @if (Item.ParentOrganizationIds is { } parentAudience && selectedOrgIds.Any(id => !parentAudience.Contains(id)))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">A parent folder blocks some assigned organizations. Each parent folder must assign the organization.</MudAlert>
         }
 
         <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" Label="Add permitted organization"
@@ -79,28 +88,10 @@
         saving = true;
         try
         {
-            HttpResponseMessage resp;
-            if (Item.ItemType == ServiceItemType.Service)
-            {
-                var svc = await Api.GetFromJsonAsync<ServiceDto>($"api/v1/services/{Item.Id}");
-                if (svc is null) { Snackbar.Add("Service not found.", Severity.Error); return; }
-                var dto = new UpdateServiceDto { Name = svc.Name, Description = svc.Description, AllowedOrganizationIds = selectedOrgIds.ToList() };
-                resp = await Api.PutAsJsonAsync($"api/v1/services/{Item.Id}", dto);
-            }
-            else
-            {
-                var rf = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{Item.Id}");
-                if (rf is null) { Snackbar.Add("Form not found.", Severity.Error); return; }
-                var dto = new UpdateRequestFormDto
-                {
-                    Title = rf.Title,
-                    Description = rf.Description,
-                    JsonSchema = rf.JsonSchema,
-                    AllowedOrganizationIds = selectedOrgIds.ToList(),
-                    ReleaseStatus = rf.ReleaseStatus
-                };
-                resp = await Api.PutAsJsonAsync($"api/v1/request-forms/{Item.Id}", dto);
-            }
+            var audience = selectedOrgIds.ToList();
+            using var resp = Item.ItemType == ServiceItemType.Service
+                ? await Api.PutAsJsonAsync($"api/v1/services/{Item.Id}", new UpdateServiceDto { AllowedOrganizationIds = audience })
+                : await Api.PutAsJsonAsync($"api/v1/request-forms/{Item.Id}", new UpdateRequestFormDto { AllowedOrganizationIds = audience });
 
             if (resp.IsSuccessStatusCode) MudDialog.Close(DialogResult.Ok(true));
             else Snackbar.Add($"Save failed: {(int)resp.StatusCode} {await resp.Content.ReadAsStringAsync()}", Severity.Error);
@@ -109,5 +100,5 @@
         finally { saving = false; }
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() { if (!saving) MudDialog.Cancel(); }
 }

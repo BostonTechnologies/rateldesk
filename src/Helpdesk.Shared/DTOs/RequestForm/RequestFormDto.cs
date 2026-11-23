@@ -1,6 +1,7 @@
 namespace Helpdesk.Shared.DTOs.RequestForm;
 
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.DTOs.Request;
 
 public class RequestFormDto
 {
@@ -12,5 +13,7 @@ public class RequestFormDto
 
     public string? OrganizationId { get; set; }
     public List<string> AllowedOrganizationIds { get; set; } = new();
+    public IReadOnlyList<string>? ParentOrganizationIds { get; set; }
+    public IReadOnlyList<SelfServiceTargetOrganizationDto> EligibleOrganizations { get; set; } = [];
     public RequestFormReleaseStatus ReleaseStatus { get; set; } = RequestFormReleaseStatus.InTesting;
 }
