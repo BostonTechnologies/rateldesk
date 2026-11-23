@@ -24,6 +24,7 @@ public class HelpdeskDbContext(
     private bool _ingressScope;
     private string? _ingressOrganizationId;
     private string? _selfServiceOrganizationId;
+    internal string? SelfServiceOrganizationId => _selfServiceOrganizationId;
 
     // Use only after checking the actor, the entire catalogue path and the
     // selected requester. The scope narrows downstream ticket/form queries.

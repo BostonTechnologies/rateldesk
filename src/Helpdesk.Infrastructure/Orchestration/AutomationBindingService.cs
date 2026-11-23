@@ -283,6 +283,8 @@ public sealed class AutomationBindingService(
     private IQueryable<AutomationBinding> QueryForTenant()
     {
         var query = _db.AutomationBindings.AsQueryable();
+        if (_db.SelfServiceOrganizationId is { } organizationId)
+            return query.Where(binding => binding.OrganizationId == organizationId);
         if (!_tenantContext.IsHelpdeskAdmin && !string.IsNullOrWhiteSpace(_tenantContext.TenantId))
         {
             query = query.Where(x => x.OrganizationId == _tenantContext.TenantId);
