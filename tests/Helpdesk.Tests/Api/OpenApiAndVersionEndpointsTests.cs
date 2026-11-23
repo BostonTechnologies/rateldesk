@@ -157,13 +157,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Scoped organization, contact, approver and peer searches add nine operations.
         // Operator closure adds a version-checked operation for requests and one for request tasks.
         // Scoped public access replaces seven signed routes with nine exchange and access operations.
+        // Multi-organization self service adds one scoped submission organization lookup.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(542, operationCount);
+        Assert.Equal(543, operationCount);
 #else
-        Assert.Equal(541, operationCount);
+        Assert.Equal(542, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]
@@ -176,6 +177,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             "/api/v1/admin/tenants/search",
             "/api/v1/admin/system-connections/{pairId}/directory/search",
             "/api/v1/request-task-approvers/search",
+            "/api/v1/self-service/submission-organizations",
             "/api/v1/tenant-admin/organizations/search"
         })
         {
