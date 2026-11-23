@@ -50,7 +50,7 @@ namespace Helpdesk.Infrastructure.Migrations
             // Keep the existing mailed-link grace period across restarts and upgrades.
             migrationBuilder.Sql("""
                 INSERT INTO "PublicLinkCompatibility" ("Id", "LegacyCutoffUnix")
-                VALUES (1, CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) AS bigint) + 2592000);
+                VALUES (1, CAST(FLOOR(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)) AS bigint) + 2592000);
                 """);
 
             migrationBuilder.CreateIndex(

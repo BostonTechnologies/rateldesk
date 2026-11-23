@@ -175,6 +175,7 @@ public sealed class PublicTicketEndpointsTests
     [InlineData(true)]
     public async Task Legacy_exchange_validates_recipient_and_expiry_and_stops_at_the_persisted_cutoff(bool postgres)
     {
+        var beforeMigration = DateTimeOffset.UtcNow;
         await using var harness = await Harness.CreateAsync(postgres);
         var ticket = new Incident();
         await harness.SeedAsync(ticket);
@@ -199,11 +200,12 @@ public sealed class PublicTicketEndpointsTests
 
         await using var db = harness.Database.Open();
         var policy = await db.Set<PublicLinkCompatibility>().SingleAsync();
-        Assert.InRange(policy.LegacyCutoffUnix, DateTimeOffset.UtcNow.AddDays(29).ToUnixTimeSeconds(),
+        Assert.InRange(policy.LegacyCutoffUnix, beforeMigration.AddDays(30).ToUnixTimeSeconds(),
             DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds());
         policy.LegacyCutoffUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         await db.SaveChangesAsync();
-        using var retired = await harness.ExchangeAsync(new(null, legacy, browser));
+        var unspent = legacy with { Token = signer.GenerateToken(ticket.TrackingId, recipient, DateTimeOffset.UtcNow.AddMinutes(10)) };
+        using var retired = await harness.ExchangeAsync(new(null, unspent, browser));
         Assert.Equal(HttpStatusCode.Unauthorized, retired.StatusCode);
     }
 
