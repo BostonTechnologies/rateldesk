@@ -58,8 +58,8 @@
                 Description="@change.Description"
                 TrackingId="@change.TrackingId"
                 Status="@change.State"
-                StatusText="@GetLifecycleLabel(change.LifecycleState)"
-                StatusColor="@GetLifecycleColor(change.LifecycleState)"
+                StatusText="@ChangeLifecycleDisplay.Label(change.LifecycleState)"
+                StatusColor="@ChangeLifecycleDisplay.StatusColor(change.LifecycleState)"
                 Priority="@change.Priority"
                 LastUpdated="@(change.UpdatedAt ?? change.CreatedAt)"
                 CustomerName="@change.CustomerName"
@@ -107,7 +107,9 @@
                         @if (IsChangeLocked)
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                                Change details are read-only outside Draft. Move the change back to Draft to edit and resubmit approvals.
+                                @(ChangeLifecycleDisplay.IsTerminal(change.LifecycleState)
+                                    ? "This change has reached a terminal outcome. Its history remains available."
+                                    : "Change details are read-only outside Draft. Use the lifecycle action to return to Draft for edits.")
                             </MudAlert>
                         }
                         <div class="@(IsChangeLocked || isUpdating ? "change-template-locked" : null)">
@@ -124,19 +126,20 @@
         <MudItem xs="12" md="4" Class="d-flex flex-column">
             <TicketDetailsPanel>
                 <ChildContent>
+                        @{ var lifetime = ticketLifetime; }
                         <MudGrid Spacing="2">
                             <MudItem xs="12" sm="6" md="12" xl="6">
-                                <MudSelect T="ChangeLifecycleState" Value="@change.LifecycleState" ValueChanged="OnLifecycleStateChanged"
-                                           Dense="true"
-                                           Margin="Margin.Dense"
-                                           Label="Change Status"
-                                           Variant="Variant.Outlined"
-                                           Disabled="@(!CanManage || isUpdating)">
-                                    @foreach (var state in Enum.GetValues<ChangeLifecycleState>().Where(state => state != ChangeLifecycleState.ApprovedForImplementation || accessProfile?.CanApproveChange(change.OrganizationId) == true || state == change.LifecycleState))
-                                    {
-                                        <MudSelectItem T="ChangeLifecycleState" Value="@state">@GetLifecycleLabel(state)</MudSelectItem>
-                                    }
-                                </MudSelect>
+                                <MudText Typo="Typo.caption">Change status</MudText>
+                                <ChangeLifecycleStatePicker @key="ticketLifetime" ChangeId="@change.Id" TrackingId="@change.TrackingId"
+                                                            ChangeTitle="@change.Title" LifecycleState="@change.LifecycleState"
+                                                            CanWrite="@(CanManage && !isUpdating)"
+                                                            CanApprove="@(accessProfile?.CanApproveChange(change.OrganizationId) == true && !isUpdating)"
+                                                            ShowDetailsLink="false" DetailActions="true" RetainsDraft="@hasChanges"
+                                                            ChangeUpdated="updated => OnLifecycleUpdated(updated, lifetime)" />
+                                @if (!string.IsNullOrWhiteSpace(change.LifecycleExplanation))
+                                {
+                                    <MudText Typo="Typo.body2" Class="mt-1">@change.LifecycleExplanation</MudText>
+                                }
                             </MudItem>
                             @if (IsChangeLocked)
                             {
@@ -263,7 +266,7 @@
                         <MudButton OnClick="SaveChangesAsync"
                                    Variant="Variant.Filled"
                                    Color="Color.Primary"
-                                   Disabled="!CanManage || !hasChanges || isUpdating">
+                                   Disabled="IsChangeLocked || !hasChanges || isUpdating">
                             @if (isUpdating)
                             {
                                 <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
@@ -271,14 +274,6 @@
                             Save Changes
                         </MudButton>
                     </Actions>
-            <LifecycleActions>
-@if (accessProfile?.CanApproveChange(change.OrganizationId) == true && change.LifecycleState == ChangeLifecycleState.PendingApproval)
-                        {
-                            var approvalLifetime = ticketLifetime;
-                            <ChangeLifecycleStatePicker @key="approvalLifetime" ChangeId="@change.Id" LifecycleState="@change.LifecycleState"
-                                                        CanApprove="@(!isUpdating && !hasChanges)" ChangeUpdated="@(updated => OnApprovalUpdated(updated, approvalLifetime))" />
-                        }
-                </LifecycleActions>
             </TicketDetailsPanel>
         </MudItem>
     </MudGrid>
@@ -470,6 +465,7 @@
             Description = source.Description,
             State = source.State,
             LifecycleState = source.LifecycleState,
+            LifecycleExplanation = source.LifecycleExplanation,
             Priority = source.Priority,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,
@@ -533,13 +529,6 @@
     {
         if (change is null) return;
         change.State = newState;
-        hasChanges = true;
-    }
-
-    private void OnLifecycleStateChanged(ChangeLifecycleState newState)
-    {
-        if (change is null) return;
-        change.LifecycleState = newState;
         hasChanges = true;
     }
 
@@ -679,7 +668,7 @@
 
     private async Task SaveChangesAsync()
     {
-        if (!CanManage || isUpdating || change is null || !hasChanges) return;
+        if (IsChangeLocked || isUpdating || change is null || !hasChanges) return;
 
         var savingTicketId = Id;
         var lifetime = ticketLifetime;
@@ -730,8 +719,14 @@
         }
     }
 
-    private Task OnApprovalUpdated(ChangeDto updated, long lifetime) =>
-        IsCurrent(lifetime) && updated.Id == Id ? HandleWorklogAdded() : Task.CompletedTask;
+    private async Task OnLifecycleUpdated(ChangeDto updated, long lifetime)
+    {
+        if (!IsCurrent(lifetime) || updated.Id != Id || change is null || originalChange is null) return;
+        change.State = originalChange.State = updated.State;
+        change.LifecycleState = originalChange.LifecycleState = updated.LifecycleState;
+        change.LifecycleExplanation = originalChange.LifecycleExplanation = updated.LifecycleExplanation;
+        await HandleWorklogAdded();
+    }
 
     private async Task HandleWorklogAdded()
     {
@@ -746,7 +741,7 @@
             {
                 // Preserve the template, assignment and category draft while refreshing metadata.
                 if (change is not null) { change.Sla = CloneChange(updated).Sla; change.UpdatedAt = updated.UpdatedAt; change.Approvals = updated.Approvals; }
-                if (originalChange is not null) { originalChange.Sla = CloneChange(updated).Sla; originalChange.UpdatedAt = updated.UpdatedAt; originalChange.Approvals = updated.Approvals; }
+                if (originalChange is not null) { originalChange.Sla = CloneChange(updated).Sla; originalChange.Approvals = updated.Approvals; }
                 return;
             }
             originalChange = CloneChange(updated);
@@ -769,30 +764,11 @@
             return new UpdateChangeDto();
         }
 
-        if (originalChange is not null &&
-            IsChangeLocked &&
-            change.LifecycleState != originalChange.LifecycleState &&
-            change.State == originalChange.State &&
-            change.Priority == originalChange.Priority &&
-            string.Equals(change.OrganizationId, originalChange.OrganizationId, StringComparison.Ordinal) &&
-            string.Equals(change.ImplementorUserId, originalChange.ImplementorUserId, StringComparison.Ordinal) &&
-            Nullable.Compare(change.ImplementationStartAt, originalChange.ImplementationStartAt) == 0 &&
-            Nullable.Compare(change.ImplementationEndAt, originalChange.ImplementationEndAt) == 0 &&
-            string.Equals(change.ChangeType, originalChange.ChangeType, StringComparison.Ordinal) &&
-            selectedCategoryIds.SetEquals(originalChange.CategoryIds))
-        {
-            return new UpdateChangeDto
-            {
-                State = originalChange.State,
-                Priority = originalChange.Priority,
-                LifecycleState = change.LifecycleState
-            };
-        }
-
         return new UpdateChangeDto
         {
             State = change.State,
-            LifecycleState = change.LifecycleState,
+            ExpectedLifecycleState = originalChange?.LifecycleState,
+            ExpectedUpdatedAt = originalChange?.UpdatedAt,
             Priority = change.Priority,
             OrganizationId = change.OrganizationId == originalChange?.OrganizationId ? null : change.OrganizationId,
             ImplementorUserId = change.ImplementorUserId,
@@ -872,29 +848,6 @@
         SlaStatus.Paused => Color.Warning,
         SlaStatus.Breached => Color.Error,
         SlaStatus.Completed => Color.Success,
-        _ => Color.Default
-    };
-
-    private static string GetLifecycleLabel(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.Draft => "Draft",
-        ChangeLifecycleState.Submitted => "Submitted",
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        _ => state.ToString()
-    };
-
-    private static Color GetLifecycleColor(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.Submitted => Color.Info,
-        ChangeLifecycleState.PendingApproval => Color.Warning,
-        ChangeLifecycleState.ApprovedForImplementation => Color.Primary,
-        ChangeLifecycleState.ImplementationInProgress => Color.Secondary,
-        ChangeLifecycleState.ImplementedSuccess => Color.Success,
-        ChangeLifecycleState.ImplementedBackedOut => Color.Warning,
         _ => Color.Default
     };
 

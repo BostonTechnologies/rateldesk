@@ -4,6 +4,7 @@ using Helpdesk.Shared.DTOs.Dashboard;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Helpdesk.Application.Messaging;
+using Helpdesk.Application.Changes;
 
 namespace Helpdesk.Application.Dashboard;
 
@@ -29,11 +30,10 @@ public class GetAdminDashboardQueryHandler(
 
         var allChanges = (await changes.GetAllAsync()).ToList();
         var liveChanges = allChanges
-            .Where(c => !IsImplementedLifecycleState(c.LifecycleState ?? ChangeLifecycleState.Draft))
+            .Where(c => !ChangeLifecycle.IsTerminal(c.LifecycleState ?? ChangeLifecycleState.Draft))
             .ToList();
         var pendingChanges = liveChanges.Count;
-        var changeCountsByState = allChanges
-            .Where(c => !IsImplementedLifecycleState(c.LifecycleState ?? ChangeLifecycleState.Draft))
+        var changeCountsByState = liveChanges
             .GroupBy(c => c.LifecycleState ?? ChangeLifecycleState.Draft)
             .ToDictionary(g => g.Key.ToString(), g => g.Count());
 
@@ -54,6 +54,4 @@ public class GetAdminDashboardQueryHandler(
         };
     }
 
-    private static bool IsImplementedLifecycleState(ChangeLifecycleState state) =>
-        state is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut;
 }

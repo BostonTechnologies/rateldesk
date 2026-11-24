@@ -237,20 +237,28 @@
         return data;
     }
 
-    public async Task ReloadAfterStateChange(string id)
+    public Task ReloadAfterStateChange(string id) => RefreshAfterStateChange([id], clearCompleted: false);
+
+    public Task ReloadAfterBulkStateChange(IReadOnlyCollection<string> completed) =>
+        RefreshAfterStateChange(completed, clearCompleted: true);
+
+    private async Task RefreshAfterStateChange(IReadOnlyCollection<string> changedIds, bool clearCompleted)
     {
         if (disposed || _table is null) return;
+        var previousPage = _table.CurrentPage;
         await _table.ReloadServerData();
         if (disposed) return;
         var visibleItems = serverItems.ToDictionary(item => GetStringValue(item, "Id"), StringComparer.Ordinal);
         var refreshedSelection = SelectedItems
-            .Where(item => GetStringValue(item, "Id") != id || visibleItems.ContainsKey(id))
+            .Where(item => !changedIds.Contains(GetStringValue(item, "Id")) ||
+                !clearCompleted && visibleItems.ContainsKey(GetStringValue(item, "Id")))
             .Select(item => visibleItems.GetValueOrDefault(GetStringValue(item, "Id"), item)).ToHashSet();
         await HandleSelectedItemsChanged(refreshedSelection);
         if (disposed) return;
         var lastPage = Math.Max(0, (_table.GetFilteredItemsCount() - 1) / _table.RowsPerPage);
-        if (_table.CurrentPage > lastPage) _table.NavigateTo(lastPage);
-        if (!visibleItems.ContainsKey(id)) await resultsRegion.FocusAsync();
+        var destinationPage = Math.Min(previousPage, lastPage);
+        if (_table.CurrentPage != destinationPage) _table.NavigateTo(destinationPage);
+        if (changedIds.Any(id => !visibleItems.ContainsKey(id))) await resultsRegion.FocusAsync();
     }
 
     private async Task HandleSelectedItemsChanged(HashSet<TTicket> selectedItems)

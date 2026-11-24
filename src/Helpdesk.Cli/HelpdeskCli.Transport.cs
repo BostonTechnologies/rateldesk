@@ -549,7 +549,7 @@ internal static partial class HelpdeskCli
                 continue;
             }
 
-            obj[jsonName] = ParseJsonValue(value);
+            obj[jsonName] = jsonName == "comment" ? JsonValue.Create(value) : ParseJsonValue(value);
         }
 
         return obj.ToJsonString(JsonOptions);
@@ -591,6 +591,10 @@ internal static partial class HelpdeskCli
         NormalizeBodyEnum(obj, "state", typeof(TicketState));
         NormalizeBodyEnum(obj, "newState", typeof(TicketState));
         NormalizeBodyEnum(obj, "lifecycleState", typeof(ChangeLifecycleState));
+        NormalizeBodyEnum(obj, "expectedLifecycleState", typeof(ChangeLifecycleState));
+        if (obj["selection"] is JsonArray selection)
+            foreach (var row in selection.OfType<JsonObject>())
+                NormalizeBodyEnum(row, "expectedLifecycleState", typeof(ChangeLifecycleState));
     }
 
     private static void NormalizeBodyEnum(JsonObject obj, string field, Type enumType)

@@ -53,6 +53,21 @@ separate from write authority. An incomplete template or other prerequisite must
 be completed through the required detail/approval action. Terminal lifecycle
 states offer no quick transition.
 
+Choose **Cancel** from a change row or its details to discontinue active work.
+Drafts can be cancelled with an optional explanation, including drafts with
+incomplete plans or missing participants. Cancellation after Draft requires an
+explanation. Choose **Implemented - Failed** to record a failed implementation
+from Approved for Implementation or Implementation In Progress. Failed
+completion requires a complete template and an explanation. If work has
+already started, verify external execution and rollback separately.
+
+Administrators can select rows on the current page, choose **Cancel selected**
+under **Actions**, and confirm the selected count. Provide a shared explanation
+when any selected active change has left Draft. Review the outcome for each
+row and refresh conflicts before retrying. Use **History** or **All** to find
+cancelled and failed changes. The details show the saved explanation to staff,
+and the audit history records who took the action and when.
+
 After a successful update the list refreshes counts and membership while keeping
 valid search, sort, filter and page context. A resolved ticket can leave the
 Active view; use History to find it. Activating a state chip does not navigate to

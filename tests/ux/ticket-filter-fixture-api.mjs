@@ -8,6 +8,11 @@ const createRows = () => Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, t
   state: i < 60 ? 0 : 6, lifecycleState: i < 60 ? 0 : 5, priority: i % 2 ? 0 : 2,
   assignedToId: null, implementorUserId: null, categoryIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z', isTemplateComplete: true, hasPendingApprovals: false }));
 let rows = createRows();
+const terminal = state => [5, 6, 7, 8].includes(state);
+const needsExplanation = (from, to) => to === 8 || to === 7 && (from ?? 0) !== 0;
+function closeChange(row, state, comment) {
+  Object.assign(row, { lifecycleState: state, state: 6, lifecycleExplanation: comment?.trim() || null, updatedAt: new Date().toISOString() });
+}
 const layoutCustomers = [
  {id:'layout-short',name:'Example Person',email:'person@example.test'},
  {id:'layout-spaced',name:'Example Person — Example Company Regional Recruitment and Customer Services Centre',email:'regional@example.test'},
@@ -59,8 +64,36 @@ http.createServer(async (req,res) => {
  const lifecycleOptions=url.pathname.match(/^\/api\/v1\/changes\/(row-\d+)\/lifecycle-options$/);
  if(lifecycleOptions) {
   const row=rows.find(item=>item.id===lifecycleOptions[1]);if(!row)return reply({},404);
-  const choices={0:[1],2:[0,3],3:[4,5,6],4:[5,6]}[row.lifecycleState]??[];
-  return reply({id:row.id,lifecycleState:row.lifecycleState,choices:choices.map(state=>({state,unavailableReason:state===3&&row.hasPendingApprovals?'Outstanding approvals must be completed in the change details.':[5,6].includes(state)&&!row.isTemplateComplete?'Complete the change template in the details before implementing.':null})),guidance:row.lifecycleState===0?'Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete.':null});
+  const choices={0:[1,7],1:[7],2:[0,3,7],3:[4,5,6,7,8],4:[5,6,7,8]}[row.lifecycleState ?? 0]??[];
+  return reply({
+    id:row.id,lifecycleState:row.lifecycleState ?? 0,updatedAt:row.updatedAt,
+    choices:choices.map(state=>({
+      state,requiresComment:needsExplanation(row.lifecycleState,state),
+      unavailableReason:state===3&&row.hasPendingApprovals?'Outstanding approvals must be completed in the change details.':
+        [5,6,8].includes(state)&&!row.isTemplateComplete?'Complete the change template in the details before implementing.':null
+    })),
+    guidance:row.lifecycleState===0?'Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete.':null
+  });
+ }
+ if(url.pathname==='/api/v1/changes/bulk/cancel'&&req.method==='POST') {
+  let raw='';for await(const chunk of req)raw+=chunk;
+  const body=JSON.parse(raw);
+  mutations.push({path:url.pathname,body});
+  if(permissionMode==='reader')return reply({},403);
+  const selection=Array.from(new Map(body.selection.map(item=>[item.id,item])).values());
+  if(!body.comment?.trim()&&selection.some(item=>{
+    const row=rows.find(candidate=>candidate.id===item.id);
+    return row&&!terminal(row.lifecycleState)&&needsExplanation(row.lifecycleState,7);
+  }))return reply({error:'Explanation required'},400);
+  return reply(selection.map(item=>{
+    const row=rows.find(candidate=>candidate.id===item.id);
+    if(!row)return {id:item.id,outcome:'not-found'};
+    if(row.lifecycleState===7)return {id:item.id,outcome:'already-cancelled'};
+    if((row.lifecycleState??0)!==item.expectedLifecycleState)return {id:item.id,outcome:'conflict'};
+    if(terminal(row.lifecycleState))return {id:item.id,outcome:'ineligible'};
+    closeChange(row,7,body.comment);
+    return {id:item.id,outcome:'cancelled'};
+  }));
  }
  const mutation=url.pathname.match(/^\/api\/v1\/(incidents|requests|changes)\/(row-\d+)\/(state|lifecycle)$/);
  if(mutation&&req.method==='POST') {
@@ -73,8 +106,12 @@ http.createServer(async (req,res) => {
   const lost=fault==='state-lost';if(lost)fault='';
   if(mutation[3]==='lifecycle') {
    const requested=body.lifecycleState??body.LifecycleState;
-   row.lifecycleState=requested===1?(row.isTemplateComplete?2:0):requested;
-   if([5,6].includes(row.lifecycleState))row.state=6;
+   if(body.expectedLifecycleState!=null && body.expectedLifecycleState!==(row.lifecycleState??0))
+    return reply({error:'Synthetic stale lifecycle'},409);
+   if(needsExplanation(row.lifecycleState,requested)&&!body.comment?.trim())
+    return reply({error:'Explanation required'},400);
+   if(terminal(requested))closeChange(row,requested,body.comment);
+   else row.lifecycleState=requested===1?(row.isTemplateComplete?2:0):requested;
    return reply(lost?{error:'Synthetic lost lifecycle response after commit'}:row,lost?503:200);
   }
   row.state=body.newState??body.NewState;return reply(lost?{error:'Synthetic lost state response after commit'}:{id:row.id,state:row.state},lost?503:200);
@@ -92,7 +129,9 @@ http.createServer(async (req,res) => {
   queries.push(url.pathname+url.search);
   if(fault==='error'){fault='';return reply({error:'Synthetic rejected query'},400);}
   if(q.get('q')==='slow') await new Promise(resolve=>setTimeout(resolve,1200));
-  let filtered=rows.filter(r=>q.get('view')==='all'||(q.get('view')==='historic'?r.state===6:r.state!==6));
+  const changes=url.pathname.includes('/changes');
+  const closed=row=>changes?terminal(row.lifecycleState):row.state===6;
+  let filtered=rows.filter(r=>q.get('view')==='all'||(q.get('view')==='historic'?closed(r):!closed(r)));
   if(q.get('q')) filtered=q.get('q')==='slow'?[rows[0]]:filtered.filter(r=>r.title.toLowerCase().includes(q.get('q').toLowerCase()));
   if(q.has('customerOrgId')) filtered=filtered.filter(r=>q.getAll('customerOrgId').includes(r.organizationId));
   if(q.has('forId')) filtered=filtered.filter(r=>q.getAll('forId').includes(r.customerId));

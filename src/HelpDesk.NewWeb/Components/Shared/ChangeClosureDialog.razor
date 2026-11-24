@@ -1,0 +1,234 @@
+@using System.Net
+@using System.Text.Json
+@using Helpdesk.Shared.DTOs.Change
+@using Polly.CircuitBreaker
+@using Polly.Timeout
+@inject IHttpClientFactory ClientFactory
+
+<MudDialog DefaultFocus="DefaultFocus.FirstChild">
+    <DialogContent>
+        <MudText Typo="Typo.body2">@Summary</MudText>
+        @if (WarnAboutExecution)
+        {
+            <MudText Typo="Typo.body2">This records that the change is discontinued. Verify any external execution and rollback separately.</MudText>
+        }
+        @if (RetainsDraft)
+        {
+            <MudText Typo="Typo.body2">Your unsaved edits will stay on this page.</MudText>
+        }
+        <MudTextField T="string" @bind-Value="comment" Label="Explanation" Required="requiresComment"
+                      Immediate="true" MaxLength="ChangeLifecycleRequest.MaxCommentLength" Lines="2"
+                      Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(busy || results is not null)" />
+        @if (busy)
+        {
+            <MudProgressLinear Indeterminate="true" aria-label="Updating change lifecycle" />
+        }
+        @if (error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" role="alert">@error</MudAlert>
+        }
+        @if (results is not null)
+        {
+            <div style="max-height: 35vh; overflow-y: auto">
+                @foreach (var result in results)
+                {
+                    <MudText Typo="Typo.body2">@(References?.GetValueOrDefault(result.Id) ?? result.Id) · @Describe(result.Outcome)</MudText>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (results is not null)
+        {
+            <MudButton OnClick="FinishBulk">Done</MudButton>
+        }
+        else
+        {
+            <MudButton OnClick="Dismiss" Disabled="busy">Dismiss</MudButton>
+            @if (readbackRequired)
+            {
+                <MudButton OnClick="ReadBack" Disabled="busy">Reload current state</MudButton>
+            }
+            else
+            {
+                <MudButton OnClick="Submit" Color="Color.Error" Variant="Variant.Filled"
+                           Disabled="@(busy || unavailable || requiresComment && string.IsNullOrWhiteSpace(comment))">@ConfirmText</MudButton>
+            }
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public string Summary { get; set; } = "";
+    [Parameter] public string? ChangeId { get; set; }
+    [Parameter] public ChangeLifecycleRequest? Action { get; set; }
+    [Parameter] public BulkChangeCancellationRequest? Batch { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, string>? References { get; set; }
+    [Parameter] public bool ReasonRequired { get; set; }
+    [Parameter] public bool WarnAboutExecution { get; set; }
+    [Parameter] public bool RetainsDraft { get; set; }
+    [Parameter] public CancellationToken ScopeToken { get; set; }
+
+    public sealed record BulkResult(IReadOnlyList<BulkChangeCancellationResult> Results, string Comment);
+    private ChangeLifecycleRequest? action;
+    private string comment = "";
+    private bool busy, requiresComment, readbackRequired, unavailable, completed;
+    private string? error;
+    private IReadOnlyList<BulkChangeCancellationResult>? results;
+    private string ConfirmText => action?.LifecycleState == ChangeLifecycleState.ImplementedFailed
+        ? "Record failed implementation" : "Confirm cancellation";
+
+    protected override void OnInitialized()
+    {
+        action = Action;
+        requiresComment = ReasonRequired;
+        comment = Batch?.Comment ?? "";
+    }
+
+    private async Task Submit()
+    {
+        if (busy || unavailable || readbackRequired || ScopeToken.IsCancellationRequested ||
+            requiresComment && string.IsNullOrWhiteSpace(comment)) return;
+        busy = true;
+        error = null;
+        await Dialog.SetOptionsAsync(Dialog.Options with { CloseOnEscapeKey = false });
+        try
+        {
+            using var client = ClientFactory.CreateClient(HelpdeskCommandHttpClients.CommandsClientName);
+            if (Batch is { } batch)
+                await SubmitBulk(client, batch);
+            else if (ChangeId is { } id && action is { } request)
+                await SubmitSingle(client, id, request);
+        }
+        catch (Exception exception) when (IsTransportError(exception))
+        {
+            RequireReadback();
+        }
+        finally
+        {
+            busy = false;
+            if (!ScopeToken.IsCancellationRequested && results is null && !completed)
+                await Dialog.SetOptionsAsync(Dialog.Options with { CloseOnEscapeKey = true });
+        }
+    }
+
+    private async Task SubmitSingle(HttpClient client, string id, ChangeLifecycleRequest request)
+    {
+        using var response = await client.PostAsJsonAsync($"api/v1/changes/{Uri.EscapeDataString(id)}/lifecycle",
+            request with { Comment = comment.Trim() }, ScopeToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            RequireReadback();
+            return;
+        }
+        var updated = await response.Content.ReadFromJsonAsync<ChangeDto>(ScopeToken);
+        if (ScopeToken.IsCancellationRequested) return;
+        if (updated?.Id == id && updated.LifecycleState == request.LifecycleState)
+        {
+            completed = true;
+            Dialog.Close(DialogResult.Ok(updated));
+        }
+        else
+            RequireReadback();
+    }
+
+    private async Task SubmitBulk(HttpClient client, BulkChangeCancellationRequest batch)
+    {
+        using var response = await client.PostAsJsonAsync("api/v1/changes/bulk/cancel",
+            batch with { Comment = comment.Trim() }, ScopeToken);
+        if (response.IsSuccessStatusCode)
+        {
+            var received = await response.Content.ReadFromJsonAsync<List<BulkChangeCancellationResult>>(ScopeToken);
+            if (received is not null && batch.Selection.Select(item => item.Id).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(received.Select(item => item.Id)))
+            {
+                results = received;
+                return;
+            }
+        }
+        RequireReadback();
+    }
+
+    private async Task ReadBack()
+    {
+        if (busy || ScopeToken.IsCancellationRequested) return;
+        busy = true;
+        try
+        {
+            using var api = ClientFactory.CreateClient("HelpdeskApi");
+            if (Batch is { } batch)
+            {
+                var current = new List<BulkChangeCancellationResult>(batch.Selection.Count);
+                foreach (var item in batch.Selection)
+                    current.Add(new(item.Id, await ReadBulkOutcome(api, item.Id)));
+                results = current;
+                error = null;
+                await Dialog.SetOptionsAsync(Dialog.Options with { CloseOnEscapeKey = false });
+            }
+            else if (ChangeId is { } id && action is { } request)
+            {
+                var path = $"api/v1/changes/{Uri.EscapeDataString(id)}";
+                var updated = await api.GetFromJsonAsync<ChangeDto>(path, ScopeToken);
+                if (ScopeToken.IsCancellationRequested || updated?.Id != id) return;
+                if (updated.LifecycleState == request.LifecycleState || ChangeLifecycleDisplay.IsTerminal(updated.LifecycleState))
+                {
+                    Dialog.Close(DialogResult.Ok(updated));
+                    return;
+                }
+                var options = await api.GetFromJsonAsync<ChangeLifecycleOptionsDto>($"{path}/lifecycle-options", ScopeToken);
+                var option = options?.Choices.FirstOrDefault(choice => choice.State == request.LifecycleState);
+                unavailable = options?.Id != id || option is null || option.UnavailableReason is not null;
+                requiresComment = option?.RequiresComment ?? requiresComment;
+                if (!unavailable && options is not null)
+                    action = request with { ExpectedLifecycleState = options.LifecycleState, ExpectedUpdatedAt = options.UpdatedAt };
+                readbackRequired = false;
+                error = unavailable ? option?.UnavailableReason ?? "This action is no longer available."
+                    : "Review the current change before confirming again.";
+            }
+        }
+        catch (Exception exception) when (IsTransportError(exception))
+        {
+            error = "The current result could not be confirmed. Try reloading again.";
+        }
+        finally { busy = false; }
+    }
+
+    private async Task<string> ReadBulkOutcome(HttpClient api, string id)
+    {
+        using var response = await api.GetAsync($"api/v1/changes/{Uri.EscapeDataString(id)}", ScopeToken);
+        if (response.StatusCode == HttpStatusCode.NotFound) return "not-found";
+        if (response.StatusCode == HttpStatusCode.Forbidden) return "not-permitted";
+        response.EnsureSuccessStatusCode();
+        var latest = await response.Content.ReadFromJsonAsync<ChangeDto>(ScopeToken);
+        return latest?.LifecycleState switch
+        {
+            ChangeLifecycleState.Cancelled => "already-cancelled",
+            { } state when ChangeLifecycleDisplay.IsTerminal(state) => "ineligible",
+            _ => "conflict"
+        };
+    }
+
+    private void RequireReadback()
+    {
+        readbackRequired = true;
+        error = "The action could not be confirmed. Reload current state before retrying.";
+    }
+
+    private static bool IsTransportError(Exception exception) =>
+        exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException;
+
+    private static string Describe(string outcome) => outcome switch
+    {
+        "cancelled" => "Cancelled",
+        "already-cancelled" => "Already cancelled",
+        "conflict" => "Review the current change before retrying",
+        "not-permitted" => "Permission denied",
+        "not-found" => "Unavailable",
+        "ineligible" => "Already reached a terminal outcome",
+        _ => "Result could not be confirmed"
+    };
+
+    private void Dismiss() => Dialog.Cancel();
+    private void FinishBulk() => Dialog.Close(DialogResult.Ok(new BulkResult(results!, comment)));
+}

@@ -419,7 +419,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         "Changes",
         FirstNonEmpty(change.TrackingId, change.Title) ?? "Change",
         change.Title,
-        BuildTicketMeta(FormatChangeLifecycle(change.LifecycleState), FirstNonEmpty(change.ChangeType, change.CustomerOrgName), FirstNonEmpty(change.CustomerName, change.CustomerEmail)),
+        BuildTicketMeta(ChangeLifecycleDisplay.Label(change.LifecycleState), FirstNonEmpty(change.ChangeType, change.CustomerOrgName), FirstNonEmpty(change.CustomerName, change.CustomerEmail)),
         $"/changes/{change.Id}",
         Icons.Material.Filled.ChangeCircle);
 
@@ -460,18 +460,6 @@ public sealed class GlobalSearchService : IGlobalSearchService
 
     private static string BuildTicketMeta(params string?[] parts) =>
         string.Join(" · ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
-
-    private static string FormatChangeLifecycle(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.Draft => "Draft",
-        ChangeLifecycleState.Submitted => "Submitted",
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        _ => state.ToString()
-    };
 
     private void LogSectionTiming(SectionDefinition section, string term, GlobalSearchGroup group, TimeSpan elapsed)
     {

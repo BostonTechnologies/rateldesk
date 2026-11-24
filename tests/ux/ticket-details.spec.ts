@@ -292,6 +292,51 @@ test('change template draft survives activity tab switches', async ({ page }) =>
   await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled();
 });
 
+test('change details cancel an incomplete draft and retain unsaved plan edits on a narrow screen', async ({ page, request }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, 'changes');
+  await page.addStyleTag({ content: ':root { --mud-palette-primary: #6868aa; --mud-palette-divider: #9381aa; }' });
+  await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+  const scope = page.getByRole('textbox', { name: 'Scope of Change', exact: true });
+  await scope.fill('Unsaved synthetic plan');
+
+  await page.getByLabel('Update change state: Draft', { exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Cancel', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('UX-146');
+  await expect(dialog).toContainText('Your unsaved edits will stay on this page.');
+  await dialog.getByRole('textbox', { name: 'Explanation' }).fill('Synthetic draft retired');
+  await dialog.screenshot({ path: info.outputPath('change-detail-cancellation-narrow.png') });
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('Synthetic draft retired', { exact: true })).toBeVisible();
+  await expect(page.getByText('Unsaved synthetic plan', { exact: true }).or(scope)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
+
+  const state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.saves).toEqual([expect.objectContaining({
+    module: 'changes', lifecycleState: 7, expectedLifecycleState: 0, comment: 'Synthetic draft retired'
+  })]);
+  await page.getByRole('button', { name: 'Revert', exact: true }).click();
+  await page.reload();
+  await expect(page.getByText('Synthetic draft retired', { exact: true })).toBeVisible();
+  await expect(page.getByText(/has reached a terminal outcome/)).toBeVisible();
+  await noOverflow(page);
+});
+
+test('change details cancel an incomplete draft without an explanation', async ({ page }) => {
+  await open(page, 'changes');
+  await page.getByLabel('Update change state: Draft', { exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Cancel', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('textbox', { name: 'Explanation' })).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(dialog).toBeHidden();
+  await page.reload();
+  await expect(page.getByText(/has reached a terminal outcome/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
+});
+
 
 async function routeWithoutReload(page: Page, path: string) {
   await page.getByRole('link', { name: 'Home', exact: true }).evaluate((link, path) => {

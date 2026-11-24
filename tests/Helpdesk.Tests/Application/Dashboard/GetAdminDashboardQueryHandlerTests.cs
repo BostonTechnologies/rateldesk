@@ -19,6 +19,8 @@ public class GetAdminDashboardQueryHandlerTests
         await requests.CreateAsync(new Request { Id = "req-done", TrackingId = "REQ-DONE", Title = "Done", State = TicketState.Resolved });
         await changes.CreateAsync(new Change { Id = "chg-live", TrackingId = "CHG-LIVE", Title = "Live", State = TicketState.Replied, LifecycleState = ChangeLifecycleState.PendingApproval });
         await changes.CreateAsync(new Change { Id = "chg-done", TrackingId = "CHG-DONE", Title = "Done", State = TicketState.New, LifecycleState = ChangeLifecycleState.ImplementedSuccess });
+        await changes.CreateAsync(new Change { Id = "chg-cancelled", TrackingId = "CHG-CANCELLED", State = TicketState.New, LifecycleState = ChangeLifecycleState.Cancelled });
+        await changes.CreateAsync(new Change { Id = "chg-failed", TrackingId = "CHG-FAILED", State = TicketState.InProgress, LifecycleState = ChangeLifecycleState.ImplementedFailed });
 
         var handler = new GetAdminDashboardQueryHandler(incidents, requests, changes);
 

@@ -1,3 +1,4 @@
+using Helpdesk.Shared.DTOs.Change;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -113,7 +114,7 @@ public sealed partial class HelpdeskTools(
     public Task<HelpdeskToolResponse> helpdesk_incidents(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_incidents", "/api/v1/incidents", "incidentId", operation, request, confirm, cancellationToken);
     [McpServerTool(UseStructuredContent = true), Description("Manage service requests. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads: list, get, tasks, timeline, timeline_count, attachments_count, listeners_count. Confirmed mutations: create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, bulk_close. bulk_close takes reason and selection of id/stateVersion pairs and settles unfinished dependents. state requires request.requestId and request.newState; bulk_state requires request.ids and request.newState; assign requires request.ids and request.assignedToId. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_requests(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_requests", "/api/v1/requests", "requestId", operation, request, confirm, cancellationToken);
-    [McpServerTool(UseStructuredContent = true), Description("Manage changes and the authenticated caller's designated approval reviews. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads include list, get, timeline, worklogs, counts and my_approval. Confirmed mutations include create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle and review_approval. The API preserves lifecycle prerequisites and designated-approver identity. Every mutation requires confirm:true.")]
+    [McpServerTool(UseStructuredContent = true), Description("Manage changes and the authenticated caller's designated approval reviews. List query/q aliases map to API q; blank searches are unfiltered, equivalent trimmed aliases deduplicate, and conflicting nonempty values fail validation. Reads include list, get, timeline, worklogs, counts and my_approval. Confirmed mutations include create, bulk_create, update, delete, state, bulk_state, assign, assign_self, add_worklog, lifecycle, bulk_cancel and review_approval. The API preserves lifecycle prerequisites and designated-approver identity. Every mutation requires confirm:true.")]
     public Task<HelpdeskToolResponse> helpdesk_changes(string operation, JsonElement? request = null, bool confirm = false, CancellationToken cancellationToken = default) => TicketOperation("helpdesk_changes", "/api/v1/changes", "changeId", operation, request, confirm, cancellationToken);
 
     [McpServerTool(UseStructuredContent = true), Description("Manage AI webhook configuration, ticket investigation dispatch/worklogs and native chat through the current caller's permissions. Discovery describes the typed configuration, chat interaction and recovery operations. Every business mutation, including first-use chat_open, requires confirm:true. The separate report operation remains a narrowly bound autonomous AI worklog update requiring invocationId, eventId, ticketId, ticketType, correlationId, status and message. Its tenant is derived from the authenticated stored invocation and cannot be overridden.")]
@@ -390,6 +391,8 @@ public sealed partial class HelpdeskTools(
             return await OperatorOperation(tool, operation, request, confirm, ct).ConfigureAwait(false);
         if (operation == "bulk_close" && tool == "helpdesk_requests")
             return await CloseSelectedWork(basePath, request, confirm, ct).ConfigureAwait(false);
+        if (operation == "bulk_cancel" && tool == "helpdesk_changes")
+            return await CancelSelectedChanges(request, confirm, ct).ConfigureAwait(false);
         if (operation == "update" && HelpdeskToolDefinitions.ValidateSupportedFields(tool, operation, request) is { } fieldError) return Validation(fieldError);
         if (operation == "update" && PriorityValidation(Object(request)) is { } priorityError) return Validation(priorityError);
         if (operation is "state" or "bulk_state" or "lifecycle")
@@ -620,6 +623,42 @@ public sealed partial class HelpdeskTools(
                 NextActions: ["Inspect the incident timeline. The closure note may have been recorded before the state update failed."],
                 Failure: new HelpdeskToolFailure(ex.Code, false, ex.StatusCode), CorrelationId: ex.CorrelationId);
         }
+    }
+
+    private async Task<HelpdeskToolResponse> CancelSelectedChanges(JsonElement? request, bool confirm, CancellationToken ct)
+    {
+        if (HelpdeskToolDefinitions.ValidateSupportedFields("helpdesk_changes", "bulk_cancel", request) is { } fieldError)
+            return Validation(fieldError);
+        var payload = Object(request);
+        if (payload?["selection"] is not JsonArray { Count: > 0 and <= BulkChangeCancellationRequest.MaxSelectionSize } selection)
+            return Validation("Provide 1 to 100 change selections with expected lifecycle states.");
+        if (payload["comment"] is { } comment &&
+            (comment is not JsonValue value || !value.TryGetValue<string>(out var text) || text.Length > ChangeLifecycleRequest.MaxCommentLength))
+            return Validation("The explanation must be text of at most 1000 characters.");
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in selection)
+        {
+            if (row is not JsonObject selected || selected["id"] is not JsonValue identity ||
+                !identity.TryGetValue<string>(out var id) || string.IsNullOrWhiteSpace(id) || id.Length > 256 ||
+                selected["expectedLifecycleState"] is not { } expected ||
+                !TryDefinedEnum(typeof(ChangeLifecycleState), expected, out var lifecycle))
+                return Validation("Each selection requires a change ID and its expected lifecycle state.");
+            ids.Add(id);
+            selected["expectedLifecycleState"] = Convert.ToInt32(lifecycle);
+        }
+        var response = await Mutation("bulk_cancel", ids.ToArray(), confirm, HttpMethod.Post,
+            "/api/v1/changes/bulk/cancel", payload, ct).ConfigureAwait(false);
+        if (!response.Success || response.Data is not JsonArray results) return response;
+        var changed = results.OfType<JsonObject>().Where(item => item["outcome"]?.ToString() == "cancelled")
+            .Select(item => item["id"]!.ToString()).ToArray();
+        var completed = results.OfType<JsonObject>().Count(item => item["outcome"]?.ToString() is "cancelled" or "already-cancelled");
+        return response with
+        {
+            Status = completed != ids.Count ? "partial" : changed.Length == 0 ? "no_op" : "completed",
+            Summary = $"Cancelled {changed.Length} of {ids.Count} selected changes. Review the per-change outcomes.",
+            AffectedIds = changed
+        };
     }
 
     private async Task<HelpdeskToolResponse> CloseSelectedWork(string basePath, JsonElement? request, bool confirm, CancellationToken ct)
@@ -882,10 +921,10 @@ public sealed partial class HelpdeskTools(
             (changeType.GetValueKind() != JsonValueKind.String ||
              changeType.GetValue<string>().Trim().ToLowerInvariant() is not ("standard" or "normal" or "emergency")))
             return "request.changeType must be Standard, Normal, or Emergency.";
-        foreach (var field in new[] { "state", "newState", "lifecycleState" })
+        foreach (var field in new[] { "state", "newState", "lifecycleState", "expectedLifecycleState" })
         {
             if (request[field] is not { } value) continue;
-            var type = field == "lifecycleState" ? typeof(ChangeLifecycleState) : typeof(TicketState);
+            var type = field is "lifecycleState" or "expectedLifecycleState" ? typeof(ChangeLifecycleState) : typeof(TicketState);
             if (!TryDefinedEnum(type, value, out _)) return $"request.{field} must be a defined {type.Name} value.";
         }
         return null;
@@ -900,10 +939,10 @@ public sealed partial class HelpdeskTools(
     {
         if (request is null) return null;
         var normalized = request.DeepClone().AsObject();
-        foreach (var field in new[] { "state", "newState", "lifecycleState" })
+        foreach (var field in new[] { "state", "newState", "lifecycleState", "expectedLifecycleState" })
         {
             if (normalized[field] is not { } value) continue;
-            var type = field == "lifecycleState" ? typeof(ChangeLifecycleState) : typeof(TicketState);
+            var type = field is "lifecycleState" or "expectedLifecycleState" ? typeof(ChangeLifecycleState) : typeof(TicketState);
             if (TryDefinedEnum(type, value, out var parsed)) normalized[field] = Convert.ToInt32(parsed);
         }
         return normalized;

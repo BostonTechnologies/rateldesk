@@ -239,6 +239,8 @@ public sealed class McpOperationCatalogTests
             client.Configuration.Returns(new AgentClientConfiguration(null, null, null, null, null, null, "operator@example.test"));
             client.GetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "record-1" });
             client.SendAsync(Arg.Any<HttpMethod>(), Arg.Any<string>(), Arg.Any<JsonNode?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["id"] = "record-1", ["correlationId"] = "corr-1" });
+            client.SendAsync(HttpMethod.Post, "/api/v1/changes/bulk/cancel", Arg.Any<JsonNode?>(), true, Arg.Any<CancellationToken>())
+                .Returns(JsonNode.Parse("""[{"id":"change-1","outcome":"cancelled"}]"""));
             client.GetHealthAsync(Arg.Any<CancellationToken>()).Returns(new JsonArray());
             var attachments = (IHelpdeskAgentAttachmentClient)client;
             attachments.DownloadAttachmentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new JsonObject { ["contentBase64"] = "eA==", ["sizeBytes"] = 1 });
@@ -384,6 +386,7 @@ public sealed class McpOperationCatalogTests
             "bulk_create" when change => $"{{\"items\":[{ChangeCreateRequest()}]}}",
             "bulk_create" => """{"items":[{"title":"matrix","description":"matrix","customerId":"customer-1","organizationId":"organization-1"}]}""",
             "bulk_close" => """{"reason":"Retire test","selection":[{"id":"request-1","stateVersion":3}]}""",
+            "bulk_cancel" => """{"comment":"Synthetic cleanup","selection":[{"id":"change-1","expectedLifecycleState":"Draft"}]}""",
             "bulk_state" => $"{{\"ids\":[\"{id}\"],\"newState\":\"Resolved\"}}",
             "assign" => $"{{\"ids\":[\"{id}\"],\"assignedToId\":\"user-1\"}}",
             "assign_self" => $"{{\"ids\":[\"{id}\"],\"agentUserEmail\":\"operator@example.test\"}}",

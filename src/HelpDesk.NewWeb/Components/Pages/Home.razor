@@ -208,9 +208,12 @@
     private static string ChangeStateLabel(string state) => Enum.TryParse<ChangeLifecycleState>(state, true, out var value) ? GetChangeLifecycleLabel(value) : state;
     private static string GetChangeLifecycleLabel(ChangeLifecycleState state) => state switch
     {
-        ChangeLifecycleState.Draft => "Draft", ChangeLifecycleState.Submitted => "Submitted", ChangeLifecycleState.PendingApproval => "Pending approval",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved for implementation", ChangeLifecycleState.ImplementationInProgress => "Implementation in progress",
-        ChangeLifecycleState.ImplementedSuccess => "Implemented · Success", ChangeLifecycleState.ImplementedBackedOut => "Implemented · Backed out", _ => state.ToString()
+        ChangeLifecycleState.PendingApproval => "Pending approval",
+        ChangeLifecycleState.ApprovedForImplementation => "Approved for implementation",
+        ChangeLifecycleState.ImplementationInProgress => "Implementation in progress",
+        ChangeLifecycleState.ImplementedSuccess => "Implemented · Success",
+        ChangeLifecycleState.ImplementedBackedOut => "Implemented · Backed out",
+        _ => ChangeLifecycleDisplay.Label(state)
     };
     public void Dispose() { disposed = true; lifetime.Cancel(); lifetime.Dispose(); }
 }

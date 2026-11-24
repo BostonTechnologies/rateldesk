@@ -51,7 +51,8 @@
                  OnRowClick="NavigateToChange"
                  StateTemplate="RenderLifecycleState"
                  EnableBulkState="false"
-                 BulkStateRequested="ApplyBulkState"
+                 BulkActions="CancellationActions"
+                 BulkActionRequested="ApplyBulkAction"
                  BulkAssignRequested="ApplyBulkAssign">
         <SubjectTemplate Context="change">
             <MudStack Spacing="0">
@@ -81,6 +82,11 @@
     private int tableKey, generation;
     private bool disposed;
     private CancellationTokenSource? pending;
+    private CancellationTokenSource bulkScope = new();
+    private bool bulkPending;
+    private string? pendingExplanation;
+    private static readonly IReadOnlyList<TicketTable<ChangeDto>.BulkActionOption> CancellationActions =
+        [new("cancel", "Cancel selected")];
     protected override async Task OnInitializedAsync()
     {
         filters = TicketListState.Parse(NavigationManager.Uri, true);
@@ -92,7 +98,7 @@
     {
         if (disposed || args.Location == appliedUrl || new Uri(args.Location).AbsolutePath.TrimEnd('/') != "/changes") return;
         _ = InvokeAsync(() => {
-            pending?.Cancel(); generation++; _selected.Clear(); queryError = null;
+            pending?.Cancel(); generation++; _selected.Clear(); queryError = null; ResetBulkScope();
             filters = TicketListState.Parse(args.Location, true); appliedUrl = args.Location; tableKey++; StateHasChanged();
         });
     }
@@ -104,10 +110,10 @@
     }
     private Task FiltersChanged()
     {
-        pending?.Cancel(); generation++; _selected.Clear(); queryError = null; filters.Page = 1; tableKey++; SaveUrl();
+        pending?.Cancel(); generation++; _selected.Clear(); queryError = null; ResetBulkScope(); filters.Page = 1; tableKey++; SaveUrl();
         return Task.CompletedTask;
     }
-    public void Dispose() { disposed = true; NavigationManager.LocationChanged -= LocationChanged; pending?.Cancel(); pending?.Dispose(); }
+    public void Dispose() { disposed = true; NavigationManager.LocationChanged -= LocationChanged; pending?.Cancel(); pending?.Dispose(); bulkScope.Cancel(); bulkScope.Dispose(); }
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
 
@@ -193,6 +199,7 @@
             if (_table is not null) await _table.ReloadAfterStateChange(change.Id);
         }));
         builder.AddAttribute(6, nameof(ChangeLifecycleStatePicker.TrackingId), change.TrackingId);
+        builder.AddAttribute(7, nameof(ChangeLifecycleStatePicker.ChangeTitle), change.Title);
         builder.CloseComponent();
     };
 
@@ -208,41 +215,6 @@
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-
-    private static ChangeLifecycleState? ParseLifecycleStateQuery(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        return Enum.TryParse<ChangeLifecycleState>(value, ignoreCase: true, out var state)
-            ? state
-            : null;
-    }
-
-    private static string GetLifecycleLabel(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.Draft => "Draft",
-        ChangeLifecycleState.Submitted => "Submitted",
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        _ => state.ToString()
-    };
-
-    private static Color GetLifecycleColor(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.Submitted => Color.Info,
-        ChangeLifecycleState.PendingApproval => Color.Warning,
-        ChangeLifecycleState.ApprovedForImplementation => Color.Primary,
-        ChangeLifecycleState.ImplementationInProgress => Color.Secondary,
-        ChangeLifecycleState.ImplementedSuccess => Color.Success,
-        ChangeLifecycleState.ImplementedBackedOut => Color.Warning,
-        _ => Color.Default
-    };
 
     private async Task OpenCreateDialog()
     {
@@ -282,22 +254,54 @@
 
 
 
-    private async Task ApplyBulkState()
+    private void ResetBulkScope()
     {
-        if (_selected.Count == 0 || _table is null || _selected.Any(item => accessProfile?.CanManageChange(item.OrganizationId) != true)) return;
+        bulkScope.Cancel();
+        bulkScope.Dispose();
+        bulkScope = new();
+        pendingExplanation = null;
+    }
 
-        var ids = _selected.Select(x => x.Id).ToList();
-        var selectedState = _table.SelectedBulkState;
-        var response = await HelpdeskApi.PostAsJsonAsync("/api/v1/changes/bulk/state", new { Ids = ids, NewState = selectedState, Comment = (string?)null });
-        if (response.IsSuccessStatusCode)
+    private async Task ApplyBulkAction(string action)
+    {
+        if (action != "cancel" || bulkPending || _selected.Count == 0 || accessProfile?.IsHelpdeskAdmin != true) return;
+        if (_selected.Count > BulkChangeCancellationRequest.MaxSelectionSize)
         {
-            Snackbar.Add($"Updated {_selected.Count} change(s) to {selectedState}", Severity.Success);
-            await Reload();
+            Snackbar.Add($"Select up to {BulkChangeCancellationRequest.MaxSelectionSize} changes.", Severity.Warning);
+            return;
         }
-        else
+
+        var selected = _selected.DistinctBy(item => item.Id, StringComparer.Ordinal).ToArray();
+        var batch = new BulkChangeCancellationRequest(selected.Select(item =>
+            new ChangeCancellationSelection(item.Id, item.LifecycleState, item.UpdatedAt)).ToArray(), pendingExplanation);
+        var token = bulkScope.Token;
+        bulkPending = true;
+        try
         {
-            Snackbar.Add("Bulk update failed", Severity.Error);
+            var dialog = await DialogService.ShowAsync<ChangeClosureDialog>("Cancel selected",
+                new DialogParameters<ChangeClosureDialog>
+                {
+                    { item => item.Summary, $"Cancel {selected.Length} selected changes?" },
+                    { item => item.Batch, batch },
+                    { item => item.References, selected.ToDictionary(item => item.Id, item => item.TrackingId, StringComparer.Ordinal) },
+                    { item => item.ReasonRequired, selected.Any(item => item.LifecycleState != ChangeLifecycleState.Draft && !ChangeLifecycleDisplay.IsTerminal(item.LifecycleState)) },
+                    { item => item.WarnAboutExecution, selected.Any(item => item.LifecycleState == ChangeLifecycleState.ImplementationInProgress) },
+                    { item => item.ScopeToken, token }
+                },
+                new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseOnEscapeKey = true, BackdropClick = false });
+            var response = await dialog.Result;
+            if (token.IsCancellationRequested || response?.Data is not ChangeClosureDialog.BulkResult result) return;
+
+            var completed = result.Results.Where(item => item.Outcome is "cancelled" or "already-cancelled")
+                .Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+            var failures = result.Results.Count - completed.Count;
+            pendingExplanation = failures > 0 ? result.Comment : null;
+            if (_table is not null) await _table.ReloadAfterBulkStateChange(completed);
+            if (!token.IsCancellationRequested)
+                Snackbar.Add($"{completed.Count} cancelled or already cancelled. {failures} need attention.",
+                    failures == 0 ? Severity.Success : Severity.Warning);
         }
+        finally { bulkPending = false; }
     }
 
     private async Task ApplyBulkAssign()

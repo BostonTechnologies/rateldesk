@@ -152,16 +152,20 @@ public static partial class ChangeEndpoints
     private static void QueueChangeApprovalTimeline(HelpdeskDbContext db, string changeId, string message,
         string createdByUserName = "Change Approval")
     {
-        var timeline = new TicketTimelineEvent { TicketId = changeId, CreatedUtc = DateTimeOffset.UtcNow,
-            CreatedByUserId = "system", CreatedByUserName = createdByUserName, EventType = TimelineEventType.SystemNotification, MessageText = message };
+        QueueChangeTimeline(db, new TicketTimelineEvent { TicketId = changeId, CreatedUtc = DateTimeOffset.UtcNow,
+            CreatedByUserId = "system", CreatedByUserName = createdByUserName, EventType = TimelineEventType.SystemNotification, MessageText = message });
+    }
+
+    private static void QueueChangeTimeline(HelpdeskDbContext db, TicketTimelineEvent timeline)
+    {
         db.TicketTimelineEvents.Add(timeline);
         db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
         {
-            EffectKey = $"change-approval:{timeline.Id:N}", DispatchGroup = $"change-approval:{changeId}",
+            EffectKey = $"change-approval:{timeline.Id:N}", DispatchGroup = $"change-approval:{timeline.TicketId}",
             Kind = MailboxEffectKind.Timeline, AvailableUnixMilliseconds = timeline.CreatedUtc.ToUnixTimeMilliseconds(),
-            Payload = JsonSerializer.Serialize(new TicketTimelineEventDto { Id = timeline.Id, TicketId = changeId,
+            Payload = JsonSerializer.Serialize(new TicketTimelineEventDto { Id = timeline.Id, TicketId = timeline.TicketId,
                 CreatedUtc = timeline.CreatedUtc, CreatedByUserId = timeline.CreatedByUserId, CreatedByUserName = timeline.CreatedByUserName,
-                EventType = timeline.EventType, MessageText = message })
+                EventType = timeline.EventType, MessageText = timeline.MessageText })
         });
     }
 

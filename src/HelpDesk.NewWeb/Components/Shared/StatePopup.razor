@@ -135,7 +135,8 @@
         applying = true;
         try
         {
-            if (await Apply(option.Value) && !disposed && CanEdit && menu is not null)
+            if (option.OpensDialog && menu is not null) await menu.CloseMenuAsync();
+            if (await Apply(option.Value) && !option.OpensDialog && !disposed && CanEdit && menu is not null)
             {
                 await menu.CloseMenuAsync();
             }

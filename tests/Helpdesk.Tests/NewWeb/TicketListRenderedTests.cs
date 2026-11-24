@@ -305,6 +305,8 @@ public sealed class TicketListRenderedTests
     [InlineData(false, ChangeLifecycleState.Draft)]
     [InlineData(true, ChangeLifecycleState.ImplementedSuccess)]
     [InlineData(true, ChangeLifecycleState.ImplementedBackedOut)]
+    [InlineData(true, ChangeLifecycleState.Cancelled)]
+    [InlineData(true, ChangeLifecycleState.ImplementedFailed)]
     public async Task Read_only_or_terminal_changes_have_no_edit_trigger(bool canWrite, ChangeLifecycleState state)
     {
         using var api = new PopupApi();

@@ -910,6 +910,10 @@ public sealed class RequestCreateEndpointsTests
             CancellationToken cancellationToken = default) =>
             Capture("ChangeImplementationInProgress", change, recipientEmail, recipientName, cc);
 
+        public Task<bool> SendChangeCancelledAsync(Change change, string recipientEmail, string recipientName,
+            string organizationName, string requestedForName, string implementorName, string approvers,
+            CancellationToken cancellationToken) => Task.FromResult(true);
+
         public Task<bool> SendChangeImplementedAsync(
             Change change,
             string recipientEmail,

@@ -348,3 +348,26 @@ response reports each record's disposition and unfinished task count. Refresh a
 changed record before submitting a new selection. Closing a parent also closes
 its unfinished children and withdraws their pending approvals. Provider status
 and identifiers stay available in history, including an unconfirmed outcome.
+
+### Cancel changes or record failed implementation
+
+Use `changes lifecycle` with the change ID and `--lifecycle-state Cancelled`
+or `--lifecycle-state ImplementedFailed`. Use `--comment` to supply an
+explanation. Draft cancellation can omit it. Other cancellations and failed
+completion require a nonblank explanation of at most 1,000 characters. Send
+`--expected-lifecycle-state` and `--expected-updated-at` from the latest
+read when acting on a previously inspected record. A matching retry returns
+the saved outcome. Read the current change after a conflict or uncertain response.
+
+Administrators can run `changes bulk-cancel --body-file cancellation.json`
+with a selection of up to 100 records. Use the current lifecycle for each
+selected ID. The same body goes to `POST /api/v1/changes/bulk/cancel`.
+
+```json
+{"comment":"Retired synthetic draft","selection":[{"id":"synthetic-change-id","expectedLifecycleState":0}]}
+```
+
+Both MCP transports expose `lifecycle` and `bulk_cancel` on
+`helpdesk_changes`. Preview the selected IDs and send `confirm: true` to
+apply. Check every per-change bulk result. Use `changes list --historic-only`
+to locate records with terminal outcomes.

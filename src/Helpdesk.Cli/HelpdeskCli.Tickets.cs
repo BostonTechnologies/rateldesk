@@ -24,8 +24,15 @@ internal static partial class HelpdeskCli
     private static Command BuildChangesCommand(CliRuntime runtime, GlobalOptions globals)
     {
         var changes = BuildTicketCollectionCommand(runtime, globals, "changes", "Manage changes.", "/api/v1/changes");
-        var lifecycle = BodyCommand(runtime, globals, "lifecycle", HttpMethod.Post, "/api/v1/changes/{id}/lifecycle", ("--lifecycle-state", "lifecycleState"), ("--comment", "comment"));
+        var lifecycle = BodyCommand(runtime, globals, "lifecycle", HttpMethod.Post, "/api/v1/changes/{id}/lifecycle",
+            ("--lifecycle-state", "lifecycleState"), ("--comment", "comment"),
+            ("--expected-lifecycle-state", "expectedLifecycleState"), ("--expected-updated-at", "expectedUpdatedAt"));
+        lifecycle.Description = "Record a lifecycle outcome. Failed implementation and cancellation beyond Draft require --comment.";
         changes.AddCommand(lifecycle);
+        var cancel = BodyCommand(runtime, globals, "bulk-cancel", HttpMethod.Post, "/api/v1/changes/bulk/cancel",
+            ("--selection", "selection"), ("--comment", "comment"));
+        cancel.Description = "Cancel explicitly selected changes by ID and expected lifecycle. Requires HelpdeskAdmin.";
+        changes.AddCommand(cancel);
         return changes;
     }
 
