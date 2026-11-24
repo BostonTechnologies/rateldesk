@@ -263,12 +263,19 @@ curl --fail --silent --show-error \
   --header 'X-Requested-With: XMLHttpRequest' --data "$self_service_login_payload" \
   "$api_base_url/api/v1/local-auth/login" > /dev/null
 
-self_service_form_payload="$(jq -nc --arg organizationId "$organization_id" '{serviceId: "rc4-self-service", title: "RC4 self-service request", description: "Production local account validation.", jsonSchema: "{\"title\":\"RC4 self-service request\",\"description\":\"Production local account validation.\",\"fields\":[]}", organizationId: $organizationId, allowedOrganizationIds: [$organizationId], releaseStatus: 1}')"
+self_service_folder_payload="$(jq -nc --arg organizationId "$organization_id" '{name: "RC4 self-service", allowedOrganizationIds: [$organizationId]}')"
+self_service_folder_id="$(curl --fail --silent --show-error \
+  --cookie "$cookie_jar" --header 'X-Requested-With: XMLHttpRequest' \
+  --header 'Content-Type: application/json' \
+  --data "$self_service_folder_payload" \
+  "$api_base_url/api/v1/services" | jq -er --arg organizationId "$organization_id" 'select(.allowedOrganizationIds == [$organizationId]) | .id')"
+
+self_service_form_payload="$(jq -nc --arg serviceId "$self_service_folder_id" --arg organizationId "$organization_id" '{serviceId: $serviceId, title: "RC4 self-service request", description: "Production local account validation.", jsonSchema: "{\"title\":\"RC4 self-service request\",\"description\":\"Production local account validation.\",\"fields\":[]}", organizationId: $organizationId, allowedOrganizationIds: [$organizationId], releaseStatus: 1}')"
 self_service_form_id="$(curl --fail --silent --show-error \
   --cookie "$cookie_jar" --header 'X-Requested-With: XMLHttpRequest' \
   --header 'Content-Type: application/json' \
   --data "$self_service_form_payload" \
-  "$api_base_url/api/v1/request-forms" | jq -er '.id')"
+  "$api_base_url/api/v1/request-forms" | jq -er --arg serviceId "$self_service_folder_id" 'select(.serviceId == $serviceId) | .id')"
 self_service_request_payload="$(jq -nc --arg requestFormId "$self_service_form_id" '{requestFormId: $requestFormId, payloadJson: "{}"}')"
 self_service_request_id="$(curl --fail --silent --show-error \
   --cookie "$self_service_cookie_jar" --header 'X-Requested-With: XMLHttpRequest' \
