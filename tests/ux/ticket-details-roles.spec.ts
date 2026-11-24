@@ -50,8 +50,10 @@ for (const module of ['incidents', 'requests', 'changes']) {
   test(`${module} contributor can note own ticket without management rights and loses contribution outside ownership or scope`, async ({ page, request }, testInfo) => {
     await open(page, module, 'contributor');
     await managementUnavailable(page, module);
-    await page.getByRole('tab', { name: /Timeline/ }).click();
-    await expect(page.getByRole('button', { name: 'Add Note', exact: true })).toBeEnabled();
+    await page.getByRole('tab', { name: /^Timeline/ }).click();
+    const timeline = page.getByRole('tabpanel', { name: /^Timeline/ });
+    await expect(timeline.getByText(`Synthetic ${module} status update`, { exact: true })).toBeVisible();
+    await expect(timeline.getByRole('button', { name: 'Add Note', exact: true })).toBeEnabled();
     await captureTables(page); await page.screenshot({ path: testInfo.outputPath(`${module}-contributor-owned.png`), fullPage: true });
     await page.getByRole('button', { name: 'Add Note', exact: true }).click();
     const note = `Synthetic ${module} owner contribution`;

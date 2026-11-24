@@ -131,6 +131,42 @@ test('save failure retains edits and dirty navigation can be cancelled', async (
   await page.getByRole('button', { name: 'Revert', exact: true }).click();
 });
 
+test('read-only incident selects and restores a populated Timeline with a live circuit', async ({ page }) => {
+  await open(page, 'incidents', 'https://127.0.0.1:5191');
+  const messages = page.getByRole('tab', { name: 'Messages', exact: true });
+  const timeline = page.getByRole('tab', { name: /^Timeline/ });
+  const timelinePanel = page.getByRole('tabpanel', { name: /^Timeline/ });
+  const statusUpdate = timelinePanel.getByText('Synthetic incidents status update', { exact: true });
+  const internalNote = timelinePanel.getByText('Synthetic incidents internal note', { exact: true });
+  const errorBanner = page.locator('#blazor-error-ui');
+
+  await expect(messages).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: 'Messages', exact: true })).toBeVisible();
+  await timeline.click();
+  await expect(timeline).toHaveAttribute('aria-selected', 'true');
+  await expect(statusUpdate).toBeVisible();
+  await expect(internalNote).toBeVisible();
+  await expect(timelinePanel.getByRole('button', { name: 'Add Note', exact: true })).toBeDisabled();
+  await expect(errorBanner).toBeHidden();
+
+  await page.getByRole('tab', { name: /^Attachments/ }).click();
+  await expect(page.getByRole('tabpanel', { name: /^Attachments/ })
+    .getByText('No attachments have been uploaded.')).toBeVisible();
+
+  await timeline.click();
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem('ticket-tabs-selection:v2:incidents:incidents-1'))).toBe('timeline');
+  await page.reload();
+  await expect(timeline).toHaveAttribute('aria-selected', 'true');
+  await expect(statusUpdate).toBeVisible();
+  await expect(internalNote).toBeVisible();
+  await timelinePanel.getByRole('button', { name: 'Switch to Readable View', exact: true }).click();
+  await expect(timelinePanel.getByRole('button', { name: 'Switch to Conversational View', exact: true })).toBeVisible();
+  await messages.click();
+  await expect(messages).toHaveAttribute('aria-selected', 'true');
+  await expect(errorBanner).toBeHidden();
+});
+
 test('semantic selection ignores legacy indices and retains a visited panel while switching', async ({ page }) => {
   await page.goto('/auth/development');
   await page.evaluate(() => localStorage.setItem('ticket-tabs-index:incidents:incidents-1', '5'));
@@ -171,6 +207,10 @@ for (const module of ['incidents', 'requests', 'changes']) {
     await expect(selected(page).locator('.mud-chip-close-button')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
     await expect(page.getByRole('tab', { name: 'AI Assistant' })).toHaveCount(0);
+    await page.getByRole('tab', { name: /^Timeline/ }).click();
+    const timeline = page.getByRole('tabpanel', { name: /^Timeline/ });
+    await expect(timeline.getByText(`Synthetic ${module} status update`, { exact: true })).toBeVisible();
+    await expect(timeline.getByRole('button', { name: 'Add Note', exact: true })).toBeDisabled();
     await page.getByRole('tab', { name: /Listeners/ }).click();
     await expect(page.getByRole('tabpanel', { name: /Listeners/ }).locator('.mud-chip-close-button')).toHaveCount(0);
     await noOverflow(page);

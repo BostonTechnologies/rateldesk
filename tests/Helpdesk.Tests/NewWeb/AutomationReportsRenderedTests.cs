@@ -61,15 +61,13 @@ public sealed class AutomationReportsRenderedTests
         });
     }
 
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    public void Public_or_nonstaff_activity_has_no_internal_automation_tab(bool publicMode, bool canView)
+    [Fact]
+    public void Activity_without_report_permission_has_no_internal_automation_tab()
     {
         using var api = new TabApi();
         using var context = Context(api);
         var component = context.Render<TicketActivityTabs>(p => p.Add(x => x.TicketId, "demo")
-            .Add(x => x.PublicMode, publicMode).Add(x => x.CanViewAutomationReports, canView));
+            .Add(x => x.CanViewAutomationReports, false));
         Assert.DoesNotContain(component.FindAll("[role=tab]"), x => x.TextContent.Trim() == "Automation");
         Assert.Equal(0, api.ReportReads);
     }
