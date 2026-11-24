@@ -57,6 +57,50 @@ public sealed class OperatorDatasetWriterTests
     }
 
     [Fact]
+    public async Task Multi_selection_validates_every_current_key_and_keeps_canonical_order_and_labels()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var edit = fixture.Readback())
+        {
+            var definition = await edit.DatasetDefinitions.SingleAsync(item => item.Id == "custom");
+            definition.DisplayColumn = "name";
+            await edit.SaveChangesAsync();
+        }
+
+        await fixture.Service.UpsertRowsAsOperatorAsync("custom", "org-a", false, new UpsertDatasetRowsDto
+        {
+            Rows = Enumerable.Range(0, 35).Select(index => Row($"decoy-{index:D2}", "Fleet"))
+                .Concat([Row("zz-Fleet", "Fleet"), Row("zz-Ångström", "Warehouse")]).ToList()
+        });
+        var resolver = new SelfServiceDatasetBindingResolver(fixture.Service, NullLogger<SelfServiceDatasetBindingResolver>.Instance);
+        FormField[] fields = [new() { Key = "groups", Label = "Groups", Type = "text", Required = true,
+            MultiSelect = true, DataBinding = new() { DatasetId = "custom" } }];
+        const string payload = """{"groups":["zz-Ångström","ZZ-FLEET","zz-fleet"],"_boundLabels":{"groups":["Tampered"],"unused":"Tampered"}}""";
+
+        var result = await resolver.NormalizePayloadAsync("org-a", fields, payload);
+
+        Assert.True(result.Success, string.Join(" ", result.Errors));
+        var normalized = JsonNode.Parse(result.PayloadJson)!;
+        Assert.Equal(["zz-Ångström", "zz-Fleet"], normalized["groups"]!.AsArray().Select(node => node!.GetValue<string>()));
+        Assert.Equal(["Warehouse", "Fleet"], normalized["_boundLabels"]!["groups"]!.AsArray().Select(node => node!.GetValue<string>()));
+        Assert.Null(normalized["_boundLabels"]!["unused"]);
+        Assert.False((await resolver.NormalizePayloadAsync("org-b", fields, payload)).Success);
+
+        var tooMany = new JsonObject { ["groups"] = new JsonArray(Enumerable.Range(0, 101)
+            .Select(index => (JsonNode?)JsonValue.Create($"decoy-{index}")).ToArray()) };
+        var oversized = await resolver.NormalizePayloadAsync("org-a", fields, tooMany.ToJsonString());
+        Assert.Contains("up to 100 selections", Assert.Single(oversized.Errors));
+
+        await using (var edit = fixture.Readback())
+        {
+            edit.DatasetRows.Remove(await edit.DatasetRows.SingleAsync(row => row.ExternalKey == "zz-Fleet"));
+            await edit.SaveChangesAsync();
+        }
+
+        Assert.False((await resolver.NormalizePayloadAsync("org-a", fields, payload)).Success);
+    }
+
+    [Fact]
     public async Task Scoped_operator_write_persists_rows_and_delete_missing_is_explicit()
     {
         await using var fixture = await Fixture.CreateAsync();

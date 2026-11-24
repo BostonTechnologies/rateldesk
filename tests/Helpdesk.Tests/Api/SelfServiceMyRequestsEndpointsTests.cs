@@ -59,6 +59,18 @@ public sealed class SelfServiceMyRequestsEndpointsTests
         Assert.Equal(harness.RequestId, payload!.Id);
         Assert.Equal(RequestFormReleaseStatus.Production, payload.ReleaseStatus);
         Assert.Equal("Need laptop access", payload.Title);
+        Assert.Equal("Fleet team · Warehouse group", Assert.Single(payload.SubmittedFields, field => field.Key == "groups").Value);
+        Assert.Equal("Legacy device", Assert.Single(payload.SubmittedFields, field => field.Key == "device").Value);
+        Assert.DoesNotContain(payload.SubmittedFields, field => field.Key == "_boundLabels");
+    }
+
+    [Fact]
+    public void SubmittedFields_DisplayMalformedHistoricalPayloadWithoutThrowing()
+    {
+        const string payload = """{"groups":["\ud800"]}""";
+
+        Assert.Equal(new RequestSubmittedFieldDto("payload", payload),
+            Assert.Single(RequestSubmittedFields.Read(payload, includeBoundLabels: true)));
     }
 
     [Fact]
@@ -295,6 +307,10 @@ public sealed class SelfServiceMyRequestsEndpointsTests
                     TrackingId = "REQ-001",
                     Title = "Need laptop access",
                     Description = "Please grant laptop access",
+                    PayloadJson = """
+                        {"groups":["CN=Fleet,DC=example","CN=Warehouse,DC=example"],"device":"Legacy device",
+                         "_boundLabels":{"groups":["Fleet team","Warehouse group"]}}
+                        """,
                     CustomerId = "customer-1",
                     OrganizationId = "tenant-1",
                     RequestFormId = "form-1",

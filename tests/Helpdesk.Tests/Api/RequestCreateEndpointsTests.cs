@@ -18,6 +18,8 @@ using Helpdesk.Application.Workflow;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Html;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Resources;
+using NSubstitute;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -35,6 +37,95 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class RequestCreateEndpointsTests
 {
+    private const string SelectionSchema = """
+        {"fields":[
+          {"key":"access","label":"Access groups","type":"predefined","multiSelect":true,"required":true,"predefinedOptions":["Fleet","Warehouse"]},
+          {"key":"regions","label":"Regions","type":"predefined","multiSelect":true,"predefinedOptions":["North","South"]}
+        ],"tasks":[]}
+        """;
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"access\":null}")]
+    [InlineData("{\"access\":[]}")]
+    [InlineData("{\"access\":\"Fleet\"}")]
+    [InlineData("{\"access\":{\"key\":\"Fleet\"}}")]
+    [InlineData("{\"access\":[[\"Fleet\"]]}")]
+    [InlineData("{\"access\":[true]}")]
+    [InlineData("{\"access\":[\"\\ud800\"]}")]
+    [InlineData("{\"access\":[\" \"]}")]
+    [InlineData("{\"access\":[\"Fleet\",\"Unavailable\"]}")]
+    public async Task Self_service_validates_predefined_selections_before_creating_any_work(string payloadJson)
+    {
+        await using var harness = await SelfServiceRequestTestHarness.CreateAsync();
+        await harness.SeedRequestFormAsync(SelectionSchema);
+        using var response = await harness.Client.PostAsJsonAsync("/api/v1/self-service/requests",
+            new SubmitSelfServiceRequestDto { RequestFormId = "form-1", PayloadJson = payloadJson });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Access groups", await response.Content.ReadAsStringAsync());
+        Assert.Empty(await harness.Requests.GetAllAsync());
+        Assert.Null(harness.Notification.LastTicket);
+    }
+
+    [Fact]
+    public async Task Self_service_canonicalizes_predefined_values_and_optional_empty_without_a_workflow()
+    {
+        await using var harness = await SelfServiceRequestTestHarness.CreateAsync();
+        await harness.SeedRequestFormAsync(SelectionSchema);
+        using var response = await harness.Client.PostAsJsonAsync("/api/v1/self-service/requests",
+            new SubmitSelfServiceRequestDto { RequestFormId = "form-1",
+                PayloadJson = """{"access":["warehouse","FLEET","Warehouse"],"regions":null,"_boundLabels":{"access":["Spoofed"]}}""" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var created = Assert.Single(await harness.Requests.GetAllAsync());
+        using var document = JsonDocument.Parse(created.PayloadJson!);
+        Assert.Equal(["Warehouse", "Fleet"], document.RootElement.GetProperty("access").EnumerateArray().Select(item => item.GetString()));
+        Assert.Empty(document.RootElement.GetProperty("regions").EnumerateArray());
+        Assert.False(document.RootElement.TryGetProperty("_boundLabels", out _));
+    }
+
+    [Fact]
+    public async Task Direct_form_creation_requires_valid_list_values_and_stores_single_selection_as_array()
+    {
+        await using var harness = await RequestCreateTestHarness.CreateAsync();
+        await harness.SeedCustomerAsync("org-1", "customer-1", "customer@example.test");
+        await harness.SeedRequestFormAsync(SelectionSchema);
+        var request = new CreateRequestDto { Title = "Access", Description = "Synthetic", OrganizationId = "org-1",
+            CustomerId = "customer-1", RequestFormId = "form-1", PayloadJson = """{"access":"Fleet"}""" };
+        using var rejected = await harness.Client.PostAsJsonAsync("/api/v1/requests", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Empty(await harness.Requests.GetAllAsync());
+        request.PayloadJson = """{"access":["Fleet"]}""";
+        using var accepted = await harness.Client.PostAsJsonAsync("/api/v1/requests", request);
+
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        var created = Assert.Single(await harness.Requests.GetAllAsync());
+        using var document = JsonDocument.Parse(created.PayloadJson!);
+        Assert.Equal("Fleet", Assert.Single(document.RootElement.GetProperty("access").EnumerateArray()).GetString());
+        Assert.Empty(document.RootElement.GetProperty("regions").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Legacy_direct_form_submission_uses_scalar_value_without_client_supplied_labels()
+    {
+        await using var harness = await RequestCreateTestHarness.CreateAsync();
+        await harness.SeedCustomerAsync("org-1", "customer-1", "customer@example.test");
+        await harness.SeedRequestFormAsync("""{"fields":[{"key":"access","label":"Access","type":"text"}]}""");
+        using var response = await harness.Client.PostAsJsonAsync("/api/v1/requests", new CreateRequestDto
+        {
+            Title = "Access", Description = "Synthetic", CustomerId = "customer-1", OrganizationId = "org-1",
+            RequestFormId = "form-1", PayloadJson = """{"access":"Fleet","_boundLabels":{"access":"Spoofed"}}"""
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = Assert.Single(await harness.Requests.GetAllAsync());
+        using var document = JsonDocument.Parse(created.PayloadJson!);
+        Assert.Equal("Fleet", document.RootElement.GetProperty("access").GetString());
+        Assert.False(document.RootElement.TryGetProperty("_boundLabels", out _));
+    }
+
     [Fact]
     public async Task Post_Rejects_Missing_Customer()
     {
@@ -444,6 +535,10 @@ public sealed class RequestCreateEndpointsTests
             builder.Services.AddSingleton<IRepository<Request>>(requests);
             builder.Services.AddSingleton<IRepository<Customer>>(customers);
             builder.Services.AddSingleton<IRepository<User>>(new InMemoryRepository<User>());
+            builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
+            builder.Services.AddSingleton(Substitute.For<IDataManagementService>());
+            builder.Services.AddSingleton<ISelfServiceDatasetBindingResolver, SelfServiceDatasetBindingResolver>();
+            builder.Services.AddSingleton<IAutomationBindingPayloadContractService, PassingAutomationBindingPayloadContractService>();
             builder.Services.AddSingleton<ITicketSlaInitializer, NoopTicketSlaInitializer>();
             builder.Services.AddSingleton<ITicketSlaCompletionService, NoopTicketSlaCompletionService>();
             builder.Services.AddSingleton<AppTicketServices.ITicketRefGeneratorService>(new FixedTicketRefGenerator("REQ-TEST-001"));
@@ -497,6 +592,19 @@ public sealed class RequestCreateEndpointsTests
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
             return new RequestCreateTestHarness(connection, app, client, requests, customers, notification);
+        }
+
+        public async Task SeedRequestFormAsync(string schema)
+        {
+            await using var scope = app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Services.Add(new Service { Id = "service-1", Name = "Access" });
+            db.RequestForms.Add(new RequestForm
+            {
+                Id = "form-1", Title = "Access", ServiceId = "service-1", OrganizationId = "org-1",
+                AllowedOrganizationIds = ["org-1"], JsonSchema = JsonDocument.Parse(schema)
+            });
+            await db.SaveChangesAsync();
         }
 
         public async Task SeedCustomerAsync(string organizationId, string customerId, string email, bool enabled = true)
@@ -567,7 +675,8 @@ public sealed class RequestCreateEndpointsTests
             builder.Services.AddSingleton<IRepository<RequestForm>>(requestForms);
             builder.Services.AddSingleton<IAutomationBindingPayloadContractService, PassingAutomationBindingPayloadContractService>();
             builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
-            builder.Services.AddSingleton<ISelfServiceDatasetBindingResolver, PassingSelfServiceDatasetBindingResolver>();
+            builder.Services.AddSingleton(Substitute.For<IDataManagementService>());
+            builder.Services.AddSingleton<ISelfServiceDatasetBindingResolver, SelfServiceDatasetBindingResolver>();
             builder.Services.AddScoped<SelfServiceAudienceService>();
             builder.Services.AddSingleton<IRequestTaskGenerationService, NoopRequestTaskGenerationService>();
             builder.Services.AddSingleton<IWorkflowEngine, NoopWorkflowEngine>();
@@ -620,7 +729,7 @@ public sealed class RequestCreateEndpointsTests
             return new SelfServiceRequestTestHarness(connection, app, client, requests, requestForms, notification);
         }
 
-        public async Task SeedRequestFormAsync()
+        public async Task SeedRequestFormAsync(string? schema = null)
         {
             await using var scope = app.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
@@ -633,7 +742,7 @@ public sealed class RequestCreateEndpointsTests
                 OrganizationId = "org-1",
                 AllowedOrganizationIds = ["org-1"],
                 ReleaseStatus = RequestFormReleaseStatus.Production,
-                JsonSchema = JsonDocument.Parse("""{"title":"Laptop Request","description":"Request hardware","fields":[]}""")
+                JsonSchema = JsonDocument.Parse(schema ?? """{"title":"Laptop Request","description":"Request hardware","fields":[]}""")
             });
             await db.SaveChangesAsync();
         }
@@ -746,15 +855,6 @@ public sealed class RequestCreateEndpointsTests
             AutomationTaskInputBuildResult.Failed("Not used by this test.");
     }
 
-    private sealed class PassingSelfServiceDatasetBindingResolver : ISelfServiceDatasetBindingResolver
-    {
-        public Task<(bool Success, string PayloadJson, IReadOnlyList<string> Errors)> NormalizePayloadAsync(
-            string organizationId,
-            IReadOnlyCollection<Helpdesk.Shared.DTOs.RequestForm.FormField> fields,
-            string payloadJson,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<(bool, string, IReadOnlyList<string>)>((true, payloadJson, []));
-    }
 
     private sealed class NoopDomainEventPublisher : IDomainEventPublisher
     {

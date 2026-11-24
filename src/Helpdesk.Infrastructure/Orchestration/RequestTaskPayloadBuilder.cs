@@ -15,7 +15,8 @@ public sealed class RequestTaskPayloadBuilder(
     IRequestFormSchemaParser schemaParser,
     IAutomationBindingService automationBindings,
     IAutomationBindingPayloadContractService automationPayloadContractService,
-    AutomationOriginSnapshotBuilder? originSnapshots = null) : IRequestTaskPayloadBuilder
+    AutomationOriginSnapshotBuilder? originSnapshots = null,
+    IOrchestrationCatalogService? catalog = null) : IRequestTaskPayloadBuilder
 {
     private readonly IRepository<Request> _requests = requests;
     private readonly IRepository<RequestForm> _requestForms = requestForms;
@@ -46,13 +47,6 @@ public sealed class RequestTaskPayloadBuilder(
             return RequestTaskPayloadBuildResult.Failed("Request form for this task was not found.");
         }
 
-        var schema = _schemaParser.Parse(requestForm.JsonSchema);
-        var template = ResolveTemplate(task, schema.Tasks);
-        if (template is null)
-        {
-            return RequestTaskPayloadBuildResult.Failed("Task template was not found in the request form schema.");
-        }
-
         AutomationBindingDto? binding = null;
         if (Guid.TryParse(task.TemplateId, out var taskTemplateId))
         {
@@ -65,17 +59,56 @@ public sealed class RequestTaskPayloadBuilder(
             return RequestTaskPayloadBuildResult.Failed("Automation task is missing an enabled External orchestration binding target.");
         }
 
-        var inputBuild = _automationPayloadContractService.BuildTaskInput(
-            requestForm,
-            template,
-            request.PayloadJson ?? "{}");
-        if (!inputBuild.Success)
+        var payloadJson = task.AutomationDispatchPayloadJson;
+        AutomationTaskInputBuildResult? inputBuild = null;
+        if (payloadJson is null)
         {
-            return RequestTaskPayloadBuildResult.Failed(inputBuild.Error ?? "Automation payload validation failed.");
+            var template = ResolveTemplate(task, _schemaParser.Parse(requestForm.JsonSchema).Tasks);
+            if (template is null)
+            {
+                return RequestTaskPayloadBuildResult.Failed("Task template was not found in the request form schema.");
+            }
+
+            inputBuild = _automationPayloadContractService.BuildTaskInput(requestForm, template, request.PayloadJson ?? "{}");
+            if (!inputBuild.Success)
+            {
+                return RequestTaskPayloadBuildResult.Failed(inputBuild.Error ?? "Automation payload validation failed.");
+            }
+
+            payloadJson = await BuildEnvelopeAsync(task, request, correlationId, binding, inputBuild.InputNode);
         }
 
-        var inputNode = inputBuild.InputNode;
+        AutomationTrace.Contracts.AutomationOriginContext? origin;
+        try
+        {
+            if (binding is not null && inputBuild is { MultiSelectInputs.Count: > 0 })
+            {
+                var definitions = catalog is null ? null : await catalog.ListRequestDefinitionsAsync(
+                    binding.OrganizationId, binding.SystemConnectionId, cancellationToken);
+                var targetInputs = AutomationBindingPayloadContractService.ResolveTargetInputs(definitions, binding);
+                var error = AutomationMultiSelectMapping.Validate(inputBuild.MultiSelectInputs, targetInputs, inputBuild.InputNode);
+                if (error is not null)
+                {
+                    return RequestTaskPayloadBuildResult.Failed(error);
+                }
+            }
 
+            origin = originSnapshots is null ? null : await originSnapshots.PrepareAsync(
+                task, request, requestForm, correlationId, payloadJson, cancellationToken);
+        }
+        catch (OrchestrationProviderException exception)
+        {
+            return BuildProviderFailure(task, correlationId, exception);
+        }
+
+        return RequestTaskPayloadBuildResult.Succeeded(
+            orchestratorTarget, payloadJson, binding?.Id, binding?.OrchestrationRequestDefinitionId,
+            binding?.OrchestrationJobDefinitionId, origin);
+    }
+
+    private async Task<string> BuildEnvelopeAsync(RequestTask task, Request request, string correlationId,
+        AutomationBindingDto? binding, JsonObject inputNode)
+    {
         var envelope = new JsonObject
         {
             ["meta"] = new JsonObject
@@ -128,47 +161,37 @@ public sealed class RequestTaskPayloadBuilder(
             }
         }
 
-        var payloadJson = envelope.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        AutomationTrace.Contracts.AutomationOriginContext? origin;
-        try
+        return envelope.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    private static RequestTaskPayloadBuildResult BuildProviderFailure(RequestTask task, string correlationId,
+        OrchestrationProviderException exception)
+    {
+        var error = exception.Error;
+        var code = SafeDiagnosticIdentifier(error.Code) ?? "capability_check_failed";
+        var layer = code switch
         {
-            origin = originSnapshots is null ? null : await originSnapshots.PrepareAsync(
-                task, request, requestForm, correlationId, payloadJson, cancellationToken);
-        }
-        catch (OrchestrationProviderException exception)
+            "capability_target_unavailable" => "target",
+            "capability_credentials_unavailable" or "authentication_rejected" or "access_denied" => "authorization",
+            "transport_unavailable" or "transport_timeout" => "transport",
+            "invalid_contract" or "unsupported_contract" => "protocol",
+            _ when error.UpstreamStatus is 401 or 403 => "authorization",
+            _ => "provider"
+        };
+        var retryable = layer switch
         {
-            var error = exception.Error;
-            var code = SafeDiagnosticIdentifier(error.Code) ?? "capability_check_failed";
-            var layer = code switch
-            {
-                "capability_target_unavailable" => "target",
-                "capability_credentials_unavailable" or "authentication_rejected" or "access_denied" => "authorization",
-                "transport_unavailable" or "transport_timeout" => "transport",
-                "invalid_contract" or "unsupported_contract" => "protocol",
-                _ when error.UpstreamStatus is 401 or 403 => "authorization",
-                _ => "provider"
-            };
-            var retryable = layer switch
-            {
-                "transport" => true,
-                "target" or "authorization" or "protocol" => false,
-                _ => error.UpstreamStatus is { } status ? (bool?)(status is 408 or 429 or >= 500) : null
-            };
-            var failure = new AutomationPreDispatchFailure("capabilities", layer, code, error.UpstreamStatus, retryable,
-                correlationId, SafeDiagnosticIdentifier(error.CorrelationId),
-                System.Diagnostics.Activity.Current?.TraceId.ToHexString(),
-                Guid.TryParse(task.OrchestrationLinkId, out var connectionId) ? connectionId : null);
-            var statusText = failure.UpstreamStatus is { } statusCode ? $", HTTP {statusCode}" : "";
-            return RequestTaskPayloadBuildResult.Failed(
-                $"NetRatel capability check failed before dispatch ({failure.Code}{statusText}). Review the saved connection. Attempt reference: {correlationId}.",
-                failure);
-        }
-        return RequestTaskPayloadBuildResult.Succeeded(
-            orchestratorTarget,
-            task.AutomationDispatchPayloadJson ?? payloadJson,
-            binding?.Id,
-            binding?.OrchestrationRequestDefinitionId,
-            binding?.OrchestrationJobDefinitionId, origin);
+            "transport" => true,
+            "target" or "authorization" or "protocol" => false,
+            _ => error.UpstreamStatus is { } status ? (bool?)(status is 408 or 429 or >= 500) : null
+        };
+        var failure = new AutomationPreDispatchFailure("capabilities", layer, code, error.UpstreamStatus, retryable,
+            correlationId, SafeDiagnosticIdentifier(error.CorrelationId),
+            System.Diagnostics.Activity.Current?.TraceId.ToHexString(),
+            Guid.TryParse(task.OrchestrationLinkId, out var connectionId) ? connectionId : null);
+        var statusText = failure.UpstreamStatus is { } statusCode ? $", HTTP {statusCode}" : "";
+        return RequestTaskPayloadBuildResult.Failed(
+            $"NetRatel capability check failed before dispatch ({failure.Code}{statusText}). Review the saved connection. Attempt reference: {correlationId}.",
+            failure);
     }
 
     private static string? SafeDiagnosticIdentifier(string? value) =>

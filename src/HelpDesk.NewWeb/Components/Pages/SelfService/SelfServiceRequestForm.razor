@@ -5,11 +5,14 @@
 @using System.Security.Claims
 @using System.Text.Json
 @using System.Text.Json.Nodes
+@using Helpdesk.Shared.DTOs
 @using Helpdesk.Shared.DTOs.Request
 @using Helpdesk.Shared.DTOs.RequestForm
 @using Helpdesk.Shared.DTOs.Resources
 @using Microsoft.AspNetCore.Components.Authorization
 @using Helpdesk.NewWeb.Services
+
+@implements IDisposable
 
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
@@ -97,17 +100,31 @@
                 <MudGrid>
                     @foreach (var item in fields)
                     {
-                        <MudItem xs="12">
+                        var searchVersion = boundSearchVersion;
+                        <MudItem xs="12" @key="item">
                             @switch (item.Field.Type)
                             {
                                 case "text":
-                                    @if (item.Field.DataBinding is not null)
+                                    @if (item.Field.DataBinding is { } binding && item.Field.MultiSelect)
                                     {
-                                        <MudAutocomplete T="DatasetOptionDto" @key="(item.Key, EffectiveOrganizationId)"
+                                        <DatasetMultiSelect @key="(binding.DatasetId, searchVersion)"
+                                                            Label="@item.Field.Label"
+                                                            Placeholder="@GetBoundPlaceholder(item)"
+                                                            Required="@item.Field.Required"
+                                                            MinSearchLength="@Math.Max(1, binding.MinSearchLength)"
+                                                            ErrorText="@GetFieldError(item.Key)"
+                                                            Disabled="@(EffectiveOrganizationId is null || submissionPending || uncertainAttempt is not null)"
+                                                            Selected="@GetBoundSelections(item.Key)"
+                                                            SelectedChanged="@(options => OnBoundSelectionsChanged(item.Key, searchVersion, options))"
+                                                            Search="@((query, page, ct) => FetchDatasetOptionsAsync(binding.DatasetId, query, page, searchVersion, ct))" />
+                                    }
+                                    else if (item.Field.DataBinding is not null)
+                                    {
+                                        <MudAutocomplete T="DatasetOptionDto" @key="(item.Key, searchVersion)"
                                                          Disabled="@(EffectiveOrganizationId is null || submissionPending || uncertainAttempt is not null)"
                                                          Value="@GetBoundOption(item.Key)"
-                                                         ValueChanged="@(v => OnBoundOptionChanged(item, v))"
-                                                         SearchFunc="@( (string text, CancellationToken ct) => SearchDatasetOptionsAsync(item, text, ct) )"
+                                                         ValueChanged="@(v => OnBoundOptionChanged(item, searchVersion, v))"
+                                                         SearchFunc="@( (string text, CancellationToken ct) => SearchDatasetOptionsAsync(item, text, searchVersion, ct) )"
                                                          ToStringFunc="@(option => option?.Label)"
                                                          Dense="true"
                                                          Label="@item.Field.Label"
@@ -174,6 +191,30 @@
                                                      ErrorText="@GetFieldError(item.Key)"
                                                      Variant="Variant.Outlined"
                                                      Margin="Margin.Dense" />
+                                    break;
+                                case "predefined" when item.Field.MultiSelect:
+                                    var selected = GetPredefinedSelections(item.Key);
+                                    <MudSelect T="string"
+                                               MultiSelection="true"
+                                               SelectedValues="@selected"
+                                               SelectedValuesChanged="@(options => SetPredefinedSelections(item.Key, options))"
+                                               MultiSelectionTextFunc="@(options => $"{options.Count} selected")"
+                                               Comparer="StringComparer.OrdinalIgnoreCase"
+                                               Label="@item.Field.Label"
+                                               Required="@item.Field.Required"
+                                               Error="@HasFieldError(item.Key)"
+                                               ErrorText="@GetFieldError(item.Key)"
+                                               Disabled="@(submissionPending || uncertainAttempt is not null)"
+                                               Variant="Variant.Outlined"
+                                               Margin="Margin.Dense"
+                                               Dense="true"
+                                               Clearable="true">
+                                        @foreach (var option in GetPredefinedOptions(item.Field))
+                                        {
+                                            <MudSelectItem T="string" Value="@option"
+                                                           Disabled="@(selected.Count >= RequestFormLimits.MaxSelectionsPerField && !selected.Contains(option, StringComparer.OrdinalIgnoreCase))">@option</MudSelectItem>
+                                        }
+                                    </MudSelect>
                                     break;
                                 case "predefined":
                                     <MudSelect T="string"
@@ -291,7 +332,10 @@
     private bool loading = true;
     private bool submitting;
     private bool submissionPending;
-    private readonly Guid submissionId = Guid.NewGuid();
+    private Guid submissionId;
+    private string? loadedFormId;
+    private int boundSearchVersion;
+    private CancellationTokenSource? formLifetime;
     private SelfServiceSubmissionContextDto? submissionContext;
     private string? targetOrganizationId;
     private SubmitSelfServiceRequestDto? uncertainAttempt;
@@ -315,26 +359,65 @@
     private readonly Dictionary<string, object?> values = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> fieldErrors = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DatasetOptionDto?> boundSelections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<DatasetOptionDto>> boundMultiSelections = new(StringComparer.OrdinalIgnoreCase);
 
     private SelfServiceRequestSubmittedDto? submitted;
     private SelfServiceRequestUserDto? requestedForPerson;
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadFormAsync();
-        if (loadError is null) await LoadSubmissionContextAsync();
-        loading = false;
-        await ResolveRoleAsync();
-    }
+    protected override Task OnInitializedAsync() => ResolveRoleAsync();
 
-    private async Task LoadFormAsync()
+    protected override async Task OnParametersSetAsync()
     {
+        if (loadedFormId == RequestFormId)
+        {
+            return;
+        }
+
+        Dispose();
+        formLifetime = new CancellationTokenSource();
+        var cancellationToken = formLifetime.Token;
+        loadedFormId = RequestFormId;
+        submissionId = Guid.NewGuid();
+        boundSearchVersion++;
         loading = true;
         loadError = null;
+        submitError = null;
+        fieldErrors.Clear();
+        submissionContext = null;
+        targetOrganizationId = null;
+        requestedForPerson = null;
+        uncertainAttempt = null;
+        submitted = null;
+        submitting = false;
+        submissionPending = false;
+        userNote = null;
+
+        await LoadFormAsync(cancellationToken);
+        if (!cancellationToken.IsCancellationRequested && loadError is null)
+        {
+            await LoadSubmissionContextAsync();
+        }
+
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            loading = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        formLifetime?.Cancel();
+        formLifetime?.Dispose();
+        formLifetime = null;
+    }
+
+    private async Task LoadFormAsync(CancellationToken cancellationToken)
+    {
 
         try
         {
-            var dto = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}");
+            var dto = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}", cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (dto is null)
             {
                 loadError = "Request form was not found.";
@@ -353,25 +436,44 @@
                 formDescription = dto.Description;
             }
         }
-        catch (HttpRequestException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            loadError = "Could not load this request form. Refresh the page or sign in again.";
+            return;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                loadError = "Could not load this request form. Refresh the page or sign in again.";
+            }
         }
     }
 
     private async Task LoadSubmissionContextAsync()
     {
         var previous = EffectiveOrganizationId;
+        var cancellationToken = formLifetime?.Token ?? CancellationToken.None;
         try
         {
-            submissionContext = await Api.GetFromJsonAsync<SelfServiceSubmissionContextDto>(
-                $"api/v1/self-service/submission-context?requestFormId={Uri.EscapeDataString(RequestFormId)}");
+            var context = await Api.GetFromJsonAsync<SelfServiceSubmissionContextDto>(
+                $"api/v1/self-service/submission-context?requestFormId={Uri.EscapeDataString(RequestFormId)}", cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            submissionContext = context;
             targetOrganizationId = EligibleOrganizations.Count == 1 ? EligibleOrganizations[0].Id
                 : EligibleOrganizations.Any(org => org.Id == targetOrganizationId) ? targetOrganizationId
                 : submissionContext?.CanSubmit == true ? submissionContext.OrganizationId : null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
         catch (Exception exception) when (exception is HttpRequestException or JsonException)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             submissionContext = new SelfServiceSubmissionContextDto
             {
                 Message = "Could not load your eligible organizations. Try refreshing or sign in again."
@@ -386,6 +488,7 @@
         fields.Clear();
         values.Clear();
         boundSelections.Clear();
+        boundMultiSelections.Clear();
 
         var root = JsonNode.Parse(schema) as JsonObject;
         if (root is null)
@@ -405,6 +508,13 @@
         for (var i = 0; i < parsedFields.Count; i++)
         {
             var field = parsedFields[i];
+            field.Type = field.Type?.Trim().ToLowerInvariant() switch
+            {
+                "helpdeskdata" => "text",
+                { } type => type,
+                _ => "text"
+            };
+
             var key = FormFieldKeyResolver.Resolve(field, i);
 
             if (values.ContainsKey(key))
@@ -413,12 +523,13 @@
             }
 
             fields.Add(new FieldRenderItem(field, key));
-            values[key] = field.Type switch
+            values[key] = field switch
             {
-                "boolean" => false,
+                { MultiSelect: true } => Array.Empty<string>(),
+                { Type: "boolean" } => false,
                 _ => null
             };
-            if (field.DataBinding is not null)
+            if (field.DataBinding is not null && !field.MultiSelect)
             {
                 boundSelections[key] = null;
             }
@@ -428,6 +539,7 @@
     private async Task SubmitAsync()
     {
         if (submissionPending || submitting || submitted is not null) return;
+        var activeSubmission = submissionId;
         submissionPending = true;
         try
         {
@@ -435,7 +547,10 @@
         }
         finally
         {
-            submissionPending = false;
+            if (activeSubmission == submissionId)
+            {
+                submissionPending = false;
+            }
         }
     }
 
@@ -460,29 +575,19 @@
             return;
         }
 
+        var activeSubmission = submissionId;
         if (requestedForPerson is not null && !await ConfirmSubmitOnBehalfAsync())
         {
             return;
         }
 
-        var payloadRoot = JsonSerializer.SerializeToNode(values, JsonOptions)?.AsObject() ?? new JsonObject();
-        var labelsNode = new JsonObject();
-        foreach (var selection in boundSelections)
+        if (activeSubmission != submissionId)
         {
-            if (selection.Value is null || string.IsNullOrWhiteSpace(selection.Value.Label))
-            {
-                continue;
-            }
-
-            labelsNode[selection.Key] = selection.Value.Label;
+            return;
         }
 
-        if (labelsNode.Count > 0)
-        {
-            payloadRoot["_boundLabels"] = labelsNode;
-        }
-
-        var payloadJson = payloadRoot.ToJsonString(JsonOptions);
+        // The API resolves and stores labels using the authorized dataset.
+        var payloadJson = JsonSerializer.Serialize(values, JsonOptions);
         var dto = new SubmitSelfServiceRequestDto
         {
             SubmissionId = submissionId,
@@ -504,15 +609,29 @@
         {
             using var response = await HttpClientFactory.CreateClient("HelpdeskSelfServiceCommands")
                 .PostAsJsonAsync("api/v1/self-service/requests", dto);
+            if (dto.SubmissionId != submissionId)
+            {
+                return;
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 if ((int)response.StatusCode >= 500 || response.StatusCode == System.Net.HttpStatusCode.RequestTimeout)
                     uncertainAttempt = dto;
-                submitError = await SelfServiceSubmissionErrors.ReadAsync(response);
+                var error = await SelfServiceSubmissionErrors.ReadAsync(response);
+                if (dto.SubmissionId == submissionId)
+                {
+                    submitError = error;
+                }
                 return;
             }
 
             var receipt = await response.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>(JsonOptions);
+            if (dto.SubmissionId != submissionId)
+            {
+                return;
+            }
+
             if (receipt is null || string.IsNullOrWhiteSpace(receipt.RequestId) || string.IsNullOrWhiteSpace(receipt.TrackingId))
             {
                 RememberUnconfirmed(dto);
@@ -529,12 +648,20 @@
         }
         finally
         {
-            submitting = false;
+            if (dto.SubmissionId == submissionId)
+            {
+                submitting = false;
+            }
         }
     }
 
     private void RememberUnconfirmed(SubmitSelfServiceRequestDto dto)
     {
+        if (dto.SubmissionId != submissionId)
+        {
+            return;
+        }
+
         uncertainAttempt = dto;
         submitError = "We could not confirm the submission. Retry the same submission or check My Requests.";
     }
@@ -549,11 +676,17 @@
     private void ClearBoundValuesWhenOrganizationChanges(string? previousOrganizationId)
     {
         if (previousOrganizationId == EffectiveOrganizationId) return;
-        foreach (var key in boundSelections.Keys.ToList())
+        boundSearchVersion++;
+        boundMultiSelections.Clear();
+        foreach (var item in fields.Where(item => item.Field.DataBinding is not null))
         {
-            boundSelections[key] = null;
-            values[key] = null;
-            fieldErrors.Remove(key);
+            if (!item.Field.MultiSelect)
+            {
+                boundSelections[item.Key] = null;
+            }
+
+            values[item.Key] = item.Field.MultiSelect ? Array.Empty<string>() : null;
+            fieldErrors.Remove(item.Key);
         }
     }
 
@@ -570,9 +703,10 @@
         {
             [nameof(SubmitOnBehalfDialog.TargetOrganizationId)] = EligibleOrganizations.Count > 1 ? targetOrganizationId : null
         };
+        var activeSubmission = submissionId;
         var dialog = await DialogService.ShowAsync<SubmitOnBehalfDialog>("Submit on behalf of", parameters, options);
         var result = await dialog.Result;
-        if (result is not null && !result.Canceled && result.Data is SelfServiceRequestUserDto person)
+        if (activeSubmission == submissionId && result is not null && !result.Canceled && result.Data is SelfServiceRequestUserDto person)
         {
             var before = EffectiveOrganizationId;
             requestedForPerson = person;
@@ -615,10 +749,11 @@
             }
 
             values.TryGetValue(item.Key, out var value);
-            var missing = item.Field.Type switch
+            var missing = item.Field switch
             {
-                "text" or "textarea" or "predefined" => string.IsNullOrWhiteSpace(value as string),
-                "number" => value is null,
+                { MultiSelect: true } => value is not string[] { Length: > 0 },
+                { Type: "text" or "textarea" or "predefined" } => string.IsNullOrWhiteSpace(value as string),
+                { Type: "number" } => value is null,
                 _ => false
             };
 
@@ -676,19 +811,24 @@
         fieldErrors.Remove(key);
     }
 
-    private Task<IEnumerable<DatasetOptionDto>> SearchDatasetOptionsAsync(FieldRenderItem item, string searchText, CancellationToken cancellationToken)
+    private async Task<IEnumerable<DatasetOptionDto>> SearchDatasetOptionsAsync(
+        FieldRenderItem item, string searchText, int searchVersion, CancellationToken cancellationToken)
     {
-        if (item.Field.DataBinding is null)
+        if (item.Field.DataBinding is not { } binding ||
+            (!string.IsNullOrWhiteSpace(searchText) && searchText.Length < Math.Max(1, binding.MinSearchLength)))
         {
-            return Task.FromResult<IEnumerable<DatasetOptionDto>>(Array.Empty<DatasetOptionDto>());
+            return [];
         }
 
-        if (!string.IsNullOrWhiteSpace(searchText) && searchText.Length < Math.Max(1, item.Field.DataBinding.MinSearchLength))
+        try
         {
-            return Task.FromResult<IEnumerable<DatasetOptionDto>>(Array.Empty<DatasetOptionDto>());
+            var result = await FetchDatasetOptionsAsync(binding.DatasetId, searchText, 1, searchVersion, cancellationToken);
+            return result.Items;
         }
-
-        return SearchCoreAsync(item.Field.DataBinding.DatasetId, searchText, cancellationToken);
+        catch (HttpRequestException)
+        {
+            return [];
+        }
     }
 
     private static string GetBoundPlaceholder(FieldRenderItem item)
@@ -729,28 +869,61 @@
             : "No matching values found.";
     }
 
-    private async Task<IEnumerable<DatasetOptionDto>> SearchCoreAsync(string datasetId, string? searchText, CancellationToken cancellationToken)
+    private async Task<PagedResult<DatasetOptionDto>> FetchDatasetOptionsAsync(
+        string datasetId, string? searchText, int page, int searchVersion, CancellationToken cancellationToken)
     {
-        var organizationId = EffectiveOrganizationId;
-        if (organizationId is null) return [];
-        try
+        if (searchVersion != boundSearchVersion || EffectiveOrganizationId is not { } organizationId)
         {
-            var result = await Api.GetFromJsonAsync<Helpdesk.Shared.DTOs.PagedResult<DatasetOptionDto>>(
-                $"api/v1/self-service/datasets/{Uri.EscapeDataString(datasetId)}/options?query={Uri.EscapeDataString(searchText ?? string.Empty)}&page=1&pageSize=20&targetOrganizationId={Uri.EscapeDataString(organizationId)}",
-                cancellationToken);
-            return organizationId == EffectiveOrganizationId ? result?.Items ?? [] : [];
+            return new();
         }
-        catch (HttpRequestException)
-        {
-            return Enumerable.Empty<DatasetOptionDto>();
-        }
+
+        var result = await Api.GetFromJsonAsync<PagedResult<DatasetOptionDto>>(
+            $"api/v1/self-service/datasets/{Uri.EscapeDataString(datasetId)}/options?query={Uri.EscapeDataString(searchText ?? string.Empty)}&page={page}&pageSize=20&targetOrganizationId={Uri.EscapeDataString(organizationId)}",
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return searchVersion == boundSearchVersion ? result ?? new() : new();
     }
 
-    private void OnBoundOptionChanged(FieldRenderItem item, DatasetOptionDto? option)
+    private void OnBoundOptionChanged(FieldRenderItem item, int searchVersion, DatasetOptionDto? option)
     {
+        if (searchVersion != boundSearchVersion || submissionPending || uncertainAttempt is not null)
+        {
+            return;
+        }
+
         values[item.Key] = option?.Key;
         boundSelections[item.Key] = option;
         fieldErrors.Remove(item.Key);
+    }
+
+    private IReadOnlyList<DatasetOptionDto> GetBoundSelections(string key) =>
+        boundMultiSelections.GetValueOrDefault(key) ?? [];
+
+    private void OnBoundSelectionsChanged(string key, int searchVersion, IReadOnlyList<DatasetOptionDto> selections)
+    {
+        if (searchVersion != boundSearchVersion || submissionPending || uncertainAttempt is not null)
+        {
+            return;
+        }
+
+        boundMultiSelections[key] = selections;
+        values[key] = selections.Select(option => option.Key).ToArray();
+        fieldErrors.Remove(key);
+    }
+
+    private IReadOnlyCollection<string> GetPredefinedSelections(string key) => values.GetValueOrDefault(key) as string[] ?? [];
+
+    private void SetPredefinedSelections(string key, IReadOnlyCollection<string>? selections)
+    {
+        if (submissionPending || uncertainAttempt is not null)
+        {
+            return;
+        }
+
+        var next = selections?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        values[key] = GetPredefinedSelections(key).Where(next.Remove)
+            .Concat((selections ?? []).Where(next.Remove)).Take(RequestFormLimits.MaxSelectionsPerField).ToArray();
+        fieldErrors.Remove(key);
     }
 
     private void SetDecimal(string key, decimal? value)
@@ -777,7 +950,7 @@
     }
 
     private static IReadOnlyList<string> GetPredefinedOptions(FormField field)
-        => field.PredefinedOptions
+        => (field.PredefinedOptions ?? [])
             .Where(option => !string.IsNullOrWhiteSpace(option))
             .Select(option => option.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)

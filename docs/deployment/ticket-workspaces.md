@@ -141,6 +141,27 @@ page are URL-backed, so reload, detail return and section navigation retain the
 deliberate selection. A failed refresh keeps the query and last loaded rows
 with a visible retry message. **Clear filters** retains the chosen sort and page
 size. Open the explicit tracking-ID link by mouse or keyboard to view a request.
+### Choose multiple options on a request
+
+A multi-select predefined list opens with checkboxes. Clear the field or uncheck
+individual options to revise your choices. For a directory-backed field, open
+the picker, enter the minimum number of search characters, and check the rows
+you need. Move through result pages or search again to add choices. Selected
+items remain above the results. Use their remove buttons or **Clear all** to
+start again. A change of requester organization clears dataset selections.
+
+Each enabled field accepts up to 100 choices. A required field needs at least
+one. My Requests and the operator's Request details show the labels recorded
+when the request was submitted. If an option is retired while the form is open,
+search again and choose a current option.
+
+To configure a field, open **Administration → Automation → Service Catalog →
+Request form editor → Form fields**. Turn on **Multi-select** for a **Predefined**
+list or **Text** or **HelpdeskData** field with an active dataset in the form's
+organization. Enabling it on a dataset field switches that field to selection
+only. Removing the binding or changing to an incompatible type turns it off.
+See [NetRatel payload mapping](../integrations/netratel-orchestrator.md#map-multi-select-choices-to-a-job).
+
 ## Live request progress
 
 Request details retain Activity, Tasks and Workflow. The compact summary reports

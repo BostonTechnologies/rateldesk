@@ -79,6 +79,7 @@ else
 
             <MudTabs Rounded="true" Outlined="true" PanelClass="pa-3" Class="flex-grow-1 mt-2 compact-tabs">
                 <MudTabPanel Text="Activity">
+                    <RequestSubmittedFields Fields="request.SubmittedFields" />
                     <TicketActivityTabs
                         TicketId="@Id"
                         TicketType="requests"
@@ -186,6 +187,10 @@ else
                                                             <dt>Automation binding</dt><dd>@(context.Task.AutomationBindingId ?? "Not recorded")</dd>
                                                         }
                                                     </dl>
+                                                    @if (context.Task.Type == RequestTaskType.Manual)
+                                                    {
+                                                        <RequestSubmittedFields Fields="request.SubmittedFields" />
+                                                    }
                                                     @if (!string.IsNullOrWhiteSpace(context.Task.AutomationBlockReason)) { <p>@context.Task.AutomationBlockReason</p> }
                                                     @if (!string.IsNullOrWhiteSpace(context.Task.FailureReason)) { <p class="request-task-error">@context.Task.FailureReason</p> }
                                                 </section>
@@ -494,6 +499,7 @@ else
             ServiceId = source.ServiceId,
             RequestFormId = source.RequestFormId,
             PayloadJson = source.PayloadJson,
+            SubmittedFields = source.SubmittedFields,
             SourceTicketId = source.SourceTicketId,
             SourceTicketTrackingId = source.SourceTicketTrackingId,
             SourceAutomationBindingId = source.SourceAutomationBindingId,
@@ -821,7 +827,8 @@ else
             "Complete Task",
             new DialogParameters
             {
-                [nameof(CompleteRequestTaskDialog.TaskName)] = task.Name
+                [nameof(CompleteRequestTaskDialog.TaskName)] = task.Name,
+                [nameof(CompleteRequestTaskDialog.SubmittedFields)] = request?.SubmittedFields
             },
             new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
 

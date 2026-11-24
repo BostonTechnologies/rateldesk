@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Azure.Core;
+using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Application.Services.AI;
@@ -321,15 +322,36 @@ public sealed partial class DataManagementService(
 
     public async Task<DatasetOptionDto?> GetOptionByKeyAsync(string datasetId, string organizationId, string key, CancellationToken cancellationToken = default)
     {
-        // Resolve current persisted membership, independently of search columns,
-        // page limits and the five-minute option search cache.
+        var options = await GetOptionsByKeysAsync(datasetId, organizationId, [key], cancellationToken);
+        return options.FirstOrDefault();
+    }
+
+    public async Task<IReadOnlyList<DatasetOptionDto>> GetOptionsByKeysAsync(
+        string datasetId, string organizationId, IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default)
+    {
+        if (keys.Count == 0)
+        {
+            return [];
+        }
+
+        // Resolve current persisted membership without using the search cache or a result page.
         var definition = await _db.DatasetDefinitions.AsNoTracking().FirstOrDefaultAsync(
             x => x.Id == datasetId && x.OrganizationId == organizationId && x.IsActive, cancellationToken);
-        if (definition is null) return null;
-        var normalizedKey = key.Trim().ToLowerInvariant();
-        var row = await _db.DatasetRows.AsNoTracking().FirstOrDefaultAsync(
-            x => x.DatasetId == datasetId && x.OrganizationId == organizationId && x.ExternalKey.ToLower() == normalizedKey, cancellationToken);
-        return row is null ? null : MapOptionDto(row, definition);
+        if (definition is null)
+        {
+            return [];
+        }
+
+        var exactKeys = keys.Select(key => key.Trim()).Distinct(StringComparer.Ordinal).ToArray();
+        var normalizedKeys = exactKeys.Select(key => key.ToLowerInvariant()).Distinct().ToArray();
+        var rows = await _db.DatasetRows.AsNoTracking()
+            .Where(x => x.DatasetId == datasetId && x.OrganizationId == organizationId
+                && (exactKeys.Contains(x.ExternalKey) || normalizedKeys.Contains(x.ExternalKey.ToLower())))
+            .OrderBy(x => x.ExternalKey)
+            .ThenBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+        return rows.DistinctBy(row => row.ExternalKey, StringComparer.OrdinalIgnoreCase)
+            .Select(row => MapOptionDto(row, definition)).ToList();
     }
 
     public async Task<DatasetIngestCredentialCreatedDto> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto, CancellationToken cancellationToken = default)
@@ -1138,6 +1160,12 @@ public sealed class RequestFormDatasetBindingValidator(IDataManagementService da
 
     public async Task<string?> ValidateAsync(string organizationId, IReadOnlyCollection<FormField> fields, CancellationToken cancellationToken = default)
     {
+        var selectionError = RequestFormMultiSelect.ValidateFields(fields);
+        if (selectionError is not null)
+        {
+            return selectionError;
+        }
+
         if (string.IsNullOrWhiteSpace(organizationId))
         {
             return fields.Any(x => x.DataBinding is not null)
@@ -1201,26 +1229,57 @@ public sealed class SelfServiceDatasetBindingResolver(
         JsonObject payloadRoot;
         try
         {
-            payloadRoot = JsonNode.Parse(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson)?.AsObject() ?? new JsonObject();
+            payloadRoot = JsonNode.Parse(string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson) as JsonObject
+                ?? throw new JsonException("Expected a JSON object.");
+            _ = payloadRoot.Count; // Materialize properties to catch duplicate JSON keys.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
             _logger.LogWarning(ex, "Failed to parse self-service payload for dataset binding normalization.");
             return (false, payloadJson, ["PayloadJson must be a valid JSON object."]);
         }
 
-        var labelsNode = payloadRoot[BoundLabelKey] as JsonObject ?? new JsonObject();
+        var schemaError = RequestFormMultiSelect.ValidateFields(fields);
+        if (schemaError is not null)
+        {
+            return (false, payloadJson, [schemaError]);
+        }
+
+        payloadRoot.Remove(BoundLabelKey);
+        var labelsNode = new JsonObject();
         var errors = new List<string>();
 
         foreach (var pair in fields.Select((field, index) => new { Field = field, Key = FormFieldKeyResolver.Resolve(field, index) }))
         {
+            if (pair.Field.MultiSelect)
+            {
+                var error = await NormalizeSelectionsAsync(pair.Field, pair.Key, payloadRoot, labelsNode, organizationId, cancellationToken);
+                if (error is not null)
+                {
+                    errors.Add(error);
+                }
+
+                continue;
+            }
+
             var binding = pair.Field.DataBinding;
             if (binding is null)
             {
                 continue;
             }
 
-            var selectedKey = payloadRoot[pair.Key]?.GetValue<string?>();
+            var selectedValue = payloadRoot[pair.Key];
+            if (selectedValue is null)
+            {
+                continue;
+            }
+
+            if (!RequestFormMultiSelect.TryReadString(selectedValue, out var selectedKey))
+            {
+                errors.Add($"Field '{pair.Field.Label}' must contain a single selection.");
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(selectedKey))
             {
                 continue;
@@ -1251,5 +1310,43 @@ public sealed class SelfServiceDatasetBindingResolver(
         return errors.Count == 0
             ? (true, payloadRoot.ToJsonString(JsonOptions), Array.Empty<string>())
             : (false, payloadJson, errors);
+    }
+
+    private async Task<string?> NormalizeSelectionsAsync(
+        FormField field, string fieldKey, JsonObject payload, JsonObject labels,
+        string organizationId, CancellationToken cancellationToken)
+    {
+        var error = RequestFormMultiSelect.ReadSelections(field, payload[fieldKey], out var selected);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        if (field.DataBinding is not { } binding)
+        {
+            var predefined = (field.PredefinedOptions ?? [])
+                .Where(option => !string.IsNullOrWhiteSpace(option))
+                .Select(option => option.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(option => option, StringComparer.OrdinalIgnoreCase);
+            if (selected.Any(key => !predefined.ContainsKey(key)))
+            {
+                return $"Field '{field.Label}' contains an unavailable option. Choose from the predefined options.";
+            }
+
+            payload[fieldKey] = RequestFormMultiSelect.ToJsonArray(selected.Select(key => predefined[key]));
+            return null;
+        }
+
+        var options = await _dataManagementService.GetOptionsByKeysAsync(binding.DatasetId, organizationId, selected, cancellationToken);
+        var byKey = options.ToDictionary(option => option.Key, StringComparer.OrdinalIgnoreCase);
+        if (selected.Any(key => !byKey.ContainsKey(key)))
+        {
+            return $"Field '{field.Label}' contains an unavailable selection. Search the dataset and choose current options.";
+        }
+
+        payload[fieldKey] = RequestFormMultiSelect.ToJsonArray(selected.Select(key => byKey[key].Key));
+        labels[fieldKey] = RequestFormMultiSelect.ToJsonArray(selected.Select(key => byKey[key].Label));
+        return null;
     }
 }

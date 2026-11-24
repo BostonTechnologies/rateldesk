@@ -157,7 +157,7 @@ public sealed partial class RequestTaskApprovalService(
             ViewedAtUtc = approval.ViewedAtUtc,
             CanReview = task.Status == RequestTaskStatus.PendingApproval && approval.Status == RequestTaskApprovalStatus.Pending &&
                         (task.DueAt is null || task.DueAt > DateTimeOffset.UtcNow),
-            PayloadFields = BuildPayloadFields(request.PayloadJson)
+            PayloadFields = BuildPayloadFields(request)
         };
     }
 
@@ -519,7 +519,7 @@ public sealed partial class RequestTaskApprovalService(
             task,
             approval,
             FormatApprovers(approvalRows),
-            BuildPayloadHtml(request.PayloadJson),
+            BuildPayloadHtml(request),
             request.CcRecipients.Where(address => !approverAddresses.Contains(address)),
             ct);
         if (sent)
@@ -568,7 +568,7 @@ public sealed partial class RequestTaskApprovalService(
             task,
             approval,
             rejectionReason,
-            BuildPayloadHtml(request.PayloadJson),
+            BuildPayloadHtml(request),
             recipientEmail,
             recipientName ?? recipientEmail,
             request.CcRecipients.Where(x => !string.Equals(x, recipientEmail, StringComparison.OrdinalIgnoreCase)),
@@ -585,9 +585,9 @@ public sealed partial class RequestTaskApprovalService(
         }
     }
 
-    private static string BuildPayloadHtml(string? payloadJson)
+    private static string BuildPayloadHtml(Request request)
     {
-        var fields = BuildPayloadFields(payloadJson);
+        var fields = BuildPayloadFields(request);
         if (fields.Count == 0)
         {
             return "<p style=\"margin:0; color:#526173;\">No submitted fields.</p>";
@@ -600,34 +600,10 @@ public sealed partial class RequestTaskApprovalService(
             "</table>";
     }
 
-    private static List<RequestApprovalPayloadFieldDto> BuildPayloadFields(string? payloadJson)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return new List<RequestApprovalPayloadFieldDto>();
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payloadJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return [new RequestApprovalPayloadFieldDto { Key = "payload", Value = doc.RootElement.ToString() }];
-            }
-
-            return doc.RootElement.EnumerateObject()
-                .Select(x => new RequestApprovalPayloadFieldDto
-                {
-                    Key = x.Name,
-                    Value = x.Value.ValueKind == JsonValueKind.String ? x.Value.GetString() ?? string.Empty : x.Value.ToString()
-                })
-                .ToList();
-        }
-        catch
-        {
-            return [new RequestApprovalPayloadFieldDto { Key = "payload", Value = payloadJson }];
-        }
-    }
+    private static List<RequestApprovalPayloadFieldDto> BuildPayloadFields(Request request) =>
+        RequestSubmittedFields.Read(request.PayloadJson, !string.IsNullOrWhiteSpace(request.RequestFormId))
+            .Select(field => new RequestApprovalPayloadFieldDto { Key = field.Key, Value = field.Value })
+            .ToList();
 }
 
 public sealed class RequestTaskApprovalTimeoutProcessor(IRequestTaskApprovalService approvalService) : IRequestTaskApprovalTimeoutProcessor

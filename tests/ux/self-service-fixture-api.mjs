@@ -10,7 +10,7 @@ const originalRequests = Array.from({ length: 137 }, (_, i) => ({
 }));
 const homeOrganization = { id: 'org-synthetic', name: 'Example Organization' };
 const secondOrganization = { id: 'org-secondary', name: 'Second Organization' };
-let multipleOrganizations = false;
+let multipleOrganizations = false, multiSelect = false;
 let count = 7, fault = '', requests = [], rows = structuredClone(originalRequests), submissions = [], receipts = new Map(), formCard = false, tableReview = false;
 const catalogue = () => formCard ? [{ id: 'form-synthetic', name: 'Synthetic access request', description: 'Harmless rendered submission fixture', itemType: 1 }]
   : Array.from({ length: count }, (_, i) => ({ id: `service-${i}`, name: `Service ${i + 1} for synthetic access and device support`,
@@ -22,7 +22,7 @@ http.createServer(async (req, res) => {
   const path = url.pathname.replace(/\/$/, '');
   const reply = (value, status = 200) => { if (!res.destroyed) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); } };
   if (path === '/fixture/health') return reply({ ok: true });
-  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; tableReview = false; multipleOrganizations = false; return reply({ ok: true }); }
+  if (path === '/fixture/reset') { count = 7; fault = ''; requests = []; rows = structuredClone(originalRequests); submissions = []; receipts = new Map(); formCard = false; tableReview = false; multipleOrganizations = false; multiSelect = false; return reply({ ok: true }); }
   if (path === '/fixture/table-review') { tableReview = true; formCard = true; return reply({ synthetic: true }); }
   if (tableReview && path === '/api/v1/captcha') return reply({ id: '79000000-0000-4000-8000-000000000001',
     imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC' });
@@ -38,6 +38,7 @@ http.createServer(async (req, res) => {
     return reply({ trackingId: 'REQ-SYN-000', requestTitle: 'Synthetic public approval',
       requestDescription: 'Read-only completed approval fixture', taskName: 'Synthetic approval', approvalStatus: 2, canReview: false,
       payloadFields: Array.from({ length: 35 }, (_, i) => ({ key: `Field ${i}`, value: `Synthetic long submitted value ${i} for safe read-only review` })) });
+  if (path === '/fixture/multi-select') { multiSelect = true; return reply({ ok: true }); }
   if (path === '/fixture/multiple-organizations') { multipleOrganizations = true; return reply({ ok: true }); }
   if (path === '/fixture/form-card') { formCard = true; return reply({ ok: true }); }
   if (path === '/fixture/state') return reply({ requests, count, submissions, receiptCount: receipts.size });
@@ -57,8 +58,37 @@ http.createServer(async (req, res) => {
     return reply(catalogue());
   }
   if (path.endsWith('/breadcrumb')) return reply([{ id: 'service-0', name: 'Synthetic hardware folder' }]);
-  if (path === '/api/v1/request-forms/form-synthetic') return reply({ id: 'form-synthetic', serviceId: 'service-0', title: 'Synthetic access request', description: 'Harmless rendered submission fixture', organizationId: 'org-synthetic', allowedOrganizationIds: ['org-synthetic'], releaseStatus: 1,
-    jsonSchema: JSON.stringify({ title: 'Synthetic access request', description: 'Harmless rendered submission fixture', fields: [{ key: 'reason', label: 'Request reason', type: 'text', required: true }], tasks: [] }) });
+  if (/^\/api\/v1\/request-forms\/form-synthetic(?:-other)?$/.test(path)) {
+    const id = path.split('/').at(-1);
+    const fields = [{ key: 'reason', label: 'Request reason', type: 'text', required: true }];
+    if (multiSelect) fields.push(
+      { key: 'groups', label: 'Groups', type: 'text', required: true, multiSelect: true, dataBinding: { datasetId: 'groups', minSearchLength: 2 } },
+      { key: 'reviewers', label: 'Reviewers', type: 'text', multiSelect: true, dataBinding: { datasetId: 'reviewers', minSearchLength: 2 } },
+      { key: 'regions', label: 'Regions', type: 'predefined', required: true, multiSelect: true, predefinedOptions: ['North', 'South', 'East'] },
+      { key: 'urgency', label: 'Urgency', type: 'predefined', predefinedOptions: ['Routine', 'Expedite'] }
+    );
+    return reply({ id, serviceId: 'service-0', title: 'Synthetic access request', description: 'Harmless rendered submission fixture',
+      organizationId: 'org-synthetic', allowedOrganizationIds: ['org-synthetic'], releaseStatus: 1,
+      jsonSchema: JSON.stringify({ title: id.endsWith('-other') ? 'Second synthetic form' : 'Synthetic access request', fields, tasks: [] }) });
+  }
+  if (multiSelect && /^\/api\/v1\/self-service\/datasets\/(groups|reviewers)\/options$/.test(path)) {
+    const query = (url.searchParams.get('query') ?? '').toLowerCase();
+    const org = url.searchParams.get('targetOrganizationId');
+    const page = Number(url.searchParams.get('page') ?? 1), pageSize = Number(url.searchParams.get('pageSize') ?? 20);
+    requests.push({ path, query, org, page, pageSize });
+    if (fault === 'dataset-options') return reply({}, 404);
+    const second = org === secondOrganization.id;
+    const items = path.includes('/reviewers/')
+      ? [{ key: 'reviewer-1', label: 'Synthetic reviewer' }]
+      : second ? [{ key: 'second-fleet', label: 'Second tenant fleet' }]
+      : [{ key: 'CN=Fleet.Mobile.Admin,DC=example,DC=org', label: 'Fleet.Mobile.Admin' },
+        { key: 'CN=Fleet.Web.Reporting,DC=example,DC=org', label: 'Fleet.Web.Reporting' },
+        ...Array.from({ length: 19 }, (_, i) => ({ key: `fleet-${i}`, label: `Fleet Team ${i}` })),
+        { key: 'warehouse-readers', label: 'Warehouse.Readers' }, { key: 'slow-result', label: 'Slow result' }];
+    const matches = items.filter(option => option.label.toLowerCase().includes(query));
+    const response = { page, pageSize, total: matches.length, items: matches.slice((page - 1) * pageSize, page * pageSize) };
+    return query === 'slow' ? setTimeout(() => reply(response), 1300) : reply(response);
+  }
   if (path === '/api/v1/self-service/submission-context') {
     const denied = ['missing-requester', 'disabled-requester', 'wrong-organization'].includes(fault);
     const eligibleOrganizations = denied ? [] : multipleOrganizations ? [homeOrganization, secondOrganization] : [homeOrganization];
@@ -107,7 +137,11 @@ http.createServer(async (req, res) => {
     receipt.completed = true;
     return reply(value);
   }
-  if (/^\/api\/v1\/self-service\/requests\/[^/]+$/.test(path)) return reply({ ...rows[0], description: 'Synthetic request detail', payloadJson: tableReview ? JSON.stringify(Object.fromEntries(Array.from({ length: 35 }, (_, i) => [`Field ${i}`, `Long synthetic submitted value ${i} for contained rendering`]))) : '{}' });
+  if (/^\/api\/v1\/self-service\/requests\/[^/]+$/.test(path)) {
+    const submittedFields = tableReview ? Array.from({ length: 35 }, (_, i) => ({ key: `Field ${i}`, value: `Long synthetic submitted value ${i} for contained rendering` })) : [];
+    return reply({ ...rows[0], description: 'Synthetic request detail', submittedFields,
+      payloadJson: JSON.stringify(Object.fromEntries(submittedFields.map(field => [field.key, field.value]))) });
+  }
   if (path.endsWith('/tasks')) return reply(tableReview ? Array.from({ length: 35 }, (_, i) => ({ id: `task-${i}`, name: `Synthetic task ${i}`, order: i, type: i % 3 + 1, status: i % 3 === 2 ? 6 : 1, pendingApprovals: i % 3 === 2 ? [{ id: `approval-${i}`, requestTaskId: `task-${i}`, taskName: `Synthetic task ${i}`, approverName: 'Synthetic Approver', approverEmail: 'approver@example.test', status: 1 }] : [] })) : []);
   if (path === '/api/v1/notifications') return reply({ items: [], totalCount: 0 });
   if (path.endsWith('/count')) return reply(0);

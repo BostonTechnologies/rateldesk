@@ -14,6 +14,7 @@ using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Request;
+using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +26,6 @@ namespace Helpdesk.API.Endpoints.Requests;
 
 public static class SelfServiceRequestEndpoints
 {
-    private const int MaxPayloadBytes = 64 * 1024;
     private const string OrganizationMismatchMessage = "This form's automation is configured for a different organization. Choose a form available in the displayed requester organization, or ask an administrator to review the form and saved connection mapping.";
 
     public static void MapSelfServiceRequestEndpoints(this IEndpointRouteBuilder app)
@@ -86,9 +86,9 @@ public static class SelfServiceRequestEndpoints
             return Results.BadRequest("PayloadJson is required.");
         }
 
-        if (global::System.Text.Encoding.UTF8.GetByteCount(dto.PayloadJson) > MaxPayloadBytes)
+        if (global::System.Text.Encoding.UTF8.GetByteCount(dto.PayloadJson) > RequestFormLimits.MaxPayloadBytes)
         {
-            return Results.BadRequest($"PayloadJson exceeds maximum size of {MaxPayloadBytes} bytes.");
+            return Results.BadRequest($"PayloadJson exceeds maximum size of {RequestFormLimits.MaxPayloadBytes} bytes.");
         }
 
         try
@@ -184,7 +184,7 @@ public static class SelfServiceRequestEndpoints
             token);
         if (!normalizedPayload.Success)
         {
-            return Results.BadRequest(string.Join(Environment.NewLine, normalizedPayload.Errors));
+            return SubmissionError(http, 400, "invalid_form_selections", string.Join(" ", normalizedPayload.Errors));
         }
 
         var automationPayloadValidation = await automationPayloadContractService.ValidateBoundRequestPayloadAsync(

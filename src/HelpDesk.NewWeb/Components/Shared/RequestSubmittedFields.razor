@@ -1,0 +1,19 @@
+@using Helpdesk.Shared.DTOs.Request
+
+@if (Fields is { Count: > 0 })
+{
+    <section class="request-submitted-fields" aria-label="Submitted information">
+        <MudText Typo="Typo.subtitle2">Submitted information</MudText>
+        <dl>
+            @foreach (var field in Fields)
+            {
+                <dt>@field.Key</dt>
+                <dd>@field.Value</dd>
+            }
+        </dl>
+    </section>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<RequestSubmittedFieldDto>? Fields { get; set; }
+}

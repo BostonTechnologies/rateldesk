@@ -162,3 +162,41 @@ if(!baseline){
 
 // Opt-in geometry and synthetic screenshots for the owner table inventory.
 test.afterEach(async ({ page }) => { await captureTables(page); });
+
+test('multi-select survives saving the list and dataset fields with stable keys', async ({ page, request }, info) => {
+  await request.get(`${fixture}/reset?mode=multi-select`);
+  await openEditor(page);
+  await page.getByRole('tab', { name: /^Form fields/ }).click();
+  const fields = page.getByTestId('request-form-fields');
+  const multi = (label: string) => fields.getByRole('switch', { name: `Multi-select for ${label}`, exact: true });
+  await expect(multi('Request reason')).toBeDisabled();
+  await expect(multi('Request reason')).not.toBeChecked();
+  await multi('Device type').check();
+  await multi('Directory groups').check();
+  await expect(fields.locator('th')).toHaveText(['Label', 'Type', 'Required', 'Multi-select', 'Data Binding', 'Predefined', 'Actions']);
+  await page.screenshot({ path: info.outputPath('form-fields-multi-select.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.request-form-builder-dialog')).toBeHidden();
+
+  const state = await (await request.get(`${fixture}/state`)).json();
+  const schema = JSON.parse(state.form.jsonSchema);
+  expect(schema.fields.find((field: any) => field.key === 'device_type')).toMatchObject({ multiSelect: true, type: 'predefined' });
+  expect(schema.fields.find((field: any) => field.key === 'group_keys')).toMatchObject({
+    multiSelect: true, type: 'text', dataBinding: { datasetId: 'fixture-groups' }
+  });
+  expect(schema.tasks[0].payloadMapping.input_1).toBe('request_reason');
+
+  await openEditor(page);
+  await page.getByRole('tab', { name: /^Form fields/ }).click();
+  await expect(multi('Device type')).toBeChecked();
+  await expect(multi('Directory groups')).toBeChecked();
+  const row = fields.getByRole('row').filter({ has: page.getByRole('switch', { name: 'Multi-select for Directory groups' }) });
+  await row.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(multi('Directory groups')).toBeDisabled();
+  await expect(multi('Directory groups')).not.toBeChecked();
+  await expect(page.getByText("Multi-select was turned off for 'Directory groups'.")).toBeVisible();
+  await row.getByRole('combobox', { name: 'Dataset binding' }).click();
+  await page.getByText('Fixture groups', { exact: true }).click();
+  await expect(multi('Directory groups')).toBeEnabled();
+  await expect(multi('Directory groups')).not.toBeChecked();
+});

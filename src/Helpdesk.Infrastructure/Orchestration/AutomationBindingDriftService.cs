@@ -222,9 +222,8 @@ public sealed class AutomationBindingDriftService(
                     Key = mapping.Key,
                     FieldKey = mapping.Value,
                     Label = field?.Label ?? $"Missing field: {mapping.Value}",
-                    Type = string.IsNullOrWhiteSpace(field?.Type)
-                        ? (field is null ? "missing-field" : "text")
-                        : NormalizeInputType(field.Type),
+                    Type = field?.MultiSelect == true ? "text" : NormalizeInputType(field?.Type ?? "missing-field"),
+                    MultiSelect = field?.MultiSelect ?? false,
                     Required = field?.Required ?? false
                 };
             })

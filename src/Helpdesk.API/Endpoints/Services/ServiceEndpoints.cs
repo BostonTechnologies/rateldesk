@@ -1,4 +1,5 @@
 ﻿using Helpdesk.API.Services;
+using Helpdesk.Application.Workflow;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Resources;
 using Helpdesk.Application.RequestTasks;
@@ -15,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using EntityState = Helpdesk.Shared.Models.EntityState;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Helpdesk.API.Endpoints.Services;
 
@@ -246,8 +248,7 @@ public static class ServiceEndpoints
             if (string.IsNullOrWhiteSpace(dto.ServiceId))
                 return Results.BadRequest("ServiceId is required.");
 
-            var schemaDoc = JsonDocument.Parse(dto.JsonSchema);
-            var validationError = ValidateTaskDependencyGraph(schemaDoc, schemaParser, dependencyGraphValidator);
+            var (schemaDoc, validationError) = ParseAndValidateSchema(dto.JsonSchema, schemaParser, dependencyGraphValidator);
             if (validationError is not null)
             {
                 return Results.BadRequest(validationError);
@@ -259,7 +260,7 @@ public static class ServiceEndpoints
                 return Results.BadRequest("One or more organizations are unavailable for assignment.");
             if (!await db.Services.AnyAsync(folder => folder.Id == dto.ServiceId, token))
                 return Results.BadRequest("The selected folder is unavailable.");
-            var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
+            var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc!).Fields, token);
             if (bindingError is not null)
             {
                 return Results.BadRequest(bindingError);
@@ -270,7 +271,7 @@ public static class ServiceEndpoints
                 ServiceId = dto.ServiceId,
                 Title = dto.Title,
                 Description = dto.Description ?? string.Empty,
-                JsonSchema = schemaDoc,
+                JsonSchema = schemaDoc!,
                 OrganizationId = organizationId,
                 AllowedOrganizationIds = audience,
                 ReleaseStatus = dto.ReleaseStatus
@@ -328,13 +329,13 @@ public static class ServiceEndpoints
             var schemaDoc = f.JsonSchema;
             if (!string.IsNullOrWhiteSpace(dto.JsonSchema))
             {
-                schemaDoc = JsonDocument.Parse(dto.JsonSchema);
-                var validationError = ValidateTaskDependencyGraph(schemaDoc, schemaParser, dependencyGraphValidator);
+                var (updatedSchema, validationError) = ParseAndValidateSchema(dto.JsonSchema, schemaParser, dependencyGraphValidator);
                 if (validationError is not null) return Results.BadRequest(validationError);
+                schemaDoc = updatedSchema!;
             }
             if (schemaDoc != f.JsonSchema || organizationId != f.OrganizationId)
             {
-                var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
+                var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc!).Fields, token);
                 if (bindingError is not null) return Results.BadRequest(bindingError);
             }
 
@@ -420,8 +421,7 @@ public static class ServiceEndpoints
                                         ITenantContext tenant, HelpdeskDbContext db,
                                         CancellationToken token) =>
         {
-            var schemaDoc = JsonDocument.Parse(dto.JsonSchema);
-            var validationError = ValidateTaskDependencyGraph(schemaDoc, schemaParser, dependencyGraphValidator);
+            var (schemaDoc, validationError) = ParseAndValidateSchema(dto.JsonSchema, schemaParser, dependencyGraphValidator);
             if (validationError is not null)
             {
                 return Results.BadRequest(validationError);
@@ -433,7 +433,7 @@ public static class ServiceEndpoints
                 return Results.BadRequest("One or more organizations are unavailable for assignment.");
             if (!await db.Services.AnyAsync(folder => folder.Id == serviceId, token))
                 return Results.BadRequest("The selected folder is unavailable.");
-            var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc).Fields, token);
+            var bindingError = await bindingValidator.ValidateAsync(organizationId ?? string.Empty, schemaParser.Parse(schemaDoc!).Fields, token);
             if (bindingError is not null)
             {
                 return Results.BadRequest(bindingError);
@@ -444,7 +444,7 @@ public static class ServiceEndpoints
                 ServiceId = serviceId,
                 Title = dto.Title,
                 Description = dto.Description,
-                JsonSchema = schemaDoc,
+                JsonSchema = schemaDoc!,
                 OrganizationId = organizationId,
                 AllowedOrganizationIds = audience,
                 ReleaseStatus = dto.ReleaseStatus
@@ -612,12 +612,69 @@ public static class ServiceEndpoints
         return tasksNode.GetArrayLength();
     }
 
-    private static string? ValidateTaskDependencyGraph(
-        JsonDocument schema,
+    private static (JsonDocument? Schema, string? Error) ParseAndValidateSchema(
+        string json,
         IRequestFormSchemaParser schemaParser,
         IRequestTaskDependencyGraphValidator dependencyGraphValidator)
     {
-        var parsedSchema = schemaParser.Parse(schema);
+        JsonDocument? schema = null;
+        try
+        {
+            schema = JsonDocument.Parse(json);
+            var parsed = schemaParser.Parse(schema);
+            if (schema.RootElement.ValueKind == JsonValueKind.Object &&
+                schema.RootElement.TryGetProperty("fields", out var fields) && fields.ValueKind == JsonValueKind.Array &&
+                fields.EnumerateArray().Any(field => field.ValueKind == JsonValueKind.Object &&
+                    field.EnumerateObject().Any(IsLegacyDatasetFieldType)))
+            {
+                var normalized = JsonNode.Parse(json)!.AsObject();
+                foreach (var field in normalized["fields"]!.AsArray().OfType<JsonObject>())
+                {
+                    foreach (var typeProperty in field.Where(property =>
+                                 string.Equals(property.Key, "type", StringComparison.OrdinalIgnoreCase)).ToList())
+                    {
+                        if (typeProperty.Value is JsonValue value && value.TryGetValue<string>(out var type)
+                            && string.Equals(type, "helpdeskData", StringComparison.OrdinalIgnoreCase))
+                        {
+                            field[typeProperty.Key] = "text";
+                        }
+                    }
+                }
+
+                schema.Dispose();
+                schema = JsonDocument.Parse(normalized.ToJsonString());
+            }
+            var error = ValidateTaskDependencyGraph(parsed, dependencyGraphValidator);
+            if (error is null)
+            {
+                return (schema, null);
+            }
+
+            schema.Dispose();
+            return (null, error);
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException)
+        {
+            schema?.Dispose();
+            return (null, "Provide a valid request form schema with boolean multiSelect flags.");
+        }
+    }
+
+    private static bool IsLegacyDatasetFieldType(JsonProperty property) =>
+        string.Equals(property.Name, "type", StringComparison.OrdinalIgnoreCase)
+        && property.Value.ValueKind == JsonValueKind.String
+        && string.Equals(property.Value.GetString(), "helpdeskData", StringComparison.OrdinalIgnoreCase);
+
+    private static string? ValidateTaskDependencyGraph(
+        RequestFormSchemaModel parsedSchema,
+        IRequestTaskDependencyGraphValidator dependencyGraphValidator)
+    {
+        var conditionError = WorkflowConditionEvaluator.ValidateMultiSelectConditions(parsedSchema);
+        if (conditionError is not null)
+        {
+            return conditionError;
+        }
+
         var slaRuleError = ValidateTaskSlaRules(parsedSchema.Tasks);
         if (slaRuleError is not null)
         {

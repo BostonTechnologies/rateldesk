@@ -8,6 +8,21 @@ public static class RequestFormFieldEditorState
         string.Equals(field.Type, "text", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(field.Type, "helpdeskData", StringComparison.OrdinalIgnoreCase);
 
+    public static bool SupportsMultiSelect(FormField field, bool hasAvailableDataset) =>
+        string.Equals(field.Type, "predefined", StringComparison.OrdinalIgnoreCase)
+        || (SupportsDatasetBinding(field) && hasAvailableDataset && !string.IsNullOrWhiteSpace(field.DataBinding?.DatasetId));
+
+    public static bool ClearIncompatibleMultiSelect(FormField field, bool hasAvailableDataset)
+    {
+        if (!field.MultiSelect || SupportsMultiSelect(field, hasAvailableDataset))
+        {
+            return false;
+        }
+
+        field.MultiSelect = false;
+        return true;
+    }
+
     public static FormField ForEditor(FormField field)
     {
         // A binding augments a Text field; it does not change the schema type.
@@ -21,6 +36,7 @@ public static class RequestFormFieldEditorState
         Label = field.Label,
         Type = string.Equals(field.Type, "helpdeskData", StringComparison.OrdinalIgnoreCase) ? "text" : field.Type,
         Required = field.Required,
+        MultiSelect = field.MultiSelect,
         DataBinding = field.DataBinding,
         PredefinedOptions = field.PredefinedOptions
     };

@@ -11,6 +11,78 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 
 public sealed class AutomationBindingPayloadContractServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Multi_select_maps_exactly_one_json_text_parameter(bool single)
+    {
+        var parser = new RequestFormSchemaParser();
+        var service = new AutomationBindingPayloadContractService(parser, Substitute.For<IAutomationBindingService>());
+        var form = CreateRequestForm(MultiSelectSchema);
+        var template = Assert.Single(parser.Parse(form.JsonSchema).Tasks);
+        string[] selections = single ? ["CN=Fleet Admin,OU=Groups,DC=example,DC=org"]
+            : ["CN=Fleet Admin,OU=Groups,DC=example,DC=org", """Warehouse "quoted" C:\Shared — Ångström"""];
+        var payload = JsonSerializer.Serialize(new { groups = selections, _boundLabels = new { groups = new[] { "Label only" } } });
+
+        var result = service.BuildTaskInput(form, template, payload);
+
+        Assert.True(result.Success, result.Error);
+        Assert.Single(result.InputNode);
+        var wire = result.InputNode["groupList"]!.GetValue<string>();
+        Assert.Equal(JsonSerializer.Serialize(selections), wire);
+        Assert.Equal(selections, JsonSerializer.Deserialize<string[]>(wire));
+    }
+
+    [Fact]
+    public void Later_form_edits_preserve_the_shape_of_historical_scalar_and_array_submissions()
+    {
+        var parser = new RequestFormSchemaParser();
+        var service = new AutomationBindingPayloadContractService(parser, Substitute.For<IAutomationBindingService>());
+        var multi = CreateRequestForm(MultiSelectSchema);
+        var single = CreateRequestForm(MultiSelectSchema.Replace("multiSelect\":true", "multiSelect\":false", StringComparison.Ordinal));
+        var template = Assert.Single(parser.Parse(multi.JsonSchema).Tasks);
+
+        var legacy = service.BuildTaskInput(multi, template, """{"groups":"CN=Historical,DC=example"}""");
+        var newer = service.BuildTaskInput(single, template, """{"groups":["CN=Recorded,DC=example"]}""");
+
+        Assert.Equal("CN=Historical,DC=example", legacy.InputNode["groupList"]!.GetValue<string>());
+        Assert.Equal("""["CN=Recorded,DC=example"]""", newer.InputNode["groupList"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("text", false, null, true)]
+    [InlineData("text", true, null, false)]
+    [InlineData("text", true, "[]", true)]
+    [InlineData("number", false, null, false)]
+    [InlineData("boolean", false, null, false)]
+    [InlineData("select", false, null, false)]
+    public async Task Optional_empty_multi_select_omits_input_but_honors_the_bound_destination(
+        string type, bool required, string? defaultValue, bool expected)
+    {
+        var parser = new RequestFormSchemaParser();
+        var form = CreateRequestForm(MultiSelectSchema);
+        var template = Assert.Single(parser.Parse(form.JsonSchema).Tasks);
+        var bindings = Substitute.For<IAutomationBindingService>();
+        bindings.ListAsync(form.Id, Arg.Any<CancellationToken>()).Returns([
+            new() { TaskTemplateId = template.Id, Enabled = true, OrganizationId = "org", OrchestrationRequestDefinitionId = "14" }]);
+        var catalog = Substitute.For<IOrchestrationCatalogService>();
+        catalog.ListRequestDefinitionsAsync("org", null, Arg.Any<CancellationToken>()).Returns([
+            new() { RequestDefinitionId = "14", Inputs = [new() { Key = "groupList", Type = type, Required = required, DefaultValue = defaultValue }] }]);
+        var service = new AutomationBindingPayloadContractService(parser, bindings, catalog);
+
+        var built = service.BuildTaskInput(form, template, """{"groups":[]}""");
+        var validation = await service.ValidateBoundRequestPayloadAsync(form, """{"groups":[]}""");
+
+        Assert.True(built.Success, built.Error);
+        Assert.Empty(built.InputNode);
+        Assert.Equal(expected, validation.Success);
+    }
+
+    private const string MultiSelectSchema = """
+        {"fields":[{"key":"groups","label":"Groups","type":"text","multiSelect":true,"dataBinding":{"datasetId":"groups"}}],
+        "tasks":[{"id":"11111111-1111-1111-1111-111111111111","type":"automation","name":"Process groups","payloadMapping":{"groupList":"groups"}}]}
+        """;
+
     [Fact]
     public async Task ValidateBoundRequestPayloadAsync_Fails_WhenRequiredMappedFieldIsMissing()
     {

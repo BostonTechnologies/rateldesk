@@ -28,6 +28,7 @@ public sealed class MyRequestDetailDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
     public string PayloadJson { get; set; } = "{}";
+    public IReadOnlyList<RequestSubmittedFieldDto> SubmittedFields { get; set; } = [];
     public string? WorkflowStatus { get; set; }
     public string? WorkflowBlockReason { get; set; }
     public DateTimeOffset? WorkflowUpdatedAt { get; set; }

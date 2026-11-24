@@ -19,6 +19,7 @@ function reset(mode='') {
   {id:'9007199254740995',name:'Synthetic five-node job',kind:'explicitNodes',summary:'5 selected nodes',definition:{version:1,source:2,agentIds:nodeIds}}
  ].map(job=>({contractVersion:2,requestDefinitionId:job.id,orchestrationJobDefinitionId:job.id,requestDefinitionName:job.name,orchestrationJobDefinitionName:job.name,displayName:job.name,folderPath:'/synthetic/',tenantId:17,clientIdentity:'',inputs:[],expectedRuntimeSeconds:60,target:{version:1,kind:job.kind,summary:job.summary,definition:job.definition,readiness:'worker-check-at-run',requiredInputs:[]}}));
  const fields=[{key:'request_reason',label:'Request reason',type:'text',required:true},{key:'device_type',label:'Device type',type:'predefined',predefinedOptions:['Notebook','Desktop'],required:false}];
+ if(mode==='multi-select') fields.push({key:'group_keys',label:'Directory groups',type:'helpdeskData',dataBinding:{datasetId:'fixture-groups'}});
  const tasks=[{id:taskIds[0],name:'Prepare access — synthetic automation',description:'Review and map a harmless synthetic request.',type:'automation',order:1,autoStart:true,payloadMapping:Object.fromEntries(inputs.map(x=>[x.key,'request_reason'])),dependsOn:[]},
  {id:taskIds[1],name:'Review result',type:'manual',order:2,autoStart:true,dependsOn:[taskIds[0]],description:'Human review retained while reordering.'},
  {id:taskIds[2],name:'Approve completion',type:'approval',order:3,autoStart:true,dependsOn:[taskIds[1]],approvalAllowedDays:7,approvalApprovers:[{source:'User',id:'operator',name:'Synthetic Operator',email:'operator@example.test'}]}];
@@ -44,6 +45,7 @@ http.createServer(async(req,res)=>{
  if(path==='/api/v1/branding')return reply({applicationName:'RatelDesk',faviconUrl:'/favicon.ico'});
  if (['/api/v1/admin/directories/organizations/search'].includes(path)) return reply(organizationLookupPage(url, organizations));
  if(path==='/api/v1/organizations')return reply(organizations);
+ if(path==='/api/v1/resources/datasets')return reply([{id:'fixture-groups',name:'Fixture groups',displayColumn:'name',searchColumns:['name'],isActive:true}]);
  if(path==='/api/v1/users')return reply([{id:'operator',name:'Synthetic Operator',email:'operator@example.test',organizationId:'org-1'}]);
  if(path==='/api/v1/services/service-1')return reply({id:'service-1',name:'Synthetic service',depth:1});
  if(path==='/api/v1/services/service-1/breadcrumb')return reply([{id:'service-1',name:'Synthetic service'}]);

@@ -6,7 +6,6 @@
 @attribute [Authorize(Roles = "SelfService.User,HelpdeskAdmin")]
 
 @using System.Net.Http.Json
-@using System.Text.Json
 @using Helpdesk.Shared.DTOs.Request
 
 @inject IHttpClientFactory HttpClientFactory
@@ -68,20 +67,20 @@
 
             <MudPaper Class="helpdesk-content-surface pa-4" Elevation="0">
                 <MudText Typo="Typo.h6" Class="mb-2">Submitted Info</MudText>
-                @if (payloadRows.Count == 0)
+                @if (request.SubmittedFields.Count == 0)
                 {
                     <MudText Typo="Typo.body2">No submitted fields.</MudText>
                 }
                 else
                 {
-                    <MudTable T="PayloadRow" Dense="true" Hover="true" Items="payloadRows" Breakpoint="Breakpoint.Sm" Class="helpdesk-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-selfservice-myrequestdetail-1">
+                    <MudTable T="RequestSubmittedFieldDto" Dense="true" Hover="true" Items="request.SubmittedFields" Breakpoint="Breakpoint.Sm" Class="helpdesk-table compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-selfservice-myrequestdetail-1">
                         <HeaderContent>
                             <MudTh>Field</MudTh>
                             <MudTh>Value</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Field">@context.Key</MudTd>
-                            <MudTd DataLabel="Value">@context.Value</MudTd>
+                            <MudTd DataLabel="Value" Style="overflow-wrap:anywhere">@context.Value</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -155,7 +154,6 @@
     private string? loadError;
     private MyRequestDetailDto? request;
     private List<MyRequestTaskDto> tasks = new();
-    private readonly List<PayloadRow> payloadRows = new();
     private List<MyRequestPendingApprovalDto> PendingApprovals =>
         tasks.SelectMany(x => x.PendingApprovals).ToList();
 
@@ -174,7 +172,6 @@
         loadError = null;
         request = null;
         tasks.Clear();
-        payloadRows.Clear();
         var version = scopeVersion;
         try { await RefreshAsync(); }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { loadError = "Request loading was cancelled."; }
@@ -199,8 +196,6 @@
         request = await detail;
         if (request is null) throw new HttpRequestException("The request is no longer available.");
         tasks = await steps ?? new();
-        payloadRows.Clear();
-        payloadRows.AddRange(ParsePayloadRows(request.PayloadJson));
     }
 
     private static string OwnTaskStatus(MyRequestTaskDto task) => task.LastAutomationStatus is "SubmitUncertainManualReconcile" or "ExecutionUnknownManualReconcile"
@@ -218,52 +213,4 @@
         Navigation.NavigateTo(SelfServiceNavigation?.MyRequestsUrl ?? "/self-service/my-requests");
     }
 
-    private static IReadOnlyList<PayloadRow> ParsePayloadRows(string? payloadJson)
-    {
-        var rows = new List<PayloadRow>();
-
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return rows;
-        }
-
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(payloadJson);
-        }
-        catch
-        {
-            rows.Add(new PayloadRow("payload", payloadJson));
-            return rows;
-        }
-
-        using (doc)
-        {
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                rows.Add(new PayloadRow("payload", doc.RootElement.ToString()));
-                return rows;
-            }
-
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                var value = prop.Value.ValueKind switch
-                {
-                    JsonValueKind.Null => string.Empty,
-                    JsonValueKind.String => prop.Value.GetString(),
-                    JsonValueKind.Number => prop.Value.ToString(),
-                    JsonValueKind.True => "true",
-                    JsonValueKind.False => "false",
-                    _ => prop.Value.GetRawText()
-                };
-
-                rows.Add(new PayloadRow(prop.Name, value));
-            }
-        }
-
-        return rows;
-    }
-
-    private sealed record PayloadRow(string Key, string? Value);
 }

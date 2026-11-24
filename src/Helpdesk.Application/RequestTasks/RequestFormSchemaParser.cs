@@ -24,6 +24,17 @@ public sealed class RequestFormSchemaParser : IRequestFormSchemaParser
             var fields = JsonSerializer.Deserialize<List<FormField>>(fieldsNode.GetRawText(), SerializerOptions);
             if (fields is not null)
             {
+                if (fields.Any(field => field is null))
+                {
+                    throw new JsonException("Request form fields must be objects.");
+                }
+
+                foreach (var field in fields.Where(field =>
+                             string.Equals(field.Type, "helpdeskData", StringComparison.OrdinalIgnoreCase)))
+                {
+                    field.Type = "text";
+                }
+
                 result.Fields = fields;
             }
         }

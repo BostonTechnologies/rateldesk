@@ -1,0 +1,69 @@
+.dataset-select {
+    min-inline-size: 0;
+    margin-top: 4px;
+}
+
+.dataset-select ::deep .dataset-select-trigger .mud-button-label {
+    justify-content: space-between;
+    text-align: start;
+}
+
+.dataset-select-summary, .dataset-select-pages {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    min-block-size: 30px;
+}
+
+.dataset-select-summary {
+    color: var(--mud-palette-text-secondary);
+    font-size: var(--mud-typography-caption-size);
+}
+
+.dataset-select-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0;
+    margin: 0 0 4px;
+    list-style: none;
+}
+
+.dataset-select-chips li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    padding-inline-start: 10px;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 18px;
+    font-size: var(--mud-typography-body2-size);
+    color: var(--mud-palette-text-primary);
+}
+
+.dataset-select-chips li span,
+.dataset-select-option {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+}
+
+.dataset-select-results {
+    max-block-size: 18rem;
+    overflow: auto;
+    padding: 2px 4px;
+}
+
+.dataset-select-results ::deep .mud-input-control {
+    margin: 0;
+}
+
+.dataset-select-option {
+    display: grid;
+    padding-block: 4px;
+}
+
+.dataset-select-option small {
+    color: var(--mud-palette-text-secondary);
+}

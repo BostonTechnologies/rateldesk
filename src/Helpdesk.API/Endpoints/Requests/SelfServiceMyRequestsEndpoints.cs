@@ -1,3 +1,4 @@
+using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Events;
 using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Persistence;
@@ -208,7 +209,8 @@ public static partial class SelfServiceMyRequestsEndpoints
             WorkflowStatus = request.WorkflowStatus,
             WorkflowBlockReason = request.WorkflowBlockReason,
             WorkflowUpdatedAt = request.WorkflowUpdatedAt,
-            PayloadJson = string.IsNullOrWhiteSpace(request.PayloadJson) ? "{}" : request.PayloadJson
+            PayloadJson = string.IsNullOrWhiteSpace(request.PayloadJson) ? "{}" : request.PayloadJson,
+            SubmittedFields = RequestSubmittedFields.Read(request.PayloadJson, !string.IsNullOrWhiteSpace(request.RequestFormId))
         });
     }
 
@@ -299,6 +301,7 @@ public static partial class SelfServiceMyRequestsEndpoints
                 r.OrganizationId,
                 db.Organizations.Where(org => org.Id == r.OrganizationId).Select(org => org.Name).FirstOrDefault(),
                 r.PayloadJson,
+                r.RequestFormId,
                 r.CreatedAt,
                 r.UpdatedAt,
                 r.WorkflowStatus,
@@ -346,6 +349,7 @@ public static partial class SelfServiceMyRequestsEndpoints
         string OrganizationId,
         string? OrganizationName,
         string? PayloadJson,
+        string? RequestFormId,
         DateTime CreatedAt,
         DateTime? UpdatedAt,
         string? WorkflowStatus,
