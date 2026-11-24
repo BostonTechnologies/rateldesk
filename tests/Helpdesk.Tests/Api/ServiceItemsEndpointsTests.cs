@@ -13,6 +13,8 @@ using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Resources;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Resources;
+using System.Text.Json;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.RequestForm;
@@ -36,6 +38,39 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class ServiceItemsEndpointsTests
 {
+    [Fact]
+    public async Task Form_authoring_saves_a_multi_select_list_and_rejects_invalid_modes_and_conditions()
+    {
+        await using var harness = await ServiceItemsTestHarness.CreateAsync(isHelpdeskAdmin: true);
+        const string valid = """
+            {"fields":[{"key":"groups","label":"Groups","type":"predefined","multiSelect":true,"predefinedOptions":["Fleet","Warehouse"]}]}
+            """;
+        using var saved = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { jsonSchema = valid });
+        saved.EnsureSuccessStatusCode();
+        var form = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
+        using var schema = JsonDocument.Parse(form!.JsonSchema);
+        var field = Assert.Single(new RequestFormSchemaParser().Parse(schema).Fields);
+        Assert.True(field.MultiSelect);
+        Assert.Equal("groups", field.Key);
+
+        string[] invalid =
+        [
+            valid.Replace("predefined", "number", StringComparison.Ordinal),
+            """{"fields":[{"label":"Groups","type":"text","multiSelect":true}]}""",
+            """{"fields":[{"label":"Groups","type":"text","multiSelect":true,"dataBinding":{"datasetId":"groups","allowFreeText":true}}]}""",
+            """{"fields":[{"label":"Groups","type":"predefined","multiSelect":"yes"}]}""",
+            """{"fields":[{"key":"groups","type":"predefined","multiSelect":true}],"tasks":[{"name":"Manual","conditionExpression":"payload.groups == 1"}]}"""
+        ];
+        foreach (var configuration in invalid)
+        {
+            using var rejected = await harness.Client.PutAsJsonAsync("/api/v1/request-forms/form-root", new { jsonSchema = configuration });
+            Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        }
+
+        var retained = await harness.Client.GetFromJsonAsync<RequestFormDto>("/api/v1/request-forms/form-root");
+        Assert.Equal(valid, retained!.JsonSchema);
+    }
+
     [Fact]
     public async Task Service_create_update_get_and_list_preserve_organization_audience()
     {
@@ -389,7 +424,8 @@ public sealed class ServiceItemsEndpointsTests
             builder.Services.AddScoped<IRepository<RequestForm>, EfRepository<RequestForm>>();
             builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddSingleton<IRequestTaskDependencyGraphValidator, RequestTaskDependencyGraphValidator>();
-            builder.Services.AddSingleton(Substitute.For<IRequestFormDatasetBindingValidator>());
+            builder.Services.AddSingleton(Substitute.For<IDataManagementService>());
+            builder.Services.AddScoped<IRequestFormDatasetBindingValidator, RequestFormDatasetBindingValidator>();
             builder.Services.AddSingleton(Substitute.For<IDomainEventPublisher>());
             builder.Services.AddSingleton(Substitute.For<ICorrelationContext>());
             builder.Services.AddScoped<ITenantContext>(_ => new TestTenantContext("tenant-1", "user-1", isHelpdeskAdmin));

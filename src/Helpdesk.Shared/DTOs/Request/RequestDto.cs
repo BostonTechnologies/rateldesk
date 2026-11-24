@@ -26,6 +26,8 @@ public class RequestDto
     public string? ServiceId { get; set; }
     public string? RequestFormId { get; set; }
     public string? PayloadJson { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<RequestSubmittedFieldDto>? SubmittedFields { get; set; }
     public string? SourceTicketId { get; set; }
     public string? SourceTicketTrackingId { get; set; }
     public string? SourceAutomationBindingId { get; set; }

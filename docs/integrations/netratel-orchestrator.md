@@ -111,6 +111,52 @@ The earlier form save has already happened; canceling the remaining draft does
 not roll that server-side save back.
 
 
+### Map multi-select choices to a job
+
+In **Payload Mapping**, select the multi-select Helpdesk field and an existing
+NetRatel **Text** job parameter. Map each field to one parameter. For example,
+map the directory field `groups` to `groupList`. The script receives one
+string containing the ordered JSON array of canonical keys, including when the
+user chooses one item. An empty optional list leaves the parameter out of the
+dispatch. A required destination without a default needs a selection.
+
+The `input` object for a submitted task can contain:
+
+```json
+{"groupList":"[\"CN=Fleet Admin,OU=Groups,DC=example,DC=org\",\"CN=Fleet Readers,OU=Groups,DC=example,DC=org\"]"}
+```
+
+Use a NetRatel **Library script** step with a parameter of the same name. Keep
+the parameter as data throughout the script. For a PowerShell library script,
+declare a string parameter and parse it with `ConvertFrom-Json`.
+
+```powershell
+param([string]$groupList = '[]')
+
+$groups = @(ConvertFrom-Json -InputObject $groupList)
+Write-Output "Selected groups: $($groups.Count)"
+```
+
+For Python on a Linux worker, use a **Bash** library script and a Text job
+parameter named `group_list`. The Bash runner exposes the parameter as an
+environment variable, which Python can read directly.
+
+```bash
+python3 - <<'PYTHON'
+import json
+import os
+
+groups = json.loads(os.environ.get("group_list", "[]"))
+print(f"Selected groups: {len(groups)}")
+PYTHON
+```
+
+JSON parsing preserves distinguished names and other keys containing commas,
+quotes, backslashes and Unicode. For a no-op check, run either sample with
+synthetic values to confirm the count. Workflow conditions support scalar
+comparisons only. Use a separate single-value field when a workflow step needs
+a condition.
+
 ## Trusted self-service requester identities
 
 Enabled local accounts can submit an eligible form without an existing customer

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
+using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.Models;
 
@@ -9,7 +10,8 @@ namespace Helpdesk.Infrastructure.Orchestration;
 
 public sealed class AutomationBindingPayloadContractService(
     IRequestFormSchemaParser schemaParser,
-    IAutomationBindingService automationBindings) : IAutomationBindingPayloadContractService
+    IAutomationBindingService automationBindings,
+    IOrchestrationCatalogService? catalog = null) : IAutomationBindingPayloadContractService
 {
     private readonly IRequestFormSchemaParser _schemaParser = schemaParser;
     private readonly IAutomationBindingService _automationBindings = automationBindings;
@@ -37,6 +39,7 @@ public sealed class AutomationBindingPayloadContractService(
         }
 
         var errors = new List<string>();
+        var catalogs = new Dictionary<(string OrganizationId, Guid? ConnectionId), IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>>();
         foreach (var taskTemplate in schema.Tasks.Where(x => x.Id != Guid.Empty))
         {
             if (!enabledBindings.TryGetValue(taskTemplate.Id, out var binding))
@@ -62,13 +65,37 @@ public sealed class AutomationBindingPayloadContractService(
                 continue;
             }
 
-            var buildResult = BuildTaskInputCore(schema.Fields, taskTemplate, payloadResult.PayloadRoot!);
-            if (buildResult.Success)
+            var buildResult = BuildTaskInputCore(schema.Fields, taskTemplate, payloadResult.PayloadRoot!, enforceCurrentSchema: true);
+            if (!buildResult.Success)
+            {
+                errors.Add($"Task '{taskTemplate.Name}': {buildResult.Error}");
+                continue;
+            }
+
+            if (buildResult.MultiSelectInputs.Count == 0)
             {
                 continue;
             }
 
-            errors.Add($"Task '{taskTemplate.Name}': {buildResult.Error}");
+            try
+            {
+                var selection = (binding.OrganizationId, binding.SystemConnectionId);
+                if (catalog is not null && !catalogs.ContainsKey(selection))
+                {
+                    catalogs[selection] = await catalog.ListRequestDefinitionsAsync(selection.OrganizationId, selection.SystemConnectionId, cancellationToken);
+                }
+
+                var targetInputs = ResolveTargetInputs(catalogs.GetValueOrDefault(selection), binding);
+                var error = AutomationMultiSelectMapping.Validate(buildResult.MultiSelectInputs, targetInputs, buildResult.InputNode);
+                if (error is not null)
+                {
+                    errors.Add($"Task '{taskTemplate.Name}': {error}");
+                }
+            }
+            catch (OrchestrationProviderException)
+            {
+                errors.Add($"Task '{taskTemplate.Name}': NetRatel inputs could not be verified. Retry or ask an administrator to check the connection.");
+            }
         }
 
         return errors.Count == 0
@@ -88,13 +115,15 @@ public sealed class AutomationBindingPayloadContractService(
             return AutomationTaskInputBuildResult.Failed(payloadResult.Error!);
         }
 
-        return BuildTaskInputCore(schema.Fields, taskTemplate, payloadResult.PayloadRoot!);
+        // A task may run after its form changed. Retain the submitted scalar or array shape.
+        return BuildTaskInputCore(schema.Fields, taskTemplate, payloadResult.PayloadRoot!, enforceCurrentSchema: false);
     }
 
     private static AutomationTaskInputBuildResult BuildTaskInputCore(
         IReadOnlyCollection<FormField> fields,
         RequestTaskTemplateModel taskTemplate,
-        JsonObject payloadRoot)
+        JsonObject payloadRoot,
+        bool enforceCurrentSchema)
     {
         if (taskTemplate.PayloadMapping is null || taskTemplate.PayloadMapping.Count == 0)
         {
@@ -103,9 +132,10 @@ public sealed class AutomationBindingPayloadContractService(
 
         var fieldLookup = fields
             .Select((field, index) => new { Field = field, Key = FormFieldKeyResolver.Resolve(field, index) })
-            .ToDictionary(x => x.Key, x => x.Field, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
 
         var inputNode = new JsonObject();
+        var multiSelectInputs = new List<string>();
         var unresolvedMappedFields = new List<string>();
         foreach (var mapping in taskTemplate.PayloadMapping.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -116,12 +146,34 @@ public sealed class AutomationBindingPayloadContractService(
                 continue;
             }
 
-            if (!fieldLookup.TryGetValue(fieldKey, out var field))
+            if (!fieldLookup.TryGetValue(fieldKey, out var source))
             {
                 return AutomationTaskInputBuildResult.Failed($"Payload mapping references missing field '{fieldKey}'.");
             }
 
-            if (!payloadRoot.TryGetPropertyValue(fieldKey, out var sourceValue) || sourceValue is null)
+            var field = source.Field;
+            var sourceValue = payloadRoot[source.Key];
+            var isMultiSelect = enforceCurrentSchema ? field.MultiSelect
+                : sourceValue is JsonArray || (field.MultiSelect && sourceValue is null);
+            if (isMultiSelect)
+            {
+                multiSelectInputs.Add(payloadKey);
+                var error = RequestFormMultiSelect.ReadSelections(field, sourceValue, out var selections);
+                if (error is not null)
+                {
+                    return AutomationTaskInputBuildResult.Failed(error);
+                }
+
+                if (selections.Count != 0)
+                {
+                    // Keep literal data out of NetRatel's @node.*@ template expansion.
+                    inputNode[payloadKey] = sourceValue!.ToJsonString().Replace("@", "\\u0040", StringComparison.Ordinal);
+                }
+
+                continue;
+            }
+
+            if (sourceValue is null)
             {
                 unresolvedMappedFields.Add(fieldKey);
                 if (field.Required)
@@ -148,7 +200,7 @@ public sealed class AutomationBindingPayloadContractService(
             inputNode[payloadKey] = sourceValue.DeepClone();
         }
 
-        if (inputNode.Count == 0)
+        if (inputNode.Count == 0 && multiSelectInputs.Count == 0)
         {
             var missingFields = unresolvedMappedFields.Count == 0
                 ? "none"
@@ -157,8 +209,14 @@ public sealed class AutomationBindingPayloadContractService(
                 $"Task '{taskTemplate.Name}' payload mapping did not resolve any External orchestration job inputs. Missing or empty Helpdesk fields: {missingFields}.");
         }
 
-        return AutomationTaskInputBuildResult.Succeeded(inputNode);
+        return AutomationTaskInputBuildResult.Succeeded(inputNode, multiSelectInputs);
     }
+
+    internal static IReadOnlyList<OrchestrationCatalogInputDefinitionDto> ResolveTargetInputs(
+        IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>? definitions, AutomationBindingDto binding) =>
+        definitions?.FirstOrDefault(candidate => candidate.RequestDefinitionId == binding.OrchestrationRequestDefinitionId &&
+            (string.IsNullOrWhiteSpace(binding.OrchestrationJobDefinitionId)
+             || candidate.OrchestrationJobDefinitionId == binding.OrchestrationJobDefinitionId))?.Inputs ?? [];
 
     private static (bool Success, JsonObject? PayloadRoot, string? Error) ParsePayload(string payloadJson)
     {

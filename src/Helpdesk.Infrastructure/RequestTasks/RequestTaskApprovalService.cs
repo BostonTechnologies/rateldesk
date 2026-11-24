@@ -600,34 +600,10 @@ public sealed partial class RequestTaskApprovalService(
             "</table>";
     }
 
-    private static List<RequestApprovalPayloadFieldDto> BuildPayloadFields(string? payloadJson)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return new List<RequestApprovalPayloadFieldDto>();
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payloadJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return [new RequestApprovalPayloadFieldDto { Key = "payload", Value = doc.RootElement.ToString() }];
-            }
-
-            return doc.RootElement.EnumerateObject()
-                .Select(x => new RequestApprovalPayloadFieldDto
-                {
-                    Key = x.Name,
-                    Value = x.Value.ValueKind == JsonValueKind.String ? x.Value.GetString() ?? string.Empty : x.Value.ToString()
-                })
-                .ToList();
-        }
-        catch
-        {
-            return [new RequestApprovalPayloadFieldDto { Key = "payload", Value = payloadJson }];
-        }
-    }
+    private static List<RequestApprovalPayloadFieldDto> BuildPayloadFields(string? payloadJson) =>
+        RequestSubmittedFields.Read(payloadJson)
+            .Select(field => new RequestApprovalPayloadFieldDto { Key = field.Key, Value = field.Value })
+            .ToList();
 }
 
 public sealed class RequestTaskApprovalTimeoutProcessor(IRequestTaskApprovalService approvalService) : IRequestTaskApprovalTimeoutProcessor

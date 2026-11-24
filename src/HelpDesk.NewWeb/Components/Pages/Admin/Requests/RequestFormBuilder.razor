@@ -125,6 +125,7 @@
                                 <MudTh>Label</MudTh>
                                 <MudTh>Type</MudTh>
                                 <MudTh>Required</MudTh>
+                                <MudTh>Multi-select</MudTh>
                                 <MudTh>Data Binding</MudTh>
                                 <MudTh>Predefined</MudTh>
                                 <MudTh Style="width: 1%;">Actions</MudTh>
@@ -133,7 +134,7 @@
                                 <MudTd DataLabel="Label">
                                     <MudTextField @ref="fieldLabelInputs[context]" @bind-Value="context.Label" Label="Field label" Required="true" Margin="Margin.Dense" Immediate="true" />
                                 </MudTd>
-                                <MudTd>
+                                <MudTd DataLabel="Type">
                                     <MudSelect T="string" Label="Field type" Value="context.Type" ValueChanged="@((string value) => OnFieldTypeChanged(context, value))" Margin="Margin.Dense" Dense="true">
                                         @foreach (var t in FieldTypes)
                                         {
@@ -141,10 +142,20 @@
                                         }
                                     </MudSelect>
                                 </MudTd>
-                                <MudTd>
-                                    <MudSwitch @bind-Value="context.Required" Color="Color.Primary" aria-label="Field required" />
+                                <MudTd DataLabel="Required">
+                                    <MudSwitch @bind-Value="context.Required" Color="Color.Primary" AriaLabel="@($"Require {context.Label}")" />
                                 </MudTd>
-                                <MudTd>
+                                <MudTd DataLabel="Multi-select" Class="request-form-multi-select">
+                                    <MudSwitch T="bool" Value="@(context.MultiSelect && CanUseMultiSelect(context))"
+                                               ValueChanged="@(enabled => OnFieldMultiSelectChanged(context, enabled))"
+                                               Disabled="@(!CanUseMultiSelect(context))" Color="Color.Primary"
+                                               Size="Size.Small" AriaLabel="@($"Multi-select for {context.Label}")" />
+                                    @if (!CanUseMultiSelect(context))
+                                    {
+                                        <MudText Typo="Typo.caption">@(IsHelpdeskDataField(context) ? "Choose an active dataset" : "List fields only")</MudText>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Data Binding">
                                     <MudStack Spacing="1">
                                         <MudSelect T="string"
                                                    Label="Dataset binding" Value="context.DataBinding?.DatasetId"
@@ -153,7 +164,7 @@
                                                    Dense="true"
                                                    Clearable="true"
                                                    Disabled="@(!IsHelpdeskDataField(context))">
-                                            @foreach (var dataset in availableDatasets)
+                                            @foreach (var dataset in availableDatasets.Where(dataset => dataset.IsActive))
                                             {
                                                 <MudSelectItem T="string" Value="@dataset.Id">@dataset.Name</MudSelectItem>
                                             }
@@ -169,7 +180,7 @@
                                         }
                                     </MudStack>
                                 </MudTd>
-                                <MudTd>
+                                <MudTd DataLabel="Predefined">
                                     <MudTooltip Text="@GetPredefinedOptionsTooltip(context)">
                                         <MudIconButton Icon="@Icons.Material.Filled.Edit"
                                                        Color="@(IsPredefinedField(context) ? Color.Primary : Color.Default)"
@@ -177,7 +188,7 @@
                                                        OnClick="@(() => OpenPredefinedOptionsDialogAsync(context))" />
                                     </MudTooltip>
                                 </MudTd>
-                                <MudTd>
+                                <MudTd DataLabel="Actions" Class="request-form-field-actions">
                                     <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" aria-label="Move field up" Disabled="@(FormFields.IndexOf(context) == 0)" OnClick="@(() => MoveField(context, -1))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" aria-label="Move field down" Disabled="@(FormFields.IndexOf(context) == FormFields.Count - 1)" OnClick="@(() => MoveField(context, 1))" />
                                     <WorkspaceAction Icon="@Icons.Material.Filled.Delete" Label="Delete field" OnClick="@(() => RemoveField(context))" />
@@ -614,6 +625,10 @@
 
                                                         <MudDivider Class="my-2" />
                                                         <MudText Typo="Typo.subtitle2">Payload Mapping</MudText>
+                                                        @if (FieldOptions.Any(field => field.MultiSelect))
+                                                        {
+                                                            <MudText Typo="Typo.caption">Map multi-select fields to a NetRatel Text input. The value is JSON text such as <code>["first","second"]</code>.</MudText>
+                                                        }
                                                         <MudGrid Spacing="1">
                                                             <MudItem xs="12" sm="5">
                                                                 <MudSelect T="string"
@@ -625,7 +640,7 @@
                                                                            Dense="true">
                                                                     @foreach (var option in FieldOptions)
                                                                     {
-                                                                        <MudSelectItem Value="@option.Key">@option.Label (@option.Key)</MudSelectItem>
+                                                                        <MudSelectItem Value="@option.Key">@FormatFieldOption(option)</MudSelectItem>
                                                                     }
                                                                 </MudSelect>
                                                             </MudItem>
@@ -640,7 +655,8 @@
                                                                            Disabled="@(!SelectedOrchestrationInputs.Any())">
                                                                     @foreach (var input in SelectedOrchestrationInputs.OrderBy(x => x.Order).ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
                                                                     {
-                                                                        <MudSelectItem Value="@input.Key">@GetOrchestrationInputLabel(input)</MudSelectItem>
+                                                                        <MudSelectItem Value="@input.Key"
+                                                                                       Disabled="@(IsMultiSelectSource(SelectedDraftFieldKey) && !IsVerifiedTextInput(SelectedBinding, input.Key))">@GetOrchestrationInputLabel(input)</MudSelectItem>
                                                                     }
                                                                 </MudSelect>
                                                             </MudItem>
@@ -668,10 +684,13 @@
                                                                                    ValueChanged="@((string? value) => OnPayloadMappingFieldChanged(context.JobParamKey, value))"
                                                                                    Margin="Margin.Dense"
                                                                                    Dense="true"
+                                                                                   Error="@(IsMultiSelectSource(context.HelpdeskFieldKey) && !IsVerifiedTextInput(SelectedBinding, context.JobParamKey))"
+                                                                                   ErrorText="Choose an existing NetRatel Text input for this multi-select field."
                                                                                    Clearable="true">
                                                                             @foreach (var option in FieldOptions)
                                                                             {
-                                                                                <MudSelectItem Value="@option.Key">@option.Label (@option.Key)</MudSelectItem>
+                                                                                <MudSelectItem Value="@option.Key"
+                                                                                               Disabled="@(option.MultiSelect && !IsVerifiedTextInput(SelectedBinding, context.JobParamKey))">@FormatFieldOption(option)</MudSelectItem>
                                                                             }
                                                                         </MudSelect>
                                                                     </MudTd>
@@ -867,6 +886,8 @@
 .request-form-section-header { padding-bottom:10px; border-bottom:1px solid var(--mud-palette-lines-default); }
 .request-form-task-config-panel > .request-form-pane-toolbar { padding-inline:6px; }
 .request-form-tab-content { background:var(--mud-palette-background-gray); border-radius:0 0 10px 10px; padding:20px; }
+.request-form-multi-select .mud-typography-caption { display:block; max-inline-size:10rem; color:var(--mud-palette-text-secondary); }
+.request-form-field-actions { white-space:nowrap; }
 @@media (max-width:980px) { .request-form-setup-grid { grid-template-columns:minmax(0,1fr); max-width:720px; } }
 .request-form-save-state { flex:1; min-width:0; color:var(--mud-palette-text-secondary); overflow-wrap:anywhere; }
 @@media (max-width: 760px) {
@@ -1064,7 +1085,8 @@
     private bool CanAddPayloadMapping => selectedTask is not null
         && selectedTask.Type == "automation"
         && !string.IsNullOrWhiteSpace(SelectedDraftFieldKey)
-        && !string.IsNullOrWhiteSpace(SelectedDraftJobParamKey);
+        && !string.IsNullOrWhiteSpace(SelectedDraftJobParamKey)
+        && (!IsMultiSelectSource(SelectedDraftFieldKey) || IsVerifiedTextInput(SelectedBinding, SelectedDraftJobParamKey));
     private bool CanCreateOrchestrationRequestDefinition => selectedTask is not null
         && string.Equals(selectedTask.Type, "automation", StringComparison.OrdinalIgnoreCase)
         && CanCreateTenantScopedOrchestrationTarget;
@@ -1092,8 +1114,22 @@
         ?? Enumerable.Empty<AutomationBindingInputDiffDto>();
 
     private List<FieldOption> FieldOptions => FormFields
-        .Select((f, i) => new FieldOption(FormFieldKeyResolver.Resolve(f, i), string.IsNullOrWhiteSpace(f.Label) ? $"Field {i + 1}" : f.Label))
+        .Select((f, i) => new FieldOption(FormFieldKeyResolver.Resolve(f, i), string.IsNullOrWhiteSpace(f.Label) ? $"Field {i + 1}" : f.Label, f.MultiSelect))
         .ToList();
+    private static string FormatFieldOption(FieldOption field) =>
+        $"{field.Label} ({field.Key}){(field.MultiSelect ? " · Multi-select" : "")}";
+
+    private bool IsMultiSelectSource(string? key) =>
+        FieldOptions.Any(option => option.MultiSelect && string.Equals(option.Key, key, StringComparison.OrdinalIgnoreCase));
+
+    private bool IsVerifiedTextInput(AutomationBindingEditorModel? binding, string? key)
+    {
+        var definition = GetCatalogRequestDefinition(binding);
+        return definition is not null && OrchestrationCatalogInputResolver.ResolveInputs(definition, orchestrationJobs)
+            .Any(input => string.Equals(input.Key, key, StringComparison.OrdinalIgnoreCase)
+                && input.Type.Trim().ToLowerInvariant() is "text" or "string");
+    }
+
     private IReadOnlyCollection<string> AvailableRoles => users
         .Select(x => x.Role?.Trim())
         .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -1752,6 +1788,13 @@
                     return ShowTaskError(task, $"Automation task '{task.Name}' requires an External orchestration binding.", "binding");
                 if (binding.Enabled && (binding.SystemConnectionId is null || AutomationConnectionSelection.Resolve(AutomationConnectionChoices, binding.SystemConnectionId) is null))
                     return ShowTaskError(task, $"Automation task '{task.Name}' requires a current saved connection for this organization.", "connection");
+
+                if (binding.Enabled && binding.SystemConnectionId == SelectedAutomationConnection?.ConnectionId
+                    && task.PayloadMapping is { } mapping
+                    && mapping.Any(item => IsMultiSelectSource(item.Value) && !IsVerifiedTextInput(binding, item.Key)))
+                {
+                    return ShowTaskError(task, $"Task '{task.Name}' must map multi-select fields to existing NetRatel Text inputs.", "target");
+                }
             }
 
             if (string.Equals(task.Type, "approval", StringComparison.OrdinalIgnoreCase) && task.ApprovalApprovers.Count == 0)
@@ -2015,6 +2058,13 @@
             pendingFocus = "field";
             return;
         }
+        var unavailableSelection = FormFields.FirstOrDefault(field => field.MultiSelect && !CanUseMultiSelect(field));
+        if (unavailableSelection is not null)
+        {
+            activeWorkspaceTab = FieldsTab;
+            validationError = $"Choose an active dataset or clear the binding for '{unavailableSelection.Label}'.";
+            return;
+        }
         if (!IsTaskConfigurationValid()) return;
         await form.ValidateAsync();
         if (!form.IsValid) return;
@@ -2139,6 +2189,10 @@
         }
         ClearSelectedBindingDriftPreview();
         await LoadAvailableDatasetsAsync();
+        foreach (var field in FormFields)
+        {
+            ClearIncompatibleMultiSelect(field);
+        }
         await LoadOrchestrationCatalogAsync();
     }
 
@@ -2149,7 +2203,7 @@
             : await Api.GetFromJsonAsync<List<DatasetDefinitionDto>>($"api/v1/resources/datasets?organizationId={Uri.EscapeDataString(model.OrganizationId)}") ?? new List<DatasetDefinitionDto>();
     }
 
-    private static void OnFieldTypeChanged(FormField field, string value)
+    private void OnFieldTypeChanged(FormField field, string value)
     {
         field.Type = value;
         if (!IsHelpdeskDataField(field))
@@ -2163,6 +2217,31 @@
         else
         {
             field.DataBinding = null;
+        }
+        ClearIncompatibleMultiSelect(field);
+    }
+
+    private bool HasAvailableDataset(FormField field) =>
+        availableDatasets.Any(dataset => dataset.IsActive && dataset.Id == field.DataBinding?.DatasetId);
+
+    private bool CanUseMultiSelect(FormField field) =>
+        RequestFormFieldEditorState.SupportsMultiSelect(field, HasAvailableDataset(field));
+
+    private void ClearIncompatibleMultiSelect(FormField field)
+    {
+        if (RequestFormFieldEditorState.ClearIncompatibleMultiSelect(field, HasAvailableDataset(field)))
+        {
+            Snackbar.Add($"Multi-select was turned off for '{field.Label}'.", Severity.Info);
+        }
+    }
+
+    private void OnFieldMultiSelectChanged(FormField field, bool enabled)
+    {
+        field.MultiSelect = enabled && CanUseMultiSelect(field);
+        if (field.MultiSelect && field.DataBinding?.AllowFreeText == true)
+        {
+            field.DataBinding.AllowFreeText = false;
+            Snackbar.Add($"'{field.Label}' now accepts dataset selections only. Free text was turned off.", Severity.Info);
         }
     }
 
@@ -2191,16 +2270,11 @@
 
     private void OnFieldDatasetChanged(FormField field, string? datasetId)
     {
-        if (string.IsNullOrWhiteSpace(datasetId))
-        {
-            field.DataBinding = null;
-            return;
-        }
-
-        var dataset = availableDatasets.FirstOrDefault(x => x.Id == datasetId);
+        var dataset = availableDatasets.FirstOrDefault(x => x.Id == datasetId && x.IsActive);
         if (dataset is null)
         {
             field.DataBinding = null;
+            ClearIncompatibleMultiSelect(field);
             return;
         }
 
@@ -2692,7 +2766,8 @@
 
         var fieldPart = string.IsNullOrWhiteSpace(snapshot.FieldKey) ? string.Empty : $" [{snapshot.FieldKey}]";
         var requiredPart = snapshot.Required ? " required" : " optional";
-        return $"{snapshot.Label}{fieldPart} | {snapshot.Type}{requiredPart}";
+        var type = snapshot.MultiSelect ? "multi-select → Text (JSON array)" : snapshot.Type;
+        return $"{snapshot.Label}{fieldPart} | {type}{requiredPart}";
     }
 
     private void SeedNewOrchestrationRequestDefinitionDefaults()
@@ -2904,7 +2979,7 @@
         public double? Depth { get; set; }
     }
 
-    private sealed record FieldOption(string Key, string Label);
+    private sealed record FieldOption(string Key, string Label, bool MultiSelect);
     private sealed record TaskDependencyOption(Guid Id, string Name);
     private sealed record PayloadMappingRow(string JobParamKey, string Label, string? HelpdeskFieldKey);
     private sealed record WorkflowPreviewNode(string TaskName, int Depth, bool IsConditional, bool IsCritical);

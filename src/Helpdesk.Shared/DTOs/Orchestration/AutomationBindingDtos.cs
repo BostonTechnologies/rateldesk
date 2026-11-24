@@ -90,6 +90,7 @@ public sealed class AutomationBindingInputSnapshotDto
     public string Label { get; set; } = string.Empty;
     public string Type { get; set; } = "text";
     public bool Required { get; set; }
+    public bool MultiSelect { get; set; }
 }
 
 public sealed class AutomationBindingInputDiffDto

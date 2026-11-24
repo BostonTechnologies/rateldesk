@@ -1,4 +1,6 @@
-﻿namespace Helpdesk.Shared.DTOs.RequestForm;
+using System.Text.Json.Serialization;
+
+namespace Helpdesk.Shared.DTOs.RequestForm;
 
 public class FormField
 {
@@ -6,6 +8,8 @@ public class FormField
     public string? Key { get; set; }
     public string Type { get; set; } = string.Empty;
     public bool Required { get; set; }
+    [JsonPropertyName("multiSelect")]
+    public bool MultiSelect { get; set; }
     public FormFieldDataBinding? DataBinding { get; set; }
     public List<string> PredefinedOptions { get; set; } = new();
 }

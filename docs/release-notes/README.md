@@ -1,5 +1,6 @@
 # Release notes
 
+- [0.1.4-beta.8](0.1.4-beta.8.md) adds searchable multi-select to request forms and maps selections to NetRatel Text inputs.
 - [0.1.4-beta.7](0.1.4-beta.7.md) adds Changes cancellation and failed implementation and repairs the authenticated Timeline tab.
 - [0.1.4-beta.6](0.1.4-beta.6.md) adds security hardening, multi-organization self-service, and a compact Hybrid sign-in page.
 - [0.1.4-beta.3](0.1.4-beta.3.md)

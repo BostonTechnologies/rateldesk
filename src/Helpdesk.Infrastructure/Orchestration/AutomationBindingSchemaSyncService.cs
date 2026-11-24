@@ -62,6 +62,25 @@ public sealed class AutomationBindingSchemaSyncService(
         }
 
         var inputs = BuildDesiredInputs(requestForm.Title, schema.Fields, relatedTasks);
+        var multiSelectInputs = relatedTasks.SelectMany(task => AutomationMultiSelectMapping.FindInputs(schema.Fields, task))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (multiSelectInputs.Count > 0)
+        {
+            var definitions = await _stoCatalogService.ListRequestDefinitionsAsync(binding.OrganizationId, binding.SystemConnectionId, cancellationToken);
+            var target = definitions.FirstOrDefault(item => item.RequestDefinitionId == binding.OrchestrationRequestDefinitionId);
+            var error = AutomationMultiSelectMapping.Validate(multiSelectInputs, target?.Inputs ?? []);
+            if (error is not null)
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            // Keep the existing Text inputs and any peer-owned defaults or unmapped parameters.
+            var scalarInputs = inputs.Where(input => !multiSelectInputs.Contains(input.Key))
+                .ToDictionary(input => input.Key, StringComparer.OrdinalIgnoreCase);
+            inputs = target!.Inputs.Select(input => scalarInputs.Remove(input.Key, out var mapped) ? mapped : input)
+                .Concat(scalarInputs.Values).ToList();
+        }
+
         var syncHash = AutomationBindingSchemaHash.Compute(inputs);
         var correlationId = _correlationContext.GetCorrelationId() ?? $"corr-{Guid.NewGuid():N}";
 
@@ -184,7 +203,7 @@ public sealed class AutomationBindingSchemaSyncService(
             {
                 Key = inputKey,
                 Label = string.IsNullOrWhiteSpace(field.Label) ? inputKey : field.Label.Trim(),
-                Type = NormalizeFieldType(field.Type),
+                Type = field.MultiSelect ? "text" : NormalizeFieldType(field.Type),
                 Required = field.Required,
                 HelpText = $"Helpdesk field '{fieldKey}' from request form '{requestFormTitle}'.",
                 Order = order++

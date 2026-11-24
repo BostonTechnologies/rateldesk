@@ -84,6 +84,32 @@ public sealed class RequestTaskPayloadBuilderTests
         Assert.Equal(sourceFieldKey, parser.Parse(CreateRequestForm().JsonSchema).Tasks.Single(x => x.Id == templateGuid).PayloadMapping!["Path"]);
     }
 
+    [Fact]
+    public async Task Retained_dispatch_uses_its_original_bytes_after_form_edits()
+    {
+        var requests = new InMemoryRepository<Request>();
+        var forms = new InMemoryRepository<RequestForm>();
+        var bindings = Substitute.For<IAutomationBindingService>();
+        var inputs = Substitute.For<IAutomationBindingPayloadContractService>();
+        var parser = new RequestFormSchemaParser();
+        var templateId = Guid.NewGuid();
+        await requests.CreateAsync(new Request { Id = "request-1", RequestFormId = "form-1", PayloadJson = """{"groups":["Fleet"]}""" });
+        await forms.CreateAsync(new RequestForm { Id = "form-1" });
+        bindings.GetByTaskTemplateAsync("form-1", templateId, Arg.Any<CancellationToken>())
+            .Returns(new AutomationBindingDto { Enabled = true, Id = "binding", OrchestrationRequestDefinitionId = "14" });
+        var builder = new RequestTaskPayloadBuilder(requests, forms, new InMemoryRepository<Organization>(), parser, bindings, inputs);
+        const string retained = """{ "meta": {}, "input": {"groupList":"[\"Fleet\"]"} }""";
+
+        var result = await builder.BuildAsync(new RequestTask
+        {
+            Id = "task-1", RequestId = "request-1", TemplateId = templateId.ToString(), AutomationDispatchPayloadJson = retained
+        }, "corr-test");
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal(retained, result.PayloadJson);
+        Assert.Empty(inputs.ReceivedCalls());
+    }
+
     private static RequestForm CreateRequestForm()
     {
         var schema = new

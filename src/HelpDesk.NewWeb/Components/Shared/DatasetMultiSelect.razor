@@ -1,0 +1,276 @@
+@using System.Text.Json
+@using Helpdesk.Shared.DTOs
+@using Helpdesk.Shared.DTOs.RequestForm
+@using Helpdesk.Shared.DTOs.Resources
+@using Polly.CircuitBreaker
+@using Polly.Timeout
+@implements IDisposable
+
+<section class="dataset-select" aria-label="@Label" @onkeydown="OnKeyDownAsync" data-testid="dataset-multi-select">
+    <MudButton @ref="trigger" Class="dataset-select-trigger" Variant="Variant.Outlined" FullWidth="true"
+               EndIcon="@(open ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+               Disabled="@Disabled" OnClick="Toggle"
+               aria-expanded="@(open ? "true" : "false")" aria-controls="@panelId" aria-describedby="@statusId">
+        <span>@Label@(Required ? " *" : "")</span>
+    </MudButton>
+
+    <div class="dataset-select-summary">
+        <span id="@statusId" role="status">@Selected.Count selected</span>
+        @if (Selected.Count > 0)
+        {
+            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@Disabled"
+                       aria-label="@($"Clear all selections for {Label}")" OnClick="ClearAsync">Clear all</MudButton>
+        }
+    </div>
+
+    @if (Selected.Count > 0)
+    {
+        <ul class="dataset-select-chips" aria-label="@($"Selected {Label}")">
+            @foreach (var option in Selected)
+            {
+                <li @key="option.Key">
+                    <span title="@option.Key">@option.Label</span>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Disabled="@Disabled"
+                                   aria-label="@($"Remove {option.Label} ({option.Key}) from {Label}")"
+                                   OnClick="@(() => SetSelectedAsync(option, false))" />
+                </li>
+            }
+        </ul>
+    }
+
+    @if (ErrorText is not null)
+    {
+        <MudText Typo="Typo.caption" Color="Color.Error" role="alert">@ErrorText</MudText>
+    }
+
+    <div id="@panelId" hidden="@(!open)">
+        @if (open)
+        {
+            <MudPaper Class="dataset-select-panel pa-3" Outlined="true" Elevation="0">
+                <MudTextField T="string" @ref="searchInput" Value="@query" ValueChanged="OnQueryChangedAsync"
+                              Label="@($"Search {Label}")" Placeholder="@Placeholder" Immediate="true" Clearable="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@Disabled" />
+
+                @if (loading)
+                {
+                    <MudProgressLinear Indeterminate="true" aria-label="Searching dataset" />
+                    <MudText Typo="Typo.caption" role="status">Searching…</MudText>
+                }
+                else if (failed)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Error" role="alert">Could not load options.</MudText>
+                    <MudButton Size="Size.Small" Disabled="@Disabled" OnClick="@(() => LoadPageAsync(page, debounce: false))">Retry search</MudButton>
+                }
+                else if (query.Trim().Length < MinSearchLength)
+                {
+                    <MudText Typo="Typo.caption">Enter at least @MinSearchLength @(MinSearchLength == 1 ? "character" : "characters") to search.</MudText>
+                }
+                else if (results.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" role="status">No matching options.</MudText>
+                }
+                else
+                {
+                    <div class="dataset-select-results" role="group" aria-label="@($"{Label} search results")">
+                        @foreach (var option in results)
+                        {
+                            var isSelected = Selected.Any(value => KeyComparer.Equals(value.Key, option.Key));
+                            <MudCheckBox T="bool" @key="option.Key" Value="@isSelected" ValueChanged="@(value => SetSelectedAsync(option, value))"
+                                         Disabled="@(Disabled || (!isSelected && Selected.Count >= RequestFormLimits.MaxSelectionsPerField))"
+                                         Color="Color.Primary" Dense="true">
+                                <span class="dataset-select-option">
+                                    <span>@option.Label</span>
+                                    <small>@option.Key</small>
+                                    @if (!string.IsNullOrWhiteSpace(option.Preview) && option.Preview != option.Key)
+                                    {
+                                        <small>@option.Preview</small>
+                                    }
+                                </span>
+                            </MudCheckBox>
+                        }
+                    </div>
+                }
+
+                @if (!loading && !failed && (page > 1 || hasMore))
+                {
+                    <div class="dataset-select-pages">
+                        <MudButton Size="Size.Small" Disabled="@(Disabled || page == 1)"
+                                   OnClick="@(() => LoadPageAsync(page - 1, debounce: false))">Previous results</MudButton>
+                        <MudButton Size="Size.Small" Disabled="@(Disabled || !hasMore)"
+                                   OnClick="@(() => LoadPageAsync(page + 1, debounce: false))">Next results</MudButton>
+                    </div>
+                }
+                @if (Selected.Count >= RequestFormLimits.MaxSelectionsPerField)
+                {
+                    <MudText Typo="Typo.caption" role="status">Selection limit reached. Remove an option to choose another.</MudText>
+                }
+            </MudPaper>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? ErrorText { get; set; }
+    [Parameter] public int MinSearchLength { get; set; } = 1;
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public IReadOnlyList<DatasetOptionDto> Selected { get; set; } = [];
+    [Parameter] public EventCallback<IReadOnlyList<DatasetOptionDto>> SelectedChanged { get; set; }
+    [Parameter, EditorRequired] public Func<string, int, CancellationToken, Task<PagedResult<DatasetOptionDto>>> Search { get; set; } = default!;
+
+    private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
+    private readonly string panelId = $"dataset-options-{Guid.NewGuid():N}";
+    private string statusId => $"{panelId}-status";
+    private MudButton? trigger;
+    private MudTextField<string>? searchInput;
+    private CancellationTokenSource? activeSearch;
+    private IReadOnlyList<DatasetOptionDto> results = [];
+    private string query = "";
+    private int page = 1;
+    private bool open;
+    private bool focusSearch;
+    private bool loading;
+    private bool failed;
+    private bool hasMore;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusSearch && searchInput is not null)
+        {
+            focusSearch = false;
+            await searchInput.FocusAsync();
+        }
+    }
+
+    private void Toggle()
+    {
+        if (open)
+        {
+            Close();
+        }
+        else
+        {
+            open = true;
+            focusSearch = true;
+        }
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape" && open && !Disabled)
+        {
+            Close();
+            if (trigger is not null)
+            {
+                await trigger.FocusAsync();
+            }
+        }
+    }
+
+    private void Close()
+    {
+        open = false;
+        focusSearch = false;
+        query = "";
+        page = 1;
+        results = [];
+        hasMore = false;
+        loading = false;
+        failed = false;
+        CancelSearch();
+    }
+
+    private Task OnQueryChangedAsync(string? value)
+    {
+        query = value ?? "";
+        return LoadPageAsync(1, debounce: true);
+    }
+
+    private async Task LoadPageAsync(int requestedPage, bool debounce)
+    {
+        CancelSearch();
+        page = requestedPage;
+        failed = false;
+        loading = false;
+        results = [];
+        hasMore = false;
+        var searchText = query.Trim();
+        if (!open || Disabled || searchText.Length < MinSearchLength)
+        {
+            return;
+        }
+
+        using var attempt = new CancellationTokenSource();
+        activeSearch = attempt;
+        loading = true;
+        try
+        {
+            if (debounce)
+            {
+                await Task.Delay(250, attempt.Token);
+            }
+
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(attempt.Token);
+            deadline.CancelAfter(TimeSpan.FromSeconds(10));
+            var response = await Search(searchText, requestedPage, deadline.Token);
+            if (activeSearch == attempt)
+            {
+                results = response.Items.DistinctBy(option => option.Key, KeyComparer).ToArray();
+                hasMore = requestedPage * response.PageSize < response.Total;
+            }
+        }
+        catch (OperationCanceledException) when (attempt.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException
+                                           or TimeoutRejectedException or BrokenCircuitException)
+        {
+            if (activeSearch == attempt)
+            {
+                failed = true;
+            }
+        }
+        finally
+        {
+            if (activeSearch == attempt)
+            {
+                activeSearch = null;
+                loading = false;
+            }
+        }
+    }
+
+    private Task SetSelectedAsync(DatasetOptionDto option, bool select)
+    {
+        if (Disabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        var contains = Selected.Any(value => KeyComparer.Equals(value.Key, option.Key));
+        if (select)
+        {
+            return contains || Selected.Count >= RequestFormLimits.MaxSelectionsPerField
+                ? Task.CompletedTask
+                : SelectedChanged.InvokeAsync([.. Selected, option]);
+        }
+
+        return contains
+            ? SelectedChanged.InvokeAsync(Selected.Where(value => !KeyComparer.Equals(value.Key, option.Key)).ToArray())
+            : Task.CompletedTask;
+    }
+
+    private Task ClearAsync() => Disabled ? Task.CompletedTask : SelectedChanged.InvokeAsync([]);
+
+    private void CancelSearch()
+    {
+        activeSearch?.Cancel();
+        activeSearch = null;
+    }
+
+    public void Dispose() => CancelSearch();
+}

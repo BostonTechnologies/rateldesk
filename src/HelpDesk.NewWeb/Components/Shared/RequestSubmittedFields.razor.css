@@ -1,0 +1,20 @@
+.request-submitted-fields {
+    margin-block: 8px;
+}
+
+.request-submitted-fields dl {
+    display: grid;
+    grid-template-columns: minmax(5rem, 1fr) minmax(0, 3fr);
+    gap: 4px 12px;
+    margin: 4px 0 0;
+    font-size: var(--mud-typography-body2-size);
+    overflow-wrap: anywhere;
+}
+
+.request-submitted-fields dt {
+    color: var(--mud-palette-text-secondary);
+}
+
+.request-submitted-fields dd {
+    margin: 0;
+}

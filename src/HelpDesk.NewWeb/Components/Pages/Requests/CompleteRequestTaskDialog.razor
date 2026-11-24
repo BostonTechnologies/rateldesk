@@ -1,3 +1,5 @@
+@using Helpdesk.Shared.DTOs.Request
+
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Complete Task</MudText>
@@ -6,6 +8,7 @@
         <MudText Typo="Typo.body2" Class="mb-2">
             Mark <b>@TaskName</b> as completed.
         </MudText>
+        <RequestSubmittedFields Fields="SubmittedFields" />
         <MudTextField T="string"
                       Label="Completion notes (optional)"
                       Variant="Variant.Outlined"
@@ -20,6 +23,7 @@
 
 @code {
     [Parameter] public string TaskName { get; set; } = "Task";
+    [Parameter] public IReadOnlyList<RequestSubmittedFieldDto>? SubmittedFields { get; set; }
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
 
     private string? Notes { get; set; }

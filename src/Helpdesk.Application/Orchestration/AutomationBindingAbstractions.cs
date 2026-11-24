@@ -53,12 +53,20 @@ public sealed class AutomationTaskInputBuildResult
 {
     public bool Success { get; init; }
     public JsonObject InputNode { get; init; } = new();
+    public IReadOnlyList<string> MultiSelectInputs { get; init; } = [];
     public string? Error { get; init; }
 
     public static AutomationTaskInputBuildResult Succeeded(JsonObject inputNode) => new()
     {
         Success = true,
         InputNode = inputNode
+    };
+
+    public static AutomationTaskInputBuildResult Succeeded(JsonObject inputNode, IReadOnlyList<string> multiSelectInputs) => new()
+    {
+        Success = true,
+        InputNode = inputNode,
+        MultiSelectInputs = multiSelectInputs
     };
 
     public static AutomationTaskInputBuildResult Failed(string error) => new()

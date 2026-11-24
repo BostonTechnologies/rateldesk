@@ -539,6 +539,10 @@ public sealed class DatasetEndpointsAuthorizationTests
         public Task<PagedResult<DatasetOptionDto>> GetOptionsAsync(string datasetId, string organizationId, string? query, int page, int pageSize, CancellationToken cancellationToken = default) =>
             Task.FromResult(new PagedResult<DatasetOptionDto> { Page = page, PageSize = pageSize, Total = 0 });
 
+        public Task<IReadOnlyList<DatasetOptionDto>> GetOptionsByKeysAsync(
+            string datasetId, string organizationId, IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<DatasetOptionDto?> GetOptionByKeyAsync(string datasetId, string organizationId, string key, CancellationToken cancellationToken = default) => Task.FromResult<DatasetOptionDto?>(null);
 
         public Task<DatasetIngestCredentialCreatedDto> CreateCredentialAsync(string datasetId, CreateDatasetIngestCredentialDto dto, CancellationToken cancellationToken = default) =>

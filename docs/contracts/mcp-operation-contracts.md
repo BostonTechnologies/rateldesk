@@ -415,6 +415,30 @@ staff timeline events. An old numeric timeline zero alone is not evidence of zer
 snapshots survive refresh without changing event identity/count/order, internal
 visibility or inline-image signing.
 
+## Multi-select request form fields
+
+In the request form editor and API/CLI/MCP authoring schema, the optional
+`fields[].multiSelect` boolean defaults to false. Set it on a predefined
+list or dataset-bound Text field. Dataset-bound multi-select requires
+`allowFreeText` to be false. Preserve `fields[].key` when editing an existing
+form so payload mappings keep their source field.
+
+For self-service submission and direct form-backed request creation, pass
+`payloadJson` as a JSON object serialized to a string. A multi-select field
+value is a JSON array of strings. For example, the object represented by
+`payloadJson` could be `{"groups":["CN=Fleet Admin,DC=example,DC=org"]}`.
+The service checks each selection in the request's organization, resolves its
+canonical key and keeps the first occurrence of each key in selection order.
+The limit is 100 submitted entries per multi-select field and 64 KiB per
+form payload. Missing, null and empty optional arrays are stored as `[]`.
+
+The service supplies `_boundLabels` in the stored payload. A dataset-bound
+multi-select field gets a label array aligned to its keys. Historical
+single-select values and labels are strings. The staff and My Requests detail
+responses also expose `submittedFields` as human-readable key/value pairs
+for display. For automation dispatch, see
+[NetRatel payload mapping](../integrations/netratel-orchestrator.md#map-multi-select-choices-to-a-job).
+
 ## Transport, identity and authority
 
 | Operation family | Required authority and prerequisites |

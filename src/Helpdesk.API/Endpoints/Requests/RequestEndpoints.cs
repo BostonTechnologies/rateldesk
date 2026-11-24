@@ -4,7 +4,9 @@ using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Services.Notifications;
+using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
+using Helpdesk.Application.Resources;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
@@ -13,6 +15,7 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Article;
 using Helpdesk.Shared.DTOs.Request;
+using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.DTOs.Sla;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
@@ -118,6 +121,7 @@ public static class RequestEndpoints
                 ServiceId = entity.ServiceId,
                 RequestFormId = entity.RequestFormId,
                 PayloadJson = entity.PayloadJson,
+                SubmittedFields = RequestSubmittedFields.Read(entity.PayloadJson),
                 SourceTicketId = entity.SourceTicketId,
                 SourceTicketTrackingId = sourceTicketTrackingId,
                 SourceAutomationBindingId = entity.SourceAutomationBindingId,
@@ -217,6 +221,9 @@ public static class RequestEndpoints
             [FromServices] ITicketSlaInitializer ticketSlaInitializer,
             [FromServices] AppTicketServices.ITicketRefGeneratorService refs,
             [FromServices] IRequestTaskGenerationService requestTaskGenerationService,
+            [FromServices] IRequestFormSchemaParser schemaParser,
+            [FromServices] ISelfServiceDatasetBindingResolver datasetBindingResolver,
+            [FromServices] IAutomationBindingPayloadContractService automationPayloadContractService,
             [FromServices] IWorkflowEngine workflowEngine,
             [FromServices] ITicketNotificationService ticketNotificationService,
             [FromServices] IHtmlSanitizerService sanitizer,
@@ -261,6 +268,44 @@ public static class RequestEndpoints
                 return assignmentValidation;
             }
 
+            var payloadJson = dto.PayloadJson;
+            if (!string.IsNullOrWhiteSpace(dto.RequestFormId))
+            {
+                var form = await db.RequestForms.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(
+                    candidate => candidate.Id == dto.RequestFormId
+                        && (string.IsNullOrEmpty(candidate.OrganizationId) || candidate.OrganizationId == dto.OrganizationId), token);
+                if (form is null || (form.AllowedOrganizationIds.Count > 0
+                    && !form.AllowedOrganizationIds.Contains(dto.OrganizationId ?? string.Empty, StringComparer.OrdinalIgnoreCase)))
+                {
+                    return Results.BadRequest("The request form is unavailable in the selected organization.");
+                }
+
+                var fields = schemaParser.Parse(form.JsonSchema).Fields;
+                if (fields.Any(field => field.MultiSelect))
+                {
+                    payloadJson ??= "{}";
+                    if (global::System.Text.Encoding.UTF8.GetByteCount(payloadJson) > RequestFormLimits.MaxPayloadBytes)
+                    {
+                        return Results.BadRequest($"PayloadJson exceeds maximum size of {RequestFormLimits.MaxPayloadBytes} bytes.");
+                    }
+
+                    using var organizationScope = db.BindSelfServiceOrganization(dto.OrganizationId!);
+                    var normalized = await datasetBindingResolver.NormalizePayloadAsync(dto.OrganizationId!, fields, payloadJson, token);
+                    if (!normalized.Success)
+                    {
+                        return Results.BadRequest(string.Join(Environment.NewLine, normalized.Errors));
+                    }
+
+                    var validationResult = await automationPayloadContractService.ValidateBoundRequestPayloadAsync(form, normalized.PayloadJson, token);
+                    if (!validationResult.Success)
+                    {
+                        return Results.BadRequest(string.Join(Environment.NewLine, validationResult.Errors));
+                    }
+
+                    payloadJson = normalized.PayloadJson;
+                }
+            }
+
             var description = ToPlainTextDescription(sanitizer, plainTextConverter, dto.Description);
 
             var entity = new Request
@@ -276,7 +321,7 @@ public static class RequestEndpoints
                 LegacyCategory = dto.Category,
                 ServiceId = dto.ServiceId,
                 RequestFormId = dto.RequestFormId,
-                PayloadJson = dto.PayloadJson,
+                PayloadJson = payloadJson,
                 RequesterEmail = customer.Email,
                 CcRecipients = NormalizeEmails(dto.CcRecipients).ToList()
             };

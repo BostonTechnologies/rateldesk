@@ -116,10 +116,18 @@ public sealed class AutomationBindingImportService(
             .Select((field, index) => new { Field = field, Key = FormFieldKeyResolver.Resolve(field, index) })
             .ToDictionary(x => x.Key, x => x.Field, StringComparer.OrdinalIgnoreCase);
 
+        var mappingError = AutomationMultiSelectMapping.Validate(
+            AutomationMultiSelectMapping.FindInputs(fields.ToArray(), taskTemplate), remoteInputs);
+        if (mappingError is not null)
+        {
+            throw new InvalidOperationException(mappingError);
+        }
+
         var newMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var input in remoteInputs.OrderBy(x => x.Order).ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
         {
-            var fieldKey = input.Key.Trim();
+            var inputKey = input.Key.Trim();
+            var fieldKey = taskTemplate.PayloadMapping?.GetValueOrDefault(inputKey) ?? inputKey;
             if (!fieldLookup.TryGetValue(fieldKey, out var field))
             {
                 field = new FormField
@@ -130,12 +138,23 @@ public sealed class AutomationBindingImportService(
                 fieldLookup[fieldKey] = field;
             }
 
-            field.Key = fieldKey;
-            field.Label = string.IsNullOrWhiteSpace(input.Label) ? fieldKey : input.Label.Trim();
-            field.Type = NormalizeFieldType(input.Type);
-            field.Required = input.Required;
+            if (field.MultiSelect)
+            {
+                var error = AutomationMultiSelectMapping.Validate([inputKey], [input]);
+                if (error is not null)
+                {
+                    throw new InvalidOperationException(error);
+                }
+            }
+            else
+            {
+                field.Key ??= fieldKey;
+                field.Label = string.IsNullOrWhiteSpace(input.Label) ? fieldKey : input.Label.Trim();
+                field.Type = NormalizeFieldType(input.Type);
+                field.Required = input.Required;
+            }
 
-            newMapping[input.Key.Trim()] = fieldKey;
+            newMapping[inputKey] = fieldKey;
         }
 
         taskTemplate.PayloadMapping = newMapping;

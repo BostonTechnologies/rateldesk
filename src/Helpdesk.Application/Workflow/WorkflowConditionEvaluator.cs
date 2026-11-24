@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.Models;
 using Microsoft.Extensions.Logging;
 
@@ -51,6 +52,12 @@ public sealed class WorkflowConditionEvaluator(ILogger<WorkflowConditionEvaluato
                 return false;
             }
 
+            if (payloadValue.ValueKind == JsonValueKind.Array)
+            {
+                _logger.LogWarning("Workflow conditions require scalar fields. TaskId={TaskId} Field={Field}", task.Id, field);
+                return false;
+            }
+
             return Compare(payloadValue, @operator, rightLiteral);
         }
         catch (Exception ex)
@@ -63,6 +70,36 @@ public sealed class WorkflowConditionEvaluator(ILogger<WorkflowConditionEvaluato
                 expression);
             return false;
         }
+    }
+
+    public static string? ValidateMultiSelectConditions(RequestFormSchemaModel schema)
+    {
+        var selectionKeys = schema.Fields.Select((field, index) => (Field: field, Key: FormFieldKeyResolver.Resolve(field, index)))
+            .Where(pair => pair.Field.MultiSelect).Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal);
+        if (selectionKeys.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var task in schema.Tasks)
+        {
+            if (task.ConditionExpression?.Trim() is not { Length: > 0 } condition)
+            {
+                continue;
+            }
+
+            if (!TryParseExpression(condition, out var field, out _, out _))
+            {
+                return $"Task '{task.Name}' has an unsupported condition. Use a comparison on a single-value field.";
+            }
+
+            if (selectionKeys.Contains(field))
+            {
+                return $"Task '{task.Name}' condition references multi-select field '{field}'. Choose a single-value field.";
+            }
+        }
+
+        return null;
     }
 
     private static bool TryParseExpression(
