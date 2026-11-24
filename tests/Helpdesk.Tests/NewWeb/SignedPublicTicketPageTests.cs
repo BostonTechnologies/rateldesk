@@ -54,6 +54,7 @@ public sealed class SignedPublicTicketPageTests
             Assert.Contains(">Helpdesk<", markup);
             Assert.Contains(">You<", markup);
             Assert.Contains($"/public/access/{api.AccessId:D}/asset/fixture", markup);
+            Assert.DoesNotContain("ticket-activity-tabs", markup);
             Assert.DoesNotContain("synthetic-credential", markup);
         }
         Assert.Equal(1, api.Exchanges);
