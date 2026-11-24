@@ -98,7 +98,7 @@
         try
         {
             var path = $"api/v1/changes/{Uri.EscapeDataString(origin.Id)}";
-            using var response = DetailActions && newState == ChangeLifecycleState.Draft
+            using var response = snapshot.Choices.Any(option => option.State == newState && option.RequiresDetailUpdate)
                 ? await Commands.PutAsJsonAsync(path, new UpdateChangeDto
                 {
                     LifecycleState = request.LifecycleState, ExpectedLifecycleState = request.ExpectedLifecycleState,

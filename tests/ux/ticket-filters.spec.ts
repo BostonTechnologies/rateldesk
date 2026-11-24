@@ -376,6 +376,22 @@ test('legacy change cancellation preserves explanation through conflict and reco
   await row.screenshot({ path: info.outputPath('cancelled-change-history.png') });
 });
 
+test('a legacy draft can be cancelled from the table without an explanation', async ({ page, request }) => {
+  await request.get(fixture + '/row?id=row-0&template=false');
+  await page.goto('/changes?sort=trackingId&descending=false');
+  const row = page.getByRole('row').filter({ has: page.getByText('SYN-000', { exact: true }) });
+  await row.getByLabel('Update change state: Draft', { exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Cancel', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('textbox', { name: 'Explanation' })).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(row).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show historic changes' }).click();
+  await expect(page).toHaveURL(/view=historic/);
+  await page.reload();
+  await expect(row).toContainText('Cancelled');
+});
+
 test('cancel selected submits exactly one full page and leaves the remaining changes active', async ({ page, request }, info) => {
   await page.goto('/changes?view=active&q=Synthetic&sort=trackingId&descending=false');
   await expect(page.getByText('1-25 of 60')).toBeVisible();
@@ -398,6 +414,23 @@ test('cancel selected submits exactly one full page and leaves the remaining cha
   expect(state.mutations[0].body.selection).toHaveLength(25);
   expect(state.rows.filter(row => row.lifecycleState === 7)).toHaveLength(25);
   expect(state.rows.find(row => row.id === 'row-25').lifecycleState).toBe(0);
+});
+
+test('cancel selected moves off an emptied last page and keeps search and sort', async ({ page }) => {
+  await page.goto('/changes?view=active&q=Synthetic&page=3&sort=trackingId&descending=false');
+  await expect(page.getByText('51-60 of 60')).toBeVisible();
+  await page.locator('thead input[type=checkbox]').check();
+  await expect(page.getByText('10 selected', { exact: true })).toBeVisible();
+  await page.locator('.helpdesk-bulk-action-picker').click();
+  await page.getByRole('option', { name: 'Cancel selected' }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByText('26-50 of 50')).toBeVisible();
+  await expect(page).toHaveURL(/search=Synthetic/);
+  await expect(page).toHaveURL(/sort=trackingId/);
+  await expect(page).toHaveURL(/page=2/);
 });
 
 test('cancel selected retains the conflicted row and explanation after cancelling a valid row', async ({ page, request }) => {

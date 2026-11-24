@@ -21,7 +21,9 @@ public static partial class ChangeEndpoints
 
     private static bool MatchesLifecycleSelection(Change change, ChangeLifecycleState? expected, DateTime? updatedAt) =>
         (!expected.HasValue || expected.Value == EffectiveLifecycleState(change)) &&
-        (!updatedAt.HasValue || updatedAt.Value.Ticks / 10 == change.UpdatedAt?.Ticks / 10);
+        // PostgreSQL stores timestamps with microsecond precision.
+        (!updatedAt.HasValue || updatedAt.Value.Ticks / TimeSpan.TicksPerMicrosecond ==
+            change.UpdatedAt?.Ticks / TimeSpan.TicksPerMicrosecond);
 
     private static IResult LifecycleConflict() => Results.Conflict(new
     {
@@ -157,7 +159,7 @@ public static partial class ChangeEndpoints
                 return (Selection: item, Change: change, Outcome: CancellationOutcome(change, item, access));
             }).ToArray();
             if (string.IsNullOrEmpty(comment) && candidates.Any(item => item.Outcome is null &&
-                item.Selection.ExpectedLifecycleState != ChangeLifecycleState.Draft))
+                ChangeLifecycle.RequiresComment(item.Selection.ExpectedLifecycleState.GetValueOrDefault(), ChangeLifecycleState.Cancelled)))
                 return Results.BadRequest("An explanation is required when cancelling changes beyond Draft.");
 
             var results = new List<BulkChangeCancellationResult>(selection.Length);

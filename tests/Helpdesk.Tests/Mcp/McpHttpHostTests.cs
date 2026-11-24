@@ -1351,6 +1351,8 @@ public sealed partial class McpHttpHostTests
         await using var api = builder.Build();
         api.Run(async context =>
         {
+            Assert.Equal("Bearer " + ChangeWireHandler.Token, context.Request.Headers.Authorization.ToString());
+            Assert.Equal("POST", context.Request.Method);
             using var body = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
             var path = context.Request.Path.Value!;
             var reply = ChangeWireHandler.Record(observed, path, body.RootElement);
@@ -1361,7 +1363,7 @@ public sealed partial class McpHttpHostTests
         using var environment = new McpHostEnvironment();
         using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: () => new ChangeWireHandler(observed));
         using var http = CreateClient(factory);
-        await using var stdio = StdioMcpClient.Start(NotificationSummaryFixture.Address(api), TimelineTransportPayload.Token);
+        await using var stdio = StdioMcpClient.Start(NotificationSummaryFixture.Address(api), ChangeWireHandler.Token);
         var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
         using var stdioInitialize = await stdio.CallAsync(1, "initialize", InitializeParameters());
         await stdio.NotifyAsync("notifications/initialized", new { });
@@ -1384,42 +1386,69 @@ public sealed partial class McpHttpHostTests
         using var failedStdio = await stdio.CallAsync(3, "tools/call", parameters);
         using var failedHttp = await HttpCallAsync(http, bearer, 3, "tools/call", parameters);
         foreach (var response in new[] { failedStdio, failedHttp })
-            Assert.Equal(8, StructuredContent(response.RootElement).GetProperty("data").GetProperty("lifecycleState").GetInt32());
+            Assert.Equal(8, SuccessfulData(response).GetProperty("lifecycleState").GetInt32());
+
+        arguments["request"] = JsonNode.Parse("""{"changeId":"change-draft","lifecycleState":"Cancelled","expectedLifecycleState":"Draft","comment":"Synthetic draft explanation"}""");
+        using var cancelledStdio = await stdio.CallAsync(4, "tools/call", parameters);
+        using var cancelledHttp = await HttpCallAsync(http, bearer, 4, "tools/call", parameters);
+        foreach (var response in new[] { cancelledStdio, cancelledHttp })
+            Assert.Equal(7, SuccessfulData(response).GetProperty("lifecycleState").GetInt32());
 
         arguments["operation"] = "bulk_cancel";
         arguments["request"] = JsonNode.Parse("""{"comment":"Synthetic cleanup","selection":[{"id":"change-wire","expectedLifecycleState":"Draft"}]}""");
-        using var bulkStdio = await stdio.CallAsync(4, "tools/call", parameters);
-        using var bulkHttp = await HttpCallAsync(http, bearer, 4, "tools/call", parameters);
+        using var bulkStdio = await stdio.CallAsync(5, "tools/call", parameters);
+        using var bulkHttp = await HttpCallAsync(http, bearer, 5, "tools/call", parameters);
         foreach (var response in new[] { bulkStdio, bulkHttp })
-            Assert.Equal("cancelled", StructuredContent(response.RootElement).GetProperty("data")[0].GetProperty("outcome").GetString());
-        Assert.Equal(4, observed.Count);
+            Assert.Equal("cancelled", SuccessfulData(response)[0].GetProperty("outcome").GetString());
+        Assert.Equal(6, observed.Count);
         Assert.All(observed.Where(item => item.Path.EndsWith("/lifecycle", StringComparison.Ordinal)), item =>
         {
-            Assert.Equal("Synthetic implementation failed", item.Body.GetProperty("comment").GetString());
-            Assert.Equal(3, item.Body.GetProperty("expectedLifecycleState").GetInt32());
+            var isDraft = item.Path.Contains("/change-draft/", StringComparison.Ordinal);
+            Assert.Equal(isDraft ? "Synthetic draft explanation" : "Synthetic implementation failed", item.Body.GetProperty("comment").GetString());
+            Assert.Equal(isDraft ? 0 : 3, item.Body.GetProperty("expectedLifecycleState").GetInt32());
         });
         Assert.All(observed.Where(item => item.Path.EndsWith("/bulk/cancel", StringComparison.Ordinal)), item =>
         {
             Assert.Equal("Synthetic cleanup", item.Body.GetProperty("comment").GetString());
             Assert.Equal(0, item.Body.GetProperty("selection")[0].GetProperty("expectedLifecycleState").GetInt32());
         });
+
+        static JsonElement SuccessfulData(JsonDocument response)
+        {
+            Assert.True(response.RootElement.TryGetProperty("result", out var result) &&
+                result.TryGetProperty("structuredContent", out _), response.RootElement.GetRawText());
+            var content = StructuredContent(response.RootElement);
+            Assert.True(content.GetProperty("success").GetBoolean(), content.GetRawText());
+            return content.GetProperty("data");
+        }
     }
 
     private sealed class ChangeWireHandler(ConcurrentQueue<(string Path, JsonElement Body)> observed) : HttpMessageHandler
     {
+        public const string Token = "rdk_change_transport_fixture";
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/token")
+                return new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { access_token = Token }), Encoding.UTF8, "application/json") };
+            Assert.Equal("Bearer " + Token, request.Headers.Authorization?.ToString());
+            Assert.Equal(HttpMethod.Post, request.Method);
             using var body = await JsonDocument.ParseAsync(await request.Content!.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
-            var reply = Record(observed, request.RequestUri!.AbsolutePath, body.RootElement);
+            var reply = Record(observed, path, body.RootElement);
             return new(HttpStatusCode.OK) { Content = new StringContent(reply, Encoding.UTF8, "application/json") };
         }
 
         public static string Record(ConcurrentQueue<(string Path, JsonElement Body)> observed, string path, JsonElement body)
         {
             observed.Enqueue((path, body.Clone()));
-            return path.EndsWith("/lifecycle", StringComparison.Ordinal)
-                ? """{"id":"change-wire","lifecycleState":8}"""
-                : """[{"id":"change-wire","outcome":"cancelled"}]""";
+            return path switch
+            {
+                "/api/v1/changes/change-wire/lifecycle" => """{"id":"change-wire","lifecycleState":8}""",
+                "/api/v1/changes/change-draft/lifecycle" => """{"id":"change-draft","lifecycleState":7}""",
+                "/api/v1/changes/bulk/cancel" => """[{"id":"change-wire","outcome":"cancelled"}]""",
+                _ => throw new InvalidOperationException($"Unexpected change transport path {path}.")
+            };
         }
     }
 

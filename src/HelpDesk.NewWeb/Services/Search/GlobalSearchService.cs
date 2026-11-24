@@ -216,7 +216,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
                 "changes" => await SearchPagedAsync<ChangeDto>(
                     api,
                     section,
-                    $"api/v1/changes?page=1&pageSize={FetchLimit}&view=all&includeTotal=false&summaryOnly=true&q={Escape(term)}",
+                    $"api/v1/changes?page=1&pageSize={FetchLimit}&activeOnly=true&includeTotal=false&summaryOnly=true&q={Escape(term)}",
                     term,
                     ToChangeResult,
                     token),
@@ -488,7 +488,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         {
             "incidents" => $"/incidents?search={Escape(term)}&activeOnly=true",
             "requests" => $"/requests?search={Escape(term)}&activeOnly=true",
-            "changes" => $"/changes?search={Escape(term)}&view=all",
+            "changes" => $"/changes?search={Escape(term)}&activeOnly=true",
             "tasks" => $"/tasks?search={Escape(term)}",
             "self-service" => $"/self-service?search={Escape(term)}",
             _ => $"{section.Href}?search={Escape(term)}"

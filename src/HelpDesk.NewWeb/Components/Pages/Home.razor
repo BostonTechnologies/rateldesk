@@ -176,7 +176,7 @@
     private Task LoadChangesAsync() => LoadPanelAsync("changes", "Recent changes", async () =>
     {
         var response = await HelpdeskApi.GetFromJsonAsync<PagedResponse<ChangeDto>>("api/v1/changes?page=1&pageSize=5", lifetime.Token) ?? throw new JsonException("Missing changes response.");
-        recentChanges = response.Items.Take(5).Select(item => new OperationsRecentPanel.Row(item.Id, item.TrackingId, item.Title, ChangeLifecycleDisplay.Label(item.LifecycleState), item.UpdatedAt, $"/changes/{item.Id}")).ToList();
+        recentChanges = response.Items.Take(5).Select(item => new OperationsRecentPanel.Row(item.Id, item.TrackingId, item.Title, GetChangeLifecycleLabel(item.LifecycleState), item.UpdatedAt, $"/changes/{item.Id}")).ToList();
     });
 
     private async Task LoadPanelAsync(string key, string label, Func<Task> load)
@@ -205,6 +205,15 @@
         TicketState.InProgress => "In progress", TicketState.PendingApproval => "Pending approval", TicketState.OnHold => "On hold", _ => state.ToString()
     };
     private static string RequestStateLabel(string state) => Enum.TryParse<TicketState>(state, true, out var value) ? TicketStateLabel(value) : state;
-    private static string ChangeStateLabel(string state) => Enum.TryParse<ChangeLifecycleState>(state, true, out var value) ? ChangeLifecycleDisplay.Label(value) : state;
+    private static string ChangeStateLabel(string state) => Enum.TryParse<ChangeLifecycleState>(state, true, out var value) ? GetChangeLifecycleLabel(value) : state;
+    private static string GetChangeLifecycleLabel(ChangeLifecycleState state) => state switch
+    {
+        ChangeLifecycleState.PendingApproval => "Pending approval",
+        ChangeLifecycleState.ApprovedForImplementation => "Approved for implementation",
+        ChangeLifecycleState.ImplementationInProgress => "Implementation in progress",
+        ChangeLifecycleState.ImplementedSuccess => "Implemented · Success",
+        ChangeLifecycleState.ImplementedBackedOut => "Implemented · Backed out",
+        _ => ChangeLifecycleDisplay.Label(state)
+    };
     public void Dispose() { disposed = true; lifetime.Cancel(); lifetime.Dispose(); }
 }

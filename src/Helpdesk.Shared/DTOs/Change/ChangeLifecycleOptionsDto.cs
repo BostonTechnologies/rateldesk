@@ -14,4 +14,5 @@ public sealed record ChangeLifecycleOptionsDto(
 public sealed record ChangeLifecycleOptionDto(ChangeLifecycleState State, string? UnavailableReason)
 {
     public bool RequiresComment { get; init; }
+    public bool RequiresDetailUpdate { get; init; }
 }

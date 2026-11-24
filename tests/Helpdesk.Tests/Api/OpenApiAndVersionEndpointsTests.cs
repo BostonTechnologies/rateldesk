@@ -158,13 +158,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Operator closure adds a version-checked operation for requests and one for request tasks.
         // Scoped public access replaces seven signed routes with nine exchange and access operations.
         // Multi-organization self service adds one scoped submission organization lookup.
+        // Change lifecycle adds one administrator-only bulk cancellation operation.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(543, operationCount);
+        Assert.Equal(544, operationCount);
 #else
-        Assert.Equal(542, operationCount);
+        Assert.Equal(543, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]
@@ -242,6 +243,7 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         {
             ("/api/v1/requests/bulk/close", "CloseRequests", "Requests"),
             ("/api/v1/request-tasks/bulk/close", "CloseRequestTasks", "Request Tasks"),
+            ("/api/v1/changes/bulk/cancel", "BulkCancelChanges", "Changes"),
             ("/api/v1/changes/{id}/state", "UpdateChangeTicketState", "Changes"),
             ("/api/v1/admin/orchestration/test", "TestOrchestrationConnectivity", "External Orchestration")
         })

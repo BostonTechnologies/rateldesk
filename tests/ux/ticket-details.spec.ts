@@ -284,6 +284,19 @@ test('change details cancel an incomplete draft and retain unsaved plan edits on
   await noOverflow(page);
 });
 
+test('change details cancel an incomplete draft without an explanation', async ({ page }) => {
+  await open(page, 'changes');
+  await page.getByLabel('Update change state: Draft', { exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Cancel', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('textbox', { name: 'Explanation' })).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(dialog).toBeHidden();
+  await page.reload();
+  await expect(page.getByText(/has reached a terminal outcome/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save Changes', exact: true })).toBeDisabled();
+});
+
 
 async function routeWithoutReload(page: Page, path: string) {
   await page.getByRole('link', { name: 'Home', exact: true }).evaluate((link, path) => {

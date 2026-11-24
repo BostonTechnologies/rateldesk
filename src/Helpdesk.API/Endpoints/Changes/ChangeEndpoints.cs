@@ -1033,6 +1033,10 @@ public static partial class ChangeEndpoints
         group.MapPost("/bulk/cancel", BulkCancelChangesAsync)
             .RequireAuthorization("HelpdeskAdmin")
             .WithName("BulkCancelChanges")
+            .Produces<List<BulkChangeCancellationResult>>()
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status409Conflict)
             .WithSummary("Cancels the explicitly selected changes and reports each outcome");
 
         group.MapGet("/{id}/lifecycle-options", async (
@@ -1054,10 +1058,11 @@ public static partial class ChangeEndpoints
             var validation = changeTemplateService.ValidateTemplate(change.ChangeType, template);
             var hasPendingApprovals = await db.ChangeApprovals.AsNoTracking()
                 .AnyAsync(approval => approval.ChangeId == id && approval.Status == ChangeApprovalStatus.Pending, token);
+            var canManage = access.CanManageChange(change.OrganizationId);
             var choices = Enum.GetValues<ChangeLifecycleState>()
                 .Where(target => target != current && ChangeLifecycle.ValidateTransition(current, target, detail: detail == true) is null)
                 .Where(target => target == ChangeLifecycleState.ApprovedForImplementation
-                    ? access.CanApproveChange(change.OrganizationId) : access.CanManageChange(change.OrganizationId))
+                    ? access.CanApproveChange(change.OrganizationId) : canManage)
                 .Select(target => new ChangeLifecycleOptionDto(target,
                     target == ChangeLifecycleState.ApprovedForImplementation && hasPendingApprovals
                         ? "Outstanding approvals must be completed in the change details."
@@ -1065,8 +1070,10 @@ public static partial class ChangeEndpoints
                             ? "Complete the change template in the details before implementing."
                             : null)
                 {
-                    RequiresComment = ChangeLifecycle.RequiresComment(current, target)
+                    RequiresComment = ChangeLifecycle.RequiresComment(current, target),
+                    RequiresDetailUpdate = detail == true && ChangeLifecycle.ValidateTransition(current, target) is not null
                 })
+                .Where(option => !option.RequiresDetailUpdate || canManage)
                 .ToArray();
             var guidance = current == ChangeLifecycleState.Draft
                 ? "Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete."
@@ -1076,7 +1083,7 @@ public static partial class ChangeEndpoints
             return Results.Ok(new ChangeLifecycleOptionsDto(change.Id, current, choices, guidance) { UpdatedAt = change.UpdatedAt });
         })
         .WithName("GetChangeLifecycleOptions")
-        .WithSummary("Gets current, permitted quick lifecycle actions without changing the change");
+        .WithSummary("Gets current, permitted lifecycle actions without changing the change");
 
         group.MapPost("/{id}/lifecycle", async (
             [FromRoute] string id,
@@ -2312,12 +2319,6 @@ public static partial class ChangeEndpoints
         {
             recipients.TryAdd(recipient.Trim(), recipient.Trim());
         }
-        if (notificationKind == "cancelled")
-        {
-            foreach (var approval in approvals.Where(approval => !string.IsNullOrWhiteSpace(approval.ApproverEmail)))
-                recipients.TryAdd(approval.ApproverEmail, approval.ApproverName);
-        }
-
         var queued = true;
         try
         {

@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Helpdesk.Application.Services.Email;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Shared.DTOs.Change;
 using Helpdesk.Shared.Models;
 using Helpdesk.Tests.Fixtures;
@@ -60,6 +63,10 @@ public sealed partial class AuthenticatedChangeApprovalTests
         }
         else
         {
+            using var lateSigned = await Approve();
+            Assert.Equal(HttpStatusCode.Conflict, lateSigned.StatusCode);
+            using var lateAuthenticated = await approver.PostAsync(path + "/approval/review", null);
+            Assert.Equal(HttpStatusCode.Conflict, lateAuthenticated.StatusCode);
             var retries = await Task.WhenAll(Cancel(), Cancel());
             Assert.Contains(retries, response => response.StatusCode == HttpStatusCode.OK);
             Assert.All(retries, response => Assert.Contains(response.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict }));
@@ -74,5 +81,50 @@ public sealed partial class AuthenticatedChangeApprovalTests
                 Assert.Equal("Synthetic cancellation", change.AdministrativeClosureReason);
             });
         }
+    }
+
+    [Theory]
+    [InlineData(false, ChangeLifecycleState.Cancelled, "Change Cancelled. This change has been cancelled.")]
+    [InlineData(true, ChangeLifecycleState.Cancelled, "Change Cancelled. This change has been cancelled.")]
+    [InlineData(false, ChangeLifecycleState.ImplementedFailed, "Change Implemented - Failed")]
+    [InlineData(true, ChangeLifecycleState.ImplementedFailed, "Change Implemented - Failed")]
+    public async Task Closure_queues_the_configured_mail_once_with_the_actual_outcome(bool postgres,
+        ChangeLifecycleState destination, string subject)
+    {
+        await using var fixture = await Fixture.StartAsync(postgres, recipients: true, extraCc: true);
+        var cancelling = destination == ChangeLifecycleState.Cancelled;
+        await fixture.WithDbAsync(async db =>
+        {
+            if (cancelling)
+                db.EmailTemplates.Add(new EmailTemplate { Name = "ChangeUpdate",
+                    Subject = "Change {{{CHANGE_APPROVAL_STATUS}}}. {{{UPDATE_MESSAGE}}}" });
+            else
+            {
+                var change = await db.Changes.SingleAsync();
+                change.LifecycleState = ChangeLifecycleState.ApprovedForImplementation;
+                change.ChangeType = "Standard";
+                change.ChangeTemplateJson = JsonSerializer.Serialize(new ChangeTemplateDto
+                {
+                    IsPreApproved = true, ExistingRunbookReference = "SOP-SYNTHETIC", ScopeOfChange = "Owned test",
+                    AffectedSystems = ["Test service"], ImplementationSteps = ["Apply"], ValidationSteps = ["Verify"], RollbackPlan = "Restore"
+                });
+                (await db.EmailTemplates.SingleAsync(template => template.Name == "ChangeImplemented")).Subject =
+                    "Change Implemented - {{{CHANGE_COMPLETION_STATE}}}";
+            }
+            await db.SaveChangesAsync();
+        });
+        using var manager = fixture.Client("owner-a");
+        const string path = "/api/v1/changes/change/lifecycle";
+        var request = new ChangeLifecycleRequest(destination, "Synthetic explanation");
+        using var first = await manager.PostAsJsonAsync(path, request);
+        Assert.True(first.IsSuccessStatusCode, await first.Content.ReadAsStringAsync());
+        using var repeat = await manager.PostAsJsonAsync(path, request with { Comment = "Second explanation" });
+        Assert.Equal(HttpStatusCode.OK, repeat.StatusCode);
+        Assert.False((await repeat.Content.ReadFromJsonAsync<ChangeDto>())!.LifecycleChanged);
+
+        var emails = (await fixture.ReadEmailEffectsAsync())
+            .Select(effect => MailboxOutboxStore.Deserialize<IngressEmailEffect>(effect.Payload)).ToArray();
+        Assert.Equal(["cc@example.test", "owner-a@example.test"], emails.SelectMany(email => email.Recipients).Order(StringComparer.OrdinalIgnoreCase));
+        Assert.All(emails, email => Assert.Equal(subject, email.Subject));
     }
 }

@@ -100,6 +100,10 @@ public sealed partial class ChangeStateAndAuthorityHttpTests
         Assert.All(blockedChoices.Where(option => option.State != ChangeLifecycleState.Cancelled),
             option => Assert.Contains("template", option.UnavailableReason!));
         Assert.Null(blockedChoices.Single(option => option.State == ChangeLifecycleState.Cancelled).UnavailableReason);
+        using var detail = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/approved/lifecycle-options?detail=true");
+        var detailChoices = (await detail.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
+        Assert.Contains(detailChoices, option => option.State == ChangeLifecycleState.Draft && option.RequiresDetailUpdate);
+        Assert.Contains(detailChoices, option => option.State == ChangeLifecycleState.Cancelled && !option.RequiresDetailUpdate);
         using var terminal = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/implemented/lifecycle-options");
         Assert.Empty((await terminal.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices);
         using var foreign = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/foreign/lifecycle-options");
