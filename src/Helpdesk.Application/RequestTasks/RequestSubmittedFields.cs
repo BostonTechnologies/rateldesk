@@ -5,7 +5,7 @@ namespace Helpdesk.Application.RequestTasks;
 
 public static class RequestSubmittedFields
 {
-    public static List<RequestSubmittedFieldDto> Read(string? payloadJson)
+    public static List<RequestSubmittedFieldDto> Read(string? payloadJson, bool includeBoundLabels)
     {
         if (string.IsNullOrWhiteSpace(payloadJson))
         {
@@ -21,7 +21,12 @@ public static class RequestSubmittedFields
                 return [new("payload", Format(payload, default))];
             }
 
-            payload.TryGetProperty("_boundLabels", out var labels);
+            JsonElement labels = default;
+            if (includeBoundLabels)
+            {
+                payload.TryGetProperty("_boundLabels", out labels);
+            }
+
             var fields = new List<RequestSubmittedFieldDto>();
             foreach (var property in payload.EnumerateObject())
             {

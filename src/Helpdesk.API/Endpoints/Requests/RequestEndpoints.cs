@@ -121,7 +121,7 @@ public static class RequestEndpoints
                 ServiceId = entity.ServiceId,
                 RequestFormId = entity.RequestFormId,
                 PayloadJson = entity.PayloadJson,
-                SubmittedFields = RequestSubmittedFields.Read(entity.PayloadJson),
+                SubmittedFields = RequestSubmittedFields.Read(entity.PayloadJson, !string.IsNullOrWhiteSpace(entity.RequestFormId)),
                 SourceTicketId = entity.SourceTicketId,
                 SourceTicketTrackingId = sourceTicketTrackingId,
                 SourceAutomationBindingId = entity.SourceAutomationBindingId,
@@ -281,10 +281,11 @@ public static class RequestEndpoints
                 }
 
                 var fields = schemaParser.Parse(form.JsonSchema).Fields;
-                if (fields.Any(field => field.MultiSelect))
+                var hasMultiSelect = fields.Any(field => field.MultiSelect);
+                if (hasMultiSelect || payloadJson is not null)
                 {
                     payloadJson ??= "{}";
-                    if (global::System.Text.Encoding.UTF8.GetByteCount(payloadJson) > RequestFormLimits.MaxPayloadBytes)
+                    if (hasMultiSelect && global::System.Text.Encoding.UTF8.GetByteCount(payloadJson) > RequestFormLimits.MaxPayloadBytes)
                     {
                         return Results.BadRequest($"PayloadJson exceeds maximum size of {RequestFormLimits.MaxPayloadBytes} bytes.");
                     }
@@ -296,10 +297,13 @@ public static class RequestEndpoints
                         return Results.BadRequest(string.Join(Environment.NewLine, normalized.Errors));
                     }
 
-                    var validationResult = await automationPayloadContractService.ValidateBoundRequestPayloadAsync(form, normalized.PayloadJson, token);
-                    if (!validationResult.Success)
+                    if (hasMultiSelect)
                     {
-                        return Results.BadRequest(string.Join(Environment.NewLine, validationResult.Errors));
+                        var validationResult = await automationPayloadContractService.ValidateBoundRequestPayloadAsync(form, normalized.PayloadJson, token);
+                        if (!validationResult.Success)
+                        {
+                            return Results.BadRequest(string.Join(Environment.NewLine, validationResult.Errors));
+                        }
                     }
 
                     payloadJson = normalized.PayloadJson;

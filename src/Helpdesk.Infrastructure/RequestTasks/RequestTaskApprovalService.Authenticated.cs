@@ -23,7 +23,7 @@ public sealed partial class RequestTaskApprovalService
             ViewedAtUtc = approval.ViewedAtUtc,
             CanReview = task.Status == RequestTaskStatus.PendingApproval && approval.Status == RequestTaskApprovalStatus.Pending &&
                         (task.DueAt is null || task.DueAt > DateTimeOffset.UtcNow),
-            PayloadFields = BuildPayloadFields(request.PayloadJson)
+            PayloadFields = BuildPayloadFields(request)
         };
     }
 

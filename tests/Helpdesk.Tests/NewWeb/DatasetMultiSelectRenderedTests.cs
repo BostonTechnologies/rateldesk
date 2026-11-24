@@ -2,6 +2,7 @@ extern alias NewWeb;
 using Bunit;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Resources;
+using MudBlazor;
 using MudBlazor.Services;
 using Picker = NewWeb::HelpDesk.NewWeb.Components.Shared.DatasetMultiSelect;
 
@@ -31,11 +32,13 @@ public sealed class DatasetMultiSelectRenderedTests
         picker.Find("button[aria-expanded]").Click();
         picker.Find("input[type=text]").Input("ware");
         picker.WaitForAssertion(() => Assert.Contains("warehouse", picker.Markup));
-        picker.Find("input[type=checkbox]").Change(true);
+        var checkbox = picker.FindComponent<MudCheckBox<bool>>();
+        Assert.Contains("Warehouse", checkbox.Markup);
+        await picker.InvokeAsync(() => checkbox.Instance.ValueChanged.InvokeAsync(true));
         Assert.Equal(["fleet-1", "fleet-2", "warehouse"], selected.Select(option => option.Key));
 
         picker.Render(parameters => parameters.Add(component => component.Selected, selected));
-        picker.Find("button[aria-label='Remove Fleet (fleet-1) from Groups']").Click();
+        await picker.Find("button[aria-label='Remove Fleet (fleet-1) from Groups']").ClickAsync(new());
         Assert.Equal(["fleet-2", "warehouse"], selected.Select(option => option.Key));
     }
 }

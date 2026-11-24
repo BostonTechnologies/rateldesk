@@ -108,6 +108,25 @@ public sealed class RequestCreateEndpointsTests
     }
 
     [Fact]
+    public async Task Legacy_direct_form_submission_uses_scalar_value_without_client_supplied_labels()
+    {
+        await using var harness = await RequestCreateTestHarness.CreateAsync();
+        await harness.SeedCustomerAsync("org-1", "customer-1", "customer@example.test");
+        await harness.SeedRequestFormAsync("""{"fields":[{"key":"access","label":"Access","type":"text"}]}""");
+        using var response = await harness.Client.PostAsJsonAsync("/api/v1/requests", new CreateRequestDto
+        {
+            Title = "Access", Description = "Synthetic", CustomerId = "customer-1", OrganizationId = "org-1",
+            RequestFormId = "form-1", PayloadJson = """{"access":"Fleet","_boundLabels":{"access":"Spoofed"}}"""
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = Assert.Single(await harness.Requests.GetAllAsync());
+        using var document = JsonDocument.Parse(created.PayloadJson!);
+        Assert.Equal("Fleet", document.RootElement.GetProperty("access").GetString());
+        Assert.False(document.RootElement.TryGetProperty("_boundLabels", out _));
+    }
+
+    [Fact]
     public async Task Post_Rejects_Missing_Customer()
     {
         await using var harness = await RequestCreateTestHarness.CreateAsync();
