@@ -99,7 +99,25 @@ internal static class McpRequestSchemas
             case "TicketCountRequest":
                 fields["ticketType"] = Named("incidents", "requests", "changes"); break;
             case "ChangeLifecycleRequest":
-                Field(fields, required, "lifecycleState", EnumSchema<ChangeLifecycleState>(names: true), true); fields["comment"] = Text(false); break;
+                Field(fields, required, "lifecycleState", EnumSchema<ChangeLifecycleState>(names: true), true);
+                fields["comment"] = ChangeComment();
+                fields["expectedLifecycleState"] = Nullable(EnumSchema<ChangeLifecycleState>(names: true));
+                fields["expectedUpdatedAt"] = Nullable(Date());
+                break;
+            case "BulkChangeCancellationRequest":
+                var cancellationRow = Object();
+                var rowFields = (JsonObject)cancellationRow["properties"]!;
+                var rowRequired = (JsonArray)cancellationRow["required"]!;
+                Field(rowFields, rowRequired, "id", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 256 }, true);
+                Field(rowFields, rowRequired, "expectedLifecycleState", EnumSchema<ChangeLifecycleState>(names: true), true);
+                rowFields["expectedUpdatedAt"] = Nullable(Date());
+                Field(fields, required, "selection", new JsonObject
+                {
+                    ["type"] = "array", ["items"] = cancellationRow,
+                    ["minItems"] = 1, ["maxItems"] = BulkChangeCancellationRequest.MaxSelectionSize
+                }, true);
+                fields["comment"] = ChangeComment();
+                break;
             case "AiAssistantWorklogRequest":
                 foreach (var name in new[] { "eventId", "ticketId", "correlationId", "message" }) Field(fields, required, name, Text(), true);
                 fields["invocationId"] = new JsonObject { ["type"] = "string", ["format"] = "uuid" };
@@ -142,6 +160,11 @@ internal static class McpRequestSchemas
                 targetFields["priority"] = Named(Enum.GetNames<TicketPriority>());
                 if (targetFields.ContainsKey("state")) targetFields["state"] = Nullable(EnumSchema<TicketState>(names: true));
                 if (targetFields.ContainsKey("lifecycleState")) targetFields["lifecycleState"] = Nullable(EnumSchema<ChangeLifecycleState>(names: true));
+                if (tool == "helpdesk_changes" && op == "update")
+                {
+                    targetFields["comment"] = Nullable(ChangeComment());
+                    targetFields["expectedLifecycleState"] = Nullable(EnumSchema<ChangeLifecycleState>(names: true));
+                }
                 if (op is "create" or "bulk_create")
                 {
                     foreach (var name in new[] { "title", "description", "organizationId" }) Require(targetRequired, name);
@@ -371,6 +394,9 @@ internal static class McpRequestSchemas
 
     private static JsonObject ExclusiveClear(string clear, string value) => new() { ["not"] = new JsonObject { ["required"] = new JsonArray(clear, value), ["properties"] = new JsonObject { [clear] = new JsonObject { ["const"] = true } } } };
     private static JsonObject Object() => new() { ["type"] = "object", ["additionalProperties"] = false, ["properties"] = new JsonObject(), ["required"] = new JsonArray() };
+    private static JsonObject ChangeComment() =>
+        new() { ["type"] = "string", ["maxLength"] = ChangeLifecycleRequest.MaxCommentLength };
+
     private static JsonObject Text(bool nonempty = true) => nonempty ? new() { ["type"] = "string", ["minLength"] = 1 } : new() { ["type"] = "string" };
     private static JsonObject Integer(int minimum, int? maximum = null) { var result = new JsonObject { ["type"] = "integer", ["minimum"] = minimum }; if (maximum.HasValue) result["maximum"] = maximum.Value; return result; }
     private static JsonObject Boolean() => new() { ["type"] = "boolean" };

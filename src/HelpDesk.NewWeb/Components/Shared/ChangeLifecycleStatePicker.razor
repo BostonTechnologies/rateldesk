@@ -6,10 +6,11 @@
 @implements IDisposable
 @inject IHttpClientFactory HttpClientFactory
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
-<StatePopup @key="scope" Kind="change" Label="@GetLifecycleLabel(LifecycleState)" TrackingId="@(TrackingId ?? ChangeId)"
-            Color="@GetLifecycleColor(LifecycleState)" CanEdit="CanOpen" Busy="pending" Loading="loading" Error="@error"
-            Guidance="@guidance" DetailUrl="@($"/changes/{Uri.EscapeDataString(ChangeId)}")" Choices="choices"
+<StatePopup @key="scope" Kind="change" Label="@ChangeLifecycleDisplay.Label(LifecycleState)" TrackingId="@(TrackingId ?? ChangeId)"
+            Color="@ChangeLifecycleDisplay.StatusColor(LifecycleState)" CanEdit="CanOpen" Busy="pending" Loading="loading" Error="@error"
+            Guidance="@guidance" DetailUrl="@(ShowDetailsLink ? $"/changes/{Uri.EscapeDataString(ChangeId)}" : null)" Choices="choices"
             Opening="LoadOptions" Apply="UpdateLifecycle" Reload="ReloadCurrent" />
 
 @code {
@@ -17,6 +18,10 @@
     [Parameter] public bool CanApprove { get; set; }
     [Parameter] public string ChangeId { get; set; } = string.Empty;
     [Parameter] public string? TrackingId { get; set; }
+    [Parameter] public string? ChangeTitle { get; set; }
+    [Parameter] public bool DetailActions { get; set; }
+    [Parameter] public bool ShowDetailsLink { get; set; } = true;
+    [Parameter] public bool RetainsDraft { get; set; }
     [Parameter] public ChangeLifecycleState LifecycleState { get; set; }
     [Parameter] public EventCallback<ChangeDto> ChangeUpdated { get; set; }
 
@@ -25,10 +30,11 @@
     private (string Id, bool Write, bool Approve) scope;
     private CancellationTokenSource cancellation = new();
     private IReadOnlyList<StatePopupChoice> choices = [];
+    private ChangeLifecycleOptionsDto? loadedOptions;
     private bool pending, loading, disposed;
     private string? error, guidance;
     private bool CanOpen => !string.IsNullOrWhiteSpace(ChangeId) &&
-        LifecycleState is not (ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut) &&
+        !ChangeLifecycleDisplay.IsTerminal(LifecycleState) &&
         (CanWrite || CanApprove && LifecycleState == ChangeLifecycleState.PendingApproval);
 
     protected override void OnParametersSet()
@@ -40,6 +46,7 @@
         pending = loading = false;
         error = guidance = null;
         choices = [];
+        loadedOptions = null;
     }
 
     private async Task LoadOptions()
@@ -52,17 +59,19 @@
         choices = [];
         try
         {
-            var options = await Api.GetFromJsonAsync<ChangeLifecycleOptionsDto>($"api/v1/changes/{Uri.EscapeDataString(origin.Id)}/lifecycle-options", token);
+            var path = $"api/v1/changes/{Uri.EscapeDataString(origin.Id)}/lifecycle-options";
+            var options = await Api.GetFromJsonAsync<ChangeLifecycleOptionsDto>(DetailActions ? path + "?detail=true" : path, token);
             if (!Current(origin, token)) return;
             if (options?.Id != origin.Id)
             {
                 error = "Permitted actions could not be confirmed. Reload current state.";
                 return;
             }
+            loadedOptions = options;
             LifecycleState = options.LifecycleState;
             guidance = options.Guidance;
-            choices = options.Choices.Select(option => new StatePopupChoice((int)option.State,
-                option.State == ChangeLifecycleState.Submitted ? "Submit" : GetLifecycleLabel(option.State), option.UnavailableReason)).ToArray();
+            choices = options.Choices.Select(option => new StatePopupChoice(
+                (int)option.State, ActionLabel(option.State), option.UnavailableReason, RequiresConfirmation(option.State))).ToArray();
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
@@ -74,15 +83,28 @@
     private async Task<bool> UpdateLifecycle(int value)
     {
         var newState = (ChangeLifecycleState)value;
-        if (pending || loading || newState == LifecycleState || !choices.Any(option => option.Value == value && option.UnavailableReason is null)) return false;
+        if (pending || loading || loadedOptions is not { } snapshot || newState == LifecycleState ||
+            !choices.Any(option => option.Value == value && option.UnavailableReason is null)) return false;
         var origin = scope;
         var token = cancellation.Token;
+        var request = new ChangeLifecycleRequest(newState, ExpectedLifecycleState: snapshot.LifecycleState,
+            ExpectedUpdatedAt: snapshot.UpdatedAt);
+        if (RequiresConfirmation(newState))
+            return await ConfirmClosure(request, snapshot, origin, token);
+
         pending = true;
         error = null;
         await InvokeAsync(StateHasChanged);
         try
         {
-            using var response = await Commands.PostAsJsonAsync($"api/v1/changes/{Uri.EscapeDataString(origin.Id)}/lifecycle", new { LifecycleState = newState }, token);
+            var path = $"api/v1/changes/{Uri.EscapeDataString(origin.Id)}";
+            using var response = DetailActions && newState == ChangeLifecycleState.Draft
+                ? await Commands.PutAsJsonAsync(path, new UpdateChangeDto
+                {
+                    LifecycleState = request.LifecycleState, ExpectedLifecycleState = request.ExpectedLifecycleState,
+                    ExpectedUpdatedAt = request.ExpectedUpdatedAt
+                }, token)
+                : await Commands.PostAsJsonAsync(path + "/lifecycle", request, token);
             if (!Current(origin, token)) return false;
             if (!response.IsSuccessStatusCode)
             {
@@ -104,10 +126,7 @@
                 choices = [];
                 return false;
             }
-            LifecycleState = updated.LifecycleState;
-            await ChangeUpdated.InvokeAsync(updated);
-            if (!disposed) Snackbar.Add($"Change status updated to {GetLifecycleLabel(updated.LifecycleState)}.{(updated.State == TicketState.Resolved ? " Find implemented changes using History." : "")}", Severity.Success);
-            return true;
+            return await AcceptUpdate(updated);
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or TimeoutRejectedException or BrokenCircuitException)
         {
@@ -150,24 +169,46 @@
     private bool Current((string Id, bool Write, bool Approve) origin, CancellationToken token) => !disposed && !token.IsCancellationRequested && scope == origin;
     public void Dispose() { disposed = true; cancellation.Cancel(); cancellation.Dispose(); }
 
-    private static string GetLifecycleLabel(ChangeLifecycleState state) => state switch
+    private static bool RequiresConfirmation(ChangeLifecycleState state) =>
+        state is ChangeLifecycleState.Cancelled or ChangeLifecycleState.ImplementedFailed;
+
+    private static string ActionLabel(ChangeLifecycleState state) => state switch
     {
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        _ => state.ToString()
+        ChangeLifecycleState.Submitted => "Submit",
+        ChangeLifecycleState.Cancelled => "Cancel",
+        _ => ChangeLifecycleDisplay.Label(state)
     };
 
-    private static Color GetLifecycleColor(ChangeLifecycleState state) => state switch
+    private async Task<bool> ConfirmClosure(ChangeLifecycleRequest request, ChangeLifecycleOptionsDto snapshot,
+        (string Id, bool Write, bool Approve) origin, CancellationToken token)
     {
-        ChangeLifecycleState.Submitted => Color.Info,
-        ChangeLifecycleState.PendingApproval => Color.Warning,
-        ChangeLifecycleState.ApprovedForImplementation => Color.Primary,
-        ChangeLifecycleState.ImplementationInProgress => Color.Secondary,
-        ChangeLifecycleState.ImplementedSuccess => Color.Success,
-        ChangeLifecycleState.ImplementedBackedOut => Color.Warning,
-        _ => Color.Default
-    };
+        var cancelling = request.LifecycleState == ChangeLifecycleState.Cancelled;
+        var dialog = await Dialogs.ShowAsync<ChangeClosureDialog>(cancelling ? "Cancel change" : "Record failed implementation",
+            new DialogParameters<ChangeClosureDialog>
+            {
+                { item => item.ChangeId, origin.Id },
+                { item => item.Summary, $"{TrackingId ?? origin.Id} · {ChangeTitle}" },
+                { item => item.Action, request },
+                { item => item.ReasonRequired, snapshot.Choices.Single(option => option.State == request.LifecycleState).RequiresComment },
+                { item => item.WarnAboutExecution, cancelling && snapshot.LifecycleState == ChangeLifecycleState.ImplementationInProgress },
+                { item => item.RetainsDraft, RetainsDraft },
+                { item => item.ScopeToken, token }
+            },
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseOnEscapeKey = true, BackdropClick = false });
+        var result = await dialog.Result;
+        return Current(origin, token) && result?.Data is ChangeDto updated && await AcceptUpdate(updated);
+    }
+
+    private async Task<bool> AcceptUpdate(ChangeDto updated)
+    {
+        LifecycleState = updated.LifecycleState;
+        await ChangeUpdated.InvokeAsync(updated);
+        if (!disposed)
+        {
+            var guidance = ChangeLifecycleDisplay.IsTerminal(updated.LifecycleState) ? " Find this change in History." : "";
+            var status = $"Change status is {ChangeLifecycleDisplay.Label(updated.LifecycleState)}.";
+            Snackbar.Add(status + guidance, Severity.Success);
+        }
+        return true;
+    }
 }

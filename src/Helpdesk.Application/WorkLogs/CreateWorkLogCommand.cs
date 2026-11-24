@@ -1,3 +1,4 @@
+using Helpdesk.Application.Changes;
 using Helpdesk.Shared.DTOs.PublicAccess;
 using Dodo.Primitives;
 using Helpdesk.Application.Notifications;
@@ -424,8 +425,8 @@ public class CreateWorkLogCommandHandler(
         context.ChangePriority = change.Priority.ToString();
         context.ChangeImplementationStart = FormatTimestamp(change.ImplementationStartAt);
         context.ChangeImplementationEnd = FormatTimestamp(change.ImplementationEndAt);
-        context.ChangeApprovalStatus = FormatLifecycleState(change.LifecycleState ?? ChangeLifecycleState.Draft);
-        context.ChangeCompletionState = FormatCompletionState(change.LifecycleState ?? ChangeLifecycleState.Draft);
+        context.ChangeApprovalStatus = ChangeLifecycle.Label(change.LifecycleState ?? ChangeLifecycleState.Draft);
+        context.ChangeCompletionState = ChangeLifecycle.CompletionLabel(change.LifecycleState ?? ChangeLifecycleState.Draft);
         context.ChangeViewLink = context.TicketLink;
     }
 
@@ -466,23 +467,6 @@ public class CreateWorkLogCommandHandler(
         value.HasValue
             ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm 'UTC'")
             : string.Empty;
-
-    private static string FormatLifecycleState(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        _ => state.ToString()
-    };
-
-    private static string FormatCompletionState(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.ImplementedSuccess => "Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Backed Out",
-        _ => string.Empty
-    };
 
     private static List<string> ResolveEmailRecipients(
         Ticket ticketDetails,

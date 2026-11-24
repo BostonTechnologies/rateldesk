@@ -1,4 +1,5 @@
 import { captureTables } from './table-evidence';
+import { reviewCapture, reviewPage } from './owner-review-matrix';
 import {test,expect} from '@playwright/test';
 test.use({ timezoneId: 'Africa/Johannesburg' });
 const fixture='http://127.0.0.1:18330/fixture';
@@ -323,7 +324,7 @@ test('change popup explains outstanding approvals and template prerequisites',as
  await page.keyboard.press('Escape');
  await request.get(fixture+'/row?id=row-59&lifecycle=4&pending=false&template=false');await page.reload();
  await trigger.click();
- await expect(page.getByText('Complete the change template in the details before implementing.')).toHaveCount(2);
+ await expect(page.getByText('Complete the change template in the details before implementing.')).toHaveCount(3);
  expect((await(await request.get(fixture+'/state')).json()).mutations).toHaveLength(0);
 });
 
@@ -334,6 +335,115 @@ test('read-only actors have state indicators without an update affordance',async
   await expect(page.locator('button.state-trigger')).toHaveCount(0);
  }
  expect((await(await request.get(fixture+'/state')).json()).mutations).toHaveLength(0);
+});
+
+test('legacy change cancellation preserves explanation through conflict and reconciles a lost response', async ({ page, request }, info) => {
+  await request.get(fixture + '/row?id=row-0&template=false');
+  await page.goto('/changes?sort=trackingId&descending=false');
+  const row = page.getByRole('row').filter({ has: page.getByText('SYN-000', { exact: true }) });
+  const trigger = row.getByLabel('Update change state: Draft', { exact: true });
+  await expect(trigger).toBeEnabled();
+  await trigger.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Submit', exact: true })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Cancel', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('SYN-000 · Synthetic ticket 0');
+  await expect(dialog.getByRole('textbox', { name: 'Explanation' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect((await (await request.get(fixture + '/state')).json()).mutations).toEqual([]);
+
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Cancel', exact: true }).click();
+  const explanation = dialog.getByRole('textbox', { name: 'Explanation' });
+  await explanation.fill('Synthetic plan discontinued');
+  await dialog.screenshot({ path: info.outputPath('draft-cancellation-dialog.png') });
+  await request.get(fixture + '/fault?mode=state-conflict');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await dialog.getByRole('button', { name: 'Reload current state' }).click();
+  await expect(explanation).toHaveValue('Synthetic plan discontinued');
+
+  await request.get(fixture + '/fault?mode=state-lost');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await dialog.getByRole('button', { name: 'Reload current state' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show historic changes' }).click();
+  await expect(row).toContainText('Cancelled');
+  await expect(page.locator('#blazor-error-ui')).toBeHidden();
+  expect((await (await request.get(fixture + '/state')).json()).mutations).toHaveLength(2);
+  await row.screenshot({ path: info.outputPath('cancelled-change-history.png') });
+});
+
+test('cancel selected submits exactly one full page and leaves the remaining changes active', async ({ page, request }, info) => {
+  await page.goto('/changes?view=active&q=Synthetic&sort=trackingId&descending=false');
+  await expect(page.getByText('1-25 of 60')).toBeVisible();
+  await page.locator('thead input[type=checkbox]').check();
+  await expect(page.getByText('25 selected', { exact: true })).toBeVisible();
+  await page.locator('.helpdesk-bulk-action-picker').click();
+  await page.getByRole('option', { name: 'Cancel selected' }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Cancel 25 selected changes?');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).dblclick();
+  await expect(dialog.getByText(/SYN-000.*Cancelled/)).toBeVisible();
+  await dialog.screenshot({ path: info.outputPath('cancel-selected-results.png') });
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByText('1-25 of 35')).toBeVisible();
+  await expect(page.getByText('25 selected', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Search tickets' })).toHaveValue('Synthetic');
+  const state = await (await request.get(fixture + '/state')).json();
+  expect(state.mutations).toHaveLength(1);
+  expect(state.mutations[0].body.selection).toHaveLength(25);
+  expect(state.rows.filter(row => row.lifecycleState === 7)).toHaveLength(25);
+  expect(state.rows.find(row => row.id === 'row-25').lifecycleState).toBe(0);
+});
+
+test('cancel selected retains the conflicted row and explanation after cancelling a valid row', async ({ page, request }) => {
+  await page.goto('/changes?q=Synthetic&sort=trackingId&descending=false');
+  await expect(page.getByText('1-25 of 60')).toBeVisible();
+  const rows = page.locator('tbody input[type=checkbox]');
+  await rows.nth(0).check();
+  await rows.nth(1).check();
+  await request.get(fixture + '/row?id=row-1&lifecycle=3');
+  await page.locator('.helpdesk-bulk-action-picker').click();
+  await page.getByRole('option', { name: 'Cancel selected' }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Explanation' }).fill('Synthetic shared explanation');
+  await dialog.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(dialog.getByText(/SYN-000.*Cancelled/)).toBeVisible();
+  await expect(dialog.getByText(/SYN-001.*Review the current change/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Explanation' })).toHaveValue('Synthetic shared explanation');
+  await dialog.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(page.getByText('1-25 of 59')).toBeVisible();
+});
+
+test('failed implementation requires an explanation and works at native 200% zoom', async ({ browser, request }, info) => {
+  await request.get(fixture + '/row?id=row-0&lifecycle=3');
+  const mode = { theme: 'dark', width: 1366, height: 900, zoom: 2, custom: false };
+  await reviewPage(browser, 'https://127.0.0.1:5200', mode,
+    async page => {
+      await page.goto('/changes?sort=trackingId&descending=false');
+      const row = page.getByRole('row').filter({ has: page.getByText('SYN-000', { exact: true }) });
+      await row.getByLabel(/^Update change state: Approved/).click();
+      await page.getByRole('menuitem', { name: 'Implemented - Failed', exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      const confirm = dialog.getByRole('button', { name: 'Record failed implementation' });
+      await expect(confirm).toBeDisabled();
+      await dialog.getByRole('textbox', { name: 'Explanation' }).fill('Synthetic validation failed');
+      await expect(confirm).toBeInViewport();
+      await reviewCapture(page, info, mode, 'failed-implementation-200-percent', []);
+      await confirm.click();
+      await expect(row).toHaveCount(0);
+      await page.getByRole('button', { name: 'Show historic changes' }).click();
+      await expect(row).toContainText('Implemented - Failed');
+      await expect(page.locator('#blazor-error-ui')).toBeHidden();
+    });
 });
 
 // Opt-in geometry and synthetic screenshots for the owner table inventory.

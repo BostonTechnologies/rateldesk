@@ -7,7 +7,7 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The current catalog revision `2026-11-23.self-service-organizations-v35` contains 393
+The current catalog revision `2026-11-24.change-lifecycle-v36` contains 394
 operations on 37 tools. The retained [inventory delta](mcp-operation-inventory-delta-beta13.json)
 compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
 with beta.11 at revision `2026-10-25.beta11-contracts-v25`: all 389 prior

@@ -27,7 +27,7 @@ public sealed record McpOperationDefinition(
 /// </summary>
 public static class McpOperationCatalog
 {
-    public const string Revision = "2026-11-23.self-service-organizations-v35";
+    public const string Revision = "2026-11-24.change-lifecycle-v36";
 
     public static IReadOnlyList<McpOperationDefinition> All { get; } =
     [
@@ -83,6 +83,7 @@ public static class McpOperationCatalog
         Ticket("helpdesk_changes", "changes", "changeId", "TicketStateRequest", "state", "POST", true),
         Ticket("helpdesk_changes", "changes", "changeId", "TicketWorklogRequest", "add_worklog", "POST", true),
         Ticket("helpdesk_changes", "changes", "changeId", "ChangeLifecycleRequest", "lifecycle", "POST", true),
+        Operation("helpdesk_changes", "bulk_cancel", "BulkChangeCancellationRequest", "POST", "/api/v1/changes/bulk/cancel", true),
         Operation("helpdesk_ai_assistant", "report", "AiAssistantWorklogRequest", "POST", "/api/v1/ai-assistant/investigations/{invocationId}/worklog", false),
 
         Read("helpdesk_request_forms", "get", "RequestFormRequest", "/api/v1/request-forms/{requestFormId}", "Get one request form."),

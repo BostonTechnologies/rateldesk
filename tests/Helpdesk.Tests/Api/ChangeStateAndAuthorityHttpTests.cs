@@ -24,7 +24,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Helpdesk.Tests.Api;
 
 [Collection("Incident receiver")]
-public sealed class ChangeStateAndAuthorityHttpTests
+public sealed partial class ChangeStateAndAuthorityHttpTests
 {
     [Theory]
     [InlineData(false)]
@@ -84,18 +84,22 @@ public sealed class ChangeStateAndAuthorityHttpTests
         using var draft = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/draft/lifecycle-options");
         Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
         var draftOptions = await draft.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>();
-        Assert.Equal(ChangeLifecycleState.Submitted, Assert.Single(draftOptions!.Choices).State);
-        Assert.Null(draftOptions.Choices[0].UnavailableReason);
+        Assert.Equal([ChangeLifecycleState.Submitted, ChangeLifecycleState.Cancelled], draftOptions!.Choices.Select(option => option.State));
+        Assert.All(draftOptions.Choices, option => Assert.Null(option.UnavailableReason));
+        Assert.False(draftOptions.Choices.Single(option => option.State == ChangeLifecycleState.Cancelled).RequiresComment);
         using var writerPending = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/pending/lifecycle-options");
         var writerChoices = (await writerPending.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
-        Assert.Equal(ChangeLifecycleState.Draft, Assert.Single(writerChoices).State);
+        Assert.Equal([ChangeLifecycleState.Draft, ChangeLifecycleState.Cancelled], writerChoices.Select(option => option.State));
+        Assert.True(writerChoices.Single(option => option.State == ChangeLifecycleState.Cancelled).RequiresComment);
         using var adminPending = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/pending/lifecycle-options");
         var adminChoices = (await adminPending.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
         Assert.Contains(adminChoices, option => option.State == ChangeLifecycleState.ApprovedForImplementation && option.UnavailableReason!.Contains("Outstanding approvals"));
         using var incomplete = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/incomplete/lifecycle-options");
         var blockedChoices = (await incomplete.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices;
-        Assert.Equal(2, blockedChoices.Count);
-        Assert.All(blockedChoices, option => Assert.Contains("template", option.UnavailableReason!));
+        Assert.Equal(4, blockedChoices.Count);
+        Assert.All(blockedChoices.Where(option => option.State != ChangeLifecycleState.Cancelled),
+            option => Assert.Contains("template", option.UnavailableReason!));
+        Assert.Null(blockedChoices.Single(option => option.State == ChangeLifecycleState.Cancelled).UnavailableReason);
         using var terminal = await h.AdminAsync(HttpMethod.Get, "/api/v1/changes/implemented/lifecycle-options");
         Assert.Empty((await terminal.Content.ReadFromJsonAsync<ChangeLifecycleOptionsDto>())!.Choices);
         using var foreign = await BoundedAsync(h, HttpMethod.Get, "/api/v1/changes/foreign/lifecycle-options");
@@ -356,7 +360,7 @@ public sealed class ChangeStateAndAuthorityHttpTests
     private static async Task SeedChangesAsync(IncidentReceiverTests.Harness h) => await h.EditAsync(db =>
     {
         db.Organizations.Add(new Organization { Id = "foreign-org", Name = "Foreign" });
-        foreach (var name in new[] { "ChangeSubmitted", "ChangeApprovalRequired", "ChangeImplementationInProgress", "ChangeImplemented" })
+        foreach (var name in new[] { "ChangeSubmitted", "ChangeApprovalRequired", "ChangeImplementationInProgress", "ChangeImplemented", "ChangeUpdate" })
             db.EmailTemplates.Add(new EmailTemplate { Name = name, Subject = "Synthetic change {{TicketRef}}", HtmlContent = "<p>Synthetic change lifecycle notification.</p>" });
         var template = JsonSerializer.Serialize(new ChangeTemplateDto { IsPreApproved = true, ExistingRunbookReference = "SOP-SYNTHETIC", ScopeOfChange = "Owned test", AffectedSystems = ["Test service"], ImplementationSteps = ["Apply"], ValidationSteps = ["Verify"], RollbackPlan = "Restore" });
         foreach (var (id, lifecycle, state) in new[] { ("draft", ChangeLifecycleState.Draft, TicketState.New), ("approved", ChangeLifecycleState.ApprovedForImplementation, TicketState.New), ("pending", ChangeLifecycleState.PendingApproval, TicketState.New), ("implemented", ChangeLifecycleState.ImplementedSuccess, TicketState.Resolved), ("incomplete", ChangeLifecycleState.ImplementationInProgress, TicketState.InProgress) })

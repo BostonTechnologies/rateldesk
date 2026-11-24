@@ -1,3 +1,4 @@
+using Helpdesk.Application.Changes;
 using Helpdesk.API.Endpoints.PublicIngress;
 using Helpdesk.Infrastructure.Security;
 using Helpdesk.Shared.DTOs.PublicAccess;
@@ -156,6 +157,7 @@ public static partial class ChangeEndpoints
                 Priority = entity.Priority,
                 State = entity.State,
                 LifecycleState = EffectiveLifecycleState(entity),
+                LifecycleExplanation = CanReadInternalChange(access, entity.OrganizationId) ? entity.AdministrativeClosureReason : null,
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt,
                 TrackingId = entity.TrackingId,
@@ -296,9 +298,9 @@ public static partial class ChangeEndpoints
             {
                 await ticketSlaInitializer.InitializeAsync(created);
             }
-            catch
+            catch (Exception error) when (error is not OperationCanceledException)
             {
-                // Ticket creation must not fail if SLA initialization fails.
+                loggerFactory.CreateLogger("ChangeSla").LogWarning(error, "SLA initialization failed for change {ChangeId}.", created.Id);
             }
 
             if (categoryIds.Count > 0)
@@ -401,8 +403,11 @@ public static partial class ChangeEndpoints
                 return Results.BadRequest("Invalid change ticket state.");
             if (dto.Priority.HasValue && !Enum.IsDefined(dto.Priority.Value))
                 return Results.BadRequest("Invalid change priority.");
-            if (dto.LifecycleState.HasValue && !Enum.IsDefined(dto.LifecycleState.Value))
+            if (dto.LifecycleState is { } target && !Enum.IsDefined(target) ||
+                dto.ExpectedLifecycleState is { } expected && !Enum.IsDefined(expected))
                 return Results.BadRequest("Invalid change lifecycle state.");
+            if (ValidateLifecycleComment(dto.Comment) is { } invalidComment) return invalidComment;
+            var comment = dto.Comment?.Trim();
 
             var persisted = false;
             try
@@ -420,24 +425,52 @@ public static partial class ChangeEndpoints
                 var previousTemplateJson = existing.ChangeTemplateJson;
                 var previousChangeType = existing.ChangeType;
                 var previousLifecycleState = EffectiveLifecycleState(existing);
-                if (dto.State.HasValue)
+                var actorId = LifecycleActor(user);
+                if (dto.LifecycleState is { } destination && ChangeLifecycle.IsTerminal(destination))
                 {
-                    var stateError = ValidateTicketStateTransition(existing, dto.State.Value);
-                    if (stateError is not null) return Results.BadRequest(stateError);
+                    var hasEdits = destination is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut
+                        ? await HasLockedChangeFieldUpdatesAsync(db, existing, dto, changeTemplateService, token, allowResolvedState: true)
+                        : HasChangeClosureEdits(existing, dto);
+                    if (dto.State is { } ticketState && ticketState != existing.State && ticketState != TicketState.Resolved ||
+                        hasEdits)
+                        return Results.BadRequest("Save detail edits separately before recording a lifecycle outcome.");
+                    if (destination == previousLifecycleState)
+                        return Results.Ok(ReadLifecycleResult(existing, changeTemplateService, changed: false));
+                    if (!MatchesLifecycleSelection(existing, dto.ExpectedLifecycleState, dto.ExpectedUpdatedAt))
+                        return LifecycleConflict();
+                    if (string.IsNullOrWhiteSpace(actorId)) return Results.Forbid();
+                    var failure = await ApplyChangeClosureAsync(db, existing, destination, actorId,
+                        access.Name ?? user.Identity?.Name, comment, changeTemplateService, ticketSlaCompletionService,
+                        notificationService, loggerFactory, token);
+                    if (failure is not null) return failure;
+                    if (tx is not null) await tx.CommitAsync(token);
+                    persisted = true;
+                    await PublishChangeClosureAsync(existing, previousState, domainEvents, correlationContext, token);
+                    return Results.Ok(ReadLifecycleResult(existing, changeTemplateService, changed: true));
                 }
+
+                if (!MatchesLifecycleSelection(existing, dto.ExpectedLifecycleState, dto.ExpectedUpdatedAt))
+                    return LifecycleConflict();
+                if (ChangeLifecycle.IsTerminal(previousLifecycleState))
+                    return Results.BadRequest("This change has reached a terminal outcome.");
+                if (dto.State is { } requestedState && ValidateTicketStateTransition(existing, requestedState) is { } stateError)
+                    return Results.BadRequest(stateError);
                 if (dto.LifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
                     previousLifecycleState != ChangeLifecycleState.ApprovedForImplementation &&
                     !access.CanApproveChange(existing.OrganizationId))
-                {
                     return Results.Forbid();
-                }
-                if ((dto.LifecycleState is ChangeLifecycleState.ImplementationInProgress
-                        or ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut) &&
-                    dto.LifecycleState != previousLifecycleState &&
-                    previousLifecycleState is not (ChangeLifecycleState.ApprovedForImplementation or ChangeLifecycleState.ImplementationInProgress))
+                if (dto.LifecycleState is { } requestedLifecycle)
                 {
-                    return Results.BadRequest("Change must be approved before implementation.");
+                    // Older detail clients selected an approval destination when submitting a saved draft.
+                    var transition = previousLifecycleState == ChangeLifecycleState.Draft &&
+                        requestedLifecycle is ChangeLifecycleState.PendingApproval or ChangeLifecycleState.ApprovedForImplementation
+                        ? ChangeLifecycleState.Submitted : requestedLifecycle;
+                    if (ChangeLifecycle.ValidateTransition(previousLifecycleState, transition, detail: true) is { } transitionError)
+                        return Results.BadRequest(transitionError);
                 }
+                if (!string.IsNullOrEmpty(comment) &&
+                    (dto.LifecycleState is null || dto.LifecycleState == previousLifecycleState))
+                    return Results.BadRequest("An explanation requires a lifecycle action.");
 
                 if (previousLifecycleState != ChangeLifecycleState.Draft &&
                     await HasLockedChangeFieldUpdatesAsync(db, existing, dto, changeTemplateService, token))
@@ -688,19 +721,13 @@ public static partial class ChangeEndpoints
                         token))
                         throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
                 }
-                else if (previousLifecycleState != updatedLifecycleState &&
-                    updatedLifecycleState is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut)
+
+                if (!string.IsNullOrEmpty(comment))
                 {
-                    QueueChangeApprovalTimeline(db, updated!.Id,
-                        $"Change implemented - {FormatChangeCompletionState(updatedLifecycleState)}.", "System");
-                    if (!await SendChangeLifecycleNotificationsAsync(
-                        notificationService,
-                        updated,
-                        "implemented",
-                        loggerFactory,
-                        db,
-                        token))
-                        throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
+                    if (string.IsNullOrWhiteSpace(actorId) || previousLifecycleState == updatedLifecycleState)
+                        return Results.BadRequest("An explanation requires a completed lifecycle action.");
+                    RecordLifecycleAudit(db, updated!, previousLifecycleState, updatedLifecycleState, actorId,
+                        access.Name ?? user.Identity?.Name, comment, DateTimeOffset.UtcNow);
                 }
 
                 await db.SaveChangesAsync(token);
@@ -1003,8 +1030,14 @@ public static partial class ChangeEndpoints
         .WithDescription("Assigns the selected changes to the specified team member.")
         .WithTags("Changes");
 
+        group.MapPost("/bulk/cancel", BulkCancelChangesAsync)
+            .RequireAuthorization("HelpdeskAdmin")
+            .WithName("BulkCancelChanges")
+            .WithSummary("Cancels the explicitly selected changes and reports each outcome");
+
         group.MapGet("/{id}/lifecycle-options", async (
             [FromRoute] string id,
+            [FromQuery] bool? detail,
             ClaimsPrincipal user,
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] HelpdeskDbContext db,
@@ -1022,29 +1055,32 @@ public static partial class ChangeEndpoints
             var hasPendingApprovals = await db.ChangeApprovals.AsNoTracking()
                 .AnyAsync(approval => approval.ChangeId == id && approval.Status == ChangeApprovalStatus.Pending, token);
             var choices = Enum.GetValues<ChangeLifecycleState>()
-                .Where(target => target != current && ValidateQuickLifecycleTransition(current, target) is null)
+                .Where(target => target != current && ChangeLifecycle.ValidateTransition(current, target, detail: detail == true) is null)
                 .Where(target => target == ChangeLifecycleState.ApprovedForImplementation
                     ? access.CanApproveChange(change.OrganizationId) : access.CanManageChange(change.OrganizationId))
                 .Select(target => new ChangeLifecycleOptionDto(target,
                     target == ChangeLifecycleState.ApprovedForImplementation && hasPendingApprovals
                         ? "Outstanding approvals must be completed in the change details."
-                        : IsImplementedLifecycleState(target) && !validation.IsComplete
+                        : ChangeLifecycle.IsImplemented(target) && !validation.IsComplete
                             ? "Complete the change template in the details before implementing."
-                            : null))
+                            : null)
+                {
+                    RequiresComment = ChangeLifecycle.RequiresComment(current, target)
+                })
                 .ToArray();
             var guidance = current == ChangeLifecycleState.Draft
                 ? "Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete."
-                : IsImplementedLifecycleState(current)
-                    ? "Implemented changes have no quick lifecycle actions."
+                : ChangeLifecycle.IsTerminal(current)
+                    ? "This change has reached a terminal outcome."
                     : choices.Length == 0 ? "No lifecycle actions are available with your current permissions." : null;
-            return Results.Ok(new ChangeLifecycleOptionsDto(change.Id, current, choices, guidance));
+            return Results.Ok(new ChangeLifecycleOptionsDto(change.Id, current, choices, guidance) { UpdatedAt = change.UpdatedAt });
         })
         .WithName("GetChangeLifecycleOptions")
         .WithSummary("Gets current, permitted quick lifecycle actions without changing the change");
 
         group.MapPost("/{id}/lifecycle", async (
             [FromRoute] string id,
-            [FromBody] QuickChangeLifecycleRequest req,
+            [FromBody] ChangeLifecycleRequest req,
             ClaimsPrincipal user,
             [FromServices] ICurrentUserAccessService accessService,
             [FromServices] HelpdeskDbContext db,
@@ -1056,7 +1092,11 @@ public static partial class ChangeEndpoints
             [FromServices] ILoggerFactory loggerFactory,
             CancellationToken token) =>
         {
-            if (!Enum.IsDefined(req.LifecycleState)) return Results.BadRequest("Invalid change lifecycle state.");
+            if (!Enum.IsDefined(req.LifecycleState) || req.ExpectedLifecycleState is { } expected && !Enum.IsDefined(expected))
+                return Results.BadRequest("Invalid change lifecycle state.");
+            if (ValidateLifecycleComment(req.Comment) is { } invalidComment) return invalidComment;
+            var comment = req.Comment?.Trim();
+
             var persisted = false;
             try
             {
@@ -1082,20 +1122,25 @@ public static partial class ChangeEndpoints
                 var previousState = change.State;
                 var previousLifecycleState = EffectiveLifecycleState(change);
                 var requestedLifecycleState = req.LifecycleState;
-                var transitionError = ValidateQuickLifecycleTransition(previousLifecycleState, requestedLifecycleState);
-                if (transitionError is not null)
-                {
-                    return Results.BadRequest(transitionError);
-                }
-
                 if (previousLifecycleState == requestedLifecycleState)
+                    return Results.Ok(ReadLifecycleResult(change, changeTemplateService, changed: false));
+                if (!MatchesLifecycleSelection(change, req.ExpectedLifecycleState, req.ExpectedUpdatedAt))
+                    return LifecycleConflict();
+                var actorId = LifecycleActor(user);
+                if (string.IsNullOrWhiteSpace(actorId)) return Results.Forbid();
+                if (ChangeLifecycle.IsTerminal(requestedLifecycleState))
                 {
+                    var failure = await ApplyChangeClosureAsync(db, change, requestedLifecycleState, actorId,
+                        access.Name ?? user.Identity?.Name, comment, changeTemplateService, ticketSlaCompletionService,
+                        notificationService, loggerFactory, token);
+                    if (failure is not null) return failure;
                     if (transaction is not null) await transaction.CommitAsync(token);
                     persisted = true;
-                    if (IsImplementedLifecycleState(previousLifecycleState))
-                        await ticketSlaCompletionService.HandleTicketClosedAsync(change.Id, "quick-lifecycle", DateTimeOffset.UtcNow);
-                    return Results.Ok(ToQuickLifecycleDto(change, previousLifecycleState, null, null));
+                    await PublishChangeClosureAsync(change, previousState, domainEvents, correlationContext, token);
+                    return Results.Ok(ReadLifecycleResult(change, changeTemplateService, changed: true));
                 }
+                if (ChangeLifecycle.ValidateTransition(previousLifecycleState, requestedLifecycleState) is { } transitionError)
+                    return Results.BadRequest(transitionError);
 
                 var currentTemplate = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
                 var currentTemplateValidation = changeTemplateService.ValidateTemplate(change.ChangeType, currentTemplate);
@@ -1117,14 +1162,10 @@ public static partial class ChangeEndpoints
                     return Results.BadRequest("Change cannot be approved for implementation while approvals are pending.");
                 }
 
-                if (IsImplementedLifecycleState(nextLifecycleState) && !currentTemplateValidation.IsComplete)
-                {
-                    return Results.BadRequest(new
-                    {
-                        message = "Change template must be complete before implementing the change.",
-                        errors = currentTemplateValidation.Errors
-                    });
-                }
+                if (nextLifecycleState == previousLifecycleState)
+                    return string.IsNullOrEmpty(comment)
+                        ? Results.Ok(ReadLifecycleResult(change, changeTemplateService, changed: false))
+                        : Results.BadRequest("Complete the change template before submitting with an explanation.");
 
                 change.LifecycleState = nextLifecycleState;
                 ApplyTicketStateForLifecycle(change, previousState);
@@ -1194,26 +1235,13 @@ public static partial class ChangeEndpoints
                         token))
                         throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
                 }
-                else if (previousLifecycleState != nextLifecycleState &&
-                    IsImplementedLifecycleState(nextLifecycleState))
-                {
-                    QueueChangeApprovalTimeline(db, change.Id,
-                        $"Change implemented - {FormatChangeCompletionState(nextLifecycleState)}.", "System");
-                    if (!await SendChangeLifecycleNotificationsAsync(
-                        notificationService,
-                        change,
-                        "implemented",
-                        loggerFactory,
-                        db,
-                        token))
-                        throw new InvalidOperationException("The change lifecycle notifications could not be queued.");
-                }
 
+                if (!string.IsNullOrEmpty(comment))
+                    RecordLifecycleAudit(db, change, previousLifecycleState, nextLifecycleState, actorId,
+                        access.Name ?? user.Identity?.Name, comment, DateTimeOffset.UtcNow);
                 await db.SaveChangesAsync(token);
                 if (transaction is not null) await transaction.CommitAsync(token);
                 persisted = true;
-                if (IsImplementedLifecycleState(nextLifecycleState))
-                    await ticketSlaCompletionService.HandleTicketClosedAsync(change.Id, "quick-lifecycle", DateTimeOffset.UtcNow);
 
                 await domainEvents.PublishAsync(
                     new ChangeUpdatedDomainEvent(
@@ -1242,7 +1270,9 @@ public static partial class ChangeEndpoints
                         token);
                 }
 
-                return Results.Ok(ToQuickLifecycleDto(change, nextLifecycleState, currentTemplate, currentTemplateValidation));
+                var result = ToQuickLifecycleDto(change, nextLifecycleState, currentTemplate, currentTemplateValidation);
+                result.LifecycleChanged = true;
+                return Results.Ok(result);
             }
             catch (Exception exception) when (!persisted && IsChangeApprovalConflict(exception))
             {
@@ -1393,7 +1423,7 @@ public static partial class ChangeEndpoints
             .Select(x => x.Name)
             .FirstOrDefaultAsync(ct);
 
-        if (approval is not null && !approval.ViewedAtUtc.HasValue)
+        if (approval is not null && EffectiveLifecycleState(change) == ChangeLifecycleState.PendingApproval && !approval.ViewedAtUtc.HasValue)
         {
             approval.ViewedAtUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -1637,27 +1667,19 @@ public static partial class ChangeEndpoints
 
         if (!filters.ExplicitStates)
         {
+            var terminalStates = ChangeLifecycle.TerminalStates.ToArray();
+            var view = httpRequest.Query["view"].ToString();
             if (lifecycleState is not null)
             {
-                query = query.Where(x => x.Change.LifecycleState == lifecycleState);
+                query = query.Where(x => (x.Change.LifecycleState ?? ChangeLifecycleState.Draft) == lifecycleState);
             }
-            else if (historicOnly || httpRequest.Query["view"] == "historic")
+            else if (historicOnly || view == "historic")
             {
-                query = query.Where(x =>
-                    x.Change.LifecycleState == ChangeLifecycleState.ImplementedSuccess ||
-                    x.Change.LifecycleState == ChangeLifecycleState.ImplementedBackedOut);
+                query = query.Where(x => terminalStates.Contains(x.Change.LifecycleState ?? ChangeLifecycleState.Draft));
             }
-            else if (activeOnly)
+            else if (activeOnly || view != "all")
             {
-                query = query.Where(x =>
-                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedSuccess &&
-                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedBackedOut);
-            }
-            else
-            {
-                query = query.Where(x =>
-                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedSuccess &&
-                    x.Change.LifecycleState != ChangeLifecycleState.ImplementedBackedOut);
+                query = query.Where(x => !terminalStates.Contains(x.Change.LifecycleState ?? ChangeLifecycleState.Draft));
             }
         }
 
@@ -1840,9 +1862,6 @@ public static partial class ChangeEndpoints
     private static ChangeLifecycleState EffectiveLifecycleState(Change change) =>
         change.LifecycleState ?? ChangeLifecycleState.Draft;
 
-    private static bool IsImplementedLifecycleState(ChangeLifecycleState state) =>
-        state is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut;
-
     private static string? ValidateTicketStateTransition(Change change, TicketState requestedState)
     {
         if (!Enum.IsDefined(requestedState)) return "Invalid change ticket state.";
@@ -1852,36 +1871,6 @@ public static partial class ChangeEndpoints
         if (requestedState == TicketState.Resolved)
             return "Change must be implemented through the lifecycle operation before it can be resolved.";
         return null;
-    }
-
-    private static string? ValidateQuickLifecycleTransition(
-        ChangeLifecycleState currentState,
-        ChangeLifecycleState requestedState)
-    {
-        if (currentState == requestedState)
-        {
-            return null;
-        }
-
-        return currentState switch
-        {
-            ChangeLifecycleState.Draft when requestedState == ChangeLifecycleState.Submitted => null,
-            ChangeLifecycleState.PendingApproval when requestedState is ChangeLifecycleState.Draft
-                or ChangeLifecycleState.ApprovedForImplementation => null,
-            ChangeLifecycleState.ApprovedForImplementation
-                when requestedState is ChangeLifecycleState.ImplementationInProgress
-                    or ChangeLifecycleState.ImplementedSuccess
-                    or ChangeLifecycleState.ImplementedBackedOut => null,
-            ChangeLifecycleState.ImplementationInProgress
-                when requestedState is ChangeLifecycleState.ImplementedSuccess
-                    or ChangeLifecycleState.ImplementedBackedOut => null,
-            ChangeLifecycleState.ImplementedSuccess => "Implemented changes are terminal from the table state picker.",
-            ChangeLifecycleState.ImplementedBackedOut => "Implemented changes are terminal from the table state picker.",
-            ChangeLifecycleState.PendingApproval => "Pending approval changes can only be approved or moved back to Draft.",
-            ChangeLifecycleState.ApprovedForImplementation => "Approved changes can only move forward from the table.",
-            ChangeLifecycleState.ImplementationInProgress => "Changes in progress can only be completed from the table.",
-            _ => "That lifecycle transition is not allowed from the table."
-        };
     }
 
     private static ChangeDto ToQuickLifecycleDto(
@@ -1897,6 +1886,7 @@ public static partial class ChangeEndpoints
             Priority = change.Priority,
             State = change.State,
             LifecycleState = lifecycleState,
+            LifecycleExplanation = change.AdministrativeClosureReason,
             CreatedAt = change.CreatedAt,
             UpdatedAt = change.UpdatedAt,
             TrackingId = change.TrackingId,
@@ -1918,7 +1908,7 @@ public static partial class ChangeEndpoints
     private static void ApplyTicketStateForLifecycle(Change change, TicketState previousState)
     {
         var lifecycleState = EffectiveLifecycleState(change);
-        if (IsImplementedLifecycleState(lifecycleState))
+        if (ChangeLifecycle.IsTerminal(lifecycleState))
         {
             change.State = TicketState.Resolved;
             ApplyClosedAtTransition(change, previousState, change.State);
@@ -1954,9 +1944,11 @@ public static partial class ChangeEndpoints
         Change existing,
         UpdateChangeDto dto,
         IChangeTemplateService changeTemplateService,
-        CancellationToken token)
+        CancellationToken token,
+        bool allowResolvedState = false)
     {
-        if ((dto.State.HasValue && dto.State.Value != existing.State) ||
+        if ((dto.State.HasValue && dto.State.Value != existing.State &&
+             !(allowResolvedState && dto.State.Value == TicketState.Resolved)) ||
             (dto.Priority.HasValue && dto.Priority.Value != existing.Priority) ||
             !StringEqualsIfProvided(dto.OrganizationId, existing.OrganizationId) ||
             !StringEqualsIfProvided(dto.RequestedForUserId, existing.RequestedForUserId) ||
@@ -2289,6 +2281,7 @@ public static partial class ChangeEndpoints
         HelpdeskDbContext db,
         CancellationToken token)
     {
+        if (change.EmailExclusionReason != TicketEmailExclusionReason.None) return true;
         var logger = loggerFactory.CreateLogger("ChangeNotifications");
         var participantLookup = await BuildParticipantLookupAsync(db, [change], token);
         var organizationName = await db.Organizations
@@ -2319,6 +2312,11 @@ public static partial class ChangeEndpoints
         {
             recipients.TryAdd(recipient.Trim(), recipient.Trim());
         }
+        if (notificationKind == "cancelled")
+        {
+            foreach (var approval in approvals.Where(approval => !string.IsNullOrWhiteSpace(approval.ApproverEmail)))
+                recipients.TryAdd(approval.ApproverEmail, approval.ApproverName);
+        }
 
         var queued = true;
         try
@@ -2341,6 +2339,11 @@ public static partial class ChangeEndpoints
                         cc,
                         token);
                 }
+                else if (notificationKind == "cancelled")
+                {
+                    queued &= await notificationService.SendChangeCancelledAsync(
+                        change, email, name, organizationName, requestedForName, implementorName, approvers, token);
+                }
                 else
                 {
                     queued &= await notificationService.SendChangeImplementedAsync(
@@ -2351,7 +2354,7 @@ public static partial class ChangeEndpoints
                         requestedForName,
                         implementorName,
                         approvers,
-                        FormatChangeCompletionState(EffectiveLifecycleState(change)),
+                        ChangeLifecycle.CompletionLabel(EffectiveLifecycleState(change)),
                         cc,
                         token);
                 }
@@ -2364,13 +2367,6 @@ public static partial class ChangeEndpoints
         }
         return queued;
     }
-
-    private static string FormatChangeCompletionState(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.ImplementedSuccess => "Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Backed Out",
-        _ => string.Empty
-    };
 
     private static string FormatApprovers(IEnumerable<ChangeApproval> approvals) =>
         string.Join(
@@ -2741,8 +2737,6 @@ public static partial class ChangeEndpoints
 internal sealed record BulkStateChangeRequest(List<string> Ids, TicketState NewState, string? Comment);
 
 internal sealed record ChangeStateRequest(TicketState NewState, string? Comment);
-
-internal sealed record QuickChangeLifecycleRequest(ChangeLifecycleState LifecycleState);
 
 internal sealed record BulkAssignRequest(List<string> Ids, string? AssignedToId);
 internal sealed record ChangeAssigneeRequest(string? ImplementorUserId);

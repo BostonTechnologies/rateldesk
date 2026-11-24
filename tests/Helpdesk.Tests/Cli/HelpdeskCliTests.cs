@@ -393,20 +393,54 @@ public sealed class HelpdeskCliTests
         Assert.Contains("--fields is only supported", errors.ToString(), StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ChangesList_JsonSummary_AddsLifecycleLabels()
+    [Theory]
+    [InlineData(3, "ApprovedForImplementation", "Approved for Implementation")]
+    [InlineData(7, "Cancelled", "Cancelled")]
+    [InlineData(8, "ImplementedFailed", "Implemented - Failed")]
+    public async Task ChangesList_JsonSummary_AddsLifecycleLabels(int lifecycle, string name, string label)
     {
         var output = new StringWriter();
         var code = await RunWithApiAsync([
             "changes", "list", "--json", "--view", "summary"
-        ], _ => Json(HttpStatusCode.OK, TicketPageJson("chg-1", "CHG-001", "Deploy patch", state: 4, priority: 2, lifecycleState: 3)), output);
+        ], _ => Json(HttpStatusCode.OK, TicketPageJson("chg-1", "CHG-001", "Deploy patch", state: 4, priority: 2, lifecycleState: lifecycle)), output);
 
         Assert.Equal(CliExitCodes.Success, code);
         using var doc = JsonDocument.Parse(output.ToString());
         var item = doc.RootElement.GetProperty("items")[0];
-        Assert.Equal(3, item.GetProperty("lifecycleState").GetInt32());
-        Assert.Equal("ApprovedForImplementation", item.GetProperty("lifecycleStateName").GetString());
-        Assert.Equal("Approved for Implementation", item.GetProperty("lifecycleStateLabel").GetString());
+        Assert.Equal(lifecycle, item.GetProperty("lifecycleState").GetInt32());
+        Assert.Equal(name, item.GetProperty("lifecycleStateName").GetString());
+        Assert.Equal(label, item.GetProperty("lifecycleStateLabel").GetString());
+    }
+
+    [Fact]
+    public async Task Change_commands_preserve_text_explanations_and_expected_lifecycle_values()
+    {
+        var output = new StringWriter();
+        var single = await RunWithApiAsync(
+            ["changes", "lifecycle", "chg-1", "--lifecycle-state", "ImplementedFailed", "--comment", "123",
+                "--expected-lifecycle-state", "ApprovedForImplementation", "--json"],
+            request =>
+            {
+                Assert.Equal("/api/v1/changes/chg-1/lifecycle", request.RequestUri!.AbsolutePath);
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStream());
+                Assert.Equal(8, body.RootElement.GetProperty("lifecycleState").GetInt32());
+                Assert.Equal("123", body.RootElement.GetProperty("comment").GetString());
+                Assert.Equal(3, body.RootElement.GetProperty("expectedLifecycleState").GetInt32());
+                return Json(HttpStatusCode.OK, """{"id":"chg-1","lifecycleState":8}""");
+            }, output);
+        Assert.Equal(CliExitCodes.Success, single);
+        var bulk = await RunWithApiAsync(
+            ["changes", "bulk-cancel", "--selection", """[{"id":"chg-2","expectedLifecycleState":"Draft"}]""",
+                "--comment", "Synthetic cleanup", "--json"],
+            request =>
+            {
+                Assert.Equal("/api/v1/changes/bulk/cancel", request.RequestUri!.AbsolutePath);
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStream());
+                Assert.Equal(0, body.RootElement.GetProperty("selection")[0].GetProperty("expectedLifecycleState").GetInt32());
+                Assert.Equal("Synthetic cleanup", body.RootElement.GetProperty("comment").GetString());
+                return Json(HttpStatusCode.OK, """[{"id":"chg-2","outcome":"cancelled"}]""");
+            }, new StringWriter());
+        Assert.Equal(CliExitCodes.Success, bulk);
     }
 
     [Fact]

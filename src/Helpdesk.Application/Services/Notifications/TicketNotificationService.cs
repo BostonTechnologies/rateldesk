@@ -1,3 +1,4 @@
+using Helpdesk.Application.Changes;
 using Helpdesk.Shared.DTOs.PublicAccess;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.EmailTemplates;
@@ -35,6 +36,7 @@ public class TicketNotificationService(
     private const string ChangeApprovedTemplate = "ChangeApproved";
     private const string ChangeImplementationInProgressTemplate = "ChangeImplementationInProgress";
     private const string ChangeImplementedTemplate = "ChangeImplemented";
+    private const string ChangeUpdateTemplate = "ChangeUpdate";
 
     private readonly string _publicWebAppUrl = configuration["PublicWebAppUrl"] ?? string.Empty;
     private readonly IConfiguration _configuration = configuration;
@@ -333,12 +335,28 @@ public class TicketNotificationService(
             async context =>
             {
                 ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
-                context.ChangeApprovalStatus = "Implemented";
+                context.ChangeApprovalStatus = completionState == "Failed" ? "Implemented - Failed" : "Implemented";
                 context.ChangeCompletionState = completionState;
                 context.ChangeViewLink = await publicLinks.IssueAsync(change, recipientEmail, PublicLinkPurpose.ChangeView, context.Brand?.ApplicationUrl, cancellationToken);
                 context.TicketLink = context.ChangeViewLink;
             },
             cancellationToken);
+
+    public Task<bool> SendChangeCancelledAsync(
+        Change change, string recipientEmail, string recipientName,
+        string organizationName, string requestedForName, string implementorName, string approvers,
+        CancellationToken cancellationToken) =>
+        SendTicketTemplateAsync(
+            ChangeUpdateTemplate, change, recipientEmail, recipientName, null,
+            async context =>
+            {
+                ApplyChangeContext(context, change, organizationName, requestedForName, implementorName, approvers);
+                context.UpdateMessageHtml = "<p>This change has been cancelled.</p>";
+                context.UpdateMessageText = "This change has been cancelled.";
+                context.ChangeViewLink = await publicLinks.IssueAsync(change, recipientEmail, PublicLinkPurpose.ChangeView,
+                    context.Brand?.ApplicationUrl, cancellationToken);
+                context.TicketLink = context.ChangeViewLink;
+            }, cancellationToken);
 
     private async Task<bool> SendTicketTemplateAsync(
         string templateName,
@@ -488,8 +506,8 @@ public class TicketNotificationService(
             context.ChangePriority = change.Priority.ToString();
             context.ChangeImplementationStart = FormatTimestamp(change.ImplementationStartAt);
             context.ChangeImplementationEnd = FormatTimestamp(change.ImplementationEndAt);
-            context.ChangeApprovalStatus = FormatLifecycleState(change.LifecycleState ?? ChangeLifecycleState.Draft);
-            context.ChangeCompletionState = FormatCompletionState(change.LifecycleState ?? ChangeLifecycleState.Draft);
+            context.ChangeApprovalStatus = ChangeLifecycle.Label(change.LifecycleState ?? ChangeLifecycleState.Draft);
+            context.ChangeCompletionState = ChangeLifecycle.CompletionLabel(change.LifecycleState ?? ChangeLifecycleState.Draft);
         }
         if (ticket is Request request)
         {
@@ -599,6 +617,7 @@ public class TicketNotificationService(
             ["CHANGE_IMPLEMENTATION_START"] = context.ChangeImplementationStart,
             ["CHANGE_IMPLEMENTATION_END"] = context.ChangeImplementationEnd,
             ["CHANGE_APPROVAL_STATUS"] = context.ChangeApprovalStatus,
+            ["UPDATE_MESSAGE"] = context.UpdateMessageText,
             ["CHANGE_COMPLETION_STATE"] = context.ChangeCompletionState,
             ["CHANGE_APPROVAL_LINK"] = context.ChangeApprovalLink,
             ["CHANGE_VIEW_LINK"] = context.ChangeViewLink,
@@ -668,23 +687,6 @@ public class TicketNotificationService(
         value.HasValue
             ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm 'UTC'")
             : string.Empty;
-
-    private static string FormatLifecycleState(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        _ => state.ToString()
-    };
-
-    private static string FormatCompletionState(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.ImplementedSuccess => "Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Backed Out",
-        _ => string.Empty
-    };
 
     private static string? FirstNonEmpty(params string?[] values)
     {

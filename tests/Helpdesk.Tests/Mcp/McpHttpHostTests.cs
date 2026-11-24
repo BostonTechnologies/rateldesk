@@ -1342,6 +1342,88 @@ public sealed partial class McpHttpHostTests
     }
 
     [Fact]
+    public async Task Change_outcomes_and_explanations_survive_both_Mcp_transports_after_confirmation()
+    {
+        var observed = new ConcurrentQueue<(string Path, JsonElement Body)>();
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var api = builder.Build();
+        api.Run(async context =>
+        {
+            using var body = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
+            var path = context.Request.Path.Value!;
+            var reply = ChangeWireHandler.Record(observed, path, body.RootElement);
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(reply, context.RequestAborted);
+        });
+        await api.StartAsync();
+        using var environment = new McpHostEnvironment();
+        using var factory = CreateFactory(environment.SigningKey, apiHandlerFactory: () => new ChangeWireHandler(observed));
+        using var http = CreateClient(factory);
+        await using var stdio = StdioMcpClient.Start(NotificationSummaryFixture.Address(api), TimelineTransportPayload.Token);
+        var bearer = CreateToken(environment.SigningKey, ["helpdesk.mcp"], ["ai-assistant"]);
+        using var stdioInitialize = await stdio.CallAsync(1, "initialize", InitializeParameters());
+        await stdio.NotifyAsync("notifications/initialized", new { });
+        using var httpInitialize = await HttpCallAsync(http, bearer, 1, "initialize", InitializeParameters());
+
+        var arguments = new JsonObject
+        {
+            ["operation"] = "lifecycle",
+            ["request"] = new JsonObject { ["changeId"] = "change-wire", ["lifecycleState"] = "ImplementedFailed",
+                ["expectedLifecycleState"] = "ApprovedForImplementation", ["comment"] = "Synthetic implementation failed" }
+        };
+        var parameters = new { name = "helpdesk_changes", arguments };
+        using var previewStdio = await stdio.CallAsync(2, "tools/call", parameters);
+        using var previewHttp = await HttpCallAsync(http, bearer, 2, "tools/call", parameters);
+        foreach (var response in new[] { previewStdio, previewHttp })
+            Assert.Equal("confirmation_required", StructuredContent(response.RootElement).GetProperty("status").GetString());
+        Assert.Empty(observed);
+
+        arguments["confirm"] = true;
+        using var failedStdio = await stdio.CallAsync(3, "tools/call", parameters);
+        using var failedHttp = await HttpCallAsync(http, bearer, 3, "tools/call", parameters);
+        foreach (var response in new[] { failedStdio, failedHttp })
+            Assert.Equal(8, StructuredContent(response.RootElement).GetProperty("data").GetProperty("lifecycleState").GetInt32());
+
+        arguments["operation"] = "bulk_cancel";
+        arguments["request"] = JsonNode.Parse("""{"comment":"Synthetic cleanup","selection":[{"id":"change-wire","expectedLifecycleState":"Draft"}]}""");
+        using var bulkStdio = await stdio.CallAsync(4, "tools/call", parameters);
+        using var bulkHttp = await HttpCallAsync(http, bearer, 4, "tools/call", parameters);
+        foreach (var response in new[] { bulkStdio, bulkHttp })
+            Assert.Equal("cancelled", StructuredContent(response.RootElement).GetProperty("data")[0].GetProperty("outcome").GetString());
+        Assert.Equal(4, observed.Count);
+        Assert.All(observed.Where(item => item.Path.EndsWith("/lifecycle", StringComparison.Ordinal)), item =>
+        {
+            Assert.Equal("Synthetic implementation failed", item.Body.GetProperty("comment").GetString());
+            Assert.Equal(3, item.Body.GetProperty("expectedLifecycleState").GetInt32());
+        });
+        Assert.All(observed.Where(item => item.Path.EndsWith("/bulk/cancel", StringComparison.Ordinal)), item =>
+        {
+            Assert.Equal("Synthetic cleanup", item.Body.GetProperty("comment").GetString());
+            Assert.Equal(0, item.Body.GetProperty("selection")[0].GetProperty("expectedLifecycleState").GetInt32());
+        });
+    }
+
+    private sealed class ChangeWireHandler(ConcurrentQueue<(string Path, JsonElement Body)> observed) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            using var body = await JsonDocument.ParseAsync(await request.Content!.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            var reply = Record(observed, request.RequestUri!.AbsolutePath, body.RootElement);
+            return new(HttpStatusCode.OK) { Content = new StringContent(reply, Encoding.UTF8, "application/json") };
+        }
+
+        public static string Record(ConcurrentQueue<(string Path, JsonElement Body)> observed, string path, JsonElement body)
+        {
+            observed.Enqueue((path, body.Clone()));
+            return path.EndsWith("/lifecycle", StringComparison.Ordinal)
+                ? """{"id":"change-wire","lifecycleState":8}"""
+                : """[{"id":"change-wire","outcome":"cancelled"}]""";
+        }
+    }
+
+    [Fact]
     public async Task Bounded_real_Mcp_gateway_reads_keep_schema_results_and_tenant_scope_stable()
     {
         await using var authority = await McpGatewayRealAccessPipelineTests.GatewayAccessHarness.CreateAsync(unscopedData: true);

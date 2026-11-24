@@ -216,7 +216,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
                 "changes" => await SearchPagedAsync<ChangeDto>(
                     api,
                     section,
-                    $"api/v1/changes?page=1&pageSize={FetchLimit}&activeOnly=true&includeTotal=false&summaryOnly=true&q={Escape(term)}",
+                    $"api/v1/changes?page=1&pageSize={FetchLimit}&view=all&includeTotal=false&summaryOnly=true&q={Escape(term)}",
                     term,
                     ToChangeResult,
                     token),
@@ -419,7 +419,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         "Changes",
         FirstNonEmpty(change.TrackingId, change.Title) ?? "Change",
         change.Title,
-        BuildTicketMeta(FormatChangeLifecycle(change.LifecycleState), FirstNonEmpty(change.ChangeType, change.CustomerOrgName), FirstNonEmpty(change.CustomerName, change.CustomerEmail)),
+        BuildTicketMeta(ChangeLifecycleDisplay.Label(change.LifecycleState), FirstNonEmpty(change.ChangeType, change.CustomerOrgName), FirstNonEmpty(change.CustomerName, change.CustomerEmail)),
         $"/changes/{change.Id}",
         Icons.Material.Filled.ChangeCircle);
 
@@ -461,18 +461,6 @@ public sealed class GlobalSearchService : IGlobalSearchService
     private static string BuildTicketMeta(params string?[] parts) =>
         string.Join(" · ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
 
-    private static string FormatChangeLifecycle(ChangeLifecycleState state) => state switch
-    {
-        ChangeLifecycleState.Draft => "Draft",
-        ChangeLifecycleState.Submitted => "Submitted",
-        ChangeLifecycleState.PendingApproval => "Pending Approval",
-        ChangeLifecycleState.ApprovedForImplementation => "Approved For Implementation",
-        ChangeLifecycleState.ImplementationInProgress => "Implementation In Progress",
-        ChangeLifecycleState.ImplementedSuccess => "Implemented - Success",
-        ChangeLifecycleState.ImplementedBackedOut => "Implemented - Backed Out",
-        _ => state.ToString()
-    };
-
     private void LogSectionTiming(SectionDefinition section, string term, GlobalSearchGroup group, TimeSpan elapsed)
     {
         const int slowThresholdMs = 1000;
@@ -500,7 +488,7 @@ public sealed class GlobalSearchService : IGlobalSearchService
         {
             "incidents" => $"/incidents?search={Escape(term)}&activeOnly=true",
             "requests" => $"/requests?search={Escape(term)}&activeOnly=true",
-            "changes" => $"/changes?search={Escape(term)}&activeOnly=true",
+            "changes" => $"/changes?search={Escape(term)}&view=all",
             "tasks" => $"/tasks?search={Escape(term)}",
             "self-service" => $"/self-service?search={Escape(term)}",
             _ => $"{section.Href}?search={Escape(term)}"

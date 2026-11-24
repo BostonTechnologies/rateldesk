@@ -132,6 +132,20 @@ http.createServer(async (req, res) => {
   if (match) {
     const [, module, action] = match;
     const ticket = tickets[module];
+    if (module === 'changes' && action === `${ticket.id}/lifecycle-options`) {
+      const current = ticket.lifecycleState ?? 0;
+      const states = { 0: [1, 7], 1: [7], 2: [0, 3, 7], 3: [4, 5, 6, 7, 8], 4: [5, 6, 7, 8] }[current] ?? [];
+      return reply({ id: ticket.id, lifecycleState: current, updatedAt: ticket.updatedAt,
+        choices: states.map(state => ({ state, requiresComment: state === 8 || state === 7 && current !== 0 })) });
+    }
+    if (module === 'changes' && action === `${ticket.id}/lifecycle` && req.method === 'POST') {
+      const update = await body();
+      saves.push({ module, ...update });
+      if (ticket.lifecycleState !== update.expectedLifecycleState) return reply({ error: 'Stale lifecycle' }, 409);
+      Object.assign(ticket, { lifecycleState: update.lifecycleState, state: 6,
+        lifecycleExplanation: update.comment?.trim() || null, updatedAt: new Date().toISOString() });
+      return reply(ticket);
+    }
     if (action?.endsWith('/worklogs') && req.method === 'POST') { worklogs.push({ module, ...await body() }); return reply({}); }
     if (!action && req.method === 'GET') {
       const all = tableReview && module === 'incidents' ? Array.from({ length: 65 }, (_, i) => ({ ...ticket, id: `target-${i}`, trackingId: `INC-SYN-${String(i).padStart(3, '0')}`, subject: `Synthetic relation target ${i} with a long incident subject` })) : [ticket];

@@ -1,8 +1,8 @@
 {
-  "schemaHash": "8e5998192db0f0752df7a92acd8929a10e8c0fa246ee45b7c93f18f4de016311",
-  "catalogRevision": "2026-11-23.self-service-organizations-v35",
-  "catalogHash": "e48d71d9ebce045c6d70c5d564aa6f9cb3c42cb35075b1f09180633b6e63022b",
-  "operationCount": 393,
+  "schemaHash": "b77132fd2571501cd9a857015b112635b03e24a1c3ccf0d835f65ea993d9128e",
+  "catalogRevision": "2026-11-24.change-lifecycle-v36",
+  "catalogHash": "622f44a56d33f0c14ee595b41f1b5050f60c36caf5aa7f241700e986b024a967",
+  "operationCount": 394,
   "operations": [
     {
       "tool": "helpdesk_auth",
@@ -3578,6 +3578,8 @@
               "ImplementationInProgress",
               "ImplementedSuccess",
               "ImplementedBackedOut",
+              "Cancelled",
+              "ImplementedFailed",
               0,
               "0",
               1,
@@ -3592,8 +3594,58 @@
               "5",
               6,
               "6",
+              7,
+              "7",
+              8,
+              "8",
               null
             ]
+          },
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "expectedLifecycleState": {
+            "enum": [
+              "Draft",
+              "Submitted",
+              "PendingApproval",
+              "ApprovedForImplementation",
+              "ImplementationInProgress",
+              "ImplementedSuccess",
+              "ImplementedBackedOut",
+              "Cancelled",
+              "ImplementedFailed",
+              0,
+              "0",
+              1,
+              "1",
+              2,
+              "2",
+              3,
+              "3",
+              4,
+              "4",
+              5,
+              "5",
+              6,
+              "6",
+              7,
+              "7",
+              8,
+              "8",
+              null
+            ]
+          },
+          "expectedUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "priority": {
             "type": "string",
@@ -4082,6 +4134,7 @@
       ],
       "prerequisites": [
         "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Provide an explanation when cancelling beyond Draft or recording ImplementedFailed. Send current lifecycle and update timestamp where available.",
         "Authorized organization/participants, valid type-specific change template and implementation window; approval, draft edit lock, implementation and closure invariants remain enforced."
       ],
       "requestSchema": {
@@ -4101,6 +4154,8 @@
               "ImplementationInProgress",
               "ImplementedSuccess",
               "ImplementedBackedOut",
+              "Cancelled",
+              "ImplementedFailed",
               0,
               "0",
               1,
@@ -4114,11 +4169,55 @@
               5,
               "5",
               6,
-              "6"
+              "6",
+              7,
+              "7",
+              8,
+              "8"
             ]
           },
           "comment": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
+          },
+          "expectedLifecycleState": {
+            "enum": [
+              "Draft",
+              "Submitted",
+              "PendingApproval",
+              "ApprovedForImplementation",
+              "ImplementationInProgress",
+              "ImplementedSuccess",
+              "ImplementedBackedOut",
+              "Cancelled",
+              "ImplementedFailed",
+              0,
+              "0",
+              1,
+              "1",
+              2,
+              "2",
+              3,
+              "3",
+              4,
+              "4",
+              5,
+              "5",
+              6,
+              "6",
+              7,
+              "7",
+              8,
+              "8",
+              null
+            ]
+          },
+          "expectedUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         },
         "required": [
@@ -4126,6 +4225,121 @@
           "lifecycleState"
         ],
         "description": "ChangeLifecycleRequest for helpdesk_changes operation lifecycle. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_changes",
+      "operation": "bulk_cancel",
+      "requestContract": "BulkChangeCancellationRequest",
+      "method": "POST",
+      "pathTemplate": "/api/v1/changes/bulk/cancel",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "bulk_cancel operation.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "HelpdeskAdmin. The API validates each explicitly selected change and reports its outcome.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Provide an explanation when cancelling beyond Draft or recording ImplementedFailed. Send current lifecycle and update timestamp where available.",
+        "Authorized organization/participants, valid type-specific change template and implementation window; approval, draft edit lock, implementation and closure invariants remain enforced."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "selection": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "expectedLifecycleState": {
+                  "enum": [
+                    "Draft",
+                    "Submitted",
+                    "PendingApproval",
+                    "ApprovedForImplementation",
+                    "ImplementationInProgress",
+                    "ImplementedSuccess",
+                    "ImplementedBackedOut",
+                    "Cancelled",
+                    "ImplementedFailed",
+                    0,
+                    "0",
+                    1,
+                    "1",
+                    2,
+                    "2",
+                    3,
+                    "3",
+                    4,
+                    "4",
+                    5,
+                    "5",
+                    6,
+                    "6",
+                    7,
+                    "7",
+                    8,
+                    "8"
+                  ]
+                },
+                "expectedUpdatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "expectedLifecycleState"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "selection"
+        ],
+        "description": "BulkChangeCancellationRequest for helpdesk_changes operation bulk_cancel. All operation-specific fields belong inside this request object, never at the tool root."
       }
     },
     {
@@ -5791,6 +6005,8 @@
                   "ImplementationInProgress",
                   "ImplementedSuccess",
                   "ImplementedBackedOut",
+                  "Cancelled",
+                  "ImplementedFailed",
                   0,
                   "0",
                   1,
@@ -5804,7 +6020,11 @@
                   5,
                   "5",
                   6,
-                  "6"
+                  "6",
+                  7,
+                  "7",
+                  8,
+                  "8"
                 ]
               },
               {
@@ -5819,6 +6039,8 @@
                     "ImplementationInProgress",
                     "ImplementedSuccess",
                     "ImplementedBackedOut",
+                    "Cancelled",
+                    "ImplementedFailed",
                     0,
                     "0",
                     1,
@@ -5832,7 +6054,11 @@
                     5,
                     "5",
                     6,
-                    "6"
+                    "6",
+                    7,
+                    "7",
+                    8,
+                    "8"
                   ]
                 }
               }
@@ -5913,6 +6139,8 @@
               "ImplementationInProgress",
               "ImplementedSuccess",
               "ImplementedBackedOut",
+              "Cancelled",
+              "ImplementedFailed",
               0,
               "0",
               1,
@@ -5926,7 +6154,11 @@
               5,
               "5",
               6,
-              "6"
+              "6",
+              7,
+              "7",
+              8,
+              "8"
             ]
           }
         },
@@ -35698,6 +35930,49 @@
       }
     },
     {
+      "tool": "helpdesk_changes",
+      "operation": "bulk_cancel",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "bulk_cancel",
+          "request": {
+            "selection": [
+              {
+                "id": "Example",
+                "expectedLifecycleState": "Draft"
+              }
+            ]
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "bulk_cancel",
+          "request": {
+            "selection": [
+              {
+                "id": "Example",
+                "expectedLifecycleState": "Draft"
+              }
+            ]
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "selection": [
+              {
+                "id": "Example",
+                "expectedLifecycleState": "Draft"
+              }
+            ]
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
       "tool": "helpdesk_ai_assistant",
       "operation": "report",
       "examples": {
@@ -52060,6 +52335,8 @@
                       "ImplementationInProgress",
                       "ImplementedSuccess",
                       "ImplementedBackedOut",
+                      "Cancelled",
+                      "ImplementedFailed",
                       0,
                       "0",
                       1,
@@ -52074,8 +52351,58 @@
                       "5",
                       6,
                       "6",
+                      7,
+                      "7",
+                      8,
+                      "8",
                       null
                     ]
+                  },
+                  "comment": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 1000
+                  },
+                  "expectedLifecycleState": {
+                    "enum": [
+                      "Draft",
+                      "Submitted",
+                      "PendingApproval",
+                      "ApprovedForImplementation",
+                      "ImplementationInProgress",
+                      "ImplementedSuccess",
+                      "ImplementedBackedOut",
+                      "Cancelled",
+                      "ImplementedFailed",
+                      0,
+                      "0",
+                      1,
+                      "1",
+                      2,
+                      "2",
+                      3,
+                      "3",
+                      4,
+                      "4",
+                      5,
+                      "5",
+                      6,
+                      "6",
+                      7,
+                      "7",
+                      8,
+                      "8",
+                      null
+                    ]
+                  },
+                  "expectedUpdatedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
                   },
                   "priority": {
                     "type": "string",
@@ -52467,6 +52794,8 @@
                       "ImplementationInProgress",
                       "ImplementedSuccess",
                       "ImplementedBackedOut",
+                      "Cancelled",
+                      "ImplementedFailed",
                       0,
                       "0",
                       1,
@@ -52480,11 +52809,55 @@
                       5,
                       "5",
                       6,
-                      "6"
+                      "6",
+                      7,
+                      "7",
+                      8,
+                      "8"
                     ]
                   },
                   "comment": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "expectedLifecycleState": {
+                    "enum": [
+                      "Draft",
+                      "Submitted",
+                      "PendingApproval",
+                      "ApprovedForImplementation",
+                      "ImplementationInProgress",
+                      "ImplementedSuccess",
+                      "ImplementedBackedOut",
+                      "Cancelled",
+                      "ImplementedFailed",
+                      0,
+                      "0",
+                      1,
+                      "1",
+                      2,
+                      "2",
+                      3,
+                      "3",
+                      4,
+                      "4",
+                      5,
+                      "5",
+                      6,
+                      "6",
+                      7,
+                      "7",
+                      8,
+                      "8",
+                      null
+                    ]
+                  },
+                  "expectedUpdatedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
                   }
                 },
                 "required": [
@@ -52492,6 +52865,97 @@
                   "lifecycleState"
                 ],
                 "description": "ChangeLifecycleRequest for helpdesk_changes operation lifecycle. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "bulk_cancel",
+                "description": "bulk_cancel operation. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "selection": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "expectedLifecycleState": {
+                          "enum": [
+                            "Draft",
+                            "Submitted",
+                            "PendingApproval",
+                            "ApprovedForImplementation",
+                            "ImplementationInProgress",
+                            "ImplementedSuccess",
+                            "ImplementedBackedOut",
+                            "Cancelled",
+                            "ImplementedFailed",
+                            0,
+                            "0",
+                            1,
+                            "1",
+                            2,
+                            "2",
+                            3,
+                            "3",
+                            4,
+                            "4",
+                            5,
+                            "5",
+                            6,
+                            "6",
+                            7,
+                            "7",
+                            8,
+                            "8"
+                          ]
+                        },
+                        "expectedUpdatedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "expectedLifecycleState"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "selection"
+                ],
+                "description": "BulkChangeCancellationRequest for helpdesk_changes operation bulk_cancel. All operation-specific fields belong inside this request object, never at the tool root."
               }
             },
             "required": [
@@ -52652,6 +53116,8 @@
                           "ImplementationInProgress",
                           "ImplementedSuccess",
                           "ImplementedBackedOut",
+                          "Cancelled",
+                          "ImplementedFailed",
                           0,
                           "0",
                           1,
@@ -52665,7 +53131,11 @@
                           5,
                           "5",
                           6,
-                          "6"
+                          "6",
+                          7,
+                          "7",
+                          8,
+                          "8"
                         ]
                       },
                       {
@@ -52680,6 +53150,8 @@
                             "ImplementationInProgress",
                             "ImplementedSuccess",
                             "ImplementedBackedOut",
+                            "Cancelled",
+                            "ImplementedFailed",
                             0,
                             "0",
                             1,
@@ -52693,7 +53165,11 @@
                             5,
                             "5",
                             6,
-                            "6"
+                            "6",
+                            7,
+                            "7",
+                            8,
+                            "8"
                           ]
                         }
                       }
@@ -52774,6 +53250,8 @@
                       "ImplementationInProgress",
                       "ImplementedSuccess",
                       "ImplementedBackedOut",
+                      "Cancelled",
+                      "ImplementedFailed",
                       0,
                       "0",
                       1,
@@ -52787,7 +53265,11 @@
                       5,
                       "5",
                       6,
-                      "6"
+                      "6",
+                      7,
+                      "7",
+                      8,
+                      "8"
                     ]
                   }
                 },

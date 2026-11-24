@@ -1979,6 +1979,10 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
         public Task<bool> SendChangeImplementationInProgressAsync(Change change, string recipientEmail, string recipientName, string organizationName, string requestedForName, string implementorName, string approvers, IEnumerable<string>? cc = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
+        public Task<bool> SendChangeCancelledAsync(Change change, string recipientEmail, string recipientName,
+            string organizationName, string requestedForName, string implementorName, string approvers,
+            CancellationToken cancellationToken) => Task.FromResult(true);
+
         public Task<bool> SendChangeImplementedAsync(Change change, string recipientEmail, string recipientName, string organizationName, string requestedForName, string implementorName, string approvers, string completionState, IEnumerable<string>? cc = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
     }

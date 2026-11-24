@@ -13,6 +13,8 @@ public class ChangeDto
     public TicketPriority Priority { get; set; } = TicketPriority.Low;
     public TicketState State { get; set; } = TicketState.New;
     public ChangeLifecycleState LifecycleState { get; set; } = ChangeLifecycleState.Draft;
+    public bool? LifecycleChanged { get; set; }
+    public string? LifecycleExplanation { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public string TrackingId { get; set; } = string.Empty;

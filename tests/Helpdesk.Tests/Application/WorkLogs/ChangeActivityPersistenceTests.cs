@@ -169,17 +169,20 @@ public sealed class ChangeActivityPersistenceTests
 
     private static async Task<Change> SeedChangeAsync(ServiceIdentityMigrationTests.DatabaseFixture fixture, string id, ChangeLifecycleState lifecycle)
     {
-        var implemented = lifecycle is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut;
+        var terminal = lifecycle is ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut
+            or ChangeLifecycleState.ImplementedFailed or ChangeLifecycleState.Cancelled;
+        var approved = lifecycle is ChangeLifecycleState.ApprovedForImplementation or ChangeLifecycleState.ImplementationInProgress
+            or ChangeLifecycleState.ImplementedSuccess or ChangeLifecycleState.ImplementedBackedOut or ChangeLifecycleState.ImplementedFailed;
         var change = new Change
         {
             Id = id, OrganizationId = "org", Title = "Activity test change", TrackingId = $"CHG-{id}",
-            LifecycleState = lifecycle, State = implemented ? TicketState.Resolved : TicketState.InProgress,
-            ClosedAt = implemented ? new DateTimeOffset(2025, 12, 1, 12, 0, 0, TimeSpan.Zero) : null,
+            LifecycleState = lifecycle, State = terminal ? TicketState.Resolved : TicketState.InProgress,
+            ClosedAt = terminal ? new DateTimeOffset(2025, 12, 1, 12, 0, 0, TimeSpan.Zero) : null,
             RequesterEmail = "requester@example.test", ImplementorUserId = "implementor", ApproverUserIds = ["approver"],
             Approvals = [new ChangeApproval
             {
                 ApproverId = "approver", ApproverName = "Approver", ApproverEmail = "approver@example.test",
-                Status = lifecycle >= ChangeLifecycleState.ApprovedForImplementation ? ChangeApprovalStatus.Reviewed : ChangeApprovalStatus.Pending
+                Status = approved ? ChangeApprovalStatus.Reviewed : ChangeApprovalStatus.Pending
             }]
         };
         await using var db = fixture.Open();

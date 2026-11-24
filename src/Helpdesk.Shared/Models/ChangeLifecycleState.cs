@@ -23,5 +23,11 @@ public enum ChangeLifecycleState
     ImplementedSuccess = 5,
 
     [Display(Name = "Implemented - Backed Out")]
-    ImplementedBackedOut = 6
+    ImplementedBackedOut = 6,
+
+    [Display(Name = "Cancelled")]
+    Cancelled = 7,
+
+    [Display(Name = "Implemented - Failed")]
+    ImplementedFailed = 8
 }

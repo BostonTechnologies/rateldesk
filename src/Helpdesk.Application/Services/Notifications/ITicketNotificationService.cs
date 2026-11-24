@@ -116,4 +116,9 @@ public interface ITicketNotificationService
         string completionState,
         IEnumerable<string>? cc = null,
         CancellationToken cancellationToken = default);
+
+    Task<bool> SendChangeCancelledAsync(
+        Change change, string recipientEmail, string recipientName,
+        string organizationName, string requestedForName, string implementorName, string approvers,
+        CancellationToken cancellationToken);
 }

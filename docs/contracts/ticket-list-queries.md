@@ -89,6 +89,13 @@ The additive GET parameters on `/api/v1/incidents`, `/api/v1/requests` and
 | `sort` | `updated`, `created`, `trackingId`, `subject`, `priority`, or `state` |
 | `descending` | `true` by default; stable ticket-ID tie breaker |
 
+Changes use their lifecycle for Active and History. `Cancelled` (7),
+`ImplementedSuccess` (5), `ImplementedBackedOut` (6), and
+`ImplementedFailed` (8) appear in History and All. Null lifecycle is treated
+as Draft, including when filtering for it explicitly. The generic ticket
+state filter continues to address the stored ticket state.
+
+
 Dimensions combine with AND. Authorization and predicates run in SQL before
 counting, sorting and paging on SQLite and PostgreSQL. Paged calls clamp page
 sizes to 1–100; the workspace offers 25/50/100. Legacy unpaged request/change
