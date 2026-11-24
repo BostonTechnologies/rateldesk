@@ -1,5 +1,5 @@
 {
-  "schemaHash": "b77132fd2571501cd9a857015b112635b03e24a1c3ccf0d835f65ea993d9128e",
+  "schemaHash": "efe7fc6381bc2659434634ebd31886383f8433cf9b54dec49db80a6bf445a157",
   "catalogRevision": "2026-11-24.change-lifecycle-v36",
   "catalogHash": "622f44a56d33f0c14ee595b41f1b5050f60c36caf5aa7f241700e986b024a967",
   "operationCount": 394,
@@ -49268,6 +49268,9 @@
                                 "required": {
                                   "type": "boolean"
                                 },
+                                "multiSelect": {
+                                  "type": "boolean"
+                                },
                                 "dataBinding": {
                                   "type": [
                                     "object",
@@ -49647,6 +49650,9 @@
                                   "maxLength": 262144
                                 },
                                 "required": {
+                                  "type": "boolean"
+                                },
+                                "multiSelect": {
                                   "type": "boolean"
                                 },
                                 "dataBinding": {

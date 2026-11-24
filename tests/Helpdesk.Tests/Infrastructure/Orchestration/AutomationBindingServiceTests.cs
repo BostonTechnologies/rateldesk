@@ -118,9 +118,9 @@ public sealed class AutomationBindingServiceTests
         var form = new RequestForm
         {
             Id = "form-1", OrganizationId = "org-1", Title = "Groups",
-            JsonSchema = JsonDocument.Parse($$"""
+            JsonSchema = JsonDocument.Parse($$$"""
                 {"fields":[{"key":"selected_groups","type":"predefined","label":"Groups","multiSelect":true,"predefinedOptions":["A","B"]}],
-                 "tasks":[{"id":"{{templateId}}","type":"automation","name":"Count choices","payloadMapping":{"groupList":"selected_groups"}}]}
+                 "tasks":[{"id":"{{{templateId}}}","type":"automation","name":"Count choices","payloadMapping":{"groupList":"selected_groups"}}]}
                 """)
         };
         db.RequestForms.Add(form);
