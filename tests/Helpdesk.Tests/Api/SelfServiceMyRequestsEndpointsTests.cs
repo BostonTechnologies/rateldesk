@@ -65,6 +65,15 @@ public sealed class SelfServiceMyRequestsEndpointsTests
     }
 
     [Fact]
+    public void SubmittedFields_DisplayMalformedHistoricalPayloadWithoutThrowing()
+    {
+        const string payload = """{"groups":["\ud800"]}""";
+
+        Assert.Equal(new RequestSubmittedFieldDto("payload", payload),
+            Assert.Single(RequestSubmittedFields.Read(payload, includeBoundLabels: true)));
+    }
+
+    [Fact]
     public async Task IntegrationCredential_ScopedToAnotherOrganization_DoesNotExposeCustomerRequests()
     {
         await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync("IntegrationB");

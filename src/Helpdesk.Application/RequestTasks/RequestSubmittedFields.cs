@@ -46,7 +46,7 @@ public static class RequestSubmittedFields
 
             return fields;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
         {
             return [new("payload", payloadJson)];
         }
