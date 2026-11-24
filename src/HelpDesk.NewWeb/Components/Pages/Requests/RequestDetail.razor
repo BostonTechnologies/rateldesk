@@ -83,7 +83,7 @@ else
                         TicketId="@Id"
                         TicketType="requests"
                         OrganizationId="@request.OrganizationId"
-                        PublicMode="false" CanContribute="@CanContribute" CanManage="@CanManage"
+                        CanContribute="@CanContribute" CanManage="@CanManage"
                         CanViewAutomationReports="@(CanManage || accessProfile?.HasPermission(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestRead, request.OrganizationId) == true)"
                         OnWorklogAdded="HandleWorklogAdded"
                         Class="flex-grow-1" />

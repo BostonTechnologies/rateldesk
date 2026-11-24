@@ -163,6 +163,22 @@ http.createServer(async (req, res) => {
     if (module === 'requests' && action?.endsWith('/tasks')) return reply(requestTasks);
     if (action?.endsWith('/workflow-timeline')) { const group = url.searchParams.get('categories')?.includes('Sla') ? 'SLA' : 'Tasks'; const snapshot = { items: [{ id: group, title: `${group} workflow event`, category: group, severity: 'Info', createdAt: '2026-10-01T10:00:00Z' }], totalCount: 1 }; if (fault === 'hold-workflow') { fault = ''; await hold('workflow'); } return reply(snapshot); }
     if (action?.endsWith('/peek')) return reply({ incidentId: ticket.id, text: 'Fixture message', html: '<p>Fixture message</p>' });
+    if (action === `${ticket.id}/timeline` || action === `${ticket.id}/timeline/count`) {
+      const eventGroup = { incidents: '1', requests: '2', changes: '3' }[module];
+      const events = [
+        {
+          id: `79000000-0000-4000-8000-0000000002${eventGroup}1`, ticketId: ticket.id,
+          createdUtc: '2026-10-02T12:00:00Z', createdByUserId: 'system', eventType: 2,
+          messageText: `Synthetic ${module} status update`
+        },
+        {
+          id: `79000000-0000-4000-8000-0000000002${eventGroup}2`, ticketId: ticket.id,
+          createdUtc: '2026-10-02T11:00:00Z', createdByUserName: 'Fixture Operator', eventType: 7,
+          messageText: `Synthetic ${module} internal note`
+        }
+      ];
+      return reply(action.endsWith('/count') ? events.length : events);
+    }
     if (action?.endsWith('/timeline/count')) return reply(0);
     if (action?.endsWith('/attachments/count')) return reply(1200);
     if (action?.endsWith('/listeners/count')) return fault === 'counts' ? reply({}, 503) : reply(12);

@@ -36,7 +36,8 @@
                     break;
                 case "timeline":
                     <TicketTimeline ReadOnly="@(!CanContribute)" TicketId="@TicketId" TicketType="@TicketType"
-                                    PublicMode="@PublicMode" OnWorklogAdded="@(() => panelVersion == scopeVersion ? OnWorklogAdded.InvokeAsync() : Task.CompletedTask)" OnTimelineLoaded="@(items => OnTimelineLoaded(panelVersion, items))" />
+                                    OnWorklogAdded="@(() => panelVersion == scopeVersion ? OnWorklogAdded.InvokeAsync() : Task.CompletedTask)"
+                                    OnTimelineLoaded="@(items => OnTimelineLoaded(panelVersion, items))" />
                     break;
                 case "attachments":
                     <TicketAttachments ReadOnly="@(!CanContribute)" TicketId="@TicketId" OnAttachmentsLoaded="@(items => OnAttachmentsLoaded(panelVersion, items))" />
@@ -62,7 +63,6 @@
     [Parameter] public string TicketId { get; set; } = string.Empty;
     [Parameter] public string TicketType { get; set; } = "incidents";
     [Parameter] public string? OrganizationId { get; set; }
-    [Parameter] public bool PublicMode { get; set; }
     [Parameter] public bool CanContribute { get; set; }
     [Parameter] public bool CanManage { get; set; }
     [Parameter] public bool CanViewAutomationReports { get; set; }
@@ -89,9 +89,9 @@
         new("relations", "Relations", Icons.Material.Filled.AccountTree, true),
         new("automation", "Automation", Icons.Material.Outlined.Description)
     };
-    private IEnumerable<Tab> AvailableTabs => tabs.Where(x => (x.Id != "ai" || CanManage && !PublicMode) &&
+    private IEnumerable<Tab> AvailableTabs => tabs.Where(x => (x.Id != "ai" || CanManage) &&
         (x.Id != "relations" || TicketType is "incidents" or "requests" or "changes") &&
-        (x.Id != "automation" || CanViewAutomationReports && !PublicMode && (TicketType is "incidents" or "requests")));
+        (x.Id != "automation" || CanViewAutomationReports && (TicketType is "incidents" or "requests")));
     private readonly Dictionary<string, int?> counts = new();
     private readonly HashSet<string> unavailableCounts = new();
     private readonly HashSet<string> visited = new() { "messages" };
@@ -110,7 +110,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        var nextScope = $"{TicketType}:{TicketId}:{OrganizationId}:{PublicMode}";
+        var nextScope = $"{TicketType}:{TicketId}:{OrganizationId}";
         if (nextScope != scope)
         {
             cancellation.Cancel(); cancellation.Dispose(); cancellation = new();
