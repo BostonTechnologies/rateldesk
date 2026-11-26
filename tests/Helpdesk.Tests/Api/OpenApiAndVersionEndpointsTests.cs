@@ -159,13 +159,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Scoped public access replaces seven signed routes with nine exchange and access operations.
         // Multi-organization self service adds one scoped submission organization lookup.
         // Change lifecycle adds one administrator-only bulk cancellation operation.
+        // Reviewed automation input changes add one administrator-only apply operation.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(544, operationCount);
+        Assert.Equal(545, operationCount);
 #else
-        Assert.Equal(543, operationCount);
+        Assert.Equal(544, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]

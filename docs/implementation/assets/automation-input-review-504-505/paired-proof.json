@@ -1,18 +1,18 @@
 {
   "revisions": {
-    "rateldeskApi": "60f12ca2a1eefabf6b52bed0baa21d0077598296",
+    "rateldeskServerRevision": "60f12ca2a1eefabf6b52bed0baa21d0077598296",
     "rateldeskWeb": "50396baa43e4e23e908bd6039646a2573509fe79",
     "netratelReviewedInputs": "54fbad74e64dfb396c9642c8bef603881e275a44",
     "netratelTestRevision": "9a6561453cd2c7aa84eb01b6346b1bc2e9f02cc7"
   },
   "runtimeAssemblySha256": {
     "rateldesk": {
-      "api": "19b7c3cfb8a0cd394c112e3c1e4550447d14e93c0bb7edc7caf3fb6f6e7cd7a3",
-      "web": "b557249deeac6b6523d1efad69319a7f389d6cd1ce2fee58004142e3cf17a237"
+      "serverAssemblySha256": "19b7c3cfb8a0cd394c112e3c1e4550447d14e93c0bb7edc7caf3fb6f6e7cd7a3",
+      "webAssemblySha256": "b557249deeac6b6523d1efad69319a7f389d6cd1ce2fee58004142e3cf17a237"
     },
     "netratel": {
-      "api": "80b93b6a40d411ceaea86b6468ee5882b633841f30a0dc18647c7cdcbd6321d4",
-      "web": "f6869878b05e3130a67edf3cf962608d02036e916bfa0c257142795e95df0c4a"
+      "serverAssemblySha256": "80b93b6a40d411ceaea86b6468ee5882b633841f30a0dc18647c7cdcbd6321d4",
+      "webAssemblySha256": "f6869878b05e3130a67edf3cf962608d02036e916bfa0c257142795e95df0c4a"
     }
   },
   "mixedReview": {
