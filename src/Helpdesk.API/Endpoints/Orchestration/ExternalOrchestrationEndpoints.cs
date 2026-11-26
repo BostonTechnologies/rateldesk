@@ -68,7 +68,11 @@ public static class ExternalOrchestrationEndpoints
                 return Results.BadRequest();
             try { return Results.Ok(await catalog.GetExecutionReadinessAsync(jobId, organizationId, connectionId, ct)); }
             catch (OrchestrationProviderException error) { return Results.Json(error.Error, statusCode: error.Error.Status); }
-        });
+            catch (PairingFailure error) { return Results.Json(new { code = error.Code, message = error.Message }, statusCode: error.Status); }
+        })
+            .WithName("GetPairedAutomationExecutionReadiness")
+            .WithSummary("Read execution readiness for a job on the selected system connection")
+            .Produces<AutomationExecutionReadinessDto>();
 
         group.MapGet("/catalog/jobs", async (
             [FromQuery] string? organizationId,

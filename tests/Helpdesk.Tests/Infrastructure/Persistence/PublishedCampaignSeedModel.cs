@@ -21,7 +21,8 @@ internal static class PublishedCampaignSeedModel
                      nameof(RequestTask.AutomationTimedOutAt), nameof(RequestTask.AutomationTimedOutAttemptId),
                      nameof(RequestTask.AutomationReconciliationLeaseId), nameof(RequestTask.AutomationReconciliationLeaseUntilUtcTicks),
                      nameof(RequestTask.AutomationContinuationPending), nameof(RequestTask.AutomationStateVersion),
-                     nameof(RequestTask.AutomationOriginJson), nameof(RequestTask.AutomationDispatchPayloadJson) })
+                     nameof(RequestTask.AutomationOriginJson), nameof(RequestTask.AutomationDispatchPayloadJson),
+                     nameof(RequestTask.ProviderDiagnostic) })
             builder.Entity<RequestTask>().Ignore(name);
         builder.Entity<Customer>().Ignore(customer => customer.IdentityUserId);
         // Domain retirement is integrated in the dependent Team batch. Its

@@ -357,7 +357,9 @@ public sealed class OrchestrationInternalClientTests
             var error = await Assert.ThrowsAsync<OrchestrationSubmissionRejectedException>(() => Client(handler).IngestAsync(Settings(), Request()));
             Assert.DoesNotContain("secret", error.Message, StringComparison.Ordinal);
             Assert.DoesNotContain("token", error.Message, StringComparison.Ordinal);
-            Assert.Contains("diagnostic", error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("ordinary context", error.Message, StringComparison.Ordinal);
+            Assert.Equal("provider_rejected", error.Diagnostic?.Code);
+            Assert.False(error.Diagnostic?.ExecutionCreated);
         }
         else
         {
