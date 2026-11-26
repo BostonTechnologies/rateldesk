@@ -13,9 +13,21 @@
     {
         <MudText Typo="Typo.caption">Required engine @shell</MudText>
     }
+    @if (Diagnostic.RequestedExecutor is { } requested)
+    {
+        <MudText Typo="Typo.caption">Requested engine @requested</MudText>
+    }
+    @if (Diagnostic.ResolvedEngine is { } resolved)
+    {
+        <MudText Typo="Typo.caption">Resolved engine @resolved</MudText>
+    }
     @if (Diagnostic.NodeId is { } node)
     {
-        <MudText Typo="Typo.caption">Node @node @if (Diagnostic.StepOrdinal is { } step) { <span> · Step @step</span> }</MudText>
+        <MudText Typo="Typo.caption">Node @node</MudText>
+    }
+    @if (Diagnostic.StepOrdinal is { } step)
+    {
+        <MudText Typo="Typo.caption">Step @step</MudText>
     }
     @if (Diagnostic.ParentResult is { } parent)
     {

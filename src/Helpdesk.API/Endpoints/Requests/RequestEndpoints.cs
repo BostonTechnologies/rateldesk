@@ -165,6 +165,8 @@ public static class RequestEndpoints
                 request.RequestFormId,
                 tasks.Select(t => t.TemplateId),
                 token);
+            var showProviderDiagnostics = authorization.Access is { } access && RequestTaskEndpoints.CanReadTasks(access)
+                && RequestTaskEndpoints.CanReadOrganization(access, authorization.OrganizationId);
 
             return Results.Ok(tasks.Select(t =>
             {
@@ -185,8 +187,9 @@ public static class RequestEndpoints
                     NextRetryAt = t.NextRetryAt,
                     DueAt = t.DueAt,
                     RetryCount = t.RetryCount,
-                    FailureReason = t.FailureReason,
-                    ProviderDiagnostic = t.ProviderDiagnostic,
+                    FailureReason = !showProviderDiagnostics && t.ProviderDiagnostic is not null
+                        ? "Automation needs support review." : t.FailureReason,
+                    ProviderDiagnostic = showProviderDiagnostics ? t.ProviderDiagnostic : null,
                     OrchestratorExecutionId = t.OrchestratorExecutionId,
                     AutomationBindingId = t.AutomationBindingId,
                     OrchestrationRequestDefinitionId = t.OrchestrationRequestDefinitionId,

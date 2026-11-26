@@ -64,6 +64,22 @@ public sealed class SelfServiceMyRequestsEndpointsTests
         Assert.DoesNotContain(payload.SubmittedFields, field => field.Key == "_boundLabels");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetMyRequestTasks_ShowsOnlyRequesterSafeProviderFailure(bool postgres)
+    {
+        await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync(postgres: postgres);
+        await harness.SeedProviderFailureAsync();
+
+        using var response = await harness.Client.GetAsync($"/api/v1/self-service/requests/{harness.RequestId}/tasks");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Automation needs support review.", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("run_as_denied", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("provider-private-reference", payload, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SubmittedFields_DisplayMalformedHistoricalPayloadWithoutThrowing()
     {
@@ -345,6 +361,26 @@ public sealed class SelfServiceMyRequestsEndpointsTests
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", authHeader);
             return new SelfServiceMyRequestsTestHarness(connection, app, client, "request-1", container);
+        }
+
+        public async Task SeedProviderFailureAsync()
+        {
+            await using var scope = _app.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.RequestTasks.Add(new RequestTask
+            {
+                Id = "failed-automation",
+                RequestId = RequestId,
+                OrganizationId = "tenant-1",
+                Name = "Synthetic automation",
+                Type = RequestTaskType.Automation,
+                Status = RequestTaskStatus.Failed,
+                FailureReason = "NetRatel rejected admission (run_as_denied).",
+                LastAutomationStatus = AutomationTaskStatuses.SubmitRejectedManualRetry,
+                ProviderDiagnostic = new("NetRatel", "admission", "run_as_denied", "Review the approval.",
+                    "configuration_required", "provider-private-reference", false, 422)
+            });
+            await db.SaveChangesAsync();
         }
 
         public async Task SeedDirectoryAsync()

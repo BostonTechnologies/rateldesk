@@ -243,8 +243,7 @@ public static partial class SelfServiceMyRequestsEndpoints
                 NextRetryAt = t.NextRetryAt,
                 DueAt = t.DueAt,
                 RetryCount = t.RetryCount,
-                FailureReason = t.ProviderDiagnostic != null && (t.LastAutomationStatus == "failed" || t.LastAutomationStatus == "cancelled")
-                    ? "Automation could not finish. Support can review the request." : t.FailureReason,
+                FailureReason = t.ProviderDiagnostic != null ? "Automation needs support review." : t.FailureReason,
                 LastAutomationStatus = t.LastAutomationStatus,
                 AutomationAttemptCorrelationId = t.AutomationAttemptCorrelationId
             })
