@@ -13,10 +13,7 @@ internal static class AutomationMultiSelectMapping
             return [];
         }
 
-        var multiSelectKeys = fields.Select((field, index) => (Field: field, Key: FormFieldKeyResolver.Resolve(field, index)))
-            .Where(pair => pair.Field.MultiSelect)
-            .Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return task.PayloadMapping.Where(mapping => multiSelectKeys.Contains(mapping.Value.Trim()))
+        return task.PayloadMapping.Where(mapping => AutomationFormFieldResolver.Resolve(fields, mapping.Value).Field?.MultiSelect == true)
             .Select(mapping => mapping.Key.Trim()).Where(key => key.Length > 0);
     }
 

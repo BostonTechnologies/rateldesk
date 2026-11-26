@@ -407,14 +407,9 @@
             return Color.Error;
         }
 
-        if (bindings.Any(x => x.SyncState == AutomationBindingSyncState.Drifted))
+        if (bindings.Any(x => x.SyncState is AutomationBindingSyncState.Drifted or AutomationBindingSyncState.ImportPending))
         {
             return Color.Warning;
-        }
-
-        if (bindings.Any(x => x.SyncState == AutomationBindingSyncState.ImportPending))
-        {
-            return Color.Info;
         }
 
         return Color.Success;
@@ -427,14 +422,9 @@
             return "Broken";
         }
 
-        if (bindings.Any(x => x.SyncState == AutomationBindingSyncState.Drifted))
+        if (bindings.Any(x => x.SyncState is AutomationBindingSyncState.Drifted or AutomationBindingSyncState.ImportPending))
         {
-            return "Drifted";
-        }
-
-        if (bindings.Any(x => x.SyncState == AutomationBindingSyncState.ImportPending))
-        {
-            return "Import Pending";
+            return "Review needed";
         }
 
         return bindings.Any(binding => !binding.Enabled) ? "Binding disabled" : "In Sync";

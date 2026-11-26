@@ -347,6 +347,90 @@ public sealed class AutomationBindingDriftServiceTests
         Assert.Equal("groups_internal", Assert.Single(persisted.Tasks).PayloadMapping!["ADGroups"]);
     }
 
+    [Theory]
+    [InlineData(" ADGroups ", null, true)]
+    [InlineData("ADGroups", null, false)]
+    [InlineData("removed_key", "groups_internal", true)]
+    [InlineData(null, "groups_internal", true)]
+    public async Task Reviewed_push_saves_existing_dataset_field_mapping_without_importing(
+        string? savedReference, string? selectedField, bool peerRequiresGroups)
+    {
+        await using var db = CreateDb();
+        var mapping = new Dictionary<string, string> { ["Action"] = "operation", ["User"] = "directory_user" };
+        if (savedReference is not null) mapping["ADGroups"] = savedReference;
+        var form = CreateRequestForm(
+            [
+                new() { Key = "operation", Label = "Action", Type = "predefined", Required = true, PredefinedOptions = ["Add", "Remove"] },
+                new() { Key = "directory_user", Label = "User", Type = "helpdeskData", DataBinding = new() { DatasetId = "synthetic-users" } },
+                new() { Key = "groups_internal", Label = "AD Groups", Type = "helpdeskData", MultiSelect = true, DataBinding = new() { DatasetId = "synthetic-groups" } },
+                new() { Key = "justification", Label = "Business justification", Type = "text" }
+            ],
+            mapping);
+        var originalFields = form.JsonSchema.RootElement.GetProperty("fields").Clone();
+        var connection = new SystemConnection { Id = Guid.NewGuid(), State = "connected" };
+        var binding = CreateBinding("legacy-groups-review", form.Id, TaskTemplateId);
+        binding.SystemConnectionId = connection.Id;
+        binding.SyncState = AutomationBindingSyncState.ImportPending;
+        db.AddRange(form, connection, binding);
+        await db.SaveChangesAsync();
+
+        var action = new OrchestrationCatalogInputDefinitionDto { Key = "Action", Label = "Action", Order = 1, Type = "text", Required = true };
+        var user = new OrchestrationCatalogInputDefinitionDto { Key = "User", Label = "User", Order = 2, Type = "text", DefaultValue = "keep" };
+        var groups = new OrchestrationCatalogInputDefinitionDto
+        {
+            Key = "ADGroups", Label = "AD Groups", Order = 3, Type = "text", Required = peerRequiresGroups, HelpText = "Keep peer metadata"
+        };
+        var target = new OrchestrationCatalogRequestDefinitionDto
+        {
+            RequestDefinitionId = binding.OrchestrationRequestDefinitionId,
+            OrchestrationJobDefinitionId = binding.OrchestrationJobDefinitionId,
+            Inputs = [action, user, groups]
+        };
+        var catalog = Substitute.For<IOrchestrationCatalogService>();
+        catalog.ListRequestDefinitionsAsync(binding.OrganizationId, connection.Id, Arg.Any<CancellationToken>()).Returns([target]);
+        catalog.ApplyReviewedInputsAsync(target.RequestDefinitionId, Arg.Any<IReadOnlyList<OrchestrationCatalogInputDefinitionDto>>(),
+            Arg.Any<IReadOnlyList<OrchestrationCatalogInputDefinitionDto>>(), binding.OrganizationId, connection.Id, Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                Assert.Same(target.Inputs, call.ArgAt<IReadOnlyList<OrchestrationCatalogInputDefinitionDto>>(1));
+                target.Inputs = call.ArgAt<IReadOnlyList<OrchestrationCatalogInputDefinitionDto>>(2);
+                return Task.FromResult(target);
+            });
+        var parser = new RequestFormSchemaParser();
+        var service = new AutomationBindingDriftService(db, new TestTenantContext(), catalog, parser);
+
+        var preview = await service.PreviewAsync(binding.Id);
+        var difference = Assert.Single(preview.Differences, row => row.ChangeType != "Unchanged");
+        Assert.Equal("ADGroups", difference.Key);
+        if (selectedField is null)
+        {
+            Assert.Equal("MappingNeedsUpdate", difference.ChangeType);
+            Assert.Equal("groups_internal", difference.Helpdesk!.FieldKey);
+            Assert.True(difference.Helpdesk.MultiSelect);
+            Assert.True(difference.Helpdesk.UsesDataset);
+        }
+        var result = await service.ApplyReviewAsync(binding.Id, new(preview.ReviewVersion!,
+            [new("ADGroups", AutomationInputDirection.Push, selectedField, false)]));
+
+        Assert.True(result.Synced);
+        Assert.True(result.HelpdeskChanged);
+        Assert.Contains("Helpdesk mapping", Assert.Single(result.Outcomes).Message);
+        Assert.Collection(target.Inputs, input => Assert.Same(action, input), input => Assert.Same(user, input), input =>
+        {
+            Assert.Equal("ADGroups", input.Key);
+            Assert.Equal("text", input.Type);
+            Assert.Equal(groups.HelpText, input.HelpText);
+            Assert.False(input.Required);
+        });
+        var persisted = (await db.RequestForms.AsNoTracking().SingleAsync()).JsonSchema;
+        Assert.True(JsonElement.DeepEquals(originalFields, persisted.RootElement.GetProperty("fields")));
+        mapping["ADGroups"] = "groups_internal";
+        var persistedMapping = Assert.Single(parser.Parse(persisted).Tasks).PayloadMapping!;
+        Assert.Equal(mapping.OrderBy(pair => pair.Key), persistedMapping.OrderBy(pair => pair.Key));
+        Assert.All((await service.PreviewAsync(binding.Id)).Differences, row => Assert.Equal("Unchanged", row.ChangeType));
+        Assert.Equal(AutomationBindingSyncState.InSync, Assert.Single(await service.RefreshAsync(form.Id)).SyncState);
+    }
+
     private static readonly Guid TaskTemplateId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     private static HelpdeskDbContext CreateDb()

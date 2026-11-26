@@ -143,10 +143,6 @@ public sealed class AutomationBindingPayloadContractService(
             return AutomationTaskInputBuildResult.Succeeded(new JsonObject());
         }
 
-        var fieldLookup = fields
-            .Select((field, index) => new { Field = field, Key = FormFieldKeyResolver.Resolve(field, index) })
-            .ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
-
         var inputNode = new JsonObject();
         var multiSelectInputs = new List<string>();
         var unresolvedMappedFields = new List<string>();
@@ -159,13 +155,13 @@ public sealed class AutomationBindingPayloadContractService(
                 continue;
             }
 
-            if (!fieldLookup.TryGetValue(fieldKey, out var source))
+            var (field, sourceKey, ambiguous) = AutomationFormFieldResolver.Resolve(fields, fieldKey);
+            if (field is null)
             {
-                return AutomationTaskInputBuildResult.Failed($"Payload mapping references missing field '{fieldKey}'.");
+                return AutomationTaskInputBuildResult.Failed(AutomationFormFieldResolver.UnresolvedMappingMessage(fieldKey, ambiguous));
             }
 
-            var field = source.Field;
-            var sourceValue = payloadRoot[source.Key];
+            var sourceValue = payloadRoot[sourceKey];
             var isMultiSelect = enforceCurrentSchema ? field.MultiSelect
                 : sourceValue is JsonArray || (field.MultiSelect && sourceValue is null);
             if (isMultiSelect)

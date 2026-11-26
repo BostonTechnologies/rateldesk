@@ -108,16 +108,12 @@ public sealed class AutomationBindingImportService(
     }
 
     private static void ApplyRemoteInputsToSchema(
-        IList<FormField> fields,
+        List<FormField> fields,
         RequestTaskTemplateModel taskTemplate,
         IReadOnlyList<OrchestrationCatalogInputDefinitionDto> remoteInputs)
     {
-        var fieldLookup = fields
-            .Select((field, index) => new { Field = field, Key = FormFieldKeyResolver.Resolve(field, index) })
-            .ToDictionary(x => x.Key, x => x.Field, StringComparer.OrdinalIgnoreCase);
-
         var mappingError = AutomationMultiSelectMapping.Validate(
-            AutomationMultiSelectMapping.FindInputs(fields.ToArray(), taskTemplate), remoteInputs);
+            AutomationMultiSelectMapping.FindInputs(fields, taskTemplate), remoteInputs);
         if (mappingError is not null)
         {
             throw new InvalidOperationException(mappingError);
@@ -127,15 +123,17 @@ public sealed class AutomationBindingImportService(
         foreach (var input in remoteInputs.OrderBy(x => x.Order).ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
         {
             var inputKey = input.Key.Trim();
-            var fieldKey = taskTemplate.PayloadMapping?.GetValueOrDefault(inputKey) ?? inputKey;
-            if (!fieldLookup.TryGetValue(fieldKey, out var field))
+            var reference = taskTemplate.PayloadMapping?.GetValueOrDefault(inputKey) ?? inputKey;
+            var (field, fieldKey, ambiguous) = AutomationFormFieldResolver.Resolve(fields, reference);
+            if (ambiguous)
+                throw new InvalidOperationException(AutomationFormFieldResolver.UnresolvedMappingMessage(reference, ambiguous));
+            if (field is null)
             {
                 field = new FormField
                 {
                     Key = fieldKey
                 };
                 fields.Add(field);
-                fieldLookup[fieldKey] = field;
             }
 
             if (field.MultiSelect)

@@ -103,6 +103,58 @@ public sealed class AutomationBindingPayloadContractServiceTests
         Assert.Equal(expected, validation.Success);
     }
 
+    [Theory]
+    [InlineData(" ADGroups ", false, null)]
+    [InlineData(" ADGroups ", true, "matches more than one Helpdesk field")]
+    [InlineData("old_groups_key", false, "references missing field")]
+    [InlineData("groups_internal", true, null)]
+    public async Task Submission_and_dispatch_use_the_unique_saved_source_and_preserve_wire_values(
+        string savedReference, bool duplicateLabel, string? expectedError)
+    {
+        var form = CreateRequestForm($$$"""
+            {"fields":[
+                {"key":"operation","label":"Action","type":"predefined","required":true,"predefinedOptions":["Add","Remove"]},
+                {"key":"groups_internal","label":"AD Groups","type":"helpdeskData","multiSelect":true,"dataBinding":{"datasetId":"groups"}}
+                {{{(duplicateLabel ? """,{"key":"other_groups","label":"ADGroups","type":"text"}""" : "")}}}
+            ],"tasks":[{"id":"11111111-1111-1111-1111-111111111111","type":"automation","name":"Process groups",
+                "payloadMapping":{"Action":"operation","ADGroups":"{{{savedReference}}}"}}]}
+            """);
+        var parser = new RequestFormSchemaParser();
+        var task = Assert.Single(parser.Parse(form.JsonSchema).Tasks);
+        var bindings = Substitute.For<IAutomationBindingService>();
+        var connectionId = Guid.NewGuid();
+        bindings.ListAsync(form.Id, Arg.Any<CancellationToken>()).Returns([
+            new() { TaskTemplateId = task.Id, Enabled = true, OrganizationId = "customer-org",
+                SystemConnectionId = connectionId, OrchestrationRequestDefinitionId = "14" }]);
+        var catalog = Substitute.For<IOrchestrationCatalogService>();
+        catalog.ListRequestDefinitionsAsync("customer-org", connectionId, Arg.Any<CancellationToken>()).Returns([
+            new() { RequestDefinitionId = "14", Inputs = [
+                new() { Key = "Action", Type = "text", Required = true },
+                new() { Key = "ADGroups", Type = "text", Required = true }] }]);
+        var service = new AutomationBindingPayloadContractService(parser, bindings, catalog);
+        const string payload = """
+            {"operation":"Add","groups_internal":["group,one","group-two"],"other_groups":"unrelated",
+             "ADGroups":"untrusted alias value","_boundLabels":{"groups_internal":["One","Two"]}}
+            """;
+
+        var validation = await service.ValidateBoundRequestPayloadAsync(form, payload);
+        var built = service.BuildTaskInput(form, task, payload);
+
+        if (expectedError is not null)
+        {
+            Assert.Contains(expectedError, Assert.Single(validation.Errors));
+            Assert.Contains(expectedError, built.Error);
+            return;
+        }
+
+        Assert.True(validation.Success, string.Join("; ", validation.Errors));
+        Assert.True(built.Success, built.Error);
+        Assert.Equal(2, built.InputNode.Count);
+        Assert.Equal("Add", built.InputNode["Action"]!.GetValue<string>());
+        Assert.Equal("""["group,one","group-two"]""", built.InputNode["ADGroups"]!.GetValue<string>());
+        Assert.Equal("ADGroups", Assert.Single(built.MultiSelectInputs));
+    }
+
     private const string MultiSelectSchema = """
         {"fields":[{"key":"groups","label":"Groups","type":"text","multiSelect":true,"dataBinding":{"datasetId":"groups"}}],
         "tasks":[{"id":"11111111-1111-1111-1111-111111111111","type":"automation","name":"Process groups","payloadMapping":{"groupList":"groups"}}]}
