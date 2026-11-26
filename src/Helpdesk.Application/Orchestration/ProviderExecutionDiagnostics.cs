@@ -51,7 +51,7 @@ public static class ProviderExecutionDiagnostics
             _ => ("execution", "execution_failed", "Review the linked execution in NetRatel.", "operator_review")
         };
         return new("NetRatel", details.Item1, details.Item2, details.Item3, details.Item4, correlationId,
-            status == "unknown" && task.OrchestrationExternalRunId is null ? null : true,
+            status == "unknown" && provider?.ExecutionCreated != true ? null : true,
             ConnectionId: SafeReference(task.OrchestrationLinkId), JobDefinitionId: SafeReference(task.OrchestrationJobDefinitionId),
             ProviderRequestId: SafeReference(task.OrchestrationExternalRequestId), ProviderRunId: SafeReference(task.OrchestrationExternalRunId),
             NodeId: provider?.NodeId, StepOrdinal: SafeOrdinal(provider?.StepOrdinal), RequestedExecutor: Engine(provider?.RequestedExecutor),
