@@ -111,6 +111,8 @@ http.createServer(async (req, res) => {
     if (fault === 'malformed-error') { res.writeHead(500, { 'Content-Type': 'text/html' }); return res.end('<html>Private stack trace and synthetic credential must never appear</html>'); }
     if (fault === 'missing-requester' || fault === 'disabled-requester') return reply({ code: 'requester_unavailable', traceId: 'synthetic-requester-reference' }, 403);
     if (fault === 'wrong-organization') return reply({ code: 'request_organization_mismatch', traceId: 'synthetic-org-reference' }, 403);
+    if (fault === 'automation-disabled') return reply({ code: 'automation_not_ready', traceId: 'synthetic-automation-reference',
+      detail: "Automation task 'Synthetic job' has a disabled NetRatel binding. Ask a form administrator to review its automation binding." }, 400);
     if (fault === 'invalid-success') return reply({});
     const organization = payload.targetOrganizationId === secondOrganization.id ? secondOrganization : homeOrganization;
     if (!receipts.has(payload.submissionId)) receipts.set(payload.submissionId, { requestId: `new-request-${receipts.size + 1}`,

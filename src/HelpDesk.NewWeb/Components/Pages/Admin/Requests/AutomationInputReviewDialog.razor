@@ -1,0 +1,269 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Helpdesk.Shared.DTOs.Orchestration
+@inject IHttpClientFactory HttpClientFactory
+
+<MudDialog>
+    <DialogContent>
+        @if (!CanApply)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">This review shows the saved settings. Save your edits and reopen the review to apply changes.</MudAlert>
+        }
+        @if (notice is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" role="alert">@notice</MudAlert>
+        }
+        @if (loading || applying)
+        {
+            <MudProgressLinear Indeterminate="true" aria-label="@(applying ? "Applying reviewed changes" : "Checking both sides")" />
+        }
+        @if (preview is not null)
+        {
+            <MudText Typo="Typo.caption">@preview.JobName · @preview.TaskTemplateName · Organization @preview.OrganizationId · Connection @preview.ConnectionId</MudText>
+            <div class="input-review-scroll" tabindex="0" aria-label="Input differences">
+                @foreach (var row in Differences)
+                {
+                    var choice = ChoiceFor(row);
+                    var target = preview.AvailableFields.FirstOrDefault(field => field.Key == choice.FieldKey);
+                    <fieldset class="input-review-row" @key="row.Key">
+                        <legend>@row.Key · @ChangeLabel(row.ChangeType)</legend>
+                        <div class="input-review-sides">
+                            <div><strong>Helpdesk</strong><div>@Describe(row.Helpdesk)</div></div>
+                            <div><strong>NetRatel</strong><div>@Describe(row.Orchestration)</div></div>
+                        </div>
+                        <div class="input-review-controls">
+                            <label>
+                                <span>Decision for @row.Key</span>
+                                <select @bind="choice.Direction" disabled="@(!CanChoose)">
+                                    <option value="@AutomationInputDirection.LeaveUnresolved">Leave unresolved</option>
+                                    <option value="@AutomationInputDirection.Push" disabled="@(!CanPush(row))">Push to NetRatel</option>
+                                    <option value="@AutomationInputDirection.Import" disabled="@(row.Orchestration is null)">Import into Helpdesk</option>
+                                </select>
+                            </label>
+                            @if (choice.Direction == AutomationInputDirection.Import && row.Orchestration is { } source)
+                            {
+                                <label>
+                                    <span>Map existing field for @row.Key</span>
+                                    <select @bind="choice.FieldKey" disabled="@(!CanChoose)">
+                                        <option value="">Choose a field</option>
+                                        @foreach (var field in preview.AvailableFields)
+                                        {
+                                            <option value="@field.Key" disabled="@(!CompatibleTypes(field, source))">@field.Label (@field.Key)</option>
+                                        }
+                                        @if (CanCreate(row))
+                                        {
+                                            <option value="@CreateField">Create field (@row.Key)</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                        </div>
+                        <p>@DescribeChange(row, choice, target)</p>
+                    </fieldset>
+                }
+                @if (!Differences.Any())
+                {
+                    <p>The saved input contracts match.</p>
+                }
+            </div>
+        }
+        @if (result is not null)
+        {
+            <div role="status" class="input-review-outcomes">
+                <strong>@(result.Synced ? "Synced" : "Review results")</strong>
+                <ul>
+                    @foreach (var outcome in result.Outcomes)
+                    {
+                        <li>@outcome.Key · @outcome.Message</li>
+                    }
+                </ul>
+                <MudText Typo="Typo.caption">Reference @result.Reference</MudText>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="RecheckAsync" Disabled="@(loading || applying)">Recheck</MudButton>
+        <MudButton OnClick="Close" Disabled="@applying">Close</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ApplyAsync" Disabled="@(!CanApplyChanges)">Apply selected changes</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter, EditorRequired] public string BindingId { get; set; } = string.Empty;
+    [Parameter] public bool CanApply { get; set; }
+
+    private const string CreateField = "\u0001";
+    private readonly Dictionary<string, Choice> choices = new(StringComparer.OrdinalIgnoreCase);
+    private AutomationBindingDriftPreviewDto? preview;
+    private AutomationInputReviewResultDto? result;
+    private AutomationInputReviewResultDto? latestApply;
+    private string? notice;
+    private bool applying;
+    private bool loading;
+    private bool needsRecheck;
+
+    private HttpClient Api => HttpClientFactory.CreateClient("HelpdeskApi");
+    private string Route => $"api/v1/admin/orchestration/bindings/{Uri.EscapeDataString(BindingId)}";
+    private IEnumerable<AutomationBindingInputDiffDto> Differences =>
+        preview?.Differences.Where(row => row.ChangeType != "Unchanged") ?? [];
+    private bool CanChoose => CanApply && preview?.ReviewVersion is not null && !needsRecheck && !loading && !applying;
+    private bool CanApplyChanges => CanChoose && Differences.Any(row => ChoiceFor(row).Direction != AutomationInputDirection.LeaveUnresolved)
+        && Differences.All(row => ChoiceFor(row).Direction != AutomationInputDirection.Import || !string.IsNullOrEmpty(ChoiceFor(row).FieldKey));
+
+    protected override Task OnInitializedAsync() => RecheckAsync();
+
+    private async Task RecheckAsync()
+    {
+        loading = true;
+        notice = null;
+        try
+        {
+            var previous = preview;
+            preview = await Api.GetFromJsonAsync<AutomationBindingDriftPreviewDto>($"{Route}/drift-preview");
+            if (previous?.ReviewVersion != preview?.ReviewVersion && previous is not null)
+            {
+                var previousRows = previous.Differences.ToDictionary(row => row.Key, StringComparer.OrdinalIgnoreCase);
+                var previousFields = JsonSerializer.SerializeToElement(previous.AvailableFields);
+                var sameFields = JsonElement.DeepEquals(previousFields, JsonSerializer.SerializeToElement(preview?.AvailableFields));
+                foreach (var row in Differences)
+                {
+                    if (!previousRows.TryGetValue(row.Key, out var prior) ||
+                        !JsonElement.DeepEquals(JsonSerializer.SerializeToElement(prior), JsonSerializer.SerializeToElement(row)) ||
+                        !sameFields && choices.GetValueOrDefault(row.Key)?.Direction == AutomationInputDirection.Import)
+                        choices.Remove(row.Key);
+                }
+                if (result?.Synced == true && Differences.Any()) result = null;
+            }
+            needsRecheck = false;
+            if (preview?.ReviewVersion is null && CanApply)
+                notice = "An enabled binding and a connected NetRatel job are required to apply changes.";
+            // Keep a choice only while the input is part of the current review.
+            foreach (var key in choices.Keys.Except(Differences.Select(row => row.Key), StringComparer.OrdinalIgnoreCase).ToList())
+                choices.Remove(key);
+        }
+        catch (Exception)
+        {
+            needsRecheck = true;
+            notice = "The saved input definitions could not be checked. Verify the connection, then recheck.";
+        }
+        finally { loading = false; }
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (!CanApplyChanges) return;
+        applying = true;
+        notice = null;
+        try
+        {
+            var decisions = Differences.Select(row =>
+            {
+                var choice = ChoiceFor(row);
+                var import = choice.Direction == AutomationInputDirection.Import;
+                var create = import && choice.FieldKey == CreateField;
+                return new AutomationInputDecisionDto(row.Key, choice.Direction, import && !create ? choice.FieldKey : null, create);
+            }).ToList();
+            using var response = await Api.PostAsJsonAsync($"{Route}/apply-input-review", new ApplyAutomationInputReviewDto(preview!.ReviewVersion!, decisions));
+            if (!response.IsSuccessStatusCode)
+            {
+                var problem = await response.Content.ReadFromJsonAsync<ReviewError>();
+                notice = problem?.Message ?? "The review could not be applied. Recheck before retrying.";
+                needsRecheck = true;
+                return;
+            }
+            result = await response.Content.ReadFromJsonAsync<AutomationInputReviewResultDto>();
+            latestApply = result ?? latestApply;
+            needsRecheck = true;
+            if (result is null)
+                notice = "The outcome is unconfirmed. Recheck before retrying.";
+            else if (result.Synced)
+                choices.Clear();
+            else
+                notice = "Recheck to see remaining input differences before applying again.";
+        }
+        catch (Exception)
+        {
+            needsRecheck = true;
+            notice = "The outcome is unconfirmed. Recheck before retrying.";
+        }
+        finally { applying = false; }
+    }
+
+    private void Close() => Dialog.Close(latestApply is null ? DialogResult.Cancel() : DialogResult.Ok(latestApply));
+
+    private Choice ChoiceFor(AutomationBindingInputDiffDto row)
+    {
+        if (!choices.TryGetValue(row.Key, out var choice))
+        {
+            choice = new Choice { FieldKey = row.Helpdesk is { Type: not "missing-field" } field ? field.FieldKey : null };
+            choices.Add(row.Key, choice);
+        }
+        return choice;
+    }
+
+    private static bool CanPush(AutomationBindingInputDiffDto row) =>
+        row.Helpdesk is { Type: not "missing-field" } field && (row.Orchestration is null || CompatibleTypes(field, row.Orchestration));
+
+    private static bool CompatibleTypes(AutomationBindingInputSnapshotDto field, AutomationBindingInputSnapshotDto input)
+        => input.Type == "select"
+            ? !field.MultiSelect && !field.UsesDataset && field.PresentationType == "predefined"
+            : field.Type == input.Type || field.Type == "textarea" && input.Type == "text";
+
+    private bool CanCreate(AutomationBindingInputDiffDto row) =>
+        row.Orchestration is { Type: "text" or "textarea" or "number" or "boolean" or "select" } remote &&
+        row.Helpdesk is null or { Type: "missing-field" } &&
+        preview?.AvailableFields.All(field => !string.Equals(field.Key, row.Key, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(field.Label, remote.Label, StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static string ChangeLabel(string change) => change switch
+    {
+        "AddedInOrchestration" => "NetRatel only",
+        "MissingInOrchestration" => "Helpdesk only",
+        _ => "Different"
+    };
+
+    private static string Describe(AutomationBindingInputSnapshotDto? input)
+    {
+        if (input is null) return "No input";
+        var presentation = input.PresentationType is null ? "" : $" · {input.PresentationType}";
+        var dataset = input.UsesDataset ? " · dataset" : "";
+        var key = input.FieldKey is null ? "" : $" ({input.FieldKey})";
+        var transport = input.MultiSelect ? "Text containing a JSON array" : input.Type;
+        var choices = input.Choices.Count == 0 ? "" : $" · Choices {string.Join(", ", input.Choices)}";
+        return $"{input.Label}{key}{presentation}{dataset} · {transport} · {(input.Required ? "Required" : "Optional")}{choices}";
+    }
+
+    private static string DescribeChange(AutomationBindingInputDiffDto row, Choice choice, AutomationBindingInputSnapshotDto? target)
+    {
+        var required = (choice.Direction == AutomationInputDirection.Push ? row.Helpdesk?.Required : row.Orchestration?.Required) == true
+            ? "required" : "optional";
+        var pushingChoices = row.Orchestration?.Type == "select" && row.Helpdesk is { Choices.Count: > 0 } local
+            ? $" Set choices to {string.Join(", ", local.Choices)}." : "";
+        var importingChoices = row.Orchestration is { Type: "select", Choices.Count: > 0 } remote
+            ? $" Set predefined choices to {string.Join(", ", remote.Choices)}." : "";
+        return choice.Direction switch
+        {
+            AutomationInputDirection.Push when row.Orchestration is null
+                => $"Create NetRatel input {row.Key} as {row.Helpdesk!.Type}, {required}, labeled “{row.Helpdesk.Label}”.",
+            AutomationInputDirection.Push
+                => $"Set NetRatel label to “{row.Helpdesk!.Label}” and make the input {required}. Keep its type and default.{pushingChoices}",
+            AutomationInputDirection.Import when choice.FieldKey == CreateField
+                => $"Create and map Helpdesk field {row.Key} as {(row.Orchestration!.Type == "select" ? "predefined" : row.Orchestration.Type)}, {required}, labeled “{row.Orchestration.Label}”.{importingChoices}",
+            AutomationInputDirection.Import when target is not null
+                => $"Map to {target.Key}, set its Helpdesk label to “{row.Orchestration!.Label}” and make it {required}. Keep its field type and dataset.{importingChoices}",
+            AutomationInputDirection.Import => "Choose a compatible field or create a field where available.",
+            _ when !CanPush(row) && row.Helpdesk is { Type: not "missing-field" }
+                => "The types are incompatible. Map a compatible field or correct the parameter type.",
+            _ => "Leave both sides as they are."
+        };
+    }
+
+    private sealed class Choice
+    {
+        public AutomationInputDirection Direction { get; set; }
+        public string? FieldKey { get; set; }
+    }
+
+    private sealed record ReviewError(string? Message);
+}

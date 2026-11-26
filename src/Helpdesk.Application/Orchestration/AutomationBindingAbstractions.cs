@@ -25,6 +25,8 @@ public interface IAutomationBindingDriftService
     Task<IReadOnlyList<AutomationBindingDto>> RefreshAsync(string? requestFormId = null, CancellationToken cancellationToken = default);
     Task<AutomationBindingDto> MarkImportPendingAsync(string bindingId, CancellationToken cancellationToken = default);
     Task<AutomationBindingDriftPreviewDto> PreviewAsync(string bindingId, CancellationToken cancellationToken = default);
+    Task<AutomationInputReviewResultDto> ApplyReviewAsync(string bindingId, ApplyAutomationInputReviewDto request,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IAutomationBindingImportService

@@ -232,12 +232,21 @@ public sealed class OrchestrationCatalogService(
         CancellationToken cancellationToken = default)
         => SyncRequestDefinitionInputsAsync(requestDefinitionId, inputs, null, null, cancellationToken);
 
-    public async Task<OrchestrationCatalogRequestDefinitionDto> SyncRequestDefinitionInputsAsync(
-        string requestDefinitionId,
-        IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs,
-        string? organizationId,
-        Guid? connectionId,
+    public Task<OrchestrationCatalogRequestDefinitionDto> SyncRequestDefinitionInputsAsync(
+        string requestDefinitionId, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs,
+        string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
+        => WriteInputsAsync(requestDefinitionId, inputs, organizationId, connectionId, null, cancellationToken);
+
+    public Task<OrchestrationCatalogRequestDefinitionDto> ApplyReviewedInputsAsync(
+        string requestDefinitionId, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> expectedInputs,
+        IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs, string organizationId, Guid connectionId,
         CancellationToken cancellationToken = default)
+        => WriteInputsAsync(requestDefinitionId, inputs, organizationId, connectionId, expectedInputs, cancellationToken);
+
+    private async Task<OrchestrationCatalogRequestDefinitionDto> WriteInputsAsync(
+        string requestDefinitionId, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs,
+        string? organizationId, Guid? connectionId, IReadOnlyList<OrchestrationCatalogInputDefinitionDto>? expectedInputs,
+        CancellationToken cancellationToken)
     {
         var settings = await ResolveSettingsAsync(organizationId, connectionId, cancellationToken);
         if (!settings.Enabled)
@@ -255,13 +264,14 @@ public sealed class OrchestrationCatalogService(
         if (!definitions.Any(x => string.Equals(x.RequestDefinitionId, normalizedRequestDefinitionId, StringComparison.Ordinal)))
             throw new InvalidOperationException("The request definition is unavailable in the selected automation connection tenant.");
 
-        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath, $"request-definitions/{Uri.EscapeDataString(normalizedRequestDefinitionId)}/inputs/sync"), cancellationToken);
+        var operation = expectedInputs is null ? "sync" : "review-sync";
+        var endpoint = await BuildAbsoluteUriAsync(settings, BuildCatalogPath(settings.CatalogPath,
+            $"request-definitions/{Uri.EscapeDataString(normalizedRequestDefinitionId)}/inputs/{operation}"), cancellationToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = JsonContent.Create(new
-            {
-                Inputs = inputs
-            }, options: WireJsonOptions)
+            Content = expectedInputs is null
+                ? JsonContent.Create(new { Inputs = inputs }, options: WireJsonOptions)
+                : JsonContent.Create(new { Inputs = inputs, ExpectedInputs = expectedInputs }, options: WireJsonOptions)
         };
 
         await AttachAuthHeaderAsync(settings, request, cancellationToken);

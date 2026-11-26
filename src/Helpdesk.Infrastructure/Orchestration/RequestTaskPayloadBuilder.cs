@@ -56,7 +56,8 @@ public sealed class RequestTaskPayloadBuilder(
         var orchestratorTarget = ResolveAutomationTarget(binding);
         if (string.IsNullOrWhiteSpace(orchestratorTarget))
         {
-            return RequestTaskPayloadBuildResult.Failed("Automation task is missing an enabled External orchestration binding target.");
+            return RequestTaskPayloadBuildResult.Failed(binding is { Enabled: false }
+                ? AutomationTaskStatuses.DisabledBinding : AutomationTaskStatuses.MissingBinding);
         }
 
         var payloadJson = task.AutomationDispatchPayloadJson;

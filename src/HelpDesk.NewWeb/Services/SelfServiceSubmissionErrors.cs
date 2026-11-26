@@ -40,7 +40,7 @@ public static class SelfServiceSubmissionErrors
                         "request_organization_required" or "request_organization_denied" => "Your account needs an eligible organization with self-service access. Ask an administrator to review its membership.",
                         "request_form_denied" => "This form is not available to your account. Choose an eligible form or ask an administrator to review its audience.",
                         "request_organization_mismatch" => "This form's automation uses a different organization. Choose a form available in the displayed requester organization, or ask an administrator to review the saved connection mapping.",
-                        "invalid_form_selections" when response.StatusCode == HttpStatusCode.BadRequest
+                        "invalid_form_selections" or "automation_not_ready" when response.StatusCode == HttpStatusCode.BadRequest
                             && root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String
                             && detail.GetString() is { Length: > 0 and <= 1024 } validation => validation,
                         "submission_already_created" => "This submission already created a request. Open My Requests to view its progress before starting another request.",

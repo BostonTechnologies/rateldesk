@@ -279,6 +279,13 @@ public interface IOrchestrationCatalogService
     Task<OrchestrationCatalogRequestDefinitionDto> SyncRequestDefinitionInputsAsync(string requestDefinitionId, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs, string? organizationId, Guid? connectionId, CancellationToken cancellationToken = default)
         => organizationId is null && connectionId is null ? SyncRequestDefinitionInputsAsync(requestDefinitionId, inputs, cancellationToken)
             : throw new NotSupportedException("Explicit orchestration connection selection is not supported by this provider.");
+
+    Task<OrchestrationCatalogRequestDefinitionDto> ApplyReviewedInputsAsync(string requestDefinitionId,
+        IReadOnlyList<OrchestrationCatalogInputDefinitionDto> expectedInputs,
+        IReadOnlyList<OrchestrationCatalogInputDefinitionDto> inputs, string organizationId, Guid connectionId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This provider does not support reviewed input changes.");
+
 }
 
 public interface IRequestTaskPayloadBuilder

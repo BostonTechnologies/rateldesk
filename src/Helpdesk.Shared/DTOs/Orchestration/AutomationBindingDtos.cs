@@ -30,6 +30,7 @@ public sealed class AutomationBindingDto
 
 public sealed class CreateAutomationBindingDto
 {
+    public bool? Enabled { get; set; }
     public Guid? SystemConnectionId { get; set; }
     [Required]
     public string RequestFormId { get; set; } = string.Empty;
@@ -77,6 +78,11 @@ public sealed class AutomationBindingDriftPreviewDto
     public string RequestFormId { get; set; } = string.Empty;
     public Guid TaskTemplateId { get; set; }
     public string TaskTemplateName { get; set; } = string.Empty;
+    public string? ReviewVersion { get; set; }
+    public string? OrganizationId { get; set; }
+    public Guid? ConnectionId { get; set; }
+    public string? JobName { get; set; }
+    public IReadOnlyList<AutomationBindingInputSnapshotDto> AvailableFields { get; set; } = [];
     public AutomationBindingSyncState SyncState { get; set; } = AutomationBindingSyncState.InSync;
     public IReadOnlyList<AutomationBindingInputSnapshotDto> HelpdeskInputs { get; set; } = [];
     public IReadOnlyList<AutomationBindingInputSnapshotDto> OrchestrationInputs { get; set; } = [];
@@ -91,6 +97,9 @@ public sealed class AutomationBindingInputSnapshotDto
     public string Type { get; set; } = "text";
     public bool Required { get; set; }
     public bool MultiSelect { get; set; }
+    public string? PresentationType { get; set; }
+    public IReadOnlyList<string> Choices { get; set; } = [];
+    public bool UsesDataset { get; set; }
 }
 
 public sealed class AutomationBindingInputDiffDto
@@ -100,3 +109,20 @@ public sealed class AutomationBindingInputDiffDto
     public AutomationBindingInputSnapshotDto? Helpdesk { get; set; }
     public AutomationBindingInputSnapshotDto? Orchestration { get; set; }
 }
+
+
+public sealed record ApplyAutomationInputReviewDto(string ReviewVersion, IReadOnlyList<AutomationInputDecisionDto> Decisions);
+
+public enum AutomationInputDirection
+{
+    LeaveUnresolved,
+    Push,
+    Import
+}
+
+public sealed record AutomationInputDecisionDto(string Key, AutomationInputDirection Direction, string? FieldKey, bool CreateField);
+
+public sealed record AutomationInputOutcomeDto(string Key, string Message);
+
+public sealed record AutomationInputReviewResultDto(string Reference, bool Synced, bool HelpdeskChanged,
+    IReadOnlyList<AutomationInputOutcomeDto> Outcomes);

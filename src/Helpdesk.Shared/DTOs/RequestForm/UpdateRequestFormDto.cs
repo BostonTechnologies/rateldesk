@@ -12,6 +12,7 @@ public class UpdateRequestFormDto
     public string? Title { get; set; }
     public string? Description { get; set; }
     public string? JsonSchema { get; set; }
+    public string? ExpectedSchemaHash { get; set; }
 
     /// <summary>
     /// Optional move. If ServiceIdHasValue is true, ServiceId will be applied.

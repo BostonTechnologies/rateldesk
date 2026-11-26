@@ -883,18 +883,10 @@ public static class RequestTaskEndpoints
     }
 
     private static string? BuildAutomationBlockReason(bool enabled, AutomationBindingSyncState syncState)
-    {
-        if (!enabled || syncState != AutomationBindingSyncState.Broken)
-        {
-            return null;
-        }
-
-        return syncState switch
-        {
-            AutomationBindingSyncState.Broken => "Bound External orchestration target is broken or unavailable and cannot execute.",
-            _ => null
-        };
-    }
+        => !enabled ? "The NetRatel binding is disabled. Review the task’s binding in the request form editor."
+            : syncState == AutomationBindingSyncState.Broken
+                ? "The saved NetRatel job is unavailable. Review the connection and job in the request form editor."
+                : null;
 
     private static RequestTaskTransitionDto ToTransitionDto(RequestTask task, string correlationId) => new()
     {

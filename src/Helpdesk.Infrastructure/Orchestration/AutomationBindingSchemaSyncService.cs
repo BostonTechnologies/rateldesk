@@ -213,7 +213,7 @@ public sealed class AutomationBindingSchemaSyncService(
         return inputs;
     }
 
-    private static string NormalizeFieldType(string? value)
+    internal static string NormalizeFieldType(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

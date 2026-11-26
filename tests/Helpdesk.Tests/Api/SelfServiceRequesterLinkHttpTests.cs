@@ -216,6 +216,57 @@ public sealed class SelfServiceRequesterLinkHttpTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Oidc_instance_admin_replays_one_on_behalf_submission_with_or_without_a_home_link(bool linked)
+    {
+        await using var h = await CreateAsync("authentik_user_id", administrator: true);
+        const string organization = "synthetic-gourmet";
+        const string recipient = "synthetic-recipient";
+        await h.EditAsync(db =>
+        {
+            db.Organizations.Add(new Organization { Id = organization, Name = "Synthetic Gourmet" });
+            db.Customers.Add(new Customer { Id = recipient, OrganizationId = organization, Name = "Eligible requester", Email = "recipient@example.test" });
+            db.RequestForms.Add(new RequestForm
+            {
+                Id = "gourmet-form", Title = "Synthetic customer request",
+                OrganizationId = organization, AllowedOrganizationIds = [organization]
+            });
+            if (linked)
+                db.CustomerAuthLinks.Add(new CustomerAuthLink
+                {
+                    CustomerId = h.CustomerId, OidcIssuer = Issuer, OidcSubject = Subject, InviteStatus = CustomerInviteStatus.Active
+                });
+            return Task.CompletedTask;
+        });
+
+        using var context = await SendAsync(h, HttpMethod.Get, "/api/v1/self-service/submission-context?requestFormId=gourmet-form");
+        var preview = await context.Content.ReadFromJsonAsync<SelfServiceSubmissionContextDto>();
+        Assert.False(preview!.CanSubmit);
+        Assert.Equal(linked ? "request_organization_mismatch" : "requester_unavailable", preview.ErrorCode);
+
+        var submission = new SubmitSelfServiceRequestDto
+        {
+            RequestFormId = "gourmet-form", PayloadJson = "{}", TargetOrganizationId = organization, SubmissionId = Guid.NewGuid(),
+            RequestedForPersonId = recipient, RequestedForPersonSource = SelfServiceRequestPersonSource.Customer
+        };
+        using var submitted = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", submission);
+        using var repeated = await SendAsync(h, HttpMethod.Post, "/api/v1/self-service/requests", submission);
+        Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+        var receipt = await submitted.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>();
+        Assert.Equal(receipt!.RequestId, (await repeated.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>())!.RequestId);
+        await h.EditAsync(async db =>
+        {
+            var saved = Assert.Single(await db.Requests.IgnoreQueryFilters().ToListAsync());
+            Assert.Equal(organization, saved.OrganizationId);
+            Assert.Equal(recipient, saved.CustomerId);
+            Assert.StartsWith("oidc:", saved.SelfServiceSubmitterId);
+            Assert.Equal(linked ? 1 : 0, await db.CustomerAuthLinks.CountAsync());
+        });
+    }
+
     private static SubmitSelfServiceRequestDto Submission() => new()
     {
         RequestFormId = "legacy-form", SubmissionId = Guid.NewGuid(), PayloadJson = "{}",
@@ -254,13 +305,13 @@ public sealed class SelfServiceRequesterLinkHttpTests
         return await h.Client.SendAsync(request);
     }
 
-    private static async Task<IncidentReceiverTests.Harness> CreateAsync(string legacyClaim, bool localAccount = false, string? priorCustomerId = null, bool postgres = false)
+    private static async Task<IncidentReceiverTests.Harness> CreateAsync(string legacyClaim, bool localAccount = false, string? priorCustomerId = null, bool postgres = false, bool administrator = false)
     {
         var h = await IncidentReceiverTests.Harness.CreateAsync(postgres: postgres, serviceIdentity: true,
             configureServices: services =>
             {
                 services.AddScoped<SelfServiceAudienceService>();
-                services.AddSingleton(new RequesterClaims(legacyClaim, localAccount, priorCustomerId));
+                services.AddSingleton(new RequesterClaims(legacyClaim, localAccount, priorCustomerId, administrator));
                 if (priorCustomerId is not null) services.AddScoped<ICurrentUserAccessService, PriorRequesterAccess>();
                 services.AddAuthentication(options =>
                     {
@@ -290,7 +341,7 @@ public sealed class SelfServiceRequesterLinkHttpTests
         return h;
     }
 
-    private sealed record RequesterClaims(string LegacyClaim, bool LocalAccount, string? PriorCustomerId);
+    private sealed record RequesterClaims(string LegacyClaim, bool LocalAccount, string? PriorCustomerId, bool Administrator);
 
     // Represents access resolved immediately before the identity link changed.
     // Authentication, organization permissions and link lookup still use the real resolver.
@@ -317,6 +368,7 @@ public sealed class SelfServiceRequesterLinkHttpTests
                 new(ClaimTypes.Email, "claim-only@example.invalid"),
                 new("iss", Issuer), new("sub", Subject), new(requester.LegacyClaim, ProviderUserId)
             ];
+            if (requester.Administrator) claims.Add(new Claim(ClaimTypes.Role, "HelpdeskAdmin"));
             if (requester.PriorCustomerId is not null)
                 claims.Add(new Claim("synthetic_prior_customer", requester.PriorCustomerId));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(

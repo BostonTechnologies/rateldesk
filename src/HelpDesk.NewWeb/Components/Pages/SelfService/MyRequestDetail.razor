@@ -55,7 +55,15 @@
                 <MudText Typo="Typo.body2" Class="mt-2" data-testid="own-request-workflow">Workflow: @RequestProgressLabels.Readable(request.WorkflowStatus ?? "Not started")</MudText>
                 @if (!string.IsNullOrWhiteSpace(request.WorkflowBlockReason))
                 {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">Request progress is on hold. Support is reviewing the next step.</MudAlert>
+                    var blockedTask = tasks.FirstOrDefault(task => task.Type == RequestTaskType.Automation &&
+                        task.Status == RequestTaskStatus.Failed && task.FailureReason is not null);
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-2">
+                        @(blockedTask?.FailureReason ?? "Request progress is on hold. Support is reviewing the next step.")
+                        @if (blockedTask?.AutomationAttemptCorrelationId is { } attempt)
+                        {
+                            <div>Attempt @attempt</div>
+                        }
+                    </MudAlert>
                 }
                 @if (!string.IsNullOrWhiteSpace(request.Description))
                 {

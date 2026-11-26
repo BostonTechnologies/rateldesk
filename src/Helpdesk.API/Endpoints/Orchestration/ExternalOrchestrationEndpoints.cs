@@ -394,6 +394,24 @@ public static class ExternalOrchestrationEndpoints
             }
         });
 
+        group.MapPost("/bindings/{id}/apply-input-review", async (
+            [FromRoute] string id, ApplyAutomationInputReviewDto request,
+            IAutomationBindingDriftService drift, CancellationToken ct) =>
+        {
+            try
+            {
+                return Results.Ok(await drift.ApplyReviewAsync(id, request, ct));
+            }
+            catch (IntegrationProviderConfigurationConflictException conflict)
+            {
+                return Results.Conflict(new { code = conflict.Code, message = conflict.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+
         group.MapPost("/bindings/{id}/import-inputs", async (
             [FromRoute] string id,
             IAutomationBindingImportService imports,

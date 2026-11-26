@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
+using Helpdesk.Application.Workflow;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.DTOs.RequestForm;
 using Helpdesk.Shared.Models;
@@ -11,7 +13,8 @@ namespace Helpdesk.Infrastructure.Orchestration;
 public sealed class AutomationBindingPayloadContractService(
     IRequestFormSchemaParser schemaParser,
     IAutomationBindingService automationBindings,
-    IOrchestrationCatalogService? catalog = null) : IAutomationBindingPayloadContractService
+    IOrchestrationCatalogService? catalog = null,
+    IWorkflowConditionEvaluator? conditions = null) : IAutomationBindingPayloadContractService
 {
     private readonly IRequestFormSchemaParser _schemaParser = schemaParser;
     private readonly IAutomationBindingService _automationBindings = automationBindings;
@@ -29,21 +32,24 @@ public sealed class AutomationBindingPayloadContractService(
         }
 
         var bindings = await _automationBindings.ListAsync(requestForm.Id, cancellationToken);
-        var enabledBindings = bindings
-            .Where(x => x.Enabled)
-            .ToDictionary(x => x.TaskTemplateId, x => x);
-
-        if (enabledBindings.Count == 0)
-        {
-            return AutomationPayloadValidationResult.Passed();
-        }
+        var bindingsByTask = bindings.ToDictionary(x => x.TaskTemplateId, x => x);
 
         var errors = new List<string>();
         var catalogs = new Dictionary<(string OrganizationId, Guid? ConnectionId), IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>>();
-        foreach (var taskTemplate in schema.Tasks.Where(x => x.Id != Guid.Empty))
+        foreach (var taskTemplate in schema.Tasks)
         {
-            if (!enabledBindings.TryGetValue(taskTemplate.Id, out var binding))
+            if (!string.IsNullOrWhiteSpace(taskTemplate.ConditionExpression) && conditions is not null &&
+                !conditions.Evaluate(new Request { PayloadJson = payloadJson }, new RequestTask { ConditionExpression = taskTemplate.ConditionExpression }))
+                continue;
+
+            if (!bindingsByTask.TryGetValue(taskTemplate.Id, out var binding) || !binding.Enabled)
             {
+                if (string.Equals(taskTemplate.Type, "automation", StringComparison.OrdinalIgnoreCase) &&
+                    (taskTemplate.AutoStart || taskTemplate.IsCritical))
+                {
+                    var reason = binding is null ? "has no NetRatel binding" : "has a disabled NetRatel binding";
+                    errors.Add($"Automation task '{taskTemplate.Name}' {reason}. Ask a form administrator to review its automation binding.");
+                }
                 continue;
             }
 
@@ -72,7 +78,7 @@ public sealed class AutomationBindingPayloadContractService(
                 continue;
             }
 
-            if (buildResult.MultiSelectInputs.Count == 0)
+            if (buildResult.MultiSelectInputs.Count == 0 && (catalog is null || binding.SystemConnectionId is null))
             {
                 continue;
             }
@@ -85,14 +91,21 @@ public sealed class AutomationBindingPayloadContractService(
                     catalogs[selection] = await catalog.ListRequestDefinitionsAsync(selection.OrganizationId, selection.SystemConnectionId, cancellationToken);
                 }
 
-                var targetInputs = ResolveTargetInputs(catalogs.GetValueOrDefault(selection), binding);
-                var error = AutomationMultiSelectMapping.Validate(buildResult.MultiSelectInputs, targetInputs, buildResult.InputNode);
+                var target = ResolveTarget(catalogs.GetValueOrDefault(selection), binding);
+                if (catalog is not null && target is null)
+                {
+                    errors.Add($"Task '{taskTemplate.Name}': The saved NetRatel job is unavailable. Ask a form administrator to review the connection and job.");
+                    continue;
+                }
+                var targetInputs = target?.Inputs ?? [];
+                var error = AutomationMultiSelectMapping.Validate(buildResult.MultiSelectInputs, targetInputs, buildResult.InputNode)
+                    ?? FindMissingRequiredInput(target, buildResult.InputNode);
                 if (error is not null)
                 {
                     errors.Add($"Task '{taskTemplate.Name}': {error}");
                 }
             }
-            catch (OrchestrationProviderException)
+            catch (Exception exception) when (exception is OrchestrationProviderException or PairingFailure)
             {
                 errors.Add($"Task '{taskTemplate.Name}': NetRatel inputs could not be verified. Retry or ask an administrator to check the connection.");
             }
@@ -214,9 +227,23 @@ public sealed class AutomationBindingPayloadContractService(
 
     internal static IReadOnlyList<OrchestrationCatalogInputDefinitionDto> ResolveTargetInputs(
         IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>? definitions, AutomationBindingDto binding) =>
+        ResolveTarget(definitions, binding)?.Inputs ?? [];
+
+    private static OrchestrationCatalogRequestDefinitionDto? ResolveTarget(
+        IReadOnlyList<OrchestrationCatalogRequestDefinitionDto>? definitions, AutomationBindingDto binding) =>
         definitions?.FirstOrDefault(candidate => candidate.RequestDefinitionId == binding.OrchestrationRequestDefinitionId &&
             (string.IsNullOrWhiteSpace(binding.OrchestrationJobDefinitionId)
-             || candidate.OrchestrationJobDefinitionId == binding.OrchestrationJobDefinitionId))?.Inputs ?? [];
+             || candidate.OrchestrationJobDefinitionId == binding.OrchestrationJobDefinitionId));
+
+    private static string? FindMissingRequiredInput(OrchestrationCatalogRequestDefinitionDto? target, JsonObject payload)
+    {
+        if (target is null) return null;
+        var supplied = payload.Select(input => input.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = target.Inputs.FirstOrDefault(input => input.Required && string.IsNullOrWhiteSpace(input.DefaultValue) &&
+            !string.Equals(input.Type, "secret", StringComparison.OrdinalIgnoreCase) && !supplied.Contains(input.Key));
+        return missing is null ? null
+            : $"Required NetRatel input '{missing.Key}' has no value. Complete the mapped field or ask a form administrator to review its mapping.";
+    }
 
     private static (bool Success, JsonObject? PayloadRoot, string? Error) ParsePayload(string payloadJson)
     {

@@ -1,3 +1,4 @@
+using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.Persistence;
@@ -9,11 +10,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.Orchestration;
 
-public sealed class AutomationBindingDriftService(
+public sealed partial class AutomationBindingDriftService(
     HelpdeskDbContext db,
     ITenantContext tenantContext,
     IOrchestrationCatalogService orchestrationCatalogService,
-    IRequestFormSchemaParser schemaParser) : IAutomationBindingDriftService
+    IRequestFormSchemaParser schemaParser, ICorrelationContext? correlation = null) : IAutomationBindingDriftService
 {
     private readonly HelpdeskDbContext _db = db;
     private readonly ITenantContext _tenantContext = tenantContext;
@@ -133,12 +134,12 @@ public sealed class AutomationBindingDriftService(
             .FirstOrDefaultAsync(x => x.Id == binding.RequestFormId, cancellationToken)
             ?? throw new InvalidOperationException("Request form was not found for the automation binding.");
 
-        var remoteDefinitions = await _stoCatalogService.ListRequestDefinitionsAsync(binding.OrganizationId, binding.SystemConnectionId, cancellationToken);
-        var remote = remoteDefinitions.FirstOrDefault(x =>
-            string.Equals(x.RequestDefinitionId, binding.OrchestrationRequestDefinitionId, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException("The bound External orchestration request definition was not found.");
-
-        return BuildPreview(binding, requestForm, remote);
+        var revision = await ConnectionRevisionAsync(binding, cancellationToken);
+        var remote = await ReadReviewTargetAsync(binding, cancellationToken);
+        var preview = BuildPreview(binding, requestForm, remote);
+        if (binding.Enabled && revision is not null && revision == await ConnectionRevisionAsync(binding, cancellationToken))
+            preview.ReviewVersion = ReviewVersion(binding, requestForm, remote, revision.Value);
+        return preview;
     }
 
     private IQueryable<AutomationBinding> QueryForTenant()
@@ -208,27 +209,28 @@ public sealed class AutomationBindingDriftService(
         IReadOnlyList<FormField> fields,
         RequestTaskTemplateModel taskTemplate)
     {
-        var fieldLookup = fields
-            .Select((field, index) => new { Field = field, Key = FormFieldKeyResolver.Resolve(field, index) })
-            .ToDictionary(x => x.Key, x => x.Field, StringComparer.OrdinalIgnoreCase);
-
-        return (taskTemplate.PayloadMapping ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
-            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(mapping =>
-            {
-                fieldLookup.TryGetValue(mapping.Value, out var field);
-                return new AutomationBindingInputSnapshotDto
+        var fieldLookup = fields.Select((field, index) => (Field: field, Key: FormFieldKeyResolver.Resolve(field, index)))
+            .ToDictionary(pair => pair.Key, StringComparer.OrdinalIgnoreCase);
+        return (taskTemplate.PayloadMapping ?? []).Select(mapping =>
+        {
+            var key = mapping.Key.Trim();
+            var fieldKey = mapping.Value.Trim();
+            return fieldLookup.TryGetValue(fieldKey, out var field)
+                ? FieldSnapshot(field.Field, field.Key, key)
+                : new AutomationBindingInputSnapshotDto
                 {
-                    Key = mapping.Key,
-                    FieldKey = mapping.Value,
-                    Label = field?.Label ?? $"Missing field: {mapping.Value}",
-                    Type = field?.MultiSelect == true ? "text" : NormalizeInputType(field?.Type ?? "missing-field"),
-                    MultiSelect = field?.MultiSelect ?? false,
-                    Required = field?.Required ?? false
+                    Key = key, FieldKey = fieldKey, Label = $"Missing field: {fieldKey}", Type = "missing-field"
                 };
-            })
-            .ToList();
+        }).ToList();
     }
+
+    private static AutomationBindingInputSnapshotDto FieldSnapshot(FormField field, string key, string? inputKey = null) => new()
+    {
+        Key = inputKey ?? key, FieldKey = key, Label = string.IsNullOrWhiteSpace(field.Label) ? inputKey ?? key : field.Label.Trim(),
+        Type = field.MultiSelect ? "text" : AutomationBindingSchemaSyncService.NormalizeFieldType(field.Type),
+        PresentationType = field.Type, Required = field.Required, MultiSelect = field.MultiSelect,
+        Choices = field.PredefinedOptions, UsesDataset = field.DataBinding is not null
+    };
 
     private static List<AutomationBindingInputDiffDto> BuildDiffs(
         IReadOnlyList<AutomationBindingInputSnapshotDto> helpdeskInputs,
@@ -268,8 +270,10 @@ public sealed class AutomationBindingDriftService(
 
     private static bool SnapshotsEqual(AutomationBindingInputSnapshotDto helpdesk, AutomationBindingInputSnapshotDto orchestration)
     {
-        return string.Equals(helpdesk.Type, orchestration.Type, StringComparison.OrdinalIgnoreCase)
-               && helpdesk.Required == orchestration.Required;
+        return CompatibleTypes(helpdesk, orchestration)
+               && helpdesk.Required == orchestration.Required
+               && string.Equals(helpdesk.Label, orchestration.Label, StringComparison.Ordinal)
+               && (orchestration.Type != "select" || helpdesk.Choices.SequenceEqual(orchestration.Choices));
     }
 
     private AutomationBindingDriftPreviewDto BuildPreview(
@@ -287,10 +291,11 @@ public sealed class AutomationBindingDriftService(
             .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
             .Select(x => new AutomationBindingInputSnapshotDto
             {
-                Key = x.Key,
+                Key = x.Key.Trim(),
                 FieldKey = null,
                 Label = string.IsNullOrWhiteSpace(x.Label) ? x.Key : x.Label.Trim(),
                 Type = NormalizeInputType(x.Type),
+                Choices = NormalizeInputType(x.Type) == "select" ? ReadChoiceValues(x.OptionsJson) : [],
                 Required = x.Required
             })
             .ToList();
@@ -301,6 +306,10 @@ public sealed class AutomationBindingDriftService(
             RequestFormId = binding.RequestFormId,
             TaskTemplateId = binding.TaskTemplateId,
             TaskTemplateName = taskTemplate.Name,
+            OrganizationId = binding.OrganizationId,
+            ConnectionId = binding.SystemConnectionId,
+            JobName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, remote.RequestDefinitionName),
+            AvailableFields = schema.Fields.Select((field, index) => FieldSnapshot(field, FormFieldKeyResolver.Resolve(field, index))).ToList(),
             SyncState = binding.SyncState,
             HelpdeskInputs = helpdeskInputs,
             OrchestrationInputs = orchestrationInputs,
@@ -318,6 +327,7 @@ public sealed class AutomationBindingDriftService(
         return value.Trim().ToLowerInvariant() switch
         {
             "helpdeskdata" or "string" => "text",
+            "bool" => "boolean",
             var type => type
         };
     }
