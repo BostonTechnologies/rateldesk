@@ -207,7 +207,9 @@ public static class RequestEndpoints
                     AutomationBindingEnabled = bindingState?.Enabled,
                     AutomationBindingSyncState = bindingState?.SyncState,
                     AutomationReadyToStart = bindingState?.ReadyToStart ?? true,
-                    AutomationBlockReason = bindingState?.BlockReason
+                    AutomationBlockReason = bindingState?.BlockReason,
+                    AutomationSubmissionIssue = AutomationTaskStatuses.SafeSubmissionFailure(t.LastAutomationStatus,
+                        t.FailureReason, authorization.Access?.IsHelpdeskAdmin == true)
                 };
             }).ToList());
         });
@@ -1351,18 +1353,10 @@ public static class RequestEndpoints
     }
 
     private static string? BuildAutomationBlockReason(bool enabled, AutomationBindingSyncState syncState)
-    {
-        if (!enabled || syncState != AutomationBindingSyncState.Broken)
-        {
-            return null;
-        }
-
-        return syncState switch
-        {
-            AutomationBindingSyncState.Broken => "Bound External orchestration target is broken or unavailable and cannot execute.",
-            _ => null
-        };
-    }
+        => !enabled ? "The NetRatel binding is disabled. Review the task’s binding in the request form editor."
+            : syncState == AutomationBindingSyncState.Broken
+                ? "The saved NetRatel job is unavailable. Review the connection and job in the request form editor."
+                : null;
 
     private static async Task StreamTimeline(
         [FromRoute] string id,

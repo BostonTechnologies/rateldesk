@@ -437,7 +437,7 @@
             return "Import Pending";
         }
 
-        return "In Sync";
+        return bindings.Any(binding => !binding.Enabled) ? "Binding disabled" : "In Sync";
     }
 
     public sealed class BreadcrumbDto { public string Id { get; set; } = default!; public string Name { get; set; } = default!; }

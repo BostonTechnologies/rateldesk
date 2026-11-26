@@ -70,6 +70,8 @@ public sealed class AutomationOriginSnapshotBuilder(HelpdeskDbContext db, RatelD
             var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == key.Substring(9), ct);
             return customer is null ? new(key, null) : new(key, Bound(customer.Name, 256));
         }
+        if (key?.StartsWith("oidc:", StringComparison.Ordinal) == true)
+            return new(key, null);
         return null; // Missing legacy identity is never guessed from requester email or mapped integration customer.
     }
 

@@ -48,6 +48,7 @@ public sealed class MyRequestTaskDto
     public int RetryCount { get; set; }
     public string? FailureReason { get; set; }
     public string? LastAutomationStatus { get; set; }
+    public string? AutomationAttemptCorrelationId { get; set; }
     public List<MyRequestPendingApprovalDto> PendingApprovals { get; set; } = new();
 }
 

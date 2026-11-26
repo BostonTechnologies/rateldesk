@@ -295,7 +295,7 @@ public static class ServiceEndpoints
                 ServiceId = created.ServiceId,
                 Title = created.Title,
                 Description = created.Description,
-                JsonSchema = created.JsonSchema.RootElement.GetRawText(),
+                JsonSchema = (await db.RequestForms.AsNoTracking().SingleAsync(form => form.Id == created.Id, token)).JsonSchema.RootElement.GetRawText(),
                 OrganizationId = created.OrganizationId,
                 AllowedOrganizationIds = created.AllowedOrganizationIds,
                 ReleaseStatus = created.ReleaseStatus
@@ -315,8 +315,20 @@ public static class ServiceEndpoints
                                         [FromServices] ICorrelationContext correlationContext,
                                         HelpdeskDbContext db, CancellationToken token) =>
         {
+            await using var transaction = dto.ExpectedSchemaHash is null ? null : await db.Database.BeginTransactionAsync(token);
+            if (transaction is not null)
+            {
+                var found = await db.RequestForms.Where(form => form.Id == id)
+                    .ExecuteUpdateAsync(update => update.SetProperty(form => form.Title, form => form.Title), token);
+                if (found != 1) return Results.NotFound();
+            }
+
             var f = await repo.GetByIdAsync(id);
             if (f is null) return Results.NotFound();
+            if (dto.ExpectedSchemaHash is { } expected && !string.Equals(expected,
+                Convert.ToHexString(global::System.Security.Cryptography.SHA256.HashData(
+                    global::System.Text.Encoding.UTF8.GetBytes(f.JsonSchema.RootElement.GetRawText()))), StringComparison.Ordinal))
+                return Results.Conflict("The saved form changed. Copy any unsaved edits and reopen the form before saving.");
 
             var organizationId = dto.OrganizationId is null
                 ? f.OrganizationId : ResolveRequestFormOrganizationId(dto.OrganizationId, null, null);
@@ -352,6 +364,9 @@ public static class ServiceEndpoints
             if (dto.ReleaseStatus.HasValue) f.ReleaseStatus = dto.ReleaseStatus.Value;
 
             await db.SaveChangesAsync(token);
+            var savedSchema = (await db.RequestForms.AsNoTracking().SingleAsync(form => form.Id == f.Id, token))
+                .JsonSchema.RootElement.GetRawText();
+            if (transaction is not null) await transaction.CommitAsync(token);
             await domainEvents.PublishAsync(
                 new RequestFormUpdatedDomainEvent(
                     f.Id,
@@ -369,7 +384,7 @@ public static class ServiceEndpoints
                 ServiceId = f.ServiceId,
                 Title = f.Title,
                 Description = f.Description ?? string.Empty,
-                JsonSchema = f.JsonSchema.RootElement.GetRawText(),
+                JsonSchema = savedSchema,
                 OrganizationId = f.OrganizationId,
                 AllowedOrganizationIds = f.AllowedOrganizationIds,
                 ReleaseStatus = f.ReleaseStatus

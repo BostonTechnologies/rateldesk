@@ -11,8 +11,9 @@ for (const mode of reviewModes) test(`request editor table contexts ${modeName(m
     await capture('form-fields', 'pages-admin-requests-requestformbuilder-1');
     await page.getByRole('tab', { name: /^Workflow/ }).click();
     await page.locator('[data-task-id]').first().click();
-    await page.getByRole('button', { name: 'Drift', exact: true }).click();
-    await capture('automation-input-drift-and-mappings', 'pages-admin-requests-requestformbuilder-2', 'pages-admin-requests-requestformbuilder-3');
+    await page.getByRole('button', { name: 'Review input differences', exact: true }).click();
+    await capture('automation-input-review', 'pages-admin-requests-requestformbuilder-3');
+    await page.getByRole('dialog', { name: 'Review input differences' }).getByRole('button', { name: 'Close' }).click();
     const taskList = page.locator('[data-task-id]');
     if (await taskList.count() === 0 || !await taskList.last().isVisible()) await page.getByRole('button', { name: /Back to tasks|Show tasks|Task list/i }).click();
     await taskList.last().click();

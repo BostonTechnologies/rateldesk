@@ -41,4 +41,5 @@ public sealed class RequestTaskDto
     public AutomationBindingSyncState? AutomationBindingSyncState { get; set; }
     public bool AutomationReadyToStart { get; set; } = true;
     public string? AutomationBlockReason { get; set; }
+    public string? AutomationSubmissionIssue { get; set; }
 }

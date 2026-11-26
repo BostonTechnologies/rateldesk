@@ -250,3 +250,17 @@ test('changing the organization clears dataset choices and fences a slow respons
   await expect(groups.getByText('Slow result')).toHaveCount(0);
   await expect(groups.getByText('Fleet.Web.Reporting')).toHaveCount(0);
 });
+
+test('disabled binding gives the on-behalf requester an actionable blocker and retains the form', async ({ page, request }, info) => {
+  await request.get(`${fixture}/fault?mode=automation-disabled`);
+  await form(page, 'Example Organization');
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('dialog').getByRole('row', { name: /Synthetic Recipient/ }).getByRole('button').click();
+  await page.getByRole('button', { name: 'Submit', exact: true }).click();
+  await page.getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect(page.locator('.self-service-form-page .mud-alert')).toContainText('disabled NetRatel binding');
+  await expect(page.locator('.self-service-form-page .mud-alert')).toContainText('synthetic-automation-reference');
+  await expect(page.getByRole('textbox', { name: 'Request reason' })).toHaveValue('Harmless rendered submission test');
+  expect((await (await request.get(`${fixture}/state`)).json()).receiptCount).toBe(0);
+  await page.screenshot({ path: info.outputPath('disabled-binding.png'), animations: 'disabled' });
+});

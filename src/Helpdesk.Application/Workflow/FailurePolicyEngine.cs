@@ -118,6 +118,7 @@ public sealed class FailurePolicyEngine(
             };
         }
 
+        var submissionFailure = AutomationTaskStatuses.SafeSubmissionFailure(task.LastAutomationStatus, task.FailureReason);
         var requestStateChanged = false;
         switch (policy)
         {
@@ -125,7 +126,7 @@ public sealed class FailurePolicyEngine(
                 requestStateChanged = await MarkRequestStateAsync(
                     request,
                     workflowStatus: "Failed",
-                    blockReason: $"Critical task '{task.Name}' failed.",
+                    blockReason: submissionFailure ?? $"Critical task '{task.Name}' failed.",
                     ct);
 
                 await _domainEvents.PublishAsync(
@@ -147,7 +148,7 @@ public sealed class FailurePolicyEngine(
                     request,
                     task,
                     "Failed",
-                    $"Critical task '{task.Name}' failed.",
+                    submissionFailure ?? $"Critical task '{task.Name}' failed.",
                     now,
                     ct);
                 break;
@@ -156,7 +157,7 @@ public sealed class FailurePolicyEngine(
                 requestStateChanged = await MarkRequestStateAsync(
                     request,
                     workflowStatus: "Blocked",
-                    blockReason: $"Task '{task.Name}' failed.",
+                    blockReason: submissionFailure ?? $"Task '{task.Name}' failed.",
                     ct);
 
                 await _domainEvents.PublishAsync(
@@ -178,7 +179,7 @@ public sealed class FailurePolicyEngine(
                     request,
                     task,
                     "Blocked",
-                    $"Task '{task.Name}' failed.",
+                    submissionFailure ?? $"Task '{task.Name}' failed.",
                     now,
                     ct);
                 break;

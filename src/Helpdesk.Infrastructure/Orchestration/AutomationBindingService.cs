@@ -137,7 +137,7 @@ public sealed class AutomationBindingService(
         {
             var target = await RequireAvailableTargetAsync(tenantId, selectedConnectionId, orchestrationRequestDefinitionId,
                 Normalize(dto.OrchestrationJobDefinitionId), cancellationToken);
-            ValidateMultiSelectTarget(requestForm, taskTemplate, target);
+            if (dto.Enabled != false) ValidateMultiSelectTarget(requestForm, taskTemplate, target);
         }
 
         var binding = new AutomationBinding
@@ -150,8 +150,8 @@ public sealed class AutomationBindingService(
             OrchestrationRequestDefinitionName = Normalize(dto.OrchestrationRequestDefinitionName),
             OrchestrationJobDefinitionId = Normalize(dto.OrchestrationJobDefinitionId),
             OrchestrationJobDefinitionName = Normalize(dto.OrchestrationJobDefinitionName),
-            SyncState = AutomationBindingSyncState.InSync,
-            LastSyncDirection = "HelpdeskToOrchestration",
+            Enabled = dto.Enabled ?? true,
+            SyncState = AutomationBindingSyncState.Drifted,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             UpdatedAtUtc = DateTimeOffset.UtcNow
         };
@@ -196,6 +196,13 @@ public sealed class AutomationBindingService(
             {
                 ValidateMultiSelectTarget(requestForm!, task, target);
             }
+        }
+
+        if (connectionId != binding.SystemConnectionId ||
+            requestDefinitionId != binding.OrchestrationRequestDefinitionId ||
+            jobDefinitionId != binding.OrchestrationJobDefinitionId || dto.Enabled == true && !binding.Enabled)
+        {
+            binding.SyncState = AutomationBindingSyncState.Drifted;
         }
 
         binding.OrchestrationRequestDefinitionId = requestDefinitionId;

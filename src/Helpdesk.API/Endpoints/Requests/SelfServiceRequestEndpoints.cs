@@ -105,14 +105,18 @@ public static class SelfServiceRequestEndpoints
 
         var requestedTarget = dto.TargetOrganizationId?.Trim();
         var submissionId = dto.SubmissionId?.ToString("N");
-        var submitterKey = SubmissionOwner(user, await accessService.ResolveAsync(user, token));
+        var submitterKeys = SubmissionOwners(user, await accessService.ResolveAsync(user, token));
+        var submitterKey = submitterKeys.FirstOrDefault();
         await using var tx = await db.Database.BeginTransactionAsync(token);
-        if (db.Database.IsNpgsql() && submitterKey is not null)
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({submitterKey}, 0))", token);
+        if (db.Database.IsNpgsql())
+        {
+            foreach (var key in submitterKeys.Order(StringComparer.Ordinal))
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", token);
+        }
 
         var authority = await audience.ResolveAuthorityAsync(user, token);
         var access = authority.Access;
-        if (submissionId is not null && (submitterKey is null || submitterKey != SubmissionOwner(user, access)))
+        if (submissionId is not null && (submitterKey is null || !submitterKeys.SequenceEqual(SubmissionOwners(user, access), StringComparer.Ordinal)))
             return SubmissionError(http, 403, "requester_unavailable", SelfServiceRequesterResolver.UnavailableMessage);
 
         var requestForm = await audience.FindFormAsync(authority, dto.RequestFormId, token);
@@ -163,11 +167,13 @@ public static class SelfServiceRequestEndpoints
 
         if (submissionId is not null)
         {
-            var prior = await db.Requests.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
-                x.SelfServiceSubmitterId == submitterKey && x.SelfServiceSubmissionId == submissionId, token);
-            if (prior is not null)
+            var priorSubmissions = await db.Requests.IgnoreQueryFilters().AsNoTracking().Where(x =>
+                submitterKeys.Contains(x.SelfServiceSubmitterId!) && x.SelfServiceSubmissionId == submissionId)
+                .Take(2).ToListAsync(token);
+            if (priorSubmissions.Count > 0)
             {
-                if (prior.OrganizationId == organizationId && customer is not null && prior.CustomerId == customer.Id &&
+                var prior = priorSubmissions[0];
+                if (priorSubmissions.Count == 1 && prior.OrganizationId == organizationId && customer is not null && prior.CustomerId == customer.Id &&
                     (prior.SelfServiceSubmissionHash == SubmissionHash(dto, organizationId, customer.Id) ||
                      prior.SelfServiceSubmissionHash == LegacySubmissionHash(dto)))
                     return Results.Ok(SubmissionReceipt(prior, authority.Organizations[organizationId]));
@@ -193,7 +199,7 @@ public static class SelfServiceRequestEndpoints
             token);
         if (!automationPayloadValidation.Success)
         {
-            return Results.BadRequest(string.Join(Environment.NewLine, automationPayloadValidation.Errors));
+            return SubmissionError(http, 400, "automation_not_ready", string.Join(" ", automationPayloadValidation.Errors));
         }
 
         if (!onBehalf)
@@ -300,7 +306,9 @@ public static class SelfServiceRequestEndpoints
             ? eligible.Count == 1 ? eligible[0] : null
             : eligible.SingleOrDefault(org => org.Id == targetOrganizationId.Trim());
         var (code, message) = selected is not null ? (null, null)
-            : authority.Identity is null ? ("requester_unavailable", SelfServiceRequesterResolver.UnavailableMessage)
+            : authority.Identity is null ? ("requester_unavailable", authority.Access.IsHelpdeskAdmin
+                ? "Your sign-in has no available requester profile. Review your account link or select Submit on behalf of and choose an eligible requester."
+                : SelfServiceRequesterResolver.UnavailableMessage)
             : targetOrganizationId is not null ? ("request_organization_denied", "Choose an eligible organization for this request.")
             : eligible.Count > 1 ? ("request_organization_required", "Choose an organization for this request.")
             : ("request_organization_mismatch", OrganizationMismatchMessage);
@@ -344,12 +352,24 @@ public static class SelfServiceRequestEndpoints
         Results.Problem(statusCode: status, title: "Request could not be submitted", detail: message,
             extensions: new Dictionary<string, object?> { ["code"] = code, ["traceId"] = http.TraceIdentifier });
 
-    private static string? SubmissionOwner(ClaimsPrincipal principal, CurrentUserAccessProfile access)
+    private static string[] SubmissionOwners(ClaimsPrincipal principal, CurrentUserAccessProfile access)
     {
         var accountId = principal.FindFirstValue("auth_mode") is "local" or "integration"
             ? principal.FindFirstValue(ClaimTypes.NameIdentifier) : null;
-        if (!string.IsNullOrWhiteSpace(accountId)) return "account:" + accountId;
-        return string.IsNullOrWhiteSpace(access.CustomerId) ? null : "customer:" + access.CustomerId;
+        if (!string.IsNullOrWhiteSpace(accountId)) return ["account:" + accountId];
+
+        var linked = string.IsNullOrWhiteSpace(access.CustomerId) ? null : "customer:" + access.CustomerId;
+        // Keep the actor stable when an administrator gets or loses a customer link.
+        // Retain lookup of receipts that older releases stored under the customer.
+        var issuer = principal.FindFirstValue("iss")?.TrimEnd('/');
+        var subject = principal.FindFirstValue("sub");
+        if (access.IsAuthenticated && access.IsHelpdeskAdmin &&
+            !string.IsNullOrWhiteSpace(issuer) && !string.IsNullOrWhiteSpace(subject))
+        {
+            var actor = "oidc:" + HashSubmission(JsonSerializer.Serialize(new { issuer, subject }));
+            return linked is null ? [actor] : [actor, linked];
+        }
+        return linked is null ? [] : [linked];
     }
 
     private static string LegacySubmissionHash(SubmitSelfServiceRequestDto dto) =>

@@ -12,6 +12,31 @@ namespace Helpdesk.Tests.Infrastructure.Orchestration;
 public sealed class AutomationBindingPayloadContractServiceTests
 {
     [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public async Task Missing_or_disabled_target_blocks_automatic_work_but_preserves_manual_work(
+        bool hasDisabledBinding, bool autoStart, bool expected)
+    {
+        var parser = new RequestFormSchemaParser();
+        var form = CreateRequestForm(MultiSelectSchema.Replace("\"type\":\"automation\"", $"\"type\":\"automation\",\"autoStart\":{autoStart.ToString().ToLowerInvariant()}"));
+        var task = Assert.Single(parser.Parse(form.JsonSchema).Tasks);
+        var bindings = Substitute.For<IAutomationBindingService>();
+        IReadOnlyList<AutomationBindingDto> saved = hasDisabledBinding
+            ? [new() { TaskTemplateId = task.Id, Enabled = false }]
+            : [];
+        bindings.ListAsync(form.Id, Arg.Any<CancellationToken>()).Returns(saved);
+        var service = new AutomationBindingPayloadContractService(parser, bindings);
+
+        var validation = await service.ValidateBoundRequestPayloadAsync(form, "{}");
+
+        Assert.Equal(expected, validation.Success);
+        if (!expected)
+            Assert.Contains(hasDisabledBinding ? "disabled NetRatel binding" : "no NetRatel binding", Assert.Single(validation.Errors));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Multi_select_maps_exactly_one_json_text_parameter(bool single)

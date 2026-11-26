@@ -244,7 +244,8 @@ public static partial class SelfServiceMyRequestsEndpoints
                 DueAt = t.DueAt,
                 RetryCount = t.RetryCount,
                 FailureReason = t.FailureReason,
-                LastAutomationStatus = t.LastAutomationStatus
+                LastAutomationStatus = t.LastAutomationStatus,
+                AutomationAttemptCorrelationId = t.AutomationAttemptCorrelationId
             })
             .ToListAsync(token);
 
@@ -276,6 +277,8 @@ public static partial class SelfServiceMyRequestsEndpoints
             .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.OrdinalIgnoreCase);
         foreach (var task in tasks)
         {
+            if (task.Type == RequestTaskType.Automation)
+                task.FailureReason = AutomationTaskStatuses.SafeSubmissionFailure(task.LastAutomationStatus, task.FailureReason);
             if (approvalsByTask.TryGetValue(task.Id, out var approvals))
             {
                 task.PendingApprovals = approvals;

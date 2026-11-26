@@ -13,7 +13,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
-<WorkspaceEditGuard Dirty="@(IsDirty)" Saving="@saving" Message="Discard unsaved request form changes and leave?" />
+<WorkspaceEditGuard Dirty="@(IsDirty)" Saving="@(saving || inputReviewOpen)" Message="Discard unsaved request form changes and leave?" />
 <MudDialog Class="request-form-builder-dialog">
     <TitleContent>
         <div class="request-form-builder-title">
@@ -407,6 +407,13 @@
                                                             </MudStack>
                                                         }
 
+                                                        @if ((selectedTask.AutoStart || selectedTask.IsCritical) && SelectedBinding?.Enabled != true)
+                                                        {
+                                                            <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined">
+                                                                This task needs an enabled NetRatel binding before requests that run it can be submitted.
+                                                            </MudAlert>
+                                                        }
+
                                                         @if (orchestrationCatalogLoading)
                                                         {
                                                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-1">
@@ -525,7 +532,7 @@
 
                                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="request-form-task-actions">
                                                             <MudSwitch T="bool"
-                                                                       Value="@(SelectedBinding?.Enabled ?? true)"
+                                                                       Value="@(SelectedBinding?.Enabled ?? false)"
                                                                        ValueChanged="OnSelectedBindingEnabledChanged"
                                                                        Color="Color.Primary"
                                                                        Size="Size.Small"
@@ -541,87 +548,14 @@
 
                                                             @if (SelectedBinding is not null && !string.IsNullOrWhiteSpace(SelectedBinding.BindingId))
                                                             {
-                                                                <MudButton Variant="Variant.Text"
-                                                                           Size="Size.Small"
-                                                                           StartIcon="@Icons.Material.Filled.Sync"
-                                                                           OnClick="RefreshSelectedBindingDriftAsync">
-                                                                    Refresh
-                                                                </MudButton>
-
-                                                                <MudButton Variant="Variant.Text"
-                                                                           Size="Size.Small"
-                                                                           StartIcon="@Icons.Material.Filled.CompareArrows"
-                                                                           OnClick="LoadSelectedBindingDriftPreviewAsync">
-                                                                    Drift
-                                                                </MudButton>
-
-                                                                @if (SelectedBinding.SyncState == AutomationBindingSyncState.Drifted)
-                                                                {
-                                                                    <MudButton Variant="Variant.Text"
-                                                                               Color="Color.Info"
-                                                                               Size="Size.Small"
-                                                                               StartIcon="@Icons.Material.Filled.PendingActions"
-                                                                               OnClick="MarkSelectedBindingImportPendingAsync">
-                                                                        Mark Import
-                                                                    </MudButton>
-                                                                }
-
-                                                                @if (SelectedBinding.SyncState == AutomationBindingSyncState.ImportPending)
-                                                                {
-                                                                    <MudButton Variant="Variant.Text"
-                                                                               Color="Color.Success"
-                                                                               Size="Size.Small"
-                                                                               StartIcon="@Icons.Material.Filled.Download"
-                                                                               OnClick="ImportSelectedBindingInputsAsync">
-                                                                        Import
-                                                                    </MudButton>
-                                                                }
+                                                                <MudTooltip Text="Review input differences">
+                                                                    <MudIconButton Icon="@Icons.Material.Outlined.CompareArrows"
+                                                                                   Size="Size.Small"
+                                                                                   aria-label="Review input differences"
+                                                                                   OnClick="OpenInputReviewAsync" />
+                                                                </MudTooltip>
                                                             }
                                                         </MudStack>
-
-                                                        @if (selectedBindingDriftPreviewLoading)
-                                                        {
-                                                            <MudProgressLinear Indeterminate="true" Class="mt-1 mb-1" />
-                                                        }
-                                                        else if (!string.IsNullOrWhiteSpace(selectedBindingDriftPreviewError))
-                                                        {
-                                                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mt-1 mb-1">
-                                                                @selectedBindingDriftPreviewError
-                                                            </MudAlert>
-                                                        }
-                                                        else if (selectedBindingDriftPreview is not null
-                                                            && SelectedBinding is not null
-                                                            && string.Equals(selectedBindingDriftPreview.BindingId, SelectedBinding.BindingId, StringComparison.Ordinal))
-                                                        {
-                                                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-1 mb-1">
-                                                                Review the mapped Helpdesk inputs against the External orchestration request definition before importing External orchestration-side changes.
-                                                            </MudAlert>
-
-                                                            <MudTable Items="VisibleDriftDifferences"
-                                                                      Dense="true"
-                                                                      Hover="true"
-                                                                      Breakpoint="Breakpoint.Sm" Class="compact-table" FixedHeader="true" FixedFooter="true" data-table-surface="pages-admin-requests-requestformbuilder-2">
-                                                                <HeaderContent>
-                                                                    <MudTh>Input Key</MudTh>
-                                                                    <MudTh>Change</MudTh>
-                                                                    <MudTh>Helpdesk</MudTh>
-                                                                    <MudTh>External orchestration</MudTh>
-                                                                </HeaderContent>
-                                                                <RowTemplate>
-                                                                    <MudTd DataLabel="Input Key">@context.Key</MudTd>
-                                                                    <MudTd DataLabel="Change">
-                                                                        <MudChip T="string" Size="Size.Small" Color="@GetDriftChangeColor(context.ChangeType)">
-                                                                            @context.ChangeType
-                                                                        </MudChip>
-                                                                    </MudTd>
-                                                                    <MudTd DataLabel="Helpdesk">@FormatInputSnapshot(context.Helpdesk)</MudTd>
-                                                                    <MudTd DataLabel="External orchestration">@FormatInputSnapshot(context.Orchestration)</MudTd>
-                                                                </RowTemplate>
-                                                                <NoRecordsContent>
-                                                                    <MudText Typo="Typo.body2">No schema differences detected.</MudText>
-                                                                </NoRecordsContent>
-                                                            </MudTable>
-                                                        }
 
                                                         <MudDivider Class="my-2" />
                                                         <MudText Typo="Typo.subtitle2">Payload Mapping</MudText>
@@ -829,9 +763,9 @@
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudText Typo="Typo.caption" Class="request-form-save-state" role="status">@(saveError ?? validationError ?? (saving ? "Saving…" : IsDirty ? "Changes are kept across tabs until you save." : string.Empty))</MudText>
-        <MudButton Variant="Variant.Text" Disabled="@saving" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@saving" OnClick="Save">@(saving ? "Saving…" : "Save")</MudButton>
+        <MudText Typo="Typo.caption" Class="request-form-save-state" role="status">@(saveError ?? validationError ?? (saving ? "Saving…" : inputReviewOpen ? "Checking saved inputs…" : IsDirty ? "Changes are kept across tabs until you save." : string.Empty))</MudText>
+        <MudButton Variant="Variant.Text" Disabled="@(saving || inputReviewOpen)" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(saving || inputReviewOpen)" OnClick="Save">@(saving ? "Saving…" : "Save")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -928,6 +862,7 @@
     private List<RequestTaskTemplateModel> Tasks = new();
     private RequestTaskTemplateModel? selectedTask;
     private bool saving;
+    private bool inputReviewOpen;
     private const int SetupTab = 0;
     private const int FieldsTab = 1;
     private const int WorkflowTab = 2;
@@ -955,6 +890,7 @@
     private MudButton? automationBrowseButton;
     private readonly Dictionary<FormField, MudTextField<string>> fieldLabelInputs = new();
     private string? initialDraftFingerprint;
+    private string? savedSchemaHash;
     private string? renderedDialogState;
     private bool IsDirty => initialDraftFingerprint is not null && initialDraftFingerprint != DraftFingerprint();
     private string DraftFingerprint() => JsonSerializer.Serialize(new
@@ -1020,9 +956,6 @@
     private bool orchestrationCatalogLoading;
     private string? orchestrationCatalogError;
     private OrchestrationAutomationCapabilitiesDto? automationCapabilities;
-    private AutomationBindingDriftPreviewDto? selectedBindingDriftPreview;
-    private bool selectedBindingDriftPreviewLoading;
-    private string? selectedBindingDriftPreviewError;
     private const string DefaultOrchestrationTargetFolderPath = "/helpdesk/requests/";
     private const string TaskDropZoneId = "request-form-tasks";
 
@@ -1109,10 +1042,6 @@
         && OrchestrationCatalogTargetFilter.HasTenantMetadata(SelectedCatalogRequestDefinition)
         && SelectedCatalogRequestDefinition.TenantId != SelectedAutomationConnection?.PeerTenantId;
     private IReadOnlyList<PayloadMappingRow> VisiblePayloadMappingRows => GetVisiblePayloadMappingRows();
-    private IEnumerable<AutomationBindingInputDiffDto> VisibleDriftDifferences =>
-        selectedBindingDriftPreview?.Differences.Where(x => !string.Equals(x.ChangeType, "Unchanged", StringComparison.Ordinal))
-        ?? Enumerable.Empty<AutomationBindingInputDiffDto>();
-
     private List<FieldOption> FieldOptions => FormFields
         .Select((f, i) => new FieldOption(FormFieldKeyResolver.Resolve(f, i), string.IsNullOrWhiteSpace(f.Label) ? $"Field {i + 1}" : f.Label, f.MultiSelect))
         .ToList();
@@ -1225,6 +1154,7 @@
 
     private void ApplyLoadedRequestForm(RequestFormDto formDto)
     {
+        savedSchemaHash = SchemaHash(formDto.JsonSchema);
         model.Title = formDto.Title;
         model.Description = formDto.Description;
         model.ReleaseStatus = formDto.ReleaseStatus;
@@ -1345,7 +1275,6 @@
     {
         selectedTask = Tasks.FirstOrDefault(x => x.Id == id);
         showMobileTaskEditor = selectedTask is not null;
-        ClearSelectedBindingDriftPreview();
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh();
     }
@@ -1407,7 +1336,6 @@
         Tasks = RequestFormTaskEditorState.MoveTaskToIndex(Tasks.Append(clone), clone.Id, index < 0 ? Tasks.Count : index + 1);
         selectedTask = Tasks.FirstOrDefault(x => x.Id == clone.Id);
         showMobileTaskEditor = true;
-        ClearSelectedBindingDriftPreview();
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh(rebuild: true);
     }
@@ -1431,7 +1359,6 @@
         Tasks = RequestFormTaskEditorState.NormalizeTaskOrder(remainingTasks);
         selectedTask = Tasks.Count == 0 ? null : Tasks[Math.Min(selectedIndex, Tasks.Count - 1)];
         showMobileTaskEditor = selectedTask is not null;
-        ClearSelectedBindingDriftPreview();
         SeedNewOrchestrationRequestDefinitionDefaults();
         RequestTaskDropContainerRefresh(rebuild: true);
     }
@@ -1488,7 +1415,6 @@
         selectedTask.PayloadMapping ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         selectedTask.PayloadMapping[SelectedDraftJobParamKey!.Trim()] = SelectedDraftFieldKey!;
         ResetPayloadMappingDraft(selectedTask.Id);
-        ClearSelectedBindingDriftPreview();
     }
 
     private void OnPayloadMappingFieldChanged(string jobParamKey, string? helpdeskFieldKey)
@@ -1513,7 +1439,6 @@
             selectedTask.PayloadMapping = null;
         }
 
-        ClearSelectedBindingDriftPreview();
     }
 
     private void RemovePayloadMapping(string key)
@@ -1529,7 +1454,6 @@
             selectedTask.PayloadMapping = null;
         }
 
-        ClearSelectedBindingDriftPreview();
     }
 
     private void OnSelectedTaskDependenciesChanged(IEnumerable<Guid>? values)
@@ -1577,7 +1501,6 @@
         SelectedBinding.OrchestrationJobDefinitionName = Normalize(selectedDefinition.OrchestrationJobDefinitionName);
         ApplySelectedRuntimeDefaults();
         ResetSelectedPayloadMappingJobParamDraft();
-        ClearSelectedBindingDriftPreview();
     }
 
     private void OnSelectedExpectedRuntimeMinutesChanged(int? value)
@@ -1711,10 +1634,8 @@
         SelectedBinding.OrchestrationRequestDefinitionName = created.RequestDefinitionName;
         SelectedBinding.OrchestrationJobDefinitionId = Normalize(created.OrchestrationJobDefinitionId);
         SelectedBinding.OrchestrationJobDefinitionName = Normalize(created.OrchestrationJobDefinitionName);
-        SelectedBinding.Enabled = true;
         ApplySelectedRuntimeDefaults();
         ResetSelectedPayloadMappingJobParamDraft();
-        ClearSelectedBindingDriftPreview();
 
         Snackbar.Add($"Created External orchestration automation target '{GetOrchestrationDisplayName(created)}'.", Severity.Success);
     }
@@ -2040,6 +1961,7 @@
 
     private async Task Save()
     {
+        if (saving || inputReviewOpen) return;
         validationError = null;
         saveError = null;
         invalidTaskId = null;
@@ -2125,7 +2047,8 @@
                     OrganizationId = model.OrganizationId ?? string.Empty,
                     AllowedOrganizationIds = selectedOrgIds.ToList(),
                     ReleaseStatus = model.ReleaseStatus,
-                    JsonSchema = jsonSchema,
+                    JsonSchema = IsDirty ? jsonSchema : null,
+                    ExpectedSchemaHash = savedSchemaHash,
                     ServiceIdHasValue = false
                 };
                 resp = await Api.PutAsJsonAsync($"api/v1/request-forms/{RequestFormId}", dto);
@@ -2144,14 +2067,10 @@
             // A binding-stage failure must retry this saved form, never create
             // another form from the still-open editor.
             RequestFormId = savedForm.Id;
+            if (!string.IsNullOrWhiteSpace(savedForm.JsonSchema))
+                savedSchemaHash = SchemaHash(savedForm.JsonSchema);
 
             await SyncBindingsAsync(savedForm.Id);
-            var syncWarning = await TrySyncBindingSchemasAsync(savedForm.Id);
-            if (!string.IsNullOrWhiteSpace(syncWarning))
-            {
-                Snackbar.Add(syncWarning, Severity.Warning);
-            }
-
             MudDialog.Close(DialogResult.Ok(true));
         }
         else
@@ -2175,7 +2094,7 @@
 
     private async Task Cancel()
     {
-        if (saving) return;
+        if (saving || inputReviewOpen) return;
         if (IsDirty && await DialogService.ShowMessageBoxAsync("Discard request form changes?", "Your unsaved changes will be lost.", yesText: "Discard", cancelText: "Keep editing") != true) return;
         MudDialog.Cancel();
     }
@@ -2187,7 +2106,6 @@
         {
             ResetSelectedPayloadMappingJobParamDraft();
         }
-        ClearSelectedBindingDriftPreview();
         await LoadAvailableDatasetsAsync();
         foreach (var field in FormFields)
         {
@@ -2359,102 +2277,41 @@
         }
     }
 
-    private async Task RefreshSelectedBindingDriftAsync()
+    private async Task OpenInputReviewAsync()
     {
-        if (SelectedBinding is null || string.IsNullOrWhiteSpace(RequestFormId))
-        {
+        if (saving || inputReviewOpen || SelectedBinding is not { BindingId.Length: > 0 } binding)
             return;
-        }
 
-        await RefreshBindingDriftAsync(RequestFormId);
-        await LoadSelectedBindingDriftPreviewAsync();
-    }
-
-    private async Task MarkSelectedBindingImportPendingAsync()
-    {
-        if (SelectedBinding is null || string.IsNullOrWhiteSpace(SelectedBinding.BindingId))
-        {
-            return;
-        }
-
-        using var response = await Api.PostAsync(
-            $"api/v1/admin/orchestration/bindings/{SelectedBinding.BindingId}/mark-import-pending",
-            content: null);
-        if (!response.IsSuccessStatusCode)
-        {
-            Snackbar.Add("Could not mark External orchestration binding as import pending.", Severity.Error);
-            return;
-        }
-
-        var updated = await response.Content.ReadFromJsonAsync<AutomationBindingDto>();
-        if (updated is not null)
-        {
-            automationBindings[updated.TaskTemplateId] = AutomationBindingEditorModel.FromDto(updated);
-            Snackbar.Add("Binding marked as import pending for admin review.", Severity.Info);
-        }
-
-        await LoadSelectedBindingDriftPreviewAsync();
-    }
-
-    private async Task ImportSelectedBindingInputsAsync()
-    {
-        if (SelectedBinding is null || string.IsNullOrWhiteSpace(SelectedBinding.BindingId))
-        {
-            return;
-        }
-
-        using var response = await Api.PostAsync(
-            $"api/v1/admin/orchestration/bindings/{SelectedBinding.BindingId}/import-inputs",
-            content: null);
-        if (!response.IsSuccessStatusCode)
-        {
-            Snackbar.Add($"Could not import External orchestration inputs: {await response.Content.ReadAsStringAsync()}", Severity.Error);
-            return;
-        }
-
-        var updated = await response.Content.ReadFromJsonAsync<AutomationBindingDto>();
-        if (updated is not null)
-        {
-            automationBindings[updated.TaskTemplateId] = AutomationBindingEditorModel.FromDto(updated);
-        }
-
-        if (!string.IsNullOrWhiteSpace(RequestFormId))
-        {
-            var formDto = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}");
-            if (formDto is not null)
-            {
-                ApplyLoadedRequestForm(formDto);
-            }
-        }
-
-        Snackbar.Add("Imported External orchestration inputs into the Helpdesk request form.", Severity.Success);
-        await LoadSelectedBindingDriftPreviewAsync();
-    }
-
-    private async Task LoadSelectedBindingDriftPreviewAsync()
-    {
-        if (SelectedBinding is null || string.IsNullOrWhiteSpace(SelectedBinding.BindingId))
-        {
-            ClearSelectedBindingDriftPreview();
-            return;
-        }
-
-        selectedBindingDriftPreviewLoading = true;
-        selectedBindingDriftPreviewError = null;
-
+        inputReviewOpen = true;
         try
         {
-            selectedBindingDriftPreview = await Api.GetFromJsonAsync<AutomationBindingDriftPreviewDto>(
-                $"api/v1/admin/orchestration/bindings/{SelectedBinding.BindingId}/drift-preview");
+            var parameters = new DialogParameters<AutomationInputReviewDialog>
+            {
+                { dialog => dialog.BindingId, binding.BindingId },
+                { dialog => dialog.CanApply, !IsDirty }
+            };
+            var dialog = await DialogService.ShowAsync<AutomationInputReviewDialog>("Review input differences", parameters,
+                new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseOnEscapeKey = false, BackdropClick = false });
+            var result = await dialog.Result;
+            if (result?.Data is not AutomationInputReviewResultDto || IsDirty || string.IsNullOrWhiteSpace(RequestFormId))
+                return;
+
+            var selectedTaskId = selectedTask?.Id;
+            var updated = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}")
+                ?? throw new InvalidOperationException("The saved request form was not returned.");
+            await LoadBindingsAsync(RequestFormId);
+            ApplyLoadedRequestForm(updated);
+            selectedTask = Tasks.FirstOrDefault(task => task.Id == selectedTaskId) ?? Tasks.FirstOrDefault();
+            initialDraftFingerprint = DraftFingerprint();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            selectedBindingDriftPreview = null;
-            selectedBindingDriftPreviewError = $"Could not load drift preview: {ex.Message}";
+            Snackbar.Add("The editor could not reload the saved review. Reopen the form before editing.", Severity.Warning);
+            MudDialog.Close(DialogResult.Ok(true));
         }
         finally
         {
-            selectedBindingDriftPreviewLoading = false;
+            inputReviewOpen = false;
         }
     }
 
@@ -2530,7 +2387,6 @@
         // A definition identifier is only meaningful within its saved peer connection.
         OnSelectedCatalogRequestDefinitionChanged(null);
         SelectedBinding.SystemConnectionId = connectionId;
-        ClearSelectedBindingDriftPreview();
         await LoadOrchestrationCatalogAsync();
     }
 
@@ -2560,7 +2416,6 @@
         var model = GetBindingModel(selectedTask);
         model.ClearForDelete();
         ResetSelectedPayloadMappingJobParamDraft();
-        ClearSelectedBindingDriftPreview();
     }
 
     private Color GetBindingStateColor(AutomationBindingSyncState state) => state switch
@@ -2625,6 +2480,7 @@
                     var createDto = new CreateAutomationBindingDto
                     {
                         SystemConnectionId = editor.SystemConnectionId,
+                        Enabled = editor.Enabled,
                         RequestFormId = requestFormId,
                         TaskTemplateId = task.Id,
                         OrchestrationRequestDefinitionId = editor.OrchestrationRequestDefinitionId.Trim(),
@@ -2642,8 +2498,6 @@
                     var created = await createResponse.Content.ReadFromJsonAsync<AutomationBindingDto>();
                     if (created is not null)
                     {
-                        // Retain the editor's requested Enabled/SyncState values so
-                        // the update below also applies them to a newly created binding.
                         editor.BindingId = created.Id;
                         automationBindings[task.Id] = editor;
                     }
@@ -2666,7 +2520,6 @@
                     ClearOrchestrationJobDefinitionId = string.IsNullOrWhiteSpace(editor.OrchestrationJobDefinitionId),
                     OrchestrationJobDefinitionName = Normalize(editor.OrchestrationJobDefinitionName),
                     ClearOrchestrationJobDefinitionName = string.IsNullOrWhiteSpace(editor.OrchestrationJobDefinitionName),
-                    SyncState = editor.SyncState,
                     Enabled = editor.Enabled
                 };
 
@@ -2692,82 +2545,13 @@
         }
     }
 
-    private async Task<string?> TrySyncBindingSchemasAsync(string requestFormId)
-    {
-        if (string.IsNullOrWhiteSpace(requestFormId))
-        {
-            return null;
-        }
-
-        var bindings = await Api.GetFromJsonAsync<List<AutomationBindingDto>>(
-            $"api/v1/admin/orchestration/bindings?requestFormId={Uri.EscapeDataString(requestFormId)}") ?? new();
-
-        var failures = new List<string>();
-        foreach (var binding in bindings.Where(x => x.Enabled))
-        {
-            try
-            {
-                using var response = await Api.PostAsync(
-            $"api/v1/admin/orchestration/bindings/{binding.Id}/sync-inputs",
-                    content: null);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    failures.Add(await response.Content.ReadAsStringAsync());
-                    continue;
-                }
-
-                var updated = await response.Content.ReadFromJsonAsync<AutomationBindingDto>();
-                if (updated is not null)
-                {
-                    automationBindings[updated.TaskTemplateId] = AutomationBindingEditorModel.FromDto(updated);
-                }
-            }
-            catch (Exception ex)
-            {
-                failures.Add(ex.Message);
-            }
-        }
-
-        return failures.Count switch
-        {
-            0 => null,
-            1 => $"Saved, but External orchestration input sync failed: {Truncate(failures[0], 180)}",
-            _ => $"Saved, but {failures.Count} External orchestration input syncs failed. Refresh drift after External orchestration connectivity is healthy."
-        };
-    }
+    private static string SchemaHash(string schema)
+        => Convert.ToHexString(global::System.Security.Cryptography.SHA256.HashData(
+            global::System.Text.Encoding.UTF8.GetBytes(schema)));
 
     private static string? Normalize(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
-
-    private void ClearSelectedBindingDriftPreview()
-    {
-        selectedBindingDriftPreview = null;
-        selectedBindingDriftPreviewError = null;
-        selectedBindingDriftPreviewLoading = false;
-    }
-
-    private static Color GetDriftChangeColor(string? changeType) => changeType switch
-    {
-        "AddedInOrchestration" => Color.Success,
-        "MissingInOrchestration" => Color.Warning,
-        "Modified" => Color.Info,
-        _ => Color.Default
-    };
-
-    private static string FormatInputSnapshot(AutomationBindingInputSnapshotDto? snapshot)
-    {
-        if (snapshot is null)
-        {
-            return "-";
-        }
-
-        var fieldPart = string.IsNullOrWhiteSpace(snapshot.FieldKey) ? string.Empty : $" [{snapshot.FieldKey}]";
-        var requiredPart = snapshot.Required ? " required" : " optional";
-        var type = snapshot.MultiSelect ? "multi-select → Text (JSON array)" : snapshot.Type;
-        return $"{snapshot.Label}{fieldPart} | {type}{requiredPart}";
     }
 
     private void SeedNewOrchestrationRequestDefinitionDefaults()
@@ -2957,11 +2741,6 @@
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
-    private static string Truncate(string value, int maxLength)
-        => string.IsNullOrWhiteSpace(value) || value.Length <= maxLength
-            ? value
-            : value[..maxLength];
-
     private static string? FirstReadableName(params string?[] values)
         => OrchestrationCatalogInputResolver.FirstReadableName(values) ?? FirstNonEmpty(values);
 
@@ -2999,7 +2778,7 @@
         public string? OrchestrationJobDefinitionId { get; set; }
         public string? OrchestrationJobDefinitionName { get; set; }
         public AutomationBindingSyncState SyncState { get; set; } = AutomationBindingSyncState.InSync;
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; }
 
         public static AutomationBindingEditorModel FromDto(AutomationBindingDto dto) => new()
         {
@@ -3033,7 +2812,7 @@
             OrchestrationJobDefinitionId = null;
             OrchestrationJobDefinitionName = null;
             SyncState = AutomationBindingSyncState.InSync;
-            Enabled = true;
+            Enabled = false;
         }
     }
 

@@ -1,0 +1,35 @@
+.input-review-scroll {
+    max-height: min(45dvh, 24rem);
+    overflow: auto;
+    margin-block: .35rem;
+}
+.input-review-row {
+    min-inline-size: 0;
+    border: 1px solid var(--mud-palette-lines-default);
+    margin: 0 0 .35rem;
+    padding: .25rem .5rem;
+    overflow-wrap: anywhere;
+}
+.input-review-row legend { font-weight: 600; }
+.input-review-sides {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .35rem .75rem;
+}
+.input-review-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .25rem .75rem;
+    margin-block: .25rem;
+}
+.input-review-controls label { display: grid; min-width: 0; }
+.input-review-controls select {
+    width: 100%;
+    color: var(--mud-palette-text-primary);
+    background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-lines-inputs);
+    border-radius: 4px;
+    min-height: 2rem;
+}
+.input-review-row p, .input-review-outcomes ul { margin: 0; }
+.input-review-outcomes { max-height: 15dvh; overflow: auto; }

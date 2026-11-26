@@ -111,6 +111,27 @@ The earlier form save has already happened; canceling the remaining draft does
 not roll that server-side save back.
 
 
+### Review input differences
+
+**Binding Enabled** makes the saved target eligible to execute. **Save** persists
+the form and its binding. Schema changes need a separate review. A required
+automation task with a missing or disabled binding blocks submission before
+RatelDesk creates the request.
+
+Open **Review input differences** on the saved binding. **Recheck** reads both
+saved definitions. Choose **Push to NetRatel**, **Import into Helpdesk**, or
+**Leave unresolved** for each input. When importing, select its existing field
+key or explicitly create a new field. The review shows the fields, parameter
+types, and values that each decision affects before you apply.
+
+**Apply selected changes** saves the reviewed choices and checks both sides.
+A predefined Helpdesk picklist can remain mapped to NetRatel Text. This keeps
+the picklist in Helpdesk and sends the selected scalar to the job. When the
+parameter is NetRatel Select, compatible predefined choices can be reviewed on
+both sides. Existing Text parameters keep their defaults and options. If the
+review becomes stale or a write cannot be confirmed, recheck before applying
+anything again. The review never starts a job.
+
 ### Map multi-select choices to a job
 
 In **Payload Mapping**, select the multi-select Helpdesk field and an existing
