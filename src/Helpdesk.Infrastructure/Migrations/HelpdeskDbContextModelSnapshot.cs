@@ -5183,6 +5183,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ProviderDiagnostic")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.Property<string>("RequestId")
                         .IsRequired()
                         .HasColumnType("text");

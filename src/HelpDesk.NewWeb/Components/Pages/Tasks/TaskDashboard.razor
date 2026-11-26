@@ -186,7 +186,9 @@
                         { <span>The remote execution may still be running. Retry is held until its outcome is confirmed.</span> }
                         else if (context.AutomationTimedOutAt.HasValue)
                         { <span>The earlier timeout remains recorded. The provider outcome is now confirmed.</span> }
-                        @if (!string.IsNullOrWhiteSpace(context.FailureReason))
+                        @if (context.ProviderDiagnostic is { } providerFailure)
+                        { <ProviderExecutionDetails Diagnostic="providerFailure" /> }
+                        else if (!string.IsNullOrWhiteSpace(context.FailureReason))
                         { <span>@context.FailureReason</span> }
                     </section>
                 }

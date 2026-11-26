@@ -186,6 +186,7 @@ public static class RequestEndpoints
                     DueAt = t.DueAt,
                     RetryCount = t.RetryCount,
                     FailureReason = t.FailureReason,
+                    ProviderDiagnostic = t.ProviderDiagnostic,
                     OrchestratorExecutionId = t.OrchestratorExecutionId,
                     AutomationBindingId = t.AutomationBindingId,
                     OrchestrationRequestDefinitionId = t.OrchestrationRequestDefinitionId,

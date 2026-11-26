@@ -48,6 +48,11 @@ public sealed class Beta9WorkflowAndBrandingHttpTests
         });
         Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
         var receipt = (await submitted.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>())!;
+        await using (var worker = h.App.Services.CreateAsyncScope())
+        {
+            var processor = worker.ServiceProvider.GetRequiredService<Helpdesk.API.Background.AutomationExecutionDeadlineProcessor>();
+            Assert.Equal(1, await processor.ProcessAsync(CancellationToken.None));
+        }
         if (manualPredecessor)
         {
             string? manualId = null;

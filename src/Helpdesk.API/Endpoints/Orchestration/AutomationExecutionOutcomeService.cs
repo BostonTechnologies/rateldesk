@@ -2,6 +2,7 @@ using System.Text.Json;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Notifications;
+using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Timeline;
@@ -9,11 +10,13 @@ using Helpdesk.Application.WorkLogs;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Shared.DTOs.Notification;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Pairing;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.Orchestration;
@@ -67,6 +70,8 @@ public sealed class AutomationExecutionOutcomeService(
                 task.OrchestrationExternalRequestId ??= dto.OrchestrationRequestId ?? dto.RequestId;
                 task.OrchestrationExternalRunId ??= dto.OrchestrationRunId ?? dto.ExecutionId;
                 task.OrchestratorExecutionId ??= dto.ExecutionId ?? dto.OrchestrationRunId;
+                task.ProviderDiagnostic = await AddProviderLinksAsync(task,
+                    ProviderExecutionDiagnostics.Outcome(task, dto, incomingStatus, correlationId, deadlineExpired), ct);
                 task.UpdatedAt = now.UtcDateTime;
                 task.AutomationReconciliationLeaseId = null;
                 task.AutomationReconciliationLeaseUntilUtcTicks = null;
@@ -99,7 +104,8 @@ public sealed class AutomationExecutionOutcomeService(
                         task.Status = RequestTaskStatus.Failed;
                         task.State = TicketState.OnHold;
                         task.CompletedAt = dto.CompletedAtUtc ?? now;
-                        task.FailureReason = BuildFailureReason(dto);
+                        task.FailureReason = task.ProviderDiagnostic is { Code: not "execution_failed" } diagnostic
+                            ? diagnostic.Message : BuildFailureReason(dto);
                         task.AutomationNextCheckUtcTicks = null;
                         task.AutomationContinuationPending = true;
                         break;
@@ -162,7 +168,8 @@ public sealed class AutomationExecutionOutcomeService(
                     await domainEvents.PublishAsync(new RequestTaskFailedEvent(task.Id, task.RequestId,
                         task.OrganizationId, now, correlationId), ct);
                     await domainEvents.PublishAsync(new RequestTaskAutomationFailedEvent(task.Id, task.RequestId,
-                        task.OrchestratorExecutionId, task.FailureReason!, task.OrganizationId, now, correlationId, callerClientId), ct);
+                        task.OrchestratorExecutionId, task.ProviderDiagnostic?.Message ?? task.FailureReason!, task.OrganizationId, now,
+                        correlationId, callerClientId, task.ProviderDiagnostic), ct);
                     await failurePolicy.OnTaskFailedAsync(task.RequestId, task.Id, ct);
                 }
                 else if (incomingStatus == "unknown")
@@ -189,6 +196,10 @@ public sealed class AutomationExecutionOutcomeService(
                 return false;
             }
         }
+
+        if (task.ProviderDiagnostic is { } providerFailure)
+            logger.LogInformation("NetRatel outcome recorded. TaskId={TaskId} CorrelationId={CorrelationId} ProviderRequestId={ProviderRequestId} ProviderRunId={ProviderRunId} Stage={Stage} ReasonCode={ReasonCode}",
+                task.Id, correlationId, providerFailure.ProviderRequestId, providerFailure.ProviderRunId, providerFailure.Stage, providerFailure.Code);
 
         // Publish the committed IDs immediately for the healthy live path. The
         // existing fenced outbox replays those same IDs after interruption.
@@ -250,6 +261,42 @@ public sealed class AutomationExecutionOutcomeService(
             // The persisted continuation and bounded lease make restart/retry safe;
             // never roll back the provider's confirmed outcome or resubmit this task.
             logger.LogWarning("Automation workflow continuation remains pending. TaskId={TaskId} ErrorCode={ErrorCode}", taskId, error.GetType().Name);
+        }
+    }
+
+    private async Task<ProviderExecutionDiagnostic?> AddProviderLinksAsync(RequestTask task, ProviderExecutionDiagnostic? diagnostic,
+        CancellationToken ct)
+    {
+        if (diagnostic is not { ExecutionCreated: true } || !Guid.TryParseExact(task.OrchestrationLinkId, "D", out var connectionId))
+            return diagnostic;
+        var peer = await (from connection in db.Set<SystemConnection>().AsNoTracking()
+                          join pair in db.Set<SystemPair>().AsNoTracking() on connection.PairId equals pair.Id
+                          where connection.Id == connectionId && connection.State == "connected" &&
+                                connection.Revision == task.OrchestrationLinkRevision && pair.PeerInstallationId == task.OrchestrationPeerInstanceId
+                          select new { connection.MappingJson, pair.PeerJson }).SingleOrDefaultAsync(ct);
+        if (peer is null) return diagnostic;
+        try
+        {
+            var mapping = JsonSerializer.Deserialize<PairingMapping>(peer.MappingJson, JsonSerializerOptions.Web);
+            var metadata = JsonSerializer.Deserialize<PairingMetadata>(peer.PeerJson, JsonSerializerOptions.Web);
+            if (mapping?.RatelDeskOrganizationId != task.OrganizationId || metadata?.WebOrigin is not { Length: <= 256 } origin ||
+                !Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") ||
+                uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0 || uri.AbsolutePath != "/")
+                return diagnostic;
+            var root = uri.GetLeftPart(UriPartial.Authority);
+            return diagnostic with
+            {
+                ProviderRequestUrl = int.TryParse(diagnostic.ProviderRequestId, out var requestId) && requestId > 0
+                    ? $"{root}/requests?search={requestId}" : null,
+                ProviderRunUrl = ulong.TryParse(diagnostic.JobDefinitionId, out var jobId) && jobId > 0 &&
+                                 ulong.TryParse(diagnostic.ProviderRunId, out var runId) && runId > 0
+                    ? $"{root}/jobs/{jobId}/runs/{runId}" : null
+            };
+        }
+        catch (JsonException error)
+        {
+            logger.LogDebug("Could not read the saved provider link metadata. TaskId={TaskId} ErrorCode={ErrorCode}", task.Id, error.GetType().Name);
+            return diagnostic;
         }
     }
 

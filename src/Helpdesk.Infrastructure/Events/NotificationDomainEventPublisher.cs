@@ -18,7 +18,11 @@ public class NotificationDomainEventPublisher(
     private readonly INotificationService _notifications = notifications;
     private readonly ILogger<NotificationDomainEventPublisher> _logger = logger;
 
-    public async Task PublishAsync(DomainEvent domainEvent, CancellationToken ct)
+    public Task PublishAsync(DomainEvent domainEvent, CancellationToken ct) => PublishAsync(domainEvent, ct, required: false);
+
+    public Task PublishRequiredAsync(DomainEvent domainEvent, CancellationToken ct) => PublishAsync(domainEvent, ct, required: true);
+
+    private async Task PublishAsync(DomainEvent domainEvent, CancellationToken ct, bool required)
     {
         var payload = JsonSerializer.Serialize(domainEvent, domainEvent.GetType(), JsonOptions);
         var category = ResolveCategory(domainEvent);
@@ -48,7 +52,7 @@ public class NotificationDomainEventPublisher(
                 CorrelationId = correlationId
             }, ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!required)
         {
             _logger.LogWarning(
                 ex,
@@ -71,6 +75,8 @@ public class NotificationDomainEventPublisher(
         }
 
         if (domainEvent.EventType is "DomainEvent.RequestTask.Escalated"
+            or RequestTaskDomainEventTypes.AutomationSubmitRejected
+            or RequestTaskDomainEventTypes.AutomationSubmitUncertain
             or "DomainEvent.RequestTask.SlaBreached"
             or "DomainEvent.RequestTask.RetryScheduled"
             or "DomainEvent.RequestTask.Blocked"

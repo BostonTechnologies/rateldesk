@@ -402,6 +402,10 @@ public class HelpdeskDbContext(
             entity.Property(x => x.RetryCount).HasDefaultValue(0);
             entity.Property(x => x.AutomationStateVersion).IsConcurrencyToken().HasDefaultValue(0L);
             entity.Property(x => x.AutomationContinuationPending).HasDefaultValue(false);
+            entity.Property(x => x.ProviderDiagnostic).HasMaxLength(2048).HasConversion(
+                value => System.Text.Json.JsonSerializer.Serialize(value, System.Text.Json.JsonSerializerOptions.Web),
+                value => System.Text.Json.JsonSerializer.Deserialize<Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic>(
+                    value, System.Text.Json.JsonSerializerOptions.Web));
             entity.Property(x => x.AutomationReconciliationLeaseId).HasMaxLength(64);
             entity.HasIndex(x => new { x.Type, x.AutomationNextCheckUtcTicks });
             entity.HasIndex(x => new { x.Type, x.AutomationContinuationPending });

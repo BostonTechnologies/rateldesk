@@ -100,7 +100,13 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
         Assert.DoesNotContain("synthetic-bearer-456", result.Saved.ResultJson ?? string.Empty, StringComparison.Ordinal);
         Assert.DoesNotContain(SyntheticClientSecret, result.Saved.FailureReason ?? string.Empty, StringComparison.Ordinal);
         Assert.DoesNotContain("synthetic-bearer-456", result.Saved.FailureReason ?? string.Empty, StringComparison.Ordinal);
-        Assert.Contains("useful context", result.Saved.ResultJson ?? result.Saved.FailureReason, StringComparison.Ordinal);
+        if (status is "provider-specific-state" or "Rejected")
+        {
+            Assert.DoesNotContain("useful context", result.Saved.ResultJson ?? result.Saved.FailureReason, StringComparison.Ordinal);
+            Assert.DoesNotContain("useful context", JsonSerializer.Serialize(result.Saved.ProviderDiagnostic), StringComparison.Ordinal);
+        }
+        else
+            Assert.Contains("useful context", result.Saved.ResultJson ?? result.Saved.FailureReason, StringComparison.Ordinal);
         if (status is "Completed" or "Failed" or "Cancelled" or "provider-specific-state" or "Rejected")
         {
             await result.Events.DidNotReceive().PublishAsync(Arg.Any<RequestTaskAutomationSubmittedEvent>(), Arg.Any<CancellationToken>());
@@ -144,12 +150,18 @@ public sealed class OrchestrationIngestLifecycleIntegrationTests
                 Assert.Equal(TicketState.OnHold, result.Saved.State);
                 Assert.Equal(AutomationTaskStatuses.SubmitUncertainManualReconcile, result.Saved.LastAutomationStatus);
                 Assert.Null(result.Saved.NextRetryAt);
-                await result.Events.Received(1).PublishAsync(Arg.Any<RequestTaskAutomationSubmitUncertainEvent>(), Arg.Any<CancellationToken>());
+                Assert.Equal("delivery_uncertain", result.Saved.ProviderDiagnostic?.Code);
+                Assert.Null(result.Saved.ProviderDiagnostic?.ExecutionCreated);
+                await result.Events.Received(1).PublishAsync(Arg.Is<RequestTaskAutomationSubmitUncertainEvent>(e =>
+                    e.Diagnostic != null && e.Diagnostic.CorrelationId == result.Saved.AutomationAttemptCorrelationId), Arg.Any<CancellationToken>());
                 break;
             case "Rejected":
                 Assert.Equal(TicketState.OnHold, result.Saved.State);
                 Assert.Equal(AutomationTaskStatuses.SubmitRejectedManualRetry, result.Saved.LastAutomationStatus);
-                await result.Events.Received(1).PublishAsync(Arg.Any<RequestTaskAutomationSubmitRejectedEvent>(), Arg.Any<CancellationToken>());
+                Assert.Equal("provider_rejected", result.Saved.ProviderDiagnostic?.Code);
+                Assert.False(result.Saved.ProviderDiagnostic?.ExecutionCreated);
+                await result.Events.Received(1).PublishAsync(Arg.Is<RequestTaskAutomationSubmitRejectedEvent>(e =>
+                    e.Diagnostic != null && e.Diagnostic.CorrelationId == result.Saved.AutomationAttemptCorrelationId), Arg.Any<CancellationToken>());
                 break;
         }
     }

@@ -13,6 +13,7 @@ public sealed class OrchestrationCallbackDto
     public string? ResultJson { get; set; }
     public string? ErrorJson { get; set; }
     public string? WorklogSummary { get; set; }
+    public ProviderExecutionDiagnostic? Diagnostic { get; set; }
     public bool? ExpectedRuntimeExceeded { get; set; }
     public int? ExpectedRuntimeSeconds { get; set; }
     public int? GraceSeconds { get; set; }

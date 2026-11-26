@@ -1,6 +1,6 @@
 namespace Helpdesk.Shared.Models;
 
-public enum MailboxEffectKind { Email, Timeline, Notification }
+public enum MailboxEffectKind { Email, Timeline, Notification, SelfServiceSubmission }
 public enum MailboxEffectState { Pending, InFlight, Completed, Exhausted, NeedsReview, Submitting, Cancelled, Removed }
 
 public sealed class MailboxOutboxEffect

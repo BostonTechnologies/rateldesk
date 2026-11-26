@@ -5223,6 +5223,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<int>("Order")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ProviderDiagnostic")
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RequestId")
                         .IsRequired()
                         .HasColumnType("TEXT");

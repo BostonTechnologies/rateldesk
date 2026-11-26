@@ -5,18 +5,21 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Helpdesk.API.Endpoints.Requests;
+using Helpdesk.API.Background;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Resources;
 using Helpdesk.Application.Services.Notifications;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.Tenants;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Html;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Resources;
 using NSubstitute;
@@ -230,6 +233,9 @@ public sealed class RequestCreateEndpointsTests
         Assert.Equal("customer@example.com", created.RequesterEmail);
         Assert.Equal("org-1", created.OrganizationId);
         Assert.Empty(created.CcRecipients);
+        Assert.Equal(0, harness.Notification.SendCount);
+        Assert.Equal(1, await harness.DispatchSubmissionEffectsAsync());
+        Assert.Equal(0, await harness.DispatchSubmissionEffectsAsync());
         Assert.Equal("SelfServiceRequestCreated", harness.Notification.LastNotificationKind);
         Assert.Equal("REQ-TEST-001", harness.Notification.LastTicket?.TrackingId);
         Assert.Equal("Laptop Request", harness.Notification.LastRequestForm?.Title);
@@ -382,6 +388,7 @@ public sealed class RequestCreateEndpointsTests
         Assert.Equal("requested@example.com", created.RequesterEmail);
         Assert.Equal("org-1", created.OrganizationId);
         Assert.Equal(["requested@example.com", "customer@example.com"], created.CcRecipients);
+        Assert.Equal(1, await harness.DispatchSubmissionEffectsAsync());
         Assert.Equal("requested@example.com", harness.Notification.LastRecipientEmail);
         Assert.Equal("Requested User", harness.Notification.LastRecipientName);
         Assert.Equal(["requested@example.com", "customer@example.com"], harness.Notification.LastCc);
@@ -654,6 +661,13 @@ public sealed class RequestCreateEndpointsTests
         public CapturingTicketNotificationService Notification { get; }
         public IServiceProvider Services => app.Services;
 
+        public async Task<int> DispatchSubmissionEffectsAsync()
+        {
+            using var worker = new MailboxOutboxDispatcher(app.Services.GetRequiredService<IServiceScopeFactory>(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<MailboxOutboxDispatcher>.Instance);
+            return await worker.DispatchBatchAsync();
+        }
+
         public static async Task<SelfServiceRequestTestHarness> CreateAsync(string authHeader = "SelfService")
         {
             var connection = new SqliteConnection("Data Source=:memory:");
@@ -683,6 +697,11 @@ public sealed class RequestCreateEndpointsTests
             builder.Services.AddSingleton<ITicketSlaInitializer, NoopTicketSlaInitializer>();
             builder.Services.AddSingleton<AppTicketServices.ITicketRefGeneratorService>(new FixedTicketRefGenerator("REQ-TEST-001"));
             builder.Services.AddSingleton<ITicketNotificationService>(notification);
+            builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
+            builder.Services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+            builder.Services.AddScoped<MailboxOutboxStore>();
+            builder.Services.AddScoped<SelfServiceSubmissionEffectHandler>();
+            builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ITenantProvisioningService, TestTenantProvisioningService>();
             builder.Services.AddSingleton<IDomainEventPublisher, NoopDomainEventPublisher>();
             builder.Services.AddSingleton<ICorrelationContext, TestCorrelationContext>();

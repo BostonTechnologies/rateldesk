@@ -23,6 +23,7 @@ public sealed class RequestTaskListItemDto
     public DateTimeOffset? NextRetryAt { get; set; }
     public int RetryCount { get; set; }
     public string? FailureReason { get; set; }
+    public Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic? ProviderDiagnostic { get; set; }
     public string? OrchestrationExternalRequestId { get; set; }
     public string? OrchestrationExternalRunId { get; set; }
     public DateTimeOffset? LastAutomationUpdatedAt { get; set; }

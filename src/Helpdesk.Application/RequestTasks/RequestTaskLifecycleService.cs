@@ -5,6 +5,7 @@ using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -137,6 +138,7 @@ public sealed class RequestTaskLifecycleService(
         OrchestrationIngestResult? received = null;
         try
         {
+            var dispatchStarted = Stopwatch.GetTimestamp();
             _logger.LogInformation(
                 "External orchestration automation submit started. RequestId={RequestId} TaskId={TaskId} AutomationBindingId={AutomationBindingId} OrchestrationRequestDefinitionId={OrchestrationRequestDefinitionId} OrchestrationJobDefinitionId={OrchestrationJobDefinitionId} AutomationBindingSyncState={AutomationBindingSyncState} InputKeyCount={InputKeyCount} CorrelationId={CorrelationId}",
                 task.RequestId,
@@ -164,6 +166,8 @@ public sealed class RequestTaskLifecycleService(
                 GraceSeconds = task.GraceSeconds,
                 HardTimeoutSeconds = task.HardTimeoutSeconds
             }, ct);
+            _logger.LogInformation("NetRatel dispatch acknowledged. TaskId={TaskId} CorrelationId={CorrelationId} DurationMs={DurationMs}",
+                task.Id, correlationId, Stopwatch.GetElapsedTime(dispatchStarted).TotalMilliseconds);
 
             if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Unknown)
             {
@@ -180,7 +184,7 @@ public sealed class RequestTaskLifecycleService(
             {
                 return await HandleUncertainAutomationSubmissionAsync(
                     task,
-                    Truncate(FirstNonEmpty(ingestResult.Message, "The NetRatel acknowledgement could not be classified.")!, 500),
+                    "The NetRatel acknowledgement could not be classified.",
                     correlationId,
                     ingestResult,
                     payloadResult,
@@ -193,7 +197,7 @@ public sealed class RequestTaskLifecycleService(
                     task,
                     Truncate(FirstNonEmpty(ingestResult.Message, "NetRatel rejected the submitted operation.")!, 500),
                     correlationId,
-                    ct);
+                    ct, ingestResult.Diagnostic);
             }
 
             if (ingestResult.Disposition == OrchestrationSubmissionDisposition.Existing)
@@ -271,13 +275,8 @@ public sealed class RequestTaskLifecycleService(
         }
         catch (OrchestrationSubmissionRejectedException ex)
         {
-            _logger.LogWarning(
-                "External orchestration automation submit was explicitly rejected before admission. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId}",
-                task.RequestId,
-                task.Id,
-                correlationId);
-
-            return await HandleRejectedAutomationSubmissionAsync(task, Truncate(ex.Message, 500), correlationId, ct);
+            return await HandleRejectedAutomationSubmissionAsync(task, Truncate(ex.Message, 500), correlationId,
+                DurablePersistenceToken(ct), ex.Diagnostic);
         }
         catch (Exception ex)
         {
@@ -454,7 +453,7 @@ public sealed class RequestTaskLifecycleService(
             task.OrchestrationLinkId, task.OrchestrationPeerInstanceId, task.OrchestrationLinkRevision,
             task.AutomationDeadlineUtcTicks, task.AutomationTimedOutAt, task.AutomationTimedOutAttemptId,
             task.ExpectedRuntimeSeconds, task.GraceSeconds, task.HardTimeoutSeconds, task.LastAutomationUpdatedAt,
-            task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson,
+            task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson, task.ProviderDiagnostic,
             task.AutomationOriginJson, task.AutomationDispatchPayloadJson,
             RetriedAtUtc = DateTimeOffset.UtcNow
         }));
@@ -492,6 +491,7 @@ public sealed class RequestTaskLifecycleService(
         task.LastAutomationUpdatedAt = null;
         task.OrchestratorExecutionId = null;
         task.ResultJson = null;
+        task.ProviderDiagnostic = null;
         task.UpdatedAt = DateTime.UtcNow;
 
         await _requestTasks.UpdateAsync(task);
@@ -573,6 +573,7 @@ public sealed class RequestTaskLifecycleService(
         if (acknowledgement is not null)
             ApplyRemoteAcknowledgement(task, payload, acknowledgement);
 
+        task.ProviderDiagnostic = ProviderExecutionDiagnostics.Outcome(task, new(), "unknown", correlationId);
         await _domainEvents.PublishAsync(
             new RequestTaskAutomationSubmitUncertainEvent(
                 task.Id,
@@ -580,7 +581,7 @@ public sealed class RequestTaskLifecycleService(
                 reason,
                 task.OrganizationId,
                 DateTimeOffset.UtcNow,
-                correlationId),
+                correlationId, task.ProviderDiagnostic),
             ct);
 
         task.LastAutomationStatus = AutomationTaskStatuses.SubmitUncertainManualReconcile;
@@ -669,25 +670,27 @@ public sealed class RequestTaskLifecycleService(
         RequestTask task,
         string reason,
         string correlationId,
-        CancellationToken ct)
+        CancellationToken ct,
+        ProviderExecutionDiagnostic? diagnostic)
     {
-        await _domainEvents.PublishAsync(
-            new RequestTaskAutomationSubmitRejectedEvent(
-                task.Id,
-                task.RequestId,
-                reason,
-                task.OrganizationId,
-                DateTimeOffset.UtcNow,
-                correlationId),
-            ct);
-
+        diagnostic ??= ProviderExecutionDiagnostics.Rejection(null, null, new()
+        {
+            CorrelationId = correlationId, OrchestrationJobDefinitionId = task.OrchestrationJobDefinitionId
+        }, task.OrchestrationLinkId);
+        task.ProviderDiagnostic = diagnostic;
         task.LastAutomationStatus = AutomationTaskStatuses.SubmitRejectedManualRetry;
         task.LastAutomationUpdatedAt = DateTimeOffset.UtcNow;
         task.NextRetryAt = null;
         task.ResultJson = reason;
         task.FailureReason = reason;
 
-        return await FailAsync(task.Id, reason, ct);
+        var failed = await FailAsync(task, reason, ct);
+        _logger.LogInformation("NetRatel admission rejected. RequestId={RequestId} TaskId={TaskId} ConnectionId={ConnectionId} JobDefinitionId={JobDefinitionId} CorrelationId={CorrelationId} HttpStatus={HttpStatus} ReasonCode={ReasonCode} RetryDisposition={RetryDisposition}",
+            task.RequestId, task.Id, diagnostic.ConnectionId, diagnostic.JobDefinitionId, correlationId,
+            diagnostic.HttpStatus, diagnostic.Code, diagnostic.RetryDisposition);
+        await _domainEvents.PublishAsync(new RequestTaskAutomationSubmitRejectedEvent(task.Id, task.RequestId,
+            diagnostic.Message, task.OrganizationId, DateTimeOffset.UtcNow, correlationId, diagnostic), ct);
+        return failed;
     }
 
     private async Task<RequestTask> FailUncertainSubmissionAsync(

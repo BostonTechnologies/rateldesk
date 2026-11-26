@@ -73,6 +73,9 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromMinutes(2));
+            if (claim.Kind == MailboxEffectKind.SelfServiceSubmission)
+                return await store.CompleteSelfServiceSubmissionAsync(claim,
+                    services.GetRequiredService<SelfServiceSubmissionEffectHandler>(), timeout.Token);
             var result = await DispatchAsync(claim, services, timeout.Token);
             submission = result;
             succeeded = result.Status is "Accepted by provider" or "Suppressed";
@@ -92,6 +95,8 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
         }
         catch (Exception error)
         {
+            if (claim.Kind == MailboxEffectKind.SelfServiceSubmission)
+                services.GetRequiredService<HelpdeskDbContext>().ChangeTracker.Clear();
             succeeded = false;
             requiresReview = claim.Kind == MailboxEffectKind.Email;
             errorCode = requiresReview ? "DispatchOutcomeUnknown"

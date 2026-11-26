@@ -155,6 +155,7 @@ public static class DependencyInjection
         services.AddScoped<Helpdesk.Infrastructure.Email.InboundTenantRouter>();
         services.AddScoped<IIngressEffectContext, IngressEffectContext>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutboxStore>();
+        services.AddScoped<Helpdesk.Infrastructure.Email.SelfServiceSubmissionEffectHandler>();
         services.AddScoped<Helpdesk.Infrastructure.Email.PendingEmailActions>();
         services.AddScoped<Helpdesk.Infrastructure.Email.PendingEmailQueryService>();
         services.AddScoped<Helpdesk.Infrastructure.Email.MailboxOutgoingRetryService>();
