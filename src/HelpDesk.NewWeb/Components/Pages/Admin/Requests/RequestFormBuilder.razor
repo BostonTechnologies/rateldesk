@@ -13,7 +13,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
-<WorkspaceEditGuard Dirty="@(IsDirty)" Saving="@saving" Message="Discard unsaved request form changes and leave?" />
+<WorkspaceEditGuard Dirty="@(IsDirty)" Saving="@(saving || inputReviewOpen)" Message="Discard unsaved request form changes and leave?" />
 <MudDialog Class="request-form-builder-dialog">
     <TitleContent>
         <div class="request-form-builder-title">
@@ -763,9 +763,9 @@
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudText Typo="Typo.caption" Class="request-form-save-state" role="status">@(saveError ?? validationError ?? (saving ? "Saving…" : IsDirty ? "Changes are kept across tabs until you save." : string.Empty))</MudText>
-        <MudButton Variant="Variant.Text" Disabled="@saving" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@saving" OnClick="Save">@(saving ? "Saving…" : "Save")</MudButton>
+        <MudText Typo="Typo.caption" Class="request-form-save-state" role="status">@(saveError ?? validationError ?? (saving ? "Saving…" : inputReviewOpen ? "Checking saved inputs…" : IsDirty ? "Changes are kept across tabs until you save." : string.Empty))</MudText>
+        <MudButton Variant="Variant.Text" Disabled="@(saving || inputReviewOpen)" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(saving || inputReviewOpen)" OnClick="Save">@(saving ? "Saving…" : "Save")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -862,6 +862,7 @@
     private List<RequestTaskTemplateModel> Tasks = new();
     private RequestTaskTemplateModel? selectedTask;
     private bool saving;
+    private bool inputReviewOpen;
     private const int SetupTab = 0;
     private const int FieldsTab = 1;
     private const int WorkflowTab = 2;
@@ -1960,6 +1961,7 @@
 
     private async Task Save()
     {
+        if (saving || inputReviewOpen) return;
         validationError = null;
         saveError = null;
         invalidTaskId = null;
@@ -2092,7 +2094,7 @@
 
     private async Task Cancel()
     {
-        if (saving) return;
+        if (saving || inputReviewOpen) return;
         if (IsDirty && await DialogService.ShowMessageBoxAsync("Discard request form changes?", "Your unsaved changes will be lost.", yesText: "Discard", cancelText: "Keep editing") != true) return;
         MudDialog.Cancel();
     }
@@ -2277,34 +2279,39 @@
 
     private async Task OpenInputReviewAsync()
     {
-        if (SelectedBinding is not { BindingId.Length: > 0 } binding)
+        if (saving || inputReviewOpen || SelectedBinding is not { BindingId.Length: > 0 } binding)
             return;
 
-        var parameters = new DialogParameters<AutomationInputReviewDialog>
-        {
-            { dialog => dialog.BindingId, binding.BindingId },
-            { dialog => dialog.CanApply, !IsDirty }
-        };
-        var dialog = await DialogService.ShowAsync<AutomationInputReviewDialog>("Review input differences", parameters,
-            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseOnEscapeKey = false, BackdropClick = false });
-        var result = await dialog.Result;
-        if (result?.Data is not AutomationInputReviewResultDto || IsDirty || string.IsNullOrWhiteSpace(RequestFormId))
-            return;
-
+        inputReviewOpen = true;
         try
         {
+            var parameters = new DialogParameters<AutomationInputReviewDialog>
+            {
+                { dialog => dialog.BindingId, binding.BindingId },
+                { dialog => dialog.CanApply, !IsDirty }
+            };
+            var dialog = await DialogService.ShowAsync<AutomationInputReviewDialog>("Review input differences", parameters,
+                new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseOnEscapeKey = false, BackdropClick = false });
+            var result = await dialog.Result;
+            if (result?.Data is not AutomationInputReviewResultDto || IsDirty || string.IsNullOrWhiteSpace(RequestFormId))
+                return;
+
             var selectedTaskId = selectedTask?.Id;
-            var updated = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}");
-            if (updated is not null)
-                ApplyLoadedRequestForm(updated);
+            var updated = await Api.GetFromJsonAsync<RequestFormDto>($"api/v1/request-forms/{RequestFormId}")
+                ?? throw new InvalidOperationException("The saved request form was not returned.");
             await LoadBindingsAsync(RequestFormId);
+            ApplyLoadedRequestForm(updated);
             selectedTask = Tasks.FirstOrDefault(task => task.Id == selectedTaskId) ?? Tasks.FirstOrDefault();
             initialDraftFingerprint = DraftFingerprint();
         }
         catch (Exception)
         {
-            Snackbar.Add("Review results were saved, but the editor could not reload. Reopen the form before editing.", Severity.Warning);
+            Snackbar.Add("The editor could not reload the saved review. Reopen the form before editing.", Severity.Warning);
             MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally
+        {
+            inputReviewOpen = false;
         }
     }
 
