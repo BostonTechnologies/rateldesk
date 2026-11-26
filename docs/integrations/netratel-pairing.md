@@ -143,6 +143,15 @@ the structured operation/status/code/reference. Creation refreshes the same
 connection and selects the resulting ordinary NetRatel job. Existing input-sync
 operations preserve the job's identity and execution target.
 
+Use **Review input differences** on a saved binding to choose **Push to NetRatel**
+or **Import into Helpdesk** for each input. If a saved mapping uses a field name
+instead of its stable key, a unique matching field is available as the source
+for Push. Resolve ambiguous references by selecting the existing source field.
+Push saves the mapping and sends supported input settings to NetRatel. A
+Helpdesk dataset multi-select sends canonical values as JSON array text in one
+NetRatel Text parameter. Saving or enabling the binding leaves input direction
+to the administrator.
+
 HA admits one eligible worker. Explicit-node jobs retain their complete frozen
 node set and native concurrency/failure policy. Each request-task attempt owns
 one durable aggregate parent, persisted before child dispatch. Exact retries

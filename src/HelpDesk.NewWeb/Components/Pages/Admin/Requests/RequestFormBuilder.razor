@@ -397,7 +397,8 @@
                                                         {
                                                             <MudStack Row="true" Spacing="1" Class="request-form-chip-row">
                                                                 <MudChip T="string" Size="Size.Small" Color="@GetBindingStateColor(SelectedBinding.SyncState)">
-                                                                    @SelectedBinding.SyncState
+                                                                    @(SelectedBinding.SyncState is AutomationBindingSyncState.Drifted or AutomationBindingSyncState.ImportPending
+                                                                        ? "Review needed" : SelectedBinding.SyncState.ToString())
                                                                 </MudChip>
                                                                 <MudChip T="string"
                                                                          Size="Size.Small"
@@ -2421,8 +2422,7 @@
     private Color GetBindingStateColor(AutomationBindingSyncState state) => state switch
     {
         AutomationBindingSyncState.InSync => Color.Success,
-        AutomationBindingSyncState.Drifted => Color.Warning,
-        AutomationBindingSyncState.ImportPending => Color.Info,
+        AutomationBindingSyncState.Drifted or AutomationBindingSyncState.ImportPending => Color.Warning,
         AutomationBindingSyncState.Broken => Color.Error,
         _ => Color.Default
     };

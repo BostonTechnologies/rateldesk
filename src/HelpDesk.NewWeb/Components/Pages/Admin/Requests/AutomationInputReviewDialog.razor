@@ -24,7 +24,7 @@
                 @foreach (var row in Differences)
                 {
                     var choice = ChoiceFor(row);
-                    var target = preview.AvailableFields.FirstOrDefault(field => field.Key == choice.FieldKey);
+                    var target = SelectedField(choice);
                     <fieldset class="input-review-row" @key="row.Key">
                         <legend>@row.Key · @ChangeLabel(row.ChangeType)</legend>
                         <div class="input-review-sides">
@@ -40,13 +40,26 @@
                                     <option value="@AutomationInputDirection.Import" disabled="@(row.Orchestration is null)">Import into Helpdesk</option>
                                 </select>
                             </label>
-                            @if (choice.Direction == AutomationInputDirection.Import && row.Orchestration is { } source)
+                            @if (choice.Direction == AutomationInputDirection.Push)
+                            {
+                                <label>
+                                    <span>Helpdesk source for @row.Key</span>
+                                    <select @bind="choice.FieldKey" disabled="@(!CanChoose)">
+                                        <option value="">Choose a field</option>
+                                        @foreach (var field in SelectableFields)
+                                        {
+                                            <option value="@field.Key" disabled="@(!CanPushFrom(row, field))">@field.Label (@field.Key)</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                            else if (choice.Direction == AutomationInputDirection.Import && row.Orchestration is { } source)
                             {
                                 <label>
                                     <span>Map existing field for @row.Key</span>
                                     <select @bind="choice.FieldKey" disabled="@(!CanChoose)">
                                         <option value="">Choose a field</option>
-                                        @foreach (var field in preview.AvailableFields)
+                                        @foreach (var field in SelectableFields)
                                         {
                                             <option value="@field.Key" disabled="@(!CompatibleTypes(field, source))">@field.Label (@field.Key)</option>
                                         }
@@ -107,9 +120,12 @@
     private string Route => $"api/v1/admin/orchestration/bindings/{Uri.EscapeDataString(BindingId)}";
     private IEnumerable<AutomationBindingInputDiffDto> Differences =>
         preview?.Differences.Where(row => row.ChangeType != "Unchanged") ?? [];
+    private IEnumerable<AutomationBindingInputSnapshotDto> SelectableFields => preview?.AvailableFields
+        .GroupBy(input => input.Key, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() == 1)
+        .Select(group => group.Single()) ?? [];
     private bool CanChoose => CanApply && preview?.ReviewVersion is not null && !needsRecheck && !loading && !applying;
     private bool CanApplyChanges => CanChoose && Differences.Any(row => ChoiceFor(row).Direction != AutomationInputDirection.LeaveUnresolved)
-        && Differences.All(row => ChoiceFor(row).Direction != AutomationInputDirection.Import || !string.IsNullOrEmpty(ChoiceFor(row).FieldKey));
+        && Differences.All(HasValidChoice);
 
     protected override Task OnInitializedAsync() => RecheckAsync();
 
@@ -130,7 +146,7 @@
                 {
                     if (!previousRows.TryGetValue(row.Key, out var prior) ||
                         !JsonElement.DeepEquals(JsonSerializer.SerializeToElement(prior), JsonSerializer.SerializeToElement(row)) ||
-                        !sameFields && choices.GetValueOrDefault(row.Key)?.Direction == AutomationInputDirection.Import)
+                        !sameFields && (choices.GetValueOrDefault(row.Key)?.Direction is AutomationInputDirection.Push or AutomationInputDirection.Import))
                         choices.Remove(row.Key);
                 }
                 if (result?.Synced == true && Differences.Any()) result = null;
@@ -160,9 +176,9 @@
             var decisions = Differences.Select(row =>
             {
                 var choice = ChoiceFor(row);
-                var import = choice.Direction == AutomationInputDirection.Import;
-                var create = import && choice.FieldKey == CreateField;
-                return new AutomationInputDecisionDto(row.Key, choice.Direction, import && !create ? choice.FieldKey : null, create);
+                var create = choice.Direction == AutomationInputDirection.Import && choice.FieldKey == CreateField;
+                var source = !create && choice.Direction != AutomationInputDirection.LeaveUnresolved ? choice.FieldKey : null;
+                return new AutomationInputDecisionDto(row.Key, choice.Direction, source, create);
             }).ToList();
             using var response = await Api.PostAsJsonAsync($"{Route}/apply-input-review", new ApplyAutomationInputReviewDto(preview!.ReviewVersion!, decisions));
             if (!response.IsSuccessStatusCode)
@@ -178,7 +194,10 @@
             if (result is null)
                 notice = "The outcome is unconfirmed. Recheck before retrying.";
             else if (result.Synced)
+            {
                 choices.Clear();
+                await RecheckAsync();
+            }
             else
                 notice = "Recheck to see remaining input differences before applying again.";
         }
@@ -202,8 +221,26 @@
         return choice;
     }
 
-    private static bool CanPush(AutomationBindingInputDiffDto row) =>
-        row.Helpdesk is { Type: not "missing-field" } field && (row.Orchestration is null || CompatibleTypes(field, row.Orchestration));
+    private AutomationBindingInputSnapshotDto? SelectedField(Choice choice) =>
+        SelectableFields.FirstOrDefault(field => field.Key == choice.FieldKey);
+
+    private bool HasValidChoice(AutomationBindingInputDiffDto row)
+    {
+        var choice = ChoiceFor(row);
+        return choice.Direction switch
+        {
+            AutomationInputDirection.Push => SelectedField(choice) is { } field && CanPushFrom(row, field),
+            AutomationInputDirection.Import when choice.FieldKey == CreateField => CanCreate(row),
+            AutomationInputDirection.Import => row.Orchestration is { } input && SelectedField(choice) is { } field
+                && CompatibleTypes(field, input),
+            _ => true
+        };
+    }
+
+    private bool CanPush(AutomationBindingInputDiffDto row) => SelectableFields.Any(field => CanPushFrom(row, field));
+
+    private static bool CanPushFrom(AutomationBindingInputDiffDto row, AutomationBindingInputSnapshotDto field) =>
+        row.Orchestration is null || CompatibleTypes(field, row.Orchestration);
 
     private static bool CompatibleTypes(AutomationBindingInputSnapshotDto field, AutomationBindingInputSnapshotDto input)
         => input.Type == "select"
@@ -220,12 +257,16 @@
     {
         "AddedInOrchestration" => "NetRatel only",
         "MissingInOrchestration" => "Helpdesk only",
+        "MappingNeedsUpdate" => "Mapping needs update",
+        "MappingMissing" => "Mapping needs a field",
+        "MappingAmbiguous" => "Mapping needs clarification",
         _ => "Different"
     };
 
     private static string Describe(AutomationBindingInputSnapshotDto? input)
     {
         if (input is null) return "No input";
+        if (input.Type == "missing-field") return input.Label;
         var presentation = input.PresentationType is null ? "" : $" · {input.PresentationType}";
         var dataset = input.UsesDataset ? " · dataset" : "";
         var key = input.FieldKey is null ? "" : $" ({input.FieldKey})";
@@ -236,27 +277,39 @@
 
     private static string DescribeChange(AutomationBindingInputDiffDto row, Choice choice, AutomationBindingInputSnapshotDto? target)
     {
-        var required = (choice.Direction == AutomationInputDirection.Push ? row.Helpdesk?.Required : row.Orchestration?.Required) == true
-            ? "required" : "optional";
-        var pushingChoices = row.Orchestration?.Type == "select" && row.Helpdesk is { Choices.Count: > 0 } local
-            ? $" Set choices to {string.Join(", ", local.Choices)}." : "";
+        var required = row.Orchestration?.Required == true ? "required" : "optional";
         var importingChoices = row.Orchestration is { Type: "select", Choices.Count: > 0 } remote
             ? $" Set predefined choices to {string.Join(", ", remote.Choices)}." : "";
         return choice.Direction switch
         {
-            AutomationInputDirection.Push when row.Orchestration is null
-                => $"Create NetRatel input {row.Key} as {row.Helpdesk!.Type}, {required}, labeled “{row.Helpdesk.Label}”.",
-            AutomationInputDirection.Push
-                => $"Set NetRatel label to “{row.Helpdesk!.Label}” and make the input {required}. Keep its type and default.{pushingChoices}",
+            AutomationInputDirection.Push when target is not null && CanPushFrom(row, target) => DescribePush(row, target),
+            AutomationInputDirection.Push => "Choose a compatible Helpdesk field to push.",
             AutomationInputDirection.Import when choice.FieldKey == CreateField
                 => $"Create and map Helpdesk field {row.Key} as {(row.Orchestration!.Type == "select" ? "predefined" : row.Orchestration.Type)}, {required}, labeled “{row.Orchestration.Label}”.{importingChoices}",
             AutomationInputDirection.Import when target is not null
                 => $"Map to {target.Key}, set its Helpdesk label to “{row.Orchestration!.Label}” and make it {required}. Keep its field type and dataset.{importingChoices}",
             AutomationInputDirection.Import => "Choose a compatible field or create a field where available.",
-            _ when !CanPush(row) && row.Helpdesk is { Type: not "missing-field" }
-                => "The types are incompatible. Map a compatible field or correct the parameter type.",
+            _ when row.Helpdesk is { Type: not "missing-field" } field && !CanPushFrom(row, field)
+                => "The mapped field cannot be sent as this NetRatel type. Choose a compatible field or change the NetRatel parameter type.",
             _ => "Leave both sides as they are."
         };
+    }
+
+    private static string DescribePush(AutomationBindingInputDiffDto row, AutomationBindingInputSnapshotDto field)
+    {
+        var required = field.Required ? "required" : "optional";
+        var mapping = row.ChangeType.StartsWith("Mapping", StringComparison.Ordinal) || row.Helpdesk?.FieldKey != field.Key
+            ? $"Save the Helpdesk mapping to {field.Label} ({field.Key})." : "";
+        if (row.Orchestration is not { } remote)
+            return $"Create NetRatel input {row.Key} as {field.Type}, {required}, labeled “{field.Label}”. {mapping}".TrimEnd();
+
+        var changes = new List<string>();
+        if (remote.Label != field.Label) changes.Add($"Set the NetRatel label to “{field.Label}”.");
+        if (remote.Required != field.Required) changes.Add($"Make the NetRatel input {required}.");
+        if (remote.Type == "select" && !remote.Choices.SequenceEqual(field.Choices))
+            changes.Add($"Set NetRatel choices to {string.Join(", ", field.Choices)}.");
+        if (mapping.Length > 0) changes.Add(mapping);
+        return string.Join(" ", changes);
     }
 
     private sealed class Choice

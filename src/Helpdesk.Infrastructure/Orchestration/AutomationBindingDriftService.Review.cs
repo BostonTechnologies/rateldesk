@@ -97,6 +97,8 @@ public sealed partial class AutomationBindingDriftService
         var outcomes = request.Decisions.Select(decision => new AutomationInputOutcomeDto(decision.Key,
             decision.Direction switch
             {
+                AutomationInputDirection.Push when plan.SavedMappings.Contains(decision.Key.Trim())
+                    => "Verified in NetRatel and saved the Helpdesk mapping.",
                 AutomationInputDirection.Push => "Updated and verified in NetRatel.",
                 AutomationInputDirection.Import => "Updated and verified in Helpdesk.",
                 _ => "Left unresolved."
@@ -149,7 +151,7 @@ public sealed partial class AutomationBindingDriftService
         => new("The form, binding, connection or NetRatel inputs changed. Reopen the review before applying.",
             "automation_input_review_stale");
 
-    private (JsonDocument? Schema, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> Inputs) PlanReview(
+    private (JsonDocument? Schema, IReadOnlyList<OrchestrationCatalogInputDefinitionDto> Inputs, HashSet<string> SavedMappings) PlanReview(
         AutomationBinding binding, RequestForm form, OrchestrationCatalogRequestDefinitionDto remote,
         IReadOnlyList<AutomationInputDecisionDto> decisions)
     {
@@ -161,51 +163,79 @@ public sealed partial class AutomationBindingDriftService
         var fields = document["fields"] as JsonArray ?? new JsonArray();
         var task = document["tasks"]!.AsArray().OfType<JsonObject>()
             .Single(node => Guid.TryParse(node["id"]?.ToString(), out var id) && id == binding.TaskTemplateId);
-        var mapping = task["payloadMapping"] as JsonObject;
+        var mapping = task["payloadMapping"] as JsonObject ?? new JsonObject(new JsonNodeOptions { PropertyNameCaseInsensitive = true });
         var fieldIndexes = preview.AvailableFields.Select((field, index) => (field.Key, Index: index))
-            .ToDictionary(pair => pair.Key, pair => pair.Index, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single().Index, StringComparer.OrdinalIgnoreCase);
         var usedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var imported = false;
+        var savedMappings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
         foreach (var decision in decisions.Where(decision => decision.Direction != AutomationInputDirection.LeaveUnresolved))
         {
             if (!differences.TryGetValue(decision.Key.Trim(), out var difference)) throw ReviewChanged();
             if (decision.Direction == AutomationInputDirection.Push)
             {
-                var input = ProjectPush(difference, inputs.GetValueOrDefault(difference.Key), inputs.Values);
-                if (!input.Required && remote.Target?.RequiredInputs.Contains(input.Key, StringComparer.OrdinalIgnoreCase) == true)
-                    throw new InvalidOperationException($"'{input.Key}' must be required because this job uses it to select a target.");
+                var fieldKey = decision.FieldKey?.Trim() ?? difference.Helpdesk?.FieldKey;
+                if (decision.CreateField || fieldKey is null || !fieldIndexes.TryGetValue(fieldKey, out var fieldIndex))
+                    throw new InvalidOperationException($"Choose the existing Helpdesk field to push for '{difference.Key}'.");
+                var field = preview.AvailableFields[fieldIndex];
+                if (decisions.Any(other => other.Direction == AutomationInputDirection.Import &&
+                    string.Equals(other.FieldKey?.Trim(), field.Key, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException($"'{field.Key}' is selected for both push and import. Review it in one direction at a time.");
+                var input = ProjectPush(difference, field, inputs.GetValueOrDefault(difference.Key), inputs.Values);
+                if (!input.Required && IsRequiredTargetInput(remote.Target, input.Key))
+                    throw new InvalidOperationException($"'{input.Key}' selects an execution target and must stay required. Make the mapped Helpdesk field required before pushing it.");
                 inputs[difference.Key] = input;
+                if (SaveMapping(mapping, input.Key, field.Key))
+                {
+                    savedMappings.Add(input.Key);
+                    changed = true;
+                }
                 continue;
             }
 
-            mapping ??= new JsonObject(new JsonNodeOptions { PropertyNameCaseInsensitive = true });
-            if (mapping.Parent is null) task["payloadMapping"] = mapping;
             ApplyReviewedImport(difference, decision, preview, fields, fieldIndexes, mapping, usedFields);
             if (fields.Parent is null) document["fields"] = fields;
-            imported = true;
+            changed = true;
         }
 
-        JsonDocument? proposed = imported ? JsonDocument.Parse(document.ToJsonString()) : null;
+        if (changed && mapping.Parent is null) task["payloadMapping"] = mapping;
+        JsonDocument? proposed = changed ? JsonDocument.Parse(document.ToJsonString()) : null;
         var projected = inputs.Values.OrderBy(input => input.Order).ThenBy(input => input.Key, StringComparer.OrdinalIgnoreCase).ToList();
-        return (proposed, projected);
+        return (proposed, projected, savedMappings);
     }
 
     private static OrchestrationCatalogInputDefinitionDto ProjectPush(AutomationBindingInputDiffDto difference,
-        OrchestrationCatalogInputDefinitionDto? remote, IEnumerable<OrchestrationCatalogInputDefinitionDto> inputs)
+        AutomationBindingInputSnapshotDto field, OrchestrationCatalogInputDefinitionDto? remote,
+        IEnumerable<OrchestrationCatalogInputDefinitionDto> inputs)
     {
-        if (difference.Helpdesk is not { Type: not "missing-field" } field)
-            throw new InvalidOperationException($"'{difference.Key}' needs a mapped Helpdesk field before it can be pushed.");
         if (difference.Orchestration is { } target && !CompatibleTypes(field, target))
             throw Incompatible(difference.Key);
         var choices = difference.Orchestration?.Type == "select" ? field.Choices : null;
         if (choices is not null && (choices.Count == 0 ||
             remote?.DefaultValue is { } defaultValue && !choices.Contains(defaultValue, StringComparer.Ordinal)))
             throw new InvalidOperationException($"'{difference.Key}' needs choices that include its saved NetRatel default.");
-        return new()
+        var projected = new OrchestrationCatalogInputDefinitionDto
         {
             Key = remote?.Key ?? difference.Key, Type = remote?.Type ?? field.Type, Label = field.Label, Required = field.Required,
             DefaultValue = remote?.DefaultValue, HelpText = remote?.HelpText, OptionsJson = choices is null ? remote?.OptionsJson : JsonSerializer.Serialize(choices),
             Order = remote?.Order ?? inputs.Select(input => input.Order).DefaultIfEmpty(-1).Max() + 1
+        };
+        if (field.MultiSelect && AutomationMultiSelectMapping.Validate([projected.Key], [projected]) is { } error)
+            throw new InvalidOperationException(error);
+        return projected;
+    }
+
+    private static bool IsRequiredTargetInput(OrchestrationAutomationTargetDto? target, string key)
+    {
+        // RequiredInputs also lists ordinary required job parameters.
+        if (target?.RequiredInputs.Contains(key, StringComparer.OrdinalIgnoreCase) != true) return false;
+        return target.Definition switch
+        {
+            { RuntimeInput: { } runtime } => string.Equals(runtime.Name, key, StringComparison.OrdinalIgnoreCase),
+            { Filter: { } filter } => filter.Contains($"@option.{key}@", StringComparison.OrdinalIgnoreCase),
+            _ => false
         };
     }
 
@@ -251,11 +281,21 @@ public sealed partial class AutomationBindingDriftService
         }
         if (!usedFields.Add(key!))
             throw new InvalidOperationException($"The Helpdesk field '{key}' is selected more than once in this review.");
-        // Replace a case/whitespace variant of the same input key, preserving unrelated mappings.
-        foreach (var prior in mapping.Select(entry => entry.Key).Where(prior =>
-            string.Equals(prior.Trim(), remote.Key, StringComparison.OrdinalIgnoreCase)).ToList())
+        SaveMapping(mapping, remote.Key, key!);
+    }
+
+    private static bool SaveMapping(JsonObject mapping, string inputKey, string fieldKey)
+    {
+        var previous = mapping.Select(entry => entry.Key)
+            .Where(key => string.Equals(key.Trim(), inputKey, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (previous.Count == 1 && previous[0].Trim() == inputKey && string.Equals(
+            mapping[previous[0]]?.ToString()?.Trim(), fieldKey, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        foreach (var prior in previous)
             mapping.Remove(prior);
-        mapping[remote.Key] = key;
+        mapping[inputKey] = fieldKey;
+        return true;
     }
 
     private static bool CompatibleTypes(AutomationBindingInputSnapshotDto field, AutomationBindingInputSnapshotDto input)

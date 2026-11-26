@@ -254,3 +254,45 @@ test('review applies mixed directions and preserves mapped fields through stale 
   expect(state.attempts.every((attempt: { path: string }) => !attempt.path.endsWith('/sync-inputs'))).toBe(true);
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
 });
+
+test('a saved ADGroups name can be pushed from the existing Helpdesk dataset field', async ({ page, request }, info) => {
+  await request.get(`${fixture}/reset?mode=review-legacy-groups`);
+  const before = await (await request.get(`${fixture}/state`)).json();
+  await openEditor(page);
+  await expect(page.locator('.svc-card')).toContainText('Review needed');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.request-form-builder-dialog')).toBeHidden();
+  const afterSave = await (await request.get(`${fixture}/state`)).json();
+  expect(afterSave.catalogue).toEqual(before.catalogue);
+  expect(afterSave.attempts.every((attempt: { path: string }) => !/sync-inputs|apply-input-review/.test(attempt.path))).toBe(true);
+
+  await openEditor(page);
+  const launch = page.getByRole('button', { name: 'Review input differences' });
+  await launch.click();
+  const dialog = page.getByRole('dialog', { name: 'Review input differences' });
+  await expect(dialog).toContainText('ADGroups (groups_internal)');
+  await expect(dialog).toContainText('Text containing a JSON array');
+  await expect(dialog.getByRole('combobox', { name: 'Decision for ADGroups' })).toHaveValue('LeaveUnresolved');
+  await dialog.getByRole('combobox', { name: 'Decision for ADGroups' }).selectOption({ label: 'Push to NetRatel' });
+  await expect(dialog.getByRole('combobox', { name: 'Helpdesk source for ADGroups' })).toHaveValue('groups_internal');
+  await expect(dialog).toContainText('Make the NetRatel input optional.');
+  await expect(dialog).toContainText('Save the Helpdesk mapping to ADGroups (groups_internal).');
+  await dialog.screenshot({ path: info.outputPath('saved-adgroups-push.png'), animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Apply selected changes' }).click();
+  await expect(dialog.getByRole('status')).toContainText('ADGroups · Verified in NetRatel and saved the Helpdesk mapping.');
+  await expect(dialog).toContainText('The saved input contracts match.');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.request-form-builder-dialog')).toBeHidden();
+  await openEditor(page);
+  await launch.click();
+  await expect(dialog).toContainText('The saved input contracts match.');
+
+  const afterPush = await (await request.get(`${fixture}/state`)).json();
+  const schema = JSON.parse(afterPush.form.jsonSchema);
+  expect(schema.fields).toEqual(JSON.parse(afterSave.form.jsonSchema).fields);
+  expect(schema.tasks[0].payloadMapping).toEqual({ Action: 'operation', ADGroups: 'groups_internal', User: 'user' });
+  expect(afterPush.catalogue[0].inputs).toEqual(before.catalogue[0].inputs.map((input: any) =>
+    input.key === 'ADGroups' ? { ...input, required: false } : input));
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+});

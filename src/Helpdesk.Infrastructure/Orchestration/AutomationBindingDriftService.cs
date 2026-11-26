@@ -81,11 +81,7 @@ public sealed partial class AutomationBindingDriftService(
 
                 if (!hasDiffs)
                 {
-                    if (binding.SyncState != AutomationBindingSyncState.ImportPending)
-                    {
-                        binding.SyncState = AutomationBindingSyncState.InSync;
-                    }
-
+                    binding.SyncState = AutomationBindingSyncState.InSync;
                     binding.LastSyncHash = remoteHash;
                     binding.LastSyncVersion ??= "schema:v1";
                 }
@@ -208,23 +204,30 @@ public sealed partial class AutomationBindingDriftService(
         return string.IsNullOrWhiteSpace(fallback) ? null : fallback.Trim();
     }
 
-    private static List<AutomationBindingInputSnapshotDto> BuildHelpdeskSnapshots(
+    private static List<(AutomationBindingInputSnapshotDto Input, string? MappingChange)> BuildHelpdeskSnapshots(
         IReadOnlyList<FormField> fields,
         RequestTaskTemplateModel taskTemplate)
     {
-        var fieldLookup = fields.Select((field, index) => (Field: field, Key: FormFieldKeyResolver.Resolve(field, index)))
-            .ToDictionary(pair => pair.Key, StringComparer.OrdinalIgnoreCase);
-        return (taskTemplate.PayloadMapping ?? []).Select(mapping =>
+        var snapshots = new List<(AutomationBindingInputSnapshotDto, string?)>();
+        foreach (var mapping in taskTemplate.PayloadMapping ?? [])
         {
             var key = mapping.Key.Trim();
-            var fieldKey = mapping.Value.Trim();
-            return fieldLookup.TryGetValue(fieldKey, out var field)
-                ? FieldSnapshot(field.Field, field.Key, key)
-                : new AutomationBindingInputSnapshotDto
+            var (field, fieldKey, ambiguous) = AutomationFormFieldResolver.Resolve(fields, mapping.Value);
+            if (field is null)
+            {
+                snapshots.Add((new AutomationBindingInputSnapshotDto
                 {
-                    Key = key, FieldKey = fieldKey, Label = $"Missing field: {fieldKey}", Type = "missing-field"
-                };
-        }).ToList();
+                    Key = key, FieldKey = fieldKey, Type = "missing-field",
+                    Label = AutomationFormFieldResolver.DescribeUnresolved(fieldKey, ambiguous)
+                }, ambiguous ? "MappingAmbiguous" : "MappingMissing"));
+                continue;
+            }
+
+            var mappingChange = string.Equals(fieldKey, mapping.Value.Trim(), StringComparison.OrdinalIgnoreCase)
+                ? null : "MappingNeedsUpdate";
+            snapshots.Add((FieldSnapshot(field, fieldKey, key), mappingChange));
+        }
+        return snapshots;
     }
 
     private static AutomationBindingInputSnapshotDto FieldSnapshot(FormField field, string key, string? inputKey = null) => new()
@@ -236,10 +239,10 @@ public sealed partial class AutomationBindingDriftService(
     };
 
     private static List<AutomationBindingInputDiffDto> BuildDiffs(
-        IReadOnlyList<AutomationBindingInputSnapshotDto> helpdeskInputs,
+        IReadOnlyList<(AutomationBindingInputSnapshotDto Input, string? MappingChange)> helpdeskInputs,
         IReadOnlyList<AutomationBindingInputSnapshotDto> orchestrationInputs)
     {
-        var helpdeskByKey = helpdeskInputs.ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
+        var helpdeskByKey = helpdeskInputs.ToDictionary(x => x.Input.Key, StringComparer.OrdinalIgnoreCase);
         var orchestrationByKey = orchestrationInputs.ToDictionary(x => x.Key, StringComparer.OrdinalIgnoreCase);
         var keys = helpdeskByKey.Keys
             .Union(orchestrationByKey.Keys, StringComparer.OrdinalIgnoreCase)
@@ -248,16 +251,16 @@ public sealed partial class AutomationBindingDriftService(
         var diffs = new List<AutomationBindingInputDiffDto>();
         foreach (var key in keys)
         {
-            helpdeskByKey.TryGetValue(key, out var helpdesk);
+            var (helpdesk, mappingChange) = helpdeskByKey.GetValueOrDefault(key);
             orchestrationByKey.TryGetValue(key, out var orchestration);
 
-            var changeType = helpdesk is null
+            var changeType = mappingChange ?? (helpdesk is null
                 ? "AddedInOrchestration"
                 : orchestration is null
                     ? "MissingInOrchestration"
                     : SnapshotsEqual(helpdesk, orchestration)
                         ? "Unchanged"
-                        : "Modified";
+                        : "Modified");
 
             diffs.Add(new AutomationBindingInputDiffDto
             {
@@ -314,7 +317,7 @@ public sealed partial class AutomationBindingDriftService(
             JobName = FirstNonEmpty(remote.OrchestrationJobDefinitionName, remote.RequestDefinitionName),
             AvailableFields = schema.Fields.Select((field, index) => FieldSnapshot(field, FormFieldKeyResolver.Resolve(field, index))).ToList(),
             SyncState = binding.SyncState,
-            HelpdeskInputs = helpdeskInputs,
+            HelpdeskInputs = helpdeskInputs.Select(snapshot => snapshot.Input).ToList(),
             OrchestrationInputs = orchestrationInputs,
             Differences = BuildDiffs(helpdeskInputs, orchestrationInputs)
         };

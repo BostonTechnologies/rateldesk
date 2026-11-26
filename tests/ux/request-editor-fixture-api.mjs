@@ -23,7 +23,8 @@ function reset(mode='') {
  const tasks=[{id:taskIds[0],name:'Prepare access — synthetic automation',description:'Review and map a harmless synthetic request.',type:'automation',order:1,autoStart:true,payloadMapping:Object.fromEntries(inputs.map(x=>[x.key,'request_reason'])),dependsOn:[]},
  {id:taskIds[1],name:'Review result',type:'manual',order:2,autoStart:true,dependsOn:[taskIds[0]],description:'Human review retained while reordering.'},
  {id:taskIds[2],name:'Approve completion',type:'approval',order:3,autoStart:true,dependsOn:[taskIds[1]],approvalAllowedDays:7,approvalApprovers:[{source:'User',id:'operator',name:'Synthetic Operator',email:'operator@example.test'}]}];
- if(mode==='review'){
+ const legacyGroups=mode==='review-legacy-groups';
+ if(mode==='review'||legacyGroups){
   fields.splice(0,fields.length,
    {key:'operation',label:'Action',type:'predefined',predefinedOptions:['Add','Remove'],required:true},
    {key:'groups_internal',label:'Directory groups',type:'helpdeskData',multiSelect:true,dataBinding:{datasetId:'fixture-groups'}},
@@ -33,6 +34,16 @@ function reset(mode='') {
    {key:'Action',label:'Action',type:'text',required:false,order:1},
    {key:'ADGroups',label:'Groups',type:'text',required:true,order:2},
    {key:'User',label:'User',type:'text',required:true,order:3}];
+  if(legacyGroups){
+   fields[1].label='ADGroups';
+   fields[2].type='helpdeskData';
+   fields[2].dataBinding={datasetId:'fixture-users'};
+   fields.push({key:'justification',label:'Business justification',type:'text'});
+   tasks[0].payloadMapping.ADGroups='ADGroups';
+   Object.assign(catalogue[0].inputs[0],{required:true});
+   Object.assign(catalogue[0].inputs[1],{label:'ADGroups'});
+   Object.assign(catalogue[0].inputs[2],{required:false});
+  }
  }
  if(mode==='invalid-approval')tasks[2].approvalApprovers=[];
  if(mode==='cycle')tasks[0].dependsOn=[taskIds[1]];
@@ -40,7 +51,7 @@ function reset(mode='') {
  if(mode==='empty')tasks.splice(0);
  if(mode==='many')tasks.push(...Array.from({length:30},(_,i)=>({id:`dddddddd-dddd-dddd-dddd-${String(i+1).padStart(12,'0')}`,name:`Synthetic long workflow task ${i+1} with enough words to wrap correctly`,type:'manual',order:i+4,dependsOn:[]})));
  form={id:'form-1',serviceId:'service-1',title:'Example access request',description:'Synthetic request editor acceptance',organizationId:'org-1',allowedOrganizationIds:['org-1'],releaseStatus:0,jsonSchema:JSON.stringify({fields,tasks})};
- bindings=mode==='empty'?[]:[{id:'binding-1',requestFormId:'form-1',taskTemplateId:taskIds[0],organizationId:'org-1',systemConnectionId:connectionId,orchestrationRequestDefinitionId:'definition-1',orchestrationRequestDefinitionName:'Synthetic read-only target',enabled:true,syncState:0}];
+ bindings=mode==='empty'?[]:[{id:'binding-1',requestFormId:'form-1',taskTemplateId:taskIds[0],organizationId:'org-1',systemConnectionId:connectionId,orchestrationRequestDefinitionId:'definition-1',orchestrationRequestDefinitionName:'Synthetic read-only target',enabled:true,syncState:legacyGroups?2:0}];
 }
 reset();
 http.createServer(async(req,res)=>{
@@ -56,7 +67,7 @@ http.createServer(async(req,res)=>{
  if(path==='/api/v1/branding')return reply({applicationName:'RatelDesk',faviconUrl:'/favicon.ico'});
  if (['/api/v1/admin/directories/organizations/search'].includes(path)) return reply(organizationLookupPage(url, organizations));
  if(path==='/api/v1/organizations')return reply(organizations);
- if(path==='/api/v1/resources/datasets')return reply([{id:'fixture-groups',name:'Fixture groups',displayColumn:'name',searchColumns:['name'],isActive:true}]);
+ if(path==='/api/v1/resources/datasets')return reply(['groups','users'].map(name=>({id:`fixture-${name}`,name:`Fixture ${name}`,displayColumn:'name',searchColumns:['name'],isActive:true})));
  if(path==='/api/v1/users')return reply([{id:'operator',name:'Synthetic Operator',email:'operator@example.test',organizationId:'org-1'}]);
  if(path==='/api/v1/services/service-1')return reply({id:'service-1',name:'Synthetic service',depth:1});
  if(path==='/api/v1/services/service-1/breadcrumb')return reply([{id:'service-1',name:'Synthetic service'}]);
@@ -79,8 +90,11 @@ http.createServer(async(req,res)=>{
    label:field.label,presentationType:field.type,type:'text',required:!!field.required,multiSelect:!!field.multiSelect,
    usesDataset:!!field.dataBinding,choices:field.predefinedOptions??[]}));
   const different=Object.hasOwn(schema.tasks[0]?.payloadMapping??{},'Action')?catalogue[0].inputs.map(input=>{
-   const helpdesk=availableFields.find(field=>field.key===schema.tasks[0].payloadMapping[input.key]);
-   const changeType=helpdesk?.label===input.label&&helpdesk.required===input.required?'Unchanged':'Modified';
+   const savedSource=schema.tasks[0].payloadMapping[input.key];
+   const keyed=availableFields.find(field=>field.key===savedSource);
+   const helpdesk=keyed??availableFields.find(field=>field.label===savedSource);
+   const changeType=!keyed&&helpdesk?'MappingNeedsUpdate'
+    :helpdesk?.label===input.label&&helpdesk.required===input.required?'Unchanged':'Modified';
    return {key:input.key,changeType,helpdesk,orchestration:input};
   }):[];
   return reply({bindingId:'binding-1',requestFormId:'form-1',taskTemplateId:taskIds[0],taskTemplateName:'Prepare access',
@@ -100,7 +114,12 @@ http.createServer(async(req,res)=>{
    const field=schema.fields.find(entry=>entry.key===(decision.fieldKey??schema.tasks[0].payloadMapping[decision.key]));
    if(decision.direction===1){
     Object.assign(input,{label:field.label,required:!!field.required});
-    outcomes.push({key:decision.key,message:'Updated and verified in NetRatel.'});
+    const remapped=schema.tasks[0].payloadMapping[decision.key]!==field.key;
+    if(remapped){
+     schema.tasks[0].payloadMapping[decision.key]=field.key;
+     helpdeskChanged=true;
+    }
+    outcomes.push({key:decision.key,message:remapped?'Verified in NetRatel and saved the Helpdesk mapping.':'Updated and verified in NetRatel.'});
    }else if(decision.direction===2){
     Object.assign(field,{label:input.label,required:input.required});
     helpdeskChanged=true;
@@ -112,6 +131,7 @@ http.createServer(async(req,res)=>{
    const field=schema.fields.find(entry=>entry.key===schema.tasks[0].payloadMapping[input.key]);
    return field?.label===input.label&&!!field?.required===input.required;
   });
+  bindings[0].syncState=synced?0:1;
   reviewVersion++;
   return reply({reference:'fixture-review-'+reviewVersion,synced,helpdeskChanged,outcomes});
  }

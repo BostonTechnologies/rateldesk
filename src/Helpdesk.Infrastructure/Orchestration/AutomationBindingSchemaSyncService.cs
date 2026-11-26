@@ -167,13 +167,6 @@ public sealed class AutomationBindingSchemaSyncService(
             return [];
         }
 
-        var fieldLookup = fields
-            .Select((field, index) => new { Field = field, Index = index })
-            .ToDictionary(
-                x => FormFieldKeyResolver.Resolve(x.Field, x.Index),
-                x => x.Field,
-                StringComparer.OrdinalIgnoreCase);
-
         var inputs = new List<OrchestrationCatalogInputDefinitionDto>();
         var seenInputKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var order = 0;
@@ -194,9 +187,10 @@ public sealed class AutomationBindingSchemaSyncService(
                 continue;
             }
 
-            if (!fieldLookup.TryGetValue(fieldKey, out var field))
+            var (field, _, ambiguous) = AutomationFormFieldResolver.Resolve(fields, fieldKey);
+            if (field is null)
             {
-                throw new InvalidOperationException($"Payload mapping references missing field '{fieldKey}'.");
+                throw new InvalidOperationException(AutomationFormFieldResolver.UnresolvedMappingMessage(fieldKey, ambiguous));
             }
 
             inputs.Add(new OrchestrationCatalogInputDefinitionDto
