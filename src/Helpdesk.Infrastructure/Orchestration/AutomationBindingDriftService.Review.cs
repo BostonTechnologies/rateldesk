@@ -184,8 +184,8 @@ public sealed partial class AutomationBindingDriftService
                     string.Equals(other.FieldKey?.Trim(), field.Key, StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidOperationException($"'{field.Key}' is selected for both push and import. Review it in one direction at a time.");
                 var input = ProjectPush(difference, field, inputs.GetValueOrDefault(difference.Key), inputs.Values);
-                if (!input.Required && remote.Target?.RequiredInputs.Contains(input.Key, StringComparer.OrdinalIgnoreCase) == true)
-                    throw new InvalidOperationException($"'{input.Key}' must be required because this job uses it to select a target.");
+                if (!input.Required && IsRequiredTargetInput(remote.Target, input.Key))
+                    throw new InvalidOperationException($"'{input.Key}' selects an execution target and must stay required. Make the mapped Helpdesk field required before pushing it.");
                 inputs[difference.Key] = input;
                 if (SaveMapping(mapping, input.Key, field.Key))
                 {
@@ -225,6 +225,18 @@ public sealed partial class AutomationBindingDriftService
         if (field.MultiSelect && AutomationMultiSelectMapping.Validate([projected.Key], [projected]) is { } error)
             throw new InvalidOperationException(error);
         return projected;
+    }
+
+    private static bool IsRequiredTargetInput(OrchestrationAutomationTargetDto? target, string key)
+    {
+        // RequiredInputs also lists ordinary required job parameters.
+        if (target?.RequiredInputs.Contains(key, StringComparer.OrdinalIgnoreCase) != true) return false;
+        return target.Definition switch
+        {
+            { RuntimeInput: { } runtime } => string.Equals(runtime.Name, key, StringComparison.OrdinalIgnoreCase),
+            { Filter: { } filter } => filter.Contains($"@option.{key}@", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
     }
 
     private static void ApplyReviewedImport(AutomationBindingInputDiffDto difference, AutomationInputDecisionDto decision,

@@ -348,12 +348,14 @@ public sealed class AutomationBindingDriftServiceTests
     }
 
     [Theory]
-    [InlineData(" ADGroups ", null, true)]
-    [InlineData("ADGroups", null, false)]
-    [InlineData("removed_key", "groups_internal", true)]
-    [InlineData(null, "groups_internal", true)]
+    [InlineData(" ADGroups ", null, true, "explicitNodes")]
+    [InlineData("ADGroups", null, false, "explicitNodes")]
+    [InlineData("removed_key", "groups_internal", true, "explicitNodes")]
+    [InlineData(null, "groups_internal", true, "explicitNodes")]
+    [InlineData("ADGroups", null, true, "runtimeInput")]
+    [InlineData("ADGroups", null, true, "nodeFilter")]
     public async Task Reviewed_push_saves_existing_dataset_field_mapping_without_importing(
-        string? savedReference, string? selectedField, bool peerRequiresGroups)
+        string? savedReference, string? selectedField, bool peerRequiresGroups, string targetKind)
     {
         await using var db = CreateDb();
         var mapping = new Dictionary<string, string> { ["Action"] = "operation", ["User"] = "directory_user" };
@@ -384,7 +386,17 @@ public sealed class AutomationBindingDriftServiceTests
         {
             RequestDefinitionId = binding.OrchestrationRequestDefinitionId,
             OrchestrationJobDefinitionId = binding.OrchestrationJobDefinitionId,
-            Inputs = [action, user, groups]
+            Inputs = [action, user, groups],
+            Target = new()
+            {
+                Version = 1, Kind = targetKind, RequiredInputs = peerRequiresGroups ? ["Action", "ADGroups"] : ["Action"],
+                Definition = targetKind switch
+                {
+                    "runtimeInput" => new() { Source = 4, RuntimeInput = new() { Kind = 4, Name = "adgroups" } },
+                    "nodeFilter" => new() { Source = 3, Filter = "tags: @option.adgroups@" },
+                    _ => new() { Source = 2, AgentIds = [Guid.NewGuid().ToString("D")] }
+                }
+            }
         };
         var catalog = Substitute.For<IOrchestrationCatalogService>();
         catalog.ListRequestDefinitionsAsync(binding.OrganizationId, connection.Id, Arg.Any<CancellationToken>()).Returns([target]);
@@ -409,8 +421,18 @@ public sealed class AutomationBindingDriftServiceTests
             Assert.True(difference.Helpdesk.MultiSelect);
             Assert.True(difference.Helpdesk.UsesDataset);
         }
-        var result = await service.ApplyReviewAsync(binding.Id, new(preview.ReviewVersion!,
-            [new("ADGroups", AutomationInputDirection.Push, selectedField, false)]));
+        var reviewed = new ApplyAutomationInputReviewDto(preview.ReviewVersion!,
+            [new("ADGroups", AutomationInputDirection.Push, selectedField, false)]);
+        if (targetKind is "runtimeInput" or "nodeFilter")
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyReviewAsync(binding.Id, reviewed));
+            Assert.Contains("selects an execution target and must stay required", error.Message);
+            Assert.Same(groups, target.Inputs[2]);
+            var rejected = (await db.RequestForms.AsNoTracking().SingleAsync()).JsonSchema;
+            Assert.Equal(savedReference, Assert.Single(parser.Parse(rejected).Tasks).PayloadMapping!["ADGroups"]);
+            return;
+        }
+        var result = await service.ApplyReviewAsync(binding.Id, reviewed);
 
         Assert.True(result.Synced);
         Assert.True(result.HelpdeskChanged);
