@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
@@ -164,8 +165,10 @@ public sealed partial class AutomationBindingDriftService(
                 var schema = _schemaParser.Parse(requestForm.JsonSchema);
                 taskTemplateName = schema.Tasks.FirstOrDefault(x => x.Id == binding.TaskTemplateId)?.Name ?? string.Empty;
             }
-            catch
+            catch (JsonException)
             {
+                // The binding remains visible to operators even if its saved form schema needs repair.
+                taskTemplateName = string.Empty;
             }
         }
 
