@@ -1,0 +1,47 @@
+{
+  "revisions": {
+    "rateldeskApi": "60f12ca2a1eefabf6b52bed0baa21d0077598296",
+    "rateldeskWeb": "50396baa43e4e23e908bd6039646a2573509fe79",
+    "netratelReviewedInputs": "54fbad74e64dfb396c9642c8bef603881e275a44",
+    "netratelTestRevision": "9a6561453cd2c7aa84eb01b6346b1bc2e9f02cc7"
+  },
+  "runtimeAssemblySha256": {
+    "rateldesk": {
+      "api": "19b7c3cfb8a0cd394c112e3c1e4550447d14e93c0bb7edc7caf3fb6f6e7cd7a3",
+      "web": "b557249deeac6b6523d1efad69319a7f389d6cd1ce2fee58004142e3cf17a237"
+    },
+    "netratel": {
+      "api": "80b93b6a40d411ceaea86b6468ee5882b633841f30a0dc18647c7cdcbd6321d4",
+      "web": "f6869878b05e3130a67edf3cf962608d02036e916bfa0c257142795e95df0c4a"
+    }
+  },
+  "mixedReview": {
+    "push": "Action",
+    "import": "ADGroups → groups_internal",
+    "deferred": "User",
+    "finalContractMatched": true,
+    "preservedHelpdeskFields": 4,
+    "preservedNetRatelInputs": 4,
+    "preservedChoices": [
+      "Add",
+      "Remove"
+    ]
+  },
+  "requestId": "01a2168e3b6c78e1a2afaff54246c41f",
+  "taskId": "01a2168e3d3870e8b410fe7d8f33afc7",
+  "attempt": "corr-5837777c56ca450e80b4ad865e78596e",
+  "runId": "639312708613177152",
+  "organizationId": "01a21685e9ab72acbfd1e2e84c91bb2c",
+  "tenantId": 1,
+  "connectionId": "ed9d28d1-7221-4780-86fb-7649f1d1665b",
+  "verifiedOidcActor": true,
+  "onBehalfOfScopedCustomer": true,
+  "observedAdmissions": 1,
+  "executedTargets": 1,
+  "action": "Add",
+  "adGroupsJson": "[\"group,one\",\"group-two\"]",
+  "adGroupsUtf8Hex": "5b2267726f75702c6f6e65222c2267726f75702d74776f225d",
+  "requestStatus": "Completed",
+  "taskStatus": "succeeded",
+  "exitCode": 0
+}
