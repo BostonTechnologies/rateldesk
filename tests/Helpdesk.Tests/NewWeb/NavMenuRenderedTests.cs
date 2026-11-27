@@ -96,7 +96,8 @@ public sealed class NavMenuRenderedTests
     [InlineData("Request.Write", "/ai/ops", "Chat,Investigations", "Investigations")]
     [InlineData("HelpdeskAdmin", "/ai/prompts", "Chat,Investigations,Prompts", "Prompts")]
     [InlineData("Tenant.Users.Manage", "/admin/users", "Support Agents", "Support Agents")]
-    [InlineData("Tenant.Settings.Manage", "/tenant-settings", "Organizations", "Organizations")]
+    [InlineData("Tenant.Settings.Manage", "/tenant-settings", "Organizations,Support Routing", "Organizations")]
+    [InlineData("Tenant.Settings.Manage", "/admin/support-routing", "Organizations,Support Routing", "Support Routing")]
     [InlineData("Tenant.Roles.Assign", "/admin/organizations", "Support Agents,Organizations", "Organizations")]
     [InlineData("HelpdeskAdmin", "/admin/requests/services/example", "Rules,Service Catalog,Webhooks", "Service Catalog")]
     public async Task Hub_tabs_filter_by_role_and_highlight_the_active_route(string role, string route, string labels, string current)
