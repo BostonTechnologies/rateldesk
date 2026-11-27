@@ -1,4 +1,4 @@
-using Helpdesk.Shared.Auth;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
@@ -12,18 +12,12 @@ public sealed class TicketRelationService(HelpdeskDbContext db)
 {
     public IQueryable<Ticket> Visible(CurrentUserAccessProfile access, string organization)
     {
-        var incidentRead = access.HasPermission(HelpdeskPermissions.IncidentRead, organization) || access.CanManageIncident(organization);
-        var requestRead = access.HasPermission(HelpdeskPermissions.RequestRead, organization) || access.CanManageRequest(organization);
-        var changeRead = access.HasPermission(HelpdeskPermissions.ChangeRead, organization) || access.CanManageChange(organization);
-        var incidentOwn = access.HasPermission(HelpdeskPermissions.IncidentUser, organization);
-        var requestOwn = access.HasPermission(HelpdeskPermissions.RequestUser, organization);
-        var changeOwn = access.HasPermission(HelpdeskPermissions.ChangeUser, organization);
-        var incidents = db.Incidents.Where(x => x.OrganizationId == organization &&
-            (incidentRead || incidentOwn && access.CustomerId != null && x.CustomerId == access.CustomerId)).Select(x => x.Id);
-        var requests = db.Requests.Where(x => x.OrganizationId == organization &&
-            (requestRead || requestOwn && access.CustomerId != null && x.CustomerId == access.CustomerId)).Select(x => x.Id);
-        var changes = db.Changes.Where(x => x.OrganizationId == organization &&
-            (changeRead || changeOwn && access.CustomerId != null && x.CustomerId == access.CustomerId)).Select(x => x.Id);
+        var incidents = TicketAccessPolicy.Readable(db.Incidents, access, TicketType.Incident)
+            .Where(x => x.OrganizationId == organization).Select(x => x.Id);
+        var requests = TicketAccessPolicy.Readable(db.Requests, access, TicketType.Request)
+            .Where(x => x.OrganizationId == organization).Select(x => x.Id);
+        var changes = TicketAccessPolicy.Readable(db.Changes, access, TicketType.Change)
+            .Where(x => x.OrganizationId == organization).Select(x => x.Id);
         var tasks = db.RequestTasks.Where(x => x.OrganizationId == organization && requests.Contains(x.RequestId)).Select(x => x.Id);
         var ids = incidents.Concat(requests).Concat(changes).Concat(tasks);
         return db.Tickets.AsNoTracking().Where(x => x.OrganizationId == organization && ids.Contains(x.Id));

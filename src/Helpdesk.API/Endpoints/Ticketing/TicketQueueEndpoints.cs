@@ -5,6 +5,7 @@ using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.TicketQueue;
+using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -23,6 +24,7 @@ public static class TicketQueueEndpoints
             .RequireAuthorization("TicketReadAccess")
             .WithMetadata(new QueueAwareEndpoint());
         group.MapGet("/", GetOptionsAsync).WithName("SearchTicketQueues");
+        group.MapGet("/assignees", GetAssigneesAsync).WithName("SearchTicketQueueAssignees");
         group.MapPost("/assignment", AssignAsync).WithName("AssignTicketQueue");
         group.MapPost("/{ticketId}/claim", ClaimAsync).WithName("ClaimTicketInQueue");
     }
@@ -47,6 +49,8 @@ public static class TicketQueueEndpoints
                 return Results.Forbid();
             if (ticket.AssignedToId == caller) return Results.NoContent();
             if (ticket.QueueAssignmentVersion != expectedVersion || ticket.AssignedToId != null) return Conflict();
+            if (ticket is Change change && (change.LifecycleState ?? ChangeLifecycleState.Draft) != ChangeLifecycleState.Draft)
+                return Results.Conflict(new { message = "Individual assignment can only change while the change is in Draft." });
             TicketQueueAssignment.Stage(db, ticket, ticket.AssignedSupportGroupId, caller, caller, null, DateTime.UtcNow);
             await db.SaveChangesAsync(ct);
             await notifications.NotifyTicketAssignedAsync(ticket, null, caller, ct);
@@ -61,6 +65,44 @@ public static class TicketQueueEndpoints
         {
             return Conflict();
         }
+    }
+
+    private static async Task<IResult> GetAssigneesAsync(
+        string module, string organizationId, string? supportGroupId, string? q, string? id, int? limit,
+        HelpdeskDbContext db, ClaimsPrincipal principal, ICurrentUserAccessService accessService, CancellationToken ct)
+    {
+        if (!TryModule(module, out var ticketType)) return Results.NotFound();
+        if (q?.Length > 200 || id?.Length > 128 || limit is < 1) return Results.BadRequest();
+        var access = await accessService.ResolveAsync(principal, ct);
+        if (!await IsAuthorizedDestinationAsync(db, access, ticketType, organizationId, supportGroupId, ct))
+            return Results.NotFound();
+
+        var eligible = supportGroupId == null
+            ? AssigneeQueries.Eligible(db, module.ToLowerInvariant(), db.Organizations.Where(org => org.Id == organizationId))
+            : db.Users.AsNoTracking().Where(user => !user.IsDeleted && db.SupportGroupMembers.Any(member =>
+                member.SupportGroupId == supportGroupId && member.UserId == user.Id && member.IsEnabled));
+        if (!string.IsNullOrWhiteSpace(id)) eligible = eligible.Where(user => user.Id == id);
+        else if (!string.IsNullOrWhiteSpace(q))
+        {
+            var text = q.Trim().ToLowerInvariant();
+            eligible = eligible.Where(user => user.Name.ToLower().Contains(text) || user.Email.ToLower().Contains(text));
+        }
+        var maximum = Math.Min(limit ?? 20, 50);
+        var choices = new List<UserDto>();
+        var candidates = await eligible.OrderBy(user => user.Name).ThenBy(user => user.Id)
+            .Select(user => new UserDto(user.Id, user.Name, user.Email, user.Role, user.IsTestUser, user.OrganizationId))
+            .ToListAsync(ct);
+        var matched = 0;
+        foreach (var candidate in candidates)
+        {
+            if (supportGroupId != null &&
+                (await AssigneeQueries.ResolveAccountAccessAsync(db, accessService, candidate.Id, ct) is not { } candidateAccess ||
+                 !TicketAccessPolicy.CanWrite(candidateAccess, ticketType, organizationId, supportGroupId)))
+                continue;
+            matched++;
+            if (choices.Count < maximum) choices.Add(candidate);
+        }
+        return Results.Ok(new CreationLookupResult<UserDto>(choices, matched, matched > maximum));
     }
 
     private static async Task<IResult> GetOptionsAsync(
@@ -136,7 +178,7 @@ public static class TicketQueueEndpoints
 
     private static async Task<IResult> AssignAsync(
         string module, AssignTicketQueueDto request, ClaimsPrincipal principal, HelpdeskDbContext db,
-        ICurrentUserAccessService accessService, CancellationToken ct)
+        ICurrentUserAccessService accessService, ISupportNotificationService notifications, CancellationToken ct)
     {
         if (!TryModule(module, out var ticketType)) return Results.NotFound();
         if (request.Tickets is not { Count: > 0 and <= 100 } ||
@@ -178,6 +220,7 @@ public static class TicketQueueEndpoints
             var assignments = tickets.Select(ticket => new
             {
                 Ticket = ticket,
+                PreviousAssigneeId = ticket.AssignedToId,
                 AssigneeId = request.AssigneeAction switch
                 {
                     QueueAssigneeAction.Clear => null,
@@ -185,6 +228,11 @@ public static class TicketQueueEndpoints
                     _ => ticket is Change change ? change.ImplementorUserId ?? change.AssignedToId : ticket.AssignedToId
                 }
             }).ToArray();
+            if (assignments.Any(item => item.Ticket is Change change &&
+                (change.LifecycleState ?? ChangeLifecycleState.Draft) != ChangeLifecycleState.Draft &&
+                (change.ImplementorUserId != item.AssigneeId || change.AssignedToId != item.AssigneeId)))
+                return Results.Conflict(new { message = "Individual assignment can only change while the change is in Draft." });
+
             foreach (var destination in assignments.Where(item => item.AssigneeId != null)
                          .Select(item => (OrganizationId: item.Ticket.OrganizationId!, AssigneeId: item.AssigneeId!)).Distinct())
             {
@@ -196,6 +244,9 @@ public static class TicketQueueEndpoints
             foreach (var assignment in assignments)
                 TicketQueueAssignment.Stage(db, assignment.Ticket, target, assignment.AssigneeId, actorId, request.Reason?.Trim(), occurredUtc);
             await db.SaveChangesAsync(ct);
+            if (ticketType == TicketType.Incident)
+                foreach (var assignment in assignments)
+                    await notifications.NotifyTicketAssignedAsync(assignment.Ticket, assignment.PreviousAssigneeId, assignment.AssigneeId, ct);
             if (transaction != null) await transaction.CommitAsync(ct);
             return Results.NoContent();
         }

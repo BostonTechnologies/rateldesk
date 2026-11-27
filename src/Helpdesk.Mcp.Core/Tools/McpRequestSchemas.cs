@@ -106,7 +106,11 @@ internal static class McpRequestSchemas
                 {
                     ["type"] = "array", ["items"] = ticketRow, ["minItems"] = 1, ["maxItems"] = 100
                 }, true);
-                Field(fields, required, "supportGroupId", Nullable(Text()), true);
+                Field(fields, required, "supportGroupId", new JsonObject
+                {
+                    ["oneOf"] = new JsonArray(Text(), new JsonObject { ["type"] = "null" }),
+                    ["description"] = "A named queue ID or explicit null for Main Queue."
+                }, true);
                 fields["assigneeAction"] = Integer(0, 2);
                 fields["assigneeId"] = Nullable(Text());
                 fields["reason"] = Text();
@@ -187,6 +191,7 @@ internal static class McpRequestSchemas
                 }
                 if (op is "create" or "bulk_create")
                 {
+                    targetFields["assignedSupportGroupId"] = Nullable(Text());
                     foreach (var name in new[] { "title", "description", "organizationId" }) Require(targetRequired, name);
                     if (tool != "helpdesk_changes") Require(targetRequired, "customerId");
                     else

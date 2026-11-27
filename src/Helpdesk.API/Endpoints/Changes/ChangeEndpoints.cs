@@ -549,7 +549,10 @@ public static partial class ChangeEndpoints
 
                 if (dto.ImplementorUserId is not null)
                 {
-                    existing.ImplementorUserId = string.IsNullOrWhiteSpace(dto.ImplementorUserId) ? null : dto.ImplementorUserId;
+                    var groupValidation = await TicketAssigneeValidation.GroupAsync(db, accessService,
+                        TicketType.Change, existing, dto.ImplementorUserId, token);
+                    if (groupValidation is not null) return groupValidation;
+                    existing.ImplementorUserId = string.IsNullOrWhiteSpace(dto.ImplementorUserId) ? null : dto.ImplementorUserId.Trim();
                     existing.AssignedToId = existing.ImplementorUserId;
                 }
 
@@ -1000,6 +1003,9 @@ public static partial class ChangeEndpoints
                 if (!await FenceChangeDecisionAsync(db, change, token)) return ChangeApprovalConflict();
                 var validation = await ValidateImplementorAssignmentAsync(db, change, req.ImplementorUserId, token);
                 if (validation is not null) return validation;
+                var groupValidation = await TicketAssigneeValidation.GroupAsync(db, accessService, TicketType.Change,
+                    change, req.ImplementorUserId, token);
+                if (groupValidation is not null) return groupValidation;
                 change.ImplementorUserId = req.ImplementorUserId!.Trim();
                 change.AssignedToId = change.ImplementorUserId;
                 change.UpdatedAt = DateTime.UtcNow;
@@ -1038,6 +1044,9 @@ public static partial class ChangeEndpoints
                 {
                     var validation = await ValidateImplementorAssignmentAsync(db, change, req.AssignedToId, token);
                     if (validation is not null) return validation;
+                    var groupValidation = await TicketAssigneeValidation.GroupAsync(db, accessService, TicketType.Change,
+                        change, req.AssignedToId, token);
+                    if (groupValidation is not null) return groupValidation;
                 }
                 foreach (var change in changes)
                 {

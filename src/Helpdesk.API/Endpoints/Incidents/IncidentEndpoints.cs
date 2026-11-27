@@ -528,11 +528,9 @@ public static class IncidentEndpoints
                     : dto.AssignedToId;
                 if (!string.IsNullOrWhiteSpace(requestedAssignedToId))
                 {
-                    var assignmentValidation = await ValidateCreateAssigneeAsync(
-                        supportAccessService,
-                        existingIncident.OrganizationId,
-                        requestedAssignedToId,
-                        token);
+                    var assignmentValidation = existingIncident.AssignedSupportGroupId != null
+                        ? await TicketAssigneeValidation.GroupAsync(db, accessService, TicketType.Incident, existingIncident, requestedAssignedToId, token)
+                        : await ValidateCreateAssigneeAsync(supportAccessService, existingIncident.OrganizationId, requestedAssignedToId, token);
                     if (assignmentValidation is not null)
                     {
                         return assignmentValidation;
@@ -541,7 +539,7 @@ public static class IncidentEndpoints
 
                 existingIncident.AssignedToId = string.IsNullOrWhiteSpace(dto.AssignedToId)
                     ? null
-                    : dto.AssignedToId;
+                    : dto.AssignedToId.Trim();
             }
             existingIncident.UpdatedAt = DateTime.UtcNow;
 
@@ -969,11 +967,9 @@ public static class IncidentEndpoints
             {
                 foreach (var inc in incidents)
                 {
-                    var assignmentValidation = await ValidateCreateAssigneeAsync(
-                        supportAccessService,
-                        inc.OrganizationId,
-                        req.AssignedToId,
-                        token);
+                    var assignmentValidation = inc.AssignedSupportGroupId != null
+                        ? await TicketAssigneeValidation.GroupAsync(db, accessService, TicketType.Incident, inc, req.AssignedToId, token)
+                        : await ValidateCreateAssigneeAsync(supportAccessService, inc.OrganizationId, req.AssignedToId, token);
                     if (assignmentValidation is not null)
                     {
                         return assignmentValidation;

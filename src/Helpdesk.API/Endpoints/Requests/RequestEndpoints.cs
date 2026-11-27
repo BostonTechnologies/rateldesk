@@ -670,7 +670,9 @@ public static class RequestEndpoints
             if (requests.Count != ids.Length) return Results.NotFound();
             foreach (var request in requests)
             {
-                var validation = await TicketAssigneeValidation.RequestAsync(db, request.OrganizationId, req.AssignedToId, token);
+                var validation = request.AssignedSupportGroupId != null
+                    ? await TicketAssigneeValidation.GroupAsync(db, accessService, TicketType.Request, request, req.AssignedToId, token)
+                    : await TicketAssigneeValidation.RequestAsync(db, request.OrganizationId, req.AssignedToId, token);
                 if (validation is not null) return validation;
             }
             await using var transaction = db.Database.IsRelational()

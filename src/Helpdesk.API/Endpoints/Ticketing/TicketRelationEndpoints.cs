@@ -23,7 +23,7 @@ public static class TicketRelationEndpoints
             var ticket = await relations.ResolveVisibleAsync(id, access, ct);
             return ticket is null ? Results.NotFound() : Results.Ok(await relations.ListAsync(ticket, access,
                 Math.Clamp(page ?? 1, 1, 100_000), PageSize(pageSize), ct));
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
         group.MapGet("/choices", async (string id, string? search, string? type, int? page, int? pageSize, HttpContext http,
             ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
         {
