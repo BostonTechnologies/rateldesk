@@ -114,8 +114,10 @@ public sealed class AutomationTraceabilityTests
         }
     }
 
-    [Fact]
-    public async Task Approved_queue_alert_sends_one_notification_and_the_signed_in_vendor_claims_the_linked_incident()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approved_queue_alert_sends_one_notification_and_the_signed_in_vendor_claims_the_linked_incident(bool postgres)
     {
         const string groupId = "app-vendor";
         const string vendorId = "vendor-operator";
@@ -124,7 +126,7 @@ public sealed class AutomationTraceabilityTests
         var mailpitPort = Environment.GetEnvironmentVariable("RATELDESK_QUEUE_TEST_MAILPIT_SMTP_PORT");
         await using var smtp = mailpitPort == null ? new SmtpMailboxSenderTests.SmtpFixture() : null;
         var port = smtp?.Port ?? int.Parse(mailpitPort!, global::System.Globalization.CultureInfo.InvariantCulture);
-        await using var h = await IncidentReceiverTests.Harness.CreateAsync(false, serviceIdentity: true);
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
         var providerId = Guid.NewGuid().ToString("D");
         await using (var scope = h.App.Services.CreateAsyncScope())
         {
@@ -249,6 +251,31 @@ public sealed class AutomationTraceabilityTests
             Assert.Null(await reader.ReadLineAsync(deadline.Token));
             using var revoked = await vendor.GetAsync(incidentPath);
             Assert.Contains(revoked.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+
+            await h.EditAsync(async db =>
+            {
+                (await db.SupportGroupMembers.SingleAsync(member => member.UserId == vendorId)).IsEnabled = true;
+                var role = await db.Roles.Include(role => role.Permissions).SingleAsync(role => role.Key == "custom.vendor-incidents");
+                role.Permissions.Add(new RolePermission { Permission = HelpdeskPermissions.ChangeRead });
+                db.Changes.AddRange(
+                    new Change { Id = "visible-change", Title = "Synthetic vendor change", OrganizationId = h.OrganizationId, AssignedSupportGroupId = groupId },
+                    new Change { Id = "hidden-change", Title = "Synthetic hidden change", OrganizationId = h.OrganizationId });
+            });
+            using var changeDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+            using var hiddenChange = await vendor.GetAsync("/api/v1/changes/hidden-change/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, changeDeadline.Token);
+            Assert.Equal(HttpStatusCode.NotFound, hiddenChange.StatusCode);
+            using var changeStream = await vendor.GetAsync("/api/v1/changes/visible-change/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, changeDeadline.Token);
+            Assert.Equal(HttpStatusCode.OK, changeStream.StatusCode);
+            using var changeReader = new StreamReader(await changeStream.Content.ReadAsStreamAsync(changeDeadline.Token));
+            Assert.Equal(": connected", await changeReader.ReadLineAsync(changeDeadline.Token));
+            Assert.Equal(string.Empty, await changeReader.ReadLineAsync(changeDeadline.Token));
+            await h.EditAsync(async db => (await db.SupportGroupMembers.SingleAsync(member => member.UserId == vendorId)).IsEnabled = false);
+            Assert.Null(await changeReader.ReadLineAsync(changeDeadline.Token));
+            using var deniedReconnect = await vendor.GetAsync("/api/v1/changes/visible-change/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, changeDeadline.Token);
+            Assert.Contains(deniedReconnect.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
         }
         finally { await IncidentReceiverTests.Harness.StopProcessAsync(process, vendor); }
 
