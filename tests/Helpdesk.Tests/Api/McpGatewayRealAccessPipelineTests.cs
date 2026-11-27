@@ -96,8 +96,19 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         Assert.Equal(HttpStatusCode.NotFound, hiddenSource.StatusCode);
         using var hiddenDestination = await TransferAsync("queue-visible", "wintel-l2");
         Assert.Equal(HttpStatusCode.BadRequest, hiddenDestination.StatusCode);
-        using var valid = await TransferAsync("queue-visible", "app-vendor");
+        using var valid = await TransferAsync("queue-visible", "app-escalation");
         Assert.Equal(HttpStatusCode.NoContent, valid.StatusCode);
+        var moved = await harness.GetAsync<IncidentDto>(execution, "/api/v1/incidents/queue-visible");
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        Assert.Equal("app-escalation", moved.Body!.AssignedSupportGroupId);
+        Assert.Equal(1, moved.Body.QueueAssignmentVersion);
+        using var claim = await harness.SendAsync(execution, HttpMethod.Post,
+            "/api/v1/ticket-queues/incident/queue-visible/claim?expectedVersion=1");
+        Assert.Equal(HttpStatusCode.NoContent, claim.StatusCode);
+        var claimed = await harness.GetAsync<IncidentDto>(execution, "/api/v1/incidents/queue-visible");
+        Assert.Equal(HttpStatusCode.OK, claimed.StatusCode);
+        Assert.Equal("owner", claimed.Body!.AssignedToId);
+        Assert.Equal("app-escalation", claimed.Body.AssignedSupportGroupId);
 
         var tools = new HelpdeskTools(new HelpdeskAgentClient(AgentClientConfiguration.Empty with
         {
@@ -706,8 +717,10 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             await using var scope = application.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
             db.SupportGroups.AddRange(new SupportGroup { Id = "app-vendor", OwningOrganizationId = "org-a", Name = "App Vendor" },
+                new SupportGroup { Id = "app-escalation", OwningOrganizationId = "org-a", Name = "App Escalation" },
                 new SupportGroup { Id = "wintel-l2", OwningOrganizationId = "org-a", Name = "Wintel L2" });
             db.SupportGroupMembers.AddRange(new SupportGroupMember { SupportGroupId = "app-vendor", UserId = "owner" },
+                new SupportGroupMember { SupportGroupId = "app-escalation", UserId = "owner" },
                 new SupportGroupMember { SupportGroupId = "wintel-l2", UserId = "owner" });
             var role = new Role
             {
@@ -717,6 +730,7 @@ public sealed partial class McpGatewayRealAccessPipelineTests
                     .Select(permission => new RolePermission { Permission = permission }).ToList()
             };
             role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = "app-vendor" });
+            role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = "app-escalation" });
             db.Roles.Add(role);
             db.ScopedRoleAssignments.AddRange(
                 new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-a", RoleKey = role.Key },
@@ -743,8 +757,9 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         {
             await using var scope = application.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-            var membership = await db.SupportGroupMembers.SingleAsync(member => member.SupportGroupId == "app-vendor" && member.UserId == "owner");
-            membership.IsEnabled = false;
+            var memberships = await db.SupportGroupMembers.Where(member => member.UserId == "owner" &&
+                (member.SupportGroupId == "app-vendor" || member.SupportGroupId == "app-escalation")).ToListAsync();
+            foreach (var membership in memberships) membership.IsEnabled = false;
             await db.SaveChangesAsync();
         }
 
