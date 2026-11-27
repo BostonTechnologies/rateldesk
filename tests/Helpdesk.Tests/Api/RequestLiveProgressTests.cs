@@ -9,6 +9,7 @@ using Bunit;
 using Bunit.TestDoubles;
 using Helpdesk.API.Endpoints.Requests;
 using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Endpoints.SupportNotifications;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Notifications;
@@ -29,6 +30,7 @@ using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Category;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.DTOs.User;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Helpdesk.Tests.Infrastructure.Persistence;
@@ -203,6 +205,56 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
         Assert.Contains("Completed", page.Find("[data-testid=request-workflow-summary]").TextContent);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Revoked_group_closes_workforce_stream_before_the_next_commit_and_preserves_linked_self_service(bool postgres)
+    {
+        await using var harness = await Harness.CreateAsync(postgres);
+        await harness.WithDbAsync(async db =>
+        {
+            db.SupportGroups.Add(new SupportGroup { Id = "live-group", Name = "Application Vendor", OwningOrganizationId = "live-org" });
+            db.SupportGroupMembers.Add(new SupportGroupMember { SupportGroupId = "live-group", UserId = "requester" });
+            db.Roles.Add(new Role
+            {
+                Key = "live-group-reader", Name = "App queue reader", OwnerOrganizationId = "live-org",
+                TicketAccessScope = TicketAccessScope.MySupportGroups,
+                Permissions = [new RolePermission { Permission = HelpdeskPermissions.RequestRead }]
+            });
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = "requester", RoleKey = "live-group-reader", OrganizationId = "live-org" });
+            var request = await db.Requests.SingleAsync();
+            request.AssignedSupportGroupId = "live-group";
+            await TicketWorkforceRestrictions.EnsureAsync(db, "live-org", ["requester"], "operator", default);
+            await db.SaveChangesAsync();
+        });
+
+        var factory = await harness.ClientsAsync("requester");
+        using var client = factory.CreateClient("HelpdeskApiStreaming");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        const string streamPath = "api/v1/requests/live-request/timeline/stream";
+        using var response = await client.GetAsync(streamPath, HttpCompletionOption.ResponseHeadersRead, cancellation.Token);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(cancellation.Token));
+        Assert.Equal("event: ready", await reader.ReadLineAsync(cancellation.Token));
+        Assert.Equal("data: {}", await reader.ReadLineAsync(cancellation.Token));
+        Assert.Equal("", await reader.ReadLineAsync(cancellation.Token));
+
+        await harness.WithDbAsync(async db =>
+        {
+            var member = await db.SupportGroupMembers.SingleAsync();
+            member.IsEnabled = false;
+            await db.SaveChangesAsync();
+        });
+        await harness.CompleteAllAsync();
+        Assert.Null(await reader.ReadLineAsync(cancellation.Token));
+        using var reopened = await client.GetAsync(streamPath, HttpCompletionOption.ResponseHeadersRead, cancellation.Token);
+        Assert.Equal(HttpStatusCode.NotFound, reopened.StatusCode);
+
+        using var detailClient = factory.CreateClient("HelpdeskApi");
+        var own = await detailClient.GetFromJsonAsync<MyRequestDetailDto>("api/v1/self-service/requests/live-request", cancellation.Token);
+        Assert.Equal(TicketState.Resolved, own!.State);
+    }
+
     [Fact]
     public async Task Rejected_save_resynchronizes_a_committed_transition_and_preserves_the_editable_draft()
     {
@@ -351,6 +403,7 @@ public sealed class RequestLiveProgressTests(ITestOutputHelper output)
             var api = builder.Build();
             api.UseAuthentication(); api.UseAuthorization();
             api.MapRequestEndpoints(); api.MapSelfServiceMyRequestsEndpoints(); api.MapRequestWorkflowTimelineEndpoints();
+            api.MapSupportGroupEndpoints(); api.MapSupportGroupMemberEndpoints(); api.MapOrganizationSupportCoverageEndpoints();
             api.MapGet("/api/v1/categories", () => Array.Empty<TicketCategoryDto>());
             api.MapGet("/api/v1/ticketing/assignees", () => Array.Empty<UserDto>());
             api.MapGet("/test/sign-in/{id}", async (string id, HttpContext context, RatelDeskIdentityDbContext identity) =>

@@ -1522,7 +1522,7 @@ public static partial class ChangeEndpoints
         var canReadInternalChange = TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Ticket!);
         var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
 
-        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.Headers.CacheControl = "no-cache, no-store";
         context.Response.Headers.Append("Connection", "keep-alive");
         context.Response.Headers.Append("X-Accel-Buffering", "no");
         context.Response.ContentType = "text/event-stream";
@@ -1542,28 +1542,6 @@ public static partial class ChangeEndpoints
                 var keepAliveTask = Task.Delay(keepAliveInterval, ct);
                 var completedTask = await Task.WhenAny(waitForDataTask, keepAliveTask);
 
-                if (!await Helpdesk.API.Endpoints.Authentication.LocalSessionValidator.IsValidAsync(context, ct))
-                {
-                    logger.LogInformation("Timeline stream session revoked {TicketId}", id);
-                    break;
-                }
-
-                var currentAuthorization = await AuthorizeChangeAsync(
-                    id,
-                    context.User,
-                    accessService,
-                    db,
-                    requireManager: false,
-                    ct);
-                if (currentAuthorization.Failure is not null)
-                {
-                    logger.LogInformation("Change timeline stream authorization revoked {TicketId}", id);
-                    break;
-                }
-
-                canReadInternalChange = TicketAccessPolicy.CanReadStaffContent(currentAuthorization.Access!, currentAuthorization.Ticket!);
-                restricted = currentAuthorization.Access!.HasRestrictedWorkforceAccess;
-
                 if (completedTask == waitForDataTask)
                 {
                     if (!await waitForDataTask)
@@ -1573,20 +1551,21 @@ public static partial class ChangeEndpoints
 
                     while (reader.TryRead(out var evt))
                     {
+                        if (!await RefreshScopeAsync()) return;
                         if (!TicketTimelineAccess.Includes(evt.EventType, canReadInternalChange, restricted))
                         {
                             continue;
                         }
 
                         var json = JsonSerializer.Serialize(TicketTimelineAccess.Project(evt, restricted));
-                        await context.Response.WriteAsync("event: timeline\n", ct);
-                        await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                        await context.Response.WriteAsync($"event: timeline\ndata: {json}\n\n", ct);
                     }
 
                     await context.Response.Body.FlushAsync(ct);
                 }
                 else
                 {
+                    if (!await RefreshScopeAsync()) return;
                     await context.Response.WriteAsync(": keepalive\n\n", ct);
                     await context.Response.Body.FlushAsync(ct);
                 }
@@ -1604,6 +1583,16 @@ public static partial class ChangeEndpoints
         {
             logger.LogInformation("Change timeline stream disconnected {TicketId}", id);
             eventBus.Unsubscribe(id, reader);
+        }
+
+        async Task<bool> RefreshScopeAsync()
+        {
+            if (!await Helpdesk.API.Endpoints.Authentication.LocalSessionValidator.IsValidAsync(context, ct)) return false;
+            var current = await AuthorizeChangeAsync(id, context.User, accessService, db, requireManager: false, ct);
+            if (current.Failure is not null) return false;
+            restricted = current.Access!.HasRestrictedWorkforceAccess;
+            canReadInternalChange = TicketAccessPolicy.CanReadStaffContent(current.Access, current.Ticket!);
+            return true;
         }
     }
 

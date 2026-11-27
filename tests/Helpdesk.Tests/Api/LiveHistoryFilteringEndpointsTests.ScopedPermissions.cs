@@ -19,6 +19,41 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
     [InlineData("Incident")]
     [InlineData("Request")]
     [InlineData("Change")]
+    public async Task NamedQueueScopeAppliesBeforeTrackingSearchTotalsAndPaging(string module)
+    {
+        var permission = $"{module}.Read";
+        var profile = ScopedTicketProfile() with
+        {
+            Permissions = new HashSet<string> { permission }, UsesScopedPermissions = true,
+            RestrictedTicketOrganizationIds = new HashSet<string> { "org-1", "org-2" },
+            TicketQueuePermissionGrants = new HashSet<TicketQueuePermissionGrant> { new(permission, "org-2", "app", "org-2") }
+        };
+        await using var harness = await LiveHistoryFilteringHarness.CreateAsync(profile);
+        harness.UseRole(permission);
+        await harness.SeedAsync(db =>
+        {
+            SeedScopedTickets(db);
+            db.SupportGroups.AddRange(new SupportGroup { Id = "app", Name = "Application", OwningOrganizationId = "org-2" },
+                new SupportGroup { Id = "desktop", Name = "Desktop", OwningOrganizationId = "org-2" });
+            db.Tickets.Local.Single(ticket => ticket.Id == $"{module}-b-peer").AssignedSupportGroupId = "app";
+            db.Tickets.Local.Single(ticket => ticket.Id == $"{module}-b-own").AssignedSupportGroupId = "desktop";
+        });
+        var route = $"/api/v1/{module.ToLowerInvariant()}s";
+        var result = await harness.Client.GetFromJsonAsync<JsonElement>($"{route}?page=1&pageSize=1&supportGroupId=app&supportGroupId=desktop&mainQueue=true&includeTotal=true");
+        Assert.Equal(1, result.GetProperty("totalCount").GetInt32());
+        Assert.Equal($"{module}-b-peer", Assert.Single(result.GetProperty("items").EnumerateArray()).GetProperty("id").GetString());
+        var hidden = await harness.Client.GetFromJsonAsync<JsonElement>($"{route}?q={module}-b-own&includeTotal=true");
+        Assert.Equal(0, hidden.GetProperty("totalCount").GetInt32());
+        using var denied = await harness.Client.GetAsync($"{route}/{module}-b-own");
+        Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+        using var allowed = await harness.Client.GetAsync($"{route}/{module}-b-peer");
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Incident")]
+    [InlineData("Request")]
+    [InlineData("Change")]
     public async Task ScopedTicketLists_UnionTenantReadAndOwnTicketsWithoutUnrelatedMembership(string module)
     {
         var profile = ScopedTicketProfile(

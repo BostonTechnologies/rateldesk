@@ -49,14 +49,20 @@ internal static class RequestTimelineSse
                     while (reader.TryRead(out var item))
                     {
                         if (includeTimeline is null) invalidate = true;
-                        else if (includeTimeline(item))
+                        else
                         {
-                            await context.Response.WriteAsync("event: timeline\n", ct);
-                            await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(project?.Invoke(item) ?? item)}\n\n", ct);
+                            if (!await IsAuthorizedAsync()) return;
+                            if (!includeTimeline(item)) continue;
+                            await context.Response.WriteAsync($"event: timeline\ndata: {JsonSerializer.Serialize(project?.Invoke(item) ?? item)}\n\n", ct);
                             wrote = true;
                         }
                     }
-                    if (invalidate) { await InvalidateAsync(); wrote = true; }
+                    if (invalidate)
+                    {
+                        if (!await IsAuthorizedAsync()) return;
+                        await InvalidateAsync();
+                        wrote = true;
+                    }
                     data = reader.WaitToReadAsync(ct).AsTask();
                 }
                 if (tick.IsCompleted)
@@ -69,6 +75,7 @@ internal static class RequestTimelineSse
                     var next = await ReadCommittedCursorAsync(db, id, ct);
                     if (cursor != next)
                     {
+                        if (!await IsAuthorizedAsync()) return;
                         cursor = next;
                         await InvalidateAsync();
                         wrote = true;

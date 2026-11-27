@@ -126,6 +126,28 @@ public sealed class SelfServiceMyRequestsEndpointsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Restricted_workforce_can_read_its_linked_request_only_in_the_interactive_customer_workspace(bool postgres)
+    {
+        await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync("QueueRequester", postgres);
+        const string route = "/api/v1/self-service/requests";
+        var list = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>(route);
+        Assert.Equal(1, list!.TotalCount);
+        Assert.Equal(harness.RequestId, Assert.Single(list.Items).Id);
+        using var own = await harness.Client.GetAsync($"{route}/{harness.RequestId}");
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        using var unrelated = await harness.Client.GetAsync($"{route}/request-2");
+        Assert.Equal(HttpStatusCode.NotFound, unrelated.StatusCode);
+
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "QueueRequesterDelegated");
+        var delegated = await harness.Client.GetFromJsonAsync<PagedResponse<MyRequestListItemDto>>(route);
+        Assert.Equal(0, delegated!.TotalCount);
+        using var denied = await harness.Client.GetAsync($"{route}/{harness.RequestId}/tasks");
+        Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Complete_query_filters_sorts_counts_and_clamps_beyond_one_hundred_records(bool postgres)
     {
         await using var harness = await SelfServiceMyRequestsTestHarness.CreateAsync(postgres: postgres);
@@ -487,6 +509,11 @@ public sealed class SelfServiceMyRequestsEndpointsTests
             };
 
             var identity = new ClaimsIdentity(claims, "Test");
+            var authorization = Request.Headers.Authorization.ToString();
+            if (authorization.Contains("QueueRequester", StringComparison.Ordinal))
+                identity.AddClaim(new Claim("ticket_workforce_scope", "restricted"));
+            if (authorization.Contains("QueueRequesterDelegated", StringComparison.Ordinal))
+                identity.AddClaim(new Claim("auth_mode", "integration"));
             var principal = new ClaimsPrincipal(identity);
             var ticket = new AuthenticationTicket(principal, "Test");
             return Task.FromResult(AuthenticateResult.Success(ticket));

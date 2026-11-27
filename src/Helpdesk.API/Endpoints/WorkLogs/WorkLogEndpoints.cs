@@ -181,7 +181,7 @@ public static class WorkLogEndpoints
         var canReadInternalNotes = TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Incident!);
         var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
 
-        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.Headers.CacheControl = "no-cache, no-store";
         context.Response.Headers.Append("Connection", "keep-alive");
         context.Response.Headers.Append("X-Accel-Buffering", "no");
         context.Response.ContentType = "text/event-stream";
@@ -201,25 +201,6 @@ public static class WorkLogEndpoints
                 var keepAliveTask = Task.Delay(keepAliveInterval, ct);
                 var completedTask = await Task.WhenAny(waitForDataTask, keepAliveTask);
 
-                // The stream may outlive the authentication request that opened it. Re-resolve the
-                // incident scope before each delivery or keep-alive so membership revocation stops
-                // an active subscription instead of waiting for the browser to reconnect.
-                var currentAuthorization = await AuthorizeIncidentAsync(
-                    id,
-                    context.User,
-                    accessService,
-                    db,
-                    requireManager: false,
-                    ct);
-                if (!await LocalSessionValidator.IsValidAsync(context, ct) || currentAuthorization.Failure is not null)
-                {
-                    logger.LogInformation("Timeline stream authorization revoked {TicketId}", id);
-                    break;
-                }
-
-                canReadInternalNotes = TicketAccessPolicy.CanReadStaffContent(currentAuthorization.Access!, currentAuthorization.Incident!);
-                restricted = currentAuthorization.Access!.HasRestrictedWorkforceAccess;
-
                 if (completedTask == waitForDataTask)
                 {
                     if (!await waitForDataTask)
@@ -229,6 +210,7 @@ public static class WorkLogEndpoints
 
                     while (reader.TryRead(out var evt))
                     {
+                        if (!await RefreshScopeAsync()) return;
                         if (!TicketTimelineAccess.Includes(evt.EventType, canReadInternalNotes, restricted))
                         {
                             continue;
@@ -241,14 +223,14 @@ public static class WorkLogEndpoints
                                 evt.MessageHtml, id, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl);
                         var json = payload.ToJsonString();
 
-                        await context.Response.WriteAsync("event: timeline\n", ct);
-                        await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                        await context.Response.WriteAsync($"event: timeline\ndata: {json}\n\n", ct);
                     }
 
                     await context.Response.Body.FlushAsync(ct);
                 }
                 else
                 {
+                    if (!await RefreshScopeAsync()) return;
                     await context.Response.WriteAsync(": keepalive\n\n", ct);
                     await context.Response.Body.FlushAsync(ct);
                 }
@@ -266,6 +248,16 @@ public static class WorkLogEndpoints
         {
             logger.LogInformation("Timeline stream disconnected {TicketId}", id);
             eventBus.Unsubscribe(id, reader);
+        }
+
+        async Task<bool> RefreshScopeAsync()
+        {
+            if (!await LocalSessionValidator.IsValidAsync(context, ct)) return false;
+            var current = await AuthorizeIncidentAsync(id, context.User, accessService, db, requireManager: false, ct);
+            if (current.Failure is not null) return false;
+            restricted = current.Access!.HasRestrictedWorkforceAccess;
+            canReadInternalNotes = TicketAccessPolicy.CanReadStaffContent(current.Access, current.Incident!);
+            return true;
         }
     }
 

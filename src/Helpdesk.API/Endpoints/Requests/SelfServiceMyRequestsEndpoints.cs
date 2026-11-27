@@ -1,5 +1,6 @@
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Events;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs;
@@ -19,7 +20,8 @@ public static partial class SelfServiceMyRequestsEndpoints
     {
         var group = app.MapGroup("/api/v1/self-service/requests")
             .WithTags("Self Service")
-            .RequireAuthorization("SelfService.User");
+            .RequireAuthorization("SelfService.User")
+            .WithMetadata(new QueueAwareEndpoint());
 
         group.MapGet("/", GetMyRequests)
             .WithName("GetMySelfServiceRequests")
@@ -78,7 +80,7 @@ public static partial class SelfServiceMyRequestsEndpoints
 
         var authority = await audience.ResolveAuthorityAsync(user, token);
         var accessibleForms = HistoryForms(db, authority);
-        var query = OwnedRequests(db, authority, accessibleForms)
+        var query = OwnedRequests(db, authority, user, accessibleForms)
             .Select(r => new
             {
                 Request = r,
@@ -296,7 +298,7 @@ public static partial class SelfServiceMyRequestsEndpoints
     {
         var authority = await audience.ResolveAuthorityAsync(user, token);
         var forms = HistoryForms(db, authority);
-        return await OwnedRequests(db, authority, forms).Where(r => r.Id == requestId)
+        return await OwnedRequests(db, authority, user, forms).Where(r => r.Id == requestId)
             .Select(r => new RequestWithReleaseStatus(
                 r.Id,
                 r.TrackingId,
@@ -325,14 +327,22 @@ public static partial class SelfServiceMyRequestsEndpoints
     }
 
     private static IQueryable<Request> OwnedRequests(
-        HelpdeskDbContext db, SelfServiceAuthority authority, IQueryable<RequestForm> releaseVisibleForms)
+        HelpdeskDbContext db, SelfServiceAuthority authority, ClaimsPrincipal principal, IQueryable<RequestForm> releaseVisibleForms)
     {
         var requests = db.Requests.IgnoreQueryFilters().AsNoTracking();
         if (authority.Access.IsHelpdeskAdmin) return requests;
 
         var organizations = authority.Organizations.Keys.ToArray();
-        var customerIds = authority.Customers.Values.Where(customer => customer.IsEnabled &&
-            authority.Organizations.ContainsKey(customer.OrganizationId)).Select(customer => customer.Id).ToArray();
+        var customers = authority.Customers.Values.Where(customer => customer.IsEnabled &&
+            authority.Organizations.ContainsKey(customer.OrganizationId));
+        if (authority.Access.HasRestrictedWorkforceAccess)
+        {
+            var requester = authority.Identity?.HomeCustomer;
+            if (principal.HasClaim("auth_mode", "integration") || requester == null || requester.Id != authority.Access.CustomerId)
+                return requests.Where(_ => false);
+            customers = customers.Where(customer => customer.Id == requester.Id);
+        }
+        var customerIds = customers.Select(customer => customer.Id).ToArray();
         return requests.Where(request => organizations.Contains(request.OrganizationId) &&
             db.Customers.Any(customer => customer.Id == request.CustomerId && customerIds.Contains(customer.Id) &&
                 customer.OrganizationId == request.OrganizationId && customer.State == EntityState.Enabled) &&
