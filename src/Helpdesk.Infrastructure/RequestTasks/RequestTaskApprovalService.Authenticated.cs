@@ -1,4 +1,5 @@
 using Helpdesk.Application.RequestTasks;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Request;
 using Helpdesk.Shared.Models;
@@ -39,9 +40,13 @@ public sealed partial class RequestTaskApprovalService
         var task = await db.RequestTasks.IgnoreQueryFilters().SingleOrDefaultAsync(candidate => candidate.Id == taskId && candidate.Type == RequestTaskType.Approval, ct);
         if (task is null) return null;
         var request = await db.Requests.IgnoreQueryFilters().SingleOrDefaultAsync(candidate => candidate.Id == task.RequestId, ct);
-        if (request is null || (!access.CanManageRequest(request.OrganizationId) &&
-            !access.HasPermission(HelpdeskPermissions.RequestUser, request.OrganizationId) &&
-            !access.HasPermission(HelpdeskPermissions.SelfServiceUser, request.OrganizationId))) return null;
+        if (request is null) return null;
+        var authorized = access.HasRestrictedWorkforceAccess
+            ? task.OrganizationId == request.OrganizationId && TicketAccessPolicy.CanWrite(access, request)
+            : access.CanManageRequest(request.OrganizationId) ||
+              access.HasPermission(HelpdeskPermissions.RequestUser, request.OrganizationId) ||
+              access.HasPermission(HelpdeskPermissions.SelfServiceUser, request.OrganizationId);
+        if (!authorized) return null;
 
         var email = access.Email.Trim().ToLowerInvariant();
         var approvals = await db.RequestTaskApprovals.IgnoreQueryFilters()

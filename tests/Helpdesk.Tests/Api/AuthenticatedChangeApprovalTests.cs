@@ -18,10 +18,12 @@ using Helpdesk.Shared.Enums;
 using Helpdesk.Tests.Infrastructure.Email;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.Changes;
+using Helpdesk.API.Middleware;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Change;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Models;
@@ -67,6 +69,44 @@ public sealed partial class AuthenticatedChangeApprovalTests
         Assert.Equal(HttpStatusCode.OK, (await second.PostAsync("/api/v1/changes/change/approval/review", null)).StatusCode);
         await fixture.AssertStoredAsync(2, ChangeLifecycleState.ApprovedForImplementation, 3, 2);
         await fixture.Timeline.DidNotReceive().PublishAsync(Arg.Any<TicketTimelineEventDto>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Scoped_change_review_requires_the_designated_actor_and_current_queue_approval_permission(bool postgres)
+    {
+        await using var fixture = await Fixture.StartAsync(postgres);
+        await fixture.WithDbAsync(async db =>
+        {
+            db.SupportGroups.AddRange(
+                new SupportGroup { Id = "vendor", Name = "App Vendor", OwningOrganizationId = "org-a" },
+                new SupportGroup { Id = "wintel", Name = "Wintel", OwningOrganizationId = "org-a" });
+            await db.SaveChangesAsync();
+        });
+        const string route = "/api/v1/changes/change/approval";
+        var write = new TicketQueuePermissionGrant(HelpdeskPermissions.ChangeWrite, "org-a", "vendor", "org-a");
+        var approve = new TicketQueuePermissionGrant(HelpdeskPermissions.ChangeApprove, "org-a", "vendor", "org-a");
+        using var owner = fixture.Client("owner-a", approve);
+        using var writer = fixture.Client("owner-a", write);
+        using var other = fixture.Client("other-owner", approve);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync(route)).StatusCode);
+        await SetGroupAsync("vendor");
+        Assert.Equal(HttpStatusCode.NotFound, (await writer.PostAsync(route + "/review", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync(route)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync(route)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync(route + "/review", null)).StatusCode);
+        await fixture.AssertStoredAsync(1, ChangeLifecycleState.PendingApproval, 1, 1);
+        await SetGroupAsync("wintel");
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.PostAsync(route + "/review", null)).StatusCode);
+        await fixture.AssertStoredAsync(1, ChangeLifecycleState.PendingApproval, 1, 1);
+
+        Task SetGroupAsync(string groupId) => fixture.WithDbAsync(async db =>
+        {
+            var change = await db.Changes.SingleAsync();
+            change.AssignedSupportGroupId = groupId;
+            await db.SaveChangesAsync();
+        });
     }
 
     [Theory]
@@ -342,10 +382,11 @@ public sealed partial class AuthenticatedChangeApprovalTests
         public IDomainEventPublisher DomainEvents { get; } = domainEvents;
         public CommitControl Commits { get; } = commits;
         public NotificationControl Notifications { get; } = notifications;
-        public HttpClient Client(string actor)
+        public HttpClient Client(string actor, TicketQueuePermissionGrant? grant = null)
         {
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", actor);
+            if (grant is not null) client.DefaultRequestHeaders.Add("X-Test-Queue-Grant", grant.ToString());
             return client;
         }
 
@@ -445,6 +486,7 @@ public sealed partial class AuthenticatedChangeApprovalTests
                 return context.Response.WriteAsync("Synthetic persistence or notification failure.");
             }));
             app.UseAuthentication();
+            app.UseMiddleware<UserAccessClaimsMiddleware>();
             app.UseAuthorization();
             app.MapChangeEndpoints();
             await using (var scope = app.Services.CreateAsyncScope())
@@ -602,8 +644,14 @@ public sealed partial class AuthenticatedChangeApprovalTests
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
             var actor = Request.Headers.Authorization.ToString().Split(' ').Last();
-            var claims = new[] { new Claim(ClaimTypes.NameIdentifier, actor), new Claim(ClaimTypes.Name, actor),
-                new Claim(ClaimTypes.Email, actor + "@example.test"), new Claim(ClaimTypes.Role, "HelpdeskAdmin"), new Claim("allowed_organization_id", "org-a") };
+            var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, actor), new(ClaimTypes.Name, actor),
+                new(ClaimTypes.Email, actor + "@example.test"), new("allowed_organization_id", "org-a") };
+            if (Request.Headers["X-Test-Queue-Grant"].FirstOrDefault() is { } grant)
+            {
+                claims.Add(new("ticket_workforce_scope", "restricted"));
+                claims.Add(new("ticket_queue_permission", grant));
+            }
+            else claims.Add(new(ClaimTypes.Role, "HelpdeskAdmin"));
             return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, "Test")), "Test")));
         }
     }

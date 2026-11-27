@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Shared.Services;
@@ -11,7 +12,8 @@ public static class AuthenticatedRequestApprovalEndpoints
     {
         var group = app.MapGroup("/api/v1/request-tasks/{taskId}/approval")
             .WithTags("Request Approvals")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .WithMetadata(new QueueAwareEndpoint());
         group.MapGet("/", async (string taskId, HttpContext context, ICurrentUserAccessService accessService,
             IAuthenticatedRequestTaskApprovalService approvals, CancellationToken ct) =>
         {
