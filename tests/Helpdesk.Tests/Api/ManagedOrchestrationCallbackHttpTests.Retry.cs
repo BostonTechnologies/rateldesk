@@ -9,6 +9,7 @@ using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
@@ -151,7 +152,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
 
         var token = await PairingBusinessFixture.TokenAsync(h, client);
         using var stale = await SendCorrelatedAsync(h, token, Callback(task), oldAttempt!);
-        Assert.False(stale.IsSuccessStatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, stale.StatusCode);
         await h.EditAsync(async db => Assert.Equal(RequestTaskStatus.InProgress, (await db.RequestTasks.SingleAsync()).Status));
         using var completed = await SendCorrelatedAsync(h, token, Callback(task), replacement!);
         Assert.Equal(HttpStatusCode.NoContent, completed.StatusCode);
@@ -163,6 +164,128 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             Assert.Equal(RequestTaskStatus.Completed, (await db.RequestTasks.SingleAsync()).Status);
         });
         Assert.Equal(2, provider.Submissions);
+    }
+
+    [Theory]
+    [InlineData("operator", "OnHold")]
+    [InlineData("dependency", "InProgress")]
+    [InlineData("approval", "PendingApproval")]
+    [InlineData("sibling", "Blocked")]
+    [InlineData("reconciliation", "NeedsReconciliation")]
+    [InlineData("closure", "Blocked")]
+    public async Task Retrying_a_rejected_attempt_keeps_independent_progression_holds(string blocker, string workflowStatus)
+    {
+        using var provider = new RetryAdmissionProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(false, serviceIdentity: true,
+            configureServices: services => ConfigureRetryProvider(services, provider, connectivity));
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedRetryTaskAsync(h, client, connectivity, "BlockRequest");
+        using var start = await h.AdminAsync(HttpMethod.Post, $"/api/v1/request-tasks/{task.Id}/start");
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            var child = await db.RequestTasks.SingleAsync();
+            switch (blocker)
+            {
+                case "operator":
+                    parent.OperatorHold = true;
+                    break;
+                case "dependency":
+                    child.IsBlocked = true;
+                    break;
+                case "closure":
+                    parent.AdministrativeClosureReason = "Administrative closure";
+                    break;
+                default:
+                    child.Order = 1;
+                    db.RequestTasks.Add(new()
+                    {
+                        RequestId = parent.Id, CustomerId = h.CustomerId, OrganizationId = h.OrganizationId,
+                        Title = "Independent task", Order = 0,
+                        Type = blocker == "approval" ? RequestTaskType.Approval : RequestTaskType.Automation,
+                        Status = blocker == "approval" ? RequestTaskStatus.PendingApproval : RequestTaskStatus.Failed,
+                        LastAutomationStatus = blocker == "reconciliation" ? AutomationTaskStatuses.SubmitUncertainManualReconcile : null
+                    });
+                    break;
+            }
+        });
+        provider.Repair();
+        using var retry = await h.AdminAsync(HttpMethod.Post, $"/api/v1/request-tasks/{task.Id}/retry");
+        Assert.Equal(HttpStatusCode.BadRequest, retry.StatusCode);
+        Assert.Equal(1, provider.Submissions);
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            var saved = await db.RequestTasks.SingleAsync(row => row.Id == task.Id);
+            Assert.Equal(workflowStatus, parent.WorkflowStatus);
+            Assert.Equal(blocker == "closure" ? RequestTaskStatus.Failed : RequestTaskStatus.Pending, saved.Status);
+            if (blocker != "closure") Assert.True(RequestTaskRetryRecovery.HasPendingRetryIntent(saved));
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_committed_operator_change_wins_over_an_uncommitted_retry(bool postgres)
+    {
+        using var provider = new RetryAdmissionProbe();
+        var connectivity = Substitute.For<IOrchestrationConnectivityService>();
+        var gate = new RetrySaveGate();
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true,
+            configureServices: services =>
+            {
+                ConfigureRetryProvider(services, provider, connectivity);
+                services.AddDbContext<HelpdeskDbContext>(options => options.AddInterceptors(gate));
+            });
+        var client = await PairingBusinessFixture.CreateAsync(h, incidents: false, automation: true);
+        var task = await SeedRetryTaskAsync(h, client, connectivity, "BlockRequest");
+        using var start = await h.AdminAsync(HttpMethod.Post, $"/api/v1/request-tasks/{task.Id}/start");
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        var retry = h.AdminAsync(HttpMethod.Post, $"/api/v1/request-tasks/{task.Id}/retry");
+        try
+        {
+            await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await h.EditAsync(async db =>
+            {
+                var parent = await db.Requests.SingleAsync();
+                if (postgres) parent.AdministrativeClosureReason = "Retired by operator";
+                else parent.OperatorHold = true;
+            });
+        }
+        finally { gate.Release.TrySetResult(); }
+        using var response = await retry;
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await h.EditAsync(async db =>
+        {
+            var parent = await db.Requests.SingleAsync();
+            var saved = await db.RequestTasks.SingleAsync();
+            Assert.Equal(RequestTaskStatus.Failed, saved.Status);
+            Assert.Equal(parent.WorkflowFailureAttemptId, saved.AutomationAttemptCorrelationId);
+            Assert.Null(saved.AutomationAttemptHistoryJson);
+            if (postgres) Assert.Equal("Retired by operator", parent.AdministrativeClosureReason);
+            else Assert.True(parent.OperatorHold);
+        });
+        Assert.Equal(1, provider.Submissions);
+    }
+
+    private sealed class RetrySaveGate : SaveChangesInterceptor
+    {
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context!.ChangeTracker.Entries<RequestTask>().Any(entry =>
+                    entry.State == EntityState.Modified && RequestTaskRetryRecovery.HasPendingRetryIntent(entry.Entity)))
+            {
+                Reached.TrySetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            return result;
+        }
     }
 
     [Theory]
