@@ -10,7 +10,7 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 EXPOSE 8111 8111
 
 # 2) Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0.100-alpine3.24 AS build
 WORKDIR /src
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local
