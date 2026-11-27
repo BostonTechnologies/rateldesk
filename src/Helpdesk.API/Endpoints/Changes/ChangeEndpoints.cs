@@ -11,6 +11,7 @@ using Helpdesk.Application.Tickets;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Shared.DTOs.User;
 using Helpdesk.Shared.DTOs;
@@ -38,7 +39,7 @@ public static partial class ChangeEndpoints
             .WithTags("Changes")
             .RequireAuthorization("ChangeAccess");
 
-        group.MapGet("/", GetChanges);
+        group.MapGet("/", GetChanges).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/template-validation", (ChangeTemplateValidationRequest request,
             IChangeTemplateService templates) => Results.Ok(templates.ValidateTemplate(request.ChangeType, request.Template)));
@@ -57,26 +58,27 @@ public static partial class ChangeEndpoints
                 return authorization.Failure;
             }
 
-            var timelineEvents = await db.TicketTimelineEvents
-                .AsNoTracking()
-                .Where(evt => evt.TicketId == id)
-                .Where(evt => CanReadInternalChange(authorization.Access!, authorization.OrganizationId) || evt.EventType != TimelineEventType.InternalNote)
-                .ToListAsync(ct);
+            var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
+            var timelineQuery = db.TicketTimelineEvents.AsNoTracking().Where(evt => evt.TicketId == id);
+            var timelineEvents = await TicketTimelineAccess.Filter(timelineQuery,
+                TicketAccessPolicy.CanReadStaffContent(authorization.Access, authorization.Ticket!), restricted).ToListAsync(ct);
 
             var ordered = string.Equals(order, "asc", StringComparison.OrdinalIgnoreCase)
                 ? timelineEvents.OrderBy(evt => evt.CreatedUtc)
                 : timelineEvents.OrderByDescending(evt => evt.CreatedUtc);
             var timeline = ordered
-                .Select(ToTimelineDto)
+                .Select(evt => TicketTimelineAccess.Project(ToTimelineDto(evt), restricted))
                 .ToList();
 
             return Results.Ok(timeline);
         })
-        .WithName("GetChangeTimeline")
+        .WithMetadata(new QueueAwareEndpoint())
+            .WithName("GetChangeTimeline")
         .WithSummary("Gets timeline events for a change")
         .WithDescription("Retrieves timeline events for the specified change ordered by CreatedUtc. Defaults to descending.");
 
         group.MapGet("/{id}/timeline/stream", StreamChangeTimeline)
+            .WithMetadata(new QueueAwareEndpoint())
             .WithName("StreamChangeTimeline")
             .WithSummary("Streams change timeline events in real time")
             .WithDescription("Pushes change timeline updates over server-sent events.");
@@ -99,6 +101,9 @@ public static partial class ChangeEndpoints
         {
             var entity = await repo.GetAsync(id);
             if (entity == null) return Results.Problem("Change not found", statusCode: 404);
+            var access = await accessService.ResolveAsync(user, token);
+            if (!TicketAccessPolicy.CanRead(access, entity))
+                return access.HasRestrictedWorkforceAccess ? Results.Problem("Change not found", statusCode: 404) : Results.Forbid();
 
             var organizationName = !string.IsNullOrWhiteSpace(entity.OrganizationId)
                 ? await db.Organizations
@@ -114,12 +119,6 @@ public static partial class ChangeEndpoints
                     .Select(x => new { x.Id, x.Name, x.Email })
                     .FirstOrDefaultAsync()
                 : null;
-
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanViewChange(entity.OrganizationId, customer?.Id ?? entity.CustomerId, customer?.Email ?? entity.RequesterEmail))
-            {
-                return Results.Forbid();
-            }
 
             var categoryIds = await db.ChangeCategoryLinks
                 .Where(x => x.ChangeId == entity.Id)
@@ -157,11 +156,15 @@ public static partial class ChangeEndpoints
                 Priority = entity.Priority,
                 State = entity.State,
                 LifecycleState = EffectiveLifecycleState(entity),
-                LifecycleExplanation = CanReadInternalChange(access, entity.OrganizationId) ? entity.AdministrativeClosureReason : null,
+                LifecycleExplanation = TicketAccessPolicy.CanReadStaffContent(access, entity) ? entity.AdministrativeClosureReason : null,
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt,
                 TrackingId = entity.TrackingId,
                 AssignedToId = entity.AssignedToId,
+                AssignedSupportGroupId = entity.AssignedSupportGroupId,
+                AssignedSupportGroupName = await db.SupportGroups.Where(supportGroup => supportGroup.Id == entity.AssignedSupportGroupId)
+                    .Select(supportGroup => supportGroup.Name).FirstOrDefaultAsync(token),
+                QueueAssignmentVersion = entity.QueueAssignmentVersion,
                 LastReplierName = entity.LastReplierName,
                 CustomerOrgName = organizationName,
                 CustomerId = customer?.Id,
@@ -187,7 +190,7 @@ public static partial class ChangeEndpoints
                 Sla = ToSlaDto(slaSnapshot)
             };
             return Results.Ok(dto);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/", async (
             [FromBody] CreateChangeDto dto,
@@ -216,6 +219,21 @@ public static partial class ChangeEndpoints
                 return Results.BadRequest("OrganizationId is required when creating a change.");
             }
 
+            var groupId = dto.AssignedSupportGroupId?.Trim();
+            var access = await accessService.ResolveAsync(user, token);
+            var queueActor = TicketQueueEndpoints.ActorId(user, access);
+            await using var tx = groupId == null ? await db.Database.BeginTransactionAsync(token) :
+                await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token);
+            if (groupId != null)
+            {
+                if (string.IsNullOrWhiteSpace(queueActor)) return Results.Forbid();
+                if (await TicketQueueEndpoints.ValidateCreationAsync(db, accessService, access, TicketType.Change,
+                        dto.OrganizationId, groupId, dto.ImplementorUserId, token) is { } queueIssue) return queueIssue;
+            }
+            if (access.HasRestrictedWorkforceAccess &&
+                (groupId == null || dto.Attachments is { Count: > 0 } || dto.LinkedAssetIds is { Count: > 0 }))
+                return Results.Forbid();
+
             var implementationWindowError = ValidateImplementationWindow(dto.ImplementationStartAt, dto.ImplementationEndAt, requireBoth: true);
             if (implementationWindowError is not null)
             {
@@ -230,19 +248,20 @@ public static partial class ChangeEndpoints
                 return Results.BadRequest("The selected organization could not be found.");
             }
 
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanCreateChange(organization.Id, null, null))
+            if (groupId == null && !access.CanCreateChange(organization.Id, null, null))
             {
                 return Results.Forbid();
             }
 
+            if (string.IsNullOrWhiteSpace(dto.RequestedForUserId))
+                return Results.BadRequest("RequestedForUserId is required when creating a change.");
             var participantValidation = await ValidateChangeParticipantsAsync(
                 db,
                 organization,
                 dto.RequestedForUserId,
-                dto.ImplementorUserId,
+                groupId == null ? dto.ImplementorUserId : null,
                 dto.ApproverUserIds,
-                requireRequestedForAndImplementor: true,
+                requireRequestedForAndImplementor: groupId == null,
                 token);
             if (participantValidation is not null)
             {
@@ -251,7 +270,9 @@ public static partial class ChangeEndpoints
 
             var templateValidation = changeTemplateService.ValidateTemplate(normalizedChangeType, dto.ChangeTemplate);
             var lifecycleState = dto.SaveAsDraft ? ChangeLifecycleState.Draft :
-                ResolveInitialLifecycleState(templateValidation.IsComplete, dto.ApproverUserIds, access.CanApproveChange(organization.Id));
+                ResolveInitialLifecycleState(templateValidation.IsComplete, dto.ApproverUserIds,
+                    TicketAccessPolicy.Has(access, organization.Id, groupId, Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeApprove) ||
+                    TicketAccessPolicy.Has(access, organization.Id, groupId, Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeManager));
 
             var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
             var validation = await ValidateCategorySelectionAsync(
@@ -291,7 +312,9 @@ public static partial class ChangeEndpoints
             if (dto.Attachments is not null)
                 entity.Attachments = dto.Attachments.ToList();
 
-            await using var tx = await db.Database.BeginTransactionAsync(token);
+            if (groupId != null && queueActor != null)
+                TicketQueueAssignment.Stage(db, entity, groupId, string.IsNullOrWhiteSpace(dto.ImplementorUserId) ? null : dto.ImplementorUserId.Trim(),
+                    queueActor, null, DateTime.UtcNow);
 
             var created = await repo.CreateAsync(entity);
             try
@@ -356,6 +379,10 @@ public static partial class ChangeEndpoints
                 UpdatedAt = created.UpdatedAt,
                 TrackingId = created.TrackingId,
                 AssignedToId = created.AssignedToId,
+                AssignedSupportGroupId = created.AssignedSupportGroupId,
+                AssignedSupportGroupName = await db.SupportGroups.Where(queue => queue.Id == created.AssignedSupportGroupId)
+                    .Select(queue => queue.Name).FirstOrDefaultAsync(token),
+                QueueAssignmentVersion = created.QueueAssignmentVersion,
                 LastReplierName = created.LastReplierName,
                 CustomerOrgName = organization.Name,
                 CustomerId = created.CustomerId,
@@ -378,7 +405,7 @@ public static partial class ChangeEndpoints
                 CategoryIds = categoryIds,
             };
             return Results.Created($"/api/v1/changes/{created.Id}", responseDto);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPut("/{id}", async (
             [FromRoute] string id,
@@ -484,6 +511,8 @@ public static partial class ChangeEndpoints
 
                 if (dto.OrganizationId is not null)
                 {
+                    if (existing.AssignedSupportGroupId is not null && dto.OrganizationId != existing.OrganizationId)
+                        return Results.Conflict(new { message = "Move the ticket to Main Queue before changing its organization." });
                     if (string.IsNullOrWhiteSpace(dto.OrganizationId))
                     {
                         return Results.BadRequest("OrganizationId cannot be empty.");
@@ -873,7 +902,8 @@ public static partial class ChangeEndpoints
                 var change = await db.Changes.FirstOrDefaultAsync(x => x.Id == id, token);
                 if (change is null) return Results.NotFound();
                 var access = await accessService.ResolveAsync(user, token);
-                if (!access.CanManageChange(change.OrganizationId)) return Results.Forbid();
+                if (!TicketAccessPolicy.CanWrite(access, change))
+                    return access.HasRestrictedWorkforceAccess && !TicketAccessPolicy.CanRead(access, change) ? Results.NotFound() : Results.Forbid();
                 if (!await FenceChangeDecisionAsync(db, change, token)) return ChangeApprovalConflict();
                 var validation = ValidateTicketStateTransition(change, req.NewState);
                 if (validation is not null) return Results.BadRequest(validation);
@@ -903,6 +933,7 @@ public static partial class ChangeEndpoints
             }
         })
         .RequireAuthorization("ChangeManager")
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("UpdateChangeTicketState")
         .WithSummary("Updates the ticket state of a draft change; lifecycle transitions use the lifecycle endpoint");
 
@@ -1309,7 +1340,7 @@ public static partial class ChangeEndpoints
             var allLogs = await repo.GetAllAsync();
             var logs = allLogs
                 .Where(log => log.TicketId == id)
-                .Where(log => CanReadInternalChange(authorization.Access!, authorization.OrganizationId) || !log.IsInternalNote)
+                .Where(log => TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Ticket!) || !log.IsInternalNote)
                 .Select(l => new WorkLogDto
             {
                 Id = l.Id,
@@ -1340,7 +1371,7 @@ public static partial class ChangeEndpoints
                 return authorization.Failure;
             }
 
-            if ((dto.IsInternalNote || dto.Hours != 0) && !authorization.Access!.CanManageChange(authorization.OrganizationId))
+            if ((dto.IsInternalNote || dto.Hours != 0) && !TicketAccessPolicy.CanWrite(authorization.Access!, authorization.Ticket!))
             {
                 return Results.Forbid();
             }
@@ -1393,10 +1424,6 @@ public static partial class ChangeEndpoints
         })
         .RequireAuthorization("ChangeAccess");
     }
-
-    private static bool CanReadInternalChange(CurrentUserAccessProfile access, string? organizationId) =>
-        access.CanManageChange(organizationId) ||
-        access.HasPermission(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeRead, organizationId);
 
     private static async Task<IResult> GetPublicChangeApproval(Guid accessId, HttpContext http,
         [FromServices] PublicLinkService links, HelpdeskDbContext db, ITimelineEventBus timelineEventBus, CancellationToken ct)
@@ -1480,7 +1507,8 @@ public static partial class ChangeEndpoints
 
         var logger = loggerFactory.CreateLogger("ChangeEndpoints");
         var reader = eventBus.Subscribe(id);
-        var canReadInternalChange = CanReadInternalChange(authorization.Access!, authorization.OrganizationId);
+        var canReadInternalChange = TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Ticket!);
+        var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
 
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Append("Connection", "keep-alive");
@@ -1521,7 +1549,8 @@ public static partial class ChangeEndpoints
                     break;
                 }
 
-                canReadInternalChange = CanReadInternalChange(currentAuthorization.Access!, currentAuthorization.OrganizationId);
+                canReadInternalChange = TicketAccessPolicy.CanReadStaffContent(currentAuthorization.Access!, currentAuthorization.Ticket!);
+                restricted = currentAuthorization.Access!.HasRestrictedWorkforceAccess;
 
                 if (completedTask == waitForDataTask)
                 {
@@ -1532,12 +1561,12 @@ public static partial class ChangeEndpoints
 
                     while (reader.TryRead(out var evt))
                     {
-                        if (!canReadInternalChange && evt.EventType == TimelineEventType.InternalNote)
+                        if (!TicketTimelineAccess.Includes(evt.EventType, canReadInternalChange, restricted))
                         {
                             continue;
                         }
 
-                        var json = JsonSerializer.Serialize(evt);
+                        var json = JsonSerializer.Serialize(TicketTimelineAccess.Project(evt, restricted));
                         await context.Response.WriteAsync("event: timeline\n", ct);
                         await context.Response.WriteAsync($"data: {json}\n\n", ct);
                     }
@@ -1578,39 +1607,21 @@ public static partial class ChangeEndpoints
         bool requireContributor = false)
     {
         var change = await db.Changes.AsNoTracking()
-            .Where(candidate => candidate.Id == changeId)
-            .Select(candidate => new ChangeScope(candidate.OrganizationId, candidate.CustomerId, candidate.RequesterEmail))
-            .FirstOrDefaultAsync(cancellationToken);
-        if (change is null)
-        {
-            return new ChangeAuthorization(null, null, Results.NotFound());
-        }
+            .SingleOrDefaultAsync(candidate => candidate.Id == changeId, cancellationToken);
+        if (change is null) return new ChangeAuthorization(null, null, Results.NotFound());
 
-        var customer = !string.IsNullOrWhiteSpace(change.CustomerId)
-            ? await db.Customers.AsNoTracking()
-                .Where(candidate => candidate.Id == change.CustomerId)
-                .Select(candidate => new { candidate.Id, candidate.Email })
-                .FirstOrDefaultAsync(cancellationToken)
-            : null;
         var access = await accessService.ResolveAsync(user, cancellationToken);
-        var allowed = requireManager
-            ? access.CanManageChange(change.OrganizationId)
-            : requireContributor
-                ? access.CanContributeChange(change.OrganizationId, customer?.Id ?? change.CustomerId, customer?.Email ?? change.RequesterEmail)
-                : access.CanViewChange(
-                change.OrganizationId,
-                customer?.Id ?? change.CustomerId,
-                customer?.Email ?? change.RequesterEmail);
+        var canRead = TicketAccessPolicy.CanRead(access, change);
+        var allowed = requireManager ? TicketAccessPolicy.CanWrite(access, change) :
+            requireContributor ? TicketAccessPolicy.CanContribute(access, change) : canRead;
         return allowed
-            ? new ChangeAuthorization(access, change.OrganizationId, null)
-            : new ChangeAuthorization(null, null, Results.Forbid());
+            ? new ChangeAuthorization(access, change, null)
+            : new ChangeAuthorization(null, null, access.HasRestrictedWorkforceAccess && !canRead ? Results.NotFound() : Results.Forbid());
     }
-
-    private sealed record ChangeScope(string? OrganizationId, string? CustomerId, string? RequesterEmail);
 
     private sealed record ChangeAuthorization(
         CurrentUserAccessProfile? Access,
-        string? OrganizationId,
+        Change? Ticket,
         IResult? Failure);
 
     private static async Task<IResult> GetChanges(
@@ -1633,7 +1644,8 @@ public static partial class ChangeEndpoints
         page = page.HasValue ? Math.Clamp(page.Value, 1, 1_000_000) : null;
         var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
 
-        var query = filters.Apply(db.Changes.AsNoTracking(), true)
+        var access = await accessService.ResolveAsync(user, cancellationToken);
+        var query = filters.Apply(TicketAccessPolicy.Readable(db.Changes.AsNoTracking(), access, TicketType.Change), true)
             .Select(c => new
             {
                 Change = c,
@@ -1650,22 +1662,6 @@ public static partial class ChangeEndpoints
                     .Select(customer => customer.Email)
                     .FirstOrDefault()
             });
-
-        var access = await accessService.ResolveAsync(user, cancellationToken);
-        if (!access.IsHelpdeskAdmin)
-        {
-            var tenantReadOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeRead)
-                .Concat(access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeWrite))
-                .Concat(access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeManager))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var ownOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.ChangeUser).ToArray();
-            query = query.Where(x =>
-                tenantReadOrganizationIds.Contains(x.Change.OrganizationId) ||
-                (ownOrganizationIds.Contains(x.Change.OrganizationId) &&
-                 !string.IsNullOrWhiteSpace(access.CustomerId) &&
-                 x.Change.CustomerId == access.CustomerId));
-        }
 
         if (state is not null)
         {
@@ -1726,6 +1722,10 @@ public static partial class ChangeEndpoints
                 UpdatedAt = x.Change.UpdatedAt ?? x.Change.CreatedAt,
                 x.Change.TrackingId,
                 x.Change.AssignedToId,
+                x.Change.AssignedSupportGroupId,
+                AssignedSupportGroupName = db.SupportGroups.Where(supportGroup => supportGroup.Id == x.Change.AssignedSupportGroupId)
+                    .Select(supportGroup => supportGroup.Name).FirstOrDefault(),
+                x.Change.QueueAssignmentVersion,
                 x.Change.LastReplierName,
                 CustomerOrgName = x.OrgName,
                 x.Change.CustomerId,
@@ -1773,6 +1773,9 @@ public static partial class ChangeEndpoints
                 UpdatedAt = x.UpdatedAt,
                 TrackingId = x.TrackingId,
                 AssignedToId = x.AssignedToId,
+                AssignedSupportGroupId = x.AssignedSupportGroupId,
+                AssignedSupportGroupName = x.AssignedSupportGroupName,
+                QueueAssignmentVersion = x.QueueAssignmentVersion,
                 LastReplierName = x.LastReplierName,
                 CustomerOrgName = x.CustomerOrgName,
                 CustomerId = x.CustomerId,
@@ -1823,6 +1826,9 @@ public static partial class ChangeEndpoints
             UpdatedAt = i.UpdatedAt,
             TrackingId = i.TrackingId,
             AssignedToId = i.AssignedToId,
+            AssignedSupportGroupId = i.AssignedSupportGroupId,
+            AssignedSupportGroupName = i.AssignedSupportGroupName,
+            QueueAssignmentVersion = i.QueueAssignmentVersion,
             LastReplierName = i.LastReplierName,
             CustomerOrgName = i.CustomerOrgName,
             CustomerId = i.CustomerId,

@@ -2,8 +2,11 @@ using System.Security.Claims;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Infrastructure.Identity;
+using Helpdesk.Infrastructure.Ticketing;
 using Microsoft.Data.Sqlite;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.Infrastructure.Persistence;
@@ -12,6 +15,36 @@ public static class AssigneeQueries
 {
     public static Task<bool> CanAssignAsync(HelpdeskDbContext db, string module, string? organizationId, string userId, CancellationToken ct) =>
         Eligible(db, module, db.Organizations.Where(org => org.Id == organizationId)).AnyAsync(user => user.Id == userId, ct);
+
+    public static async Task<bool> CanAssignToQueueAsync(
+        HelpdeskDbContext db, ICurrentUserAccessService accessService, TicketType module, string organizationId,
+        string? supportGroupId, string assigneeId, CancellationToken ct)
+    {
+        if (supportGroupId is null)
+            return await CanAssignAsync(db, module.ToString().ToLowerInvariant(), organizationId, assigneeId, ct);
+        if (!await TicketQueueAssignment.Destinations(db, organizationId).AnyAsync(group => group.Id == supportGroupId, ct) ||
+            !await db.SupportGroupMembers.AnyAsync(member => member.SupportGroupId == supportGroupId &&
+                member.UserId == assigneeId && member.IsEnabled, ct))
+            return false;
+
+        var candidate = await ResolveAccountAccessAsync(db, accessService, assigneeId, ct);
+        return candidate != null && TicketAccessPolicy.CanWrite(candidate, module, organizationId, supportGroupId);
+    }
+
+    public static async Task<CurrentUserAccessProfile?> ResolveAccountAccessAsync(
+        HelpdeskDbContext db, ICurrentUserAccessService accessService, string domainUserId, CancellationToken ct)
+    {
+        if (!await db.Users.AnyAsync(user => user.Id == domainUserId && !user.IsDeleted, ct)) return null;
+        var links = await db.CustomerAuthLinks.AsNoTracking().Where(link => link.DomainUserId == domainUserId).Take(2).ToArrayAsync(ct);
+        if (links.Length > 1) return null;
+        var link = links.SingleOrDefault();
+        if (link is { DisabledAtUtc: not null } || link?.InviteStatus == CustomerInviteStatus.Disabled) return null;
+
+        var claims = link is { LocalAccountId: null, OidcIssuer.Length: > 0, OidcSubject.Length: > 0 }
+            ? new[] { new Claim("iss", link.OidcIssuer), new Claim("sub", link.OidcSubject) }
+            : [new Claim("auth_mode", "local"), new Claim(ClaimTypes.NameIdentifier, link?.LocalAccountId ?? domainUserId)];
+        return await accessService.ResolveAsync(new ClaimsPrincipal(new ClaimsIdentity(claims, "TicketAssignment")), ct);
+    }
     public static IQueryable<User> Eligible(HelpdeskDbContext db, string module, Helpdesk.Shared.Models.Organization organization) =>
         Eligible(db, module, db.Organizations.Where(candidate => candidate.Id == organization.Id));
 

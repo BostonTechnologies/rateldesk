@@ -134,6 +134,13 @@ public static class McpOperationCatalog
         foreach (var definition in TicketRemainder("helpdesk_incidents", "incidents", "incidentId", ["list"])) yield return definition;
         foreach (var definition in TicketRemainder("helpdesk_requests", "requests", "requestId", ["list", "bulk_create", "bulk_state", "assign", "assign_self"])) yield return definition;
         foreach (var definition in TicketRemainder("helpdesk_changes", "changes", "changeId", ["list", "bulk_create", "bulk_state", "assign", "assign_self"])) yield return definition;
+        foreach (var module in new[] { "incident", "request", "change" })
+        {
+            yield return Read($"helpdesk_{module}s", "queue_options", "TicketQueueOptionsRequest",
+                $"/api/v1/ticket-queues/{module}/", "List current authorized queue choices or transfer destinations.");
+            yield return Operation($"helpdesk_{module}s", "move_queue", "MoveTicketQueueRequest", "POST",
+                $"/api/v1/ticket-queues/{module}/assignment", true);
+        }
 
         yield return Operation("helpdesk_requests", "bulk_close", "CloseRequestWork", "POST", "/api/v1/requests/bulk/close", true);
         yield return Operation("helpdesk_request_tasks", "bulk_close", "CloseRequestWork", "POST", "/api/v1/request-tasks/bulk/close", true);

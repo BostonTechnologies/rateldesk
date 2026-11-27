@@ -1160,6 +1160,7 @@ app.MapGet("/api/v1/auth/ai-agent/status", (ClaimsPrincipal user) => Results.Ok(
 app.MapAiAgentOpsEndpoints();
 app.MapActivityEndpoints();
 app.MapIncidentEndpoints();
+app.MapTicketQueueEndpoints();
 app.MapTicketRelationEndpoints();
 app.MapAutomationReportEndpoints();
 Helpdesk.API.Endpoints.Integrations.AutomationIncidentEndpoints.MapAutomationIncidentEndpoints(app);

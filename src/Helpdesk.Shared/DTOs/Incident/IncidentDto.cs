@@ -6,6 +6,12 @@ using Helpdesk.Shared.Models;
 public class IncidentDto
 {
     public string? OrganizationId { get; set; }
+    [global::System.Text.Json.Serialization.JsonIgnore(Condition = global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public string? AssignedSupportGroupId { get; set; }
+    [global::System.Text.Json.Serialization.JsonIgnore(Condition = global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public string? AssignedSupportGroupName { get; set; }
+    [global::System.Text.Json.Serialization.JsonIgnore(Condition = global::System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long QueueAssignmentVersion { get; set; }
 
     // The Dodo-generated UUID, for internal use and navigation
     public string Id { get; set; } = string.Empty;

@@ -12,7 +12,8 @@ internal static class RequestTimelineSse
 {
     public static async Task RunAsync(string id, HttpContext context, HelpdeskDbContext db,
         ITimelineEventBus eventBus, Func<CancellationToken, Task<bool>> authorize,
-        Func<TicketTimelineEventDto, bool>? includeTimeline, ILogger logger, CancellationToken ct)
+        Func<TicketTimelineEventDto, bool>? includeTimeline, ILogger logger, CancellationToken ct,
+        Func<TicketTimelineEventDto, TicketTimelineEventDto>? project = null)
     {
         var reader = eventBus.Subscribe(id);
         try
@@ -51,7 +52,7 @@ internal static class RequestTimelineSse
                         else if (includeTimeline(item))
                         {
                             await context.Response.WriteAsync("event: timeline\n", ct);
-                            await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(item)}\n\n", ct);
+                            await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(project?.Invoke(item) ?? item)}\n\n", ct);
                             wrote = true;
                         }
                     }

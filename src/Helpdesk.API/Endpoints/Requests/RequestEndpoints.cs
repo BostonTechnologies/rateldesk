@@ -12,6 +12,7 @@ using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Article;
 using Helpdesk.Shared.DTOs.Request;
@@ -43,7 +44,7 @@ public static class RequestEndpoints
             .RequireAuthorization("RequestManager");
 
         staffGroup.MapCloseWork(closeParent: true);
-        group.MapGet("/", GetRequests);
+        group.MapGet("/", GetRequests).WithMetadata(new QueueAwareEndpoint());
 
         group.MapGet("/{id}", async (
             [FromRoute] string id,
@@ -62,6 +63,9 @@ public static class RequestEndpoints
         {
             var entity = await repo.GetAsync(id);
             if (entity == null) return Results.Problem("Request not found", statusCode: 404);
+            var access = await accessService.ResolveAsync(user, token);
+            if (!TicketAccessPolicy.CanRead(access, entity))
+                return access.HasRestrictedWorkforceAccess ? Results.Problem("Request not found", statusCode: 404) : Results.Forbid();
 
             var customer = !string.IsNullOrWhiteSpace(entity.CustomerId)
                 ? await db.Customers
@@ -70,12 +74,6 @@ public static class RequestEndpoints
                     .Select(x => new { x.Id, x.Name, x.Email })
                     .FirstOrDefaultAsync()
                 : null;
-
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanViewRequest(entity.OrganizationId, customer?.Id ?? entity.CustomerId, customer?.Email ?? entity.RequesterEmail))
-            {
-                return Results.Forbid();
-            }
 
             var categoryIds = await db.RequestCategoryLinks
                 .Where(x => x.RequestId == entity.Id)
@@ -95,7 +93,7 @@ public static class RequestEndpoints
 
             var sourceTicketTrackingId = string.IsNullOrWhiteSpace(entity.SourceTicketId)
                 ? null
-                : await db.Tickets
+                : await TicketAccessPolicy.Readable(db, access)
                     .AsNoTracking()
                     .Where(x => x.Id == entity.SourceTicketId)
                     .Select(x => x.TrackingId)
@@ -113,6 +111,10 @@ public static class RequestEndpoints
                 UpdatedAt = entity.UpdatedAt,
                 TrackingId = entity.TrackingId,
                 AssignedToId = entity.AssignedToId,
+                AssignedSupportGroupId = entity.AssignedSupportGroupId,
+                AssignedSupportGroupName = await db.SupportGroups.Where(supportGroup => supportGroup.Id == entity.AssignedSupportGroupId)
+                    .Select(supportGroup => supportGroup.Name).FirstOrDefaultAsync(token),
+                QueueAssignmentVersion = entity.QueueAssignmentVersion,
                 CustomerId = customer?.Id ?? entity.CustomerId,
                 CustomerName = customer?.Name,
                 CustomerEmail = customer?.Email ?? entity.RequesterEmail,
@@ -122,9 +124,9 @@ public static class RequestEndpoints
                 RequestFormId = entity.RequestFormId,
                 PayloadJson = entity.PayloadJson,
                 SubmittedFields = RequestSubmittedFields.Read(entity.PayloadJson, !string.IsNullOrWhiteSpace(entity.RequestFormId)),
-                SourceTicketId = entity.SourceTicketId,
+                SourceTicketId = sourceTicketTrackingId != null ? entity.SourceTicketId : null,
                 SourceTicketTrackingId = sourceTicketTrackingId,
-                SourceAutomationBindingId = entity.SourceAutomationBindingId,
+                SourceAutomationBindingId = access.HasRestrictedWorkforceAccess ? null : entity.SourceAutomationBindingId,
                 AdministrativeClosureReason = entity.AdministrativeClosureReason,
                 StateVersion = entity.WorkflowStateVersion,
                 WorkflowStatus = entity.WorkflowStatus,
@@ -133,7 +135,7 @@ public static class RequestEndpoints
                 Sla = ToSlaDto(slaSnapshot)
             };
             return Results.Ok(dto);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapGet("/{id}/tasks", async (
             [FromRoute] string id,
@@ -155,18 +157,29 @@ public static class RequestEndpoints
                 return Results.Problem("Request not found", statusCode: 404);
             }
 
-            var tasks = await db.RequestTasks.AsNoTracking()
-                .Where(t => t.RequestId == id)
+            var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
+            if (restricted && !TicketAccessPolicy.CanReadStaffContent(authorization.Access, request)) return Results.Forbid();
+            var taskQuery = db.RequestTasks.AsNoTracking().Where(t => t.RequestId == id);
+            if (restricted)
+                taskQuery = taskQuery.Where(t => t.OrganizationId == request.OrganizationId);
+            var tasks = await taskQuery
                 .OrderBy(t => t.Order)
                 .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
                 .ToListAsync(token);
+            if (restricted)
+                return Results.Ok(tasks.Select(t => new RequestTaskDto
+                {
+                    Id = t.Id, Name = t.Name, Description = t.Description, Type = t.Type, Status = t.Status,
+                    Order = t.Order, AssignedToId = t.AssignedToId, StateVersion = t.AutomationStateVersion,
+                    StartedAt = t.StartedAt, CompletedAt = t.CompletedAt, DueAt = t.DueAt
+                }).ToArray());
             var bindingStates = await LoadAutomationBindingStatesAsync(
                 db,
                 request.RequestFormId,
                 tasks.Select(t => t.TemplateId),
                 token);
             var showProviderDiagnostics = authorization.Access is { } access && RequestTaskEndpoints.CanReadTasks(access)
-                && RequestTaskEndpoints.CanReadOrganization(access, authorization.OrganizationId);
+                && RequestTaskEndpoints.CanReadOrganization(access, authorization.Ticket!.OrganizationId);
 
             return Results.Ok(tasks.Select(t =>
             {
@@ -216,7 +229,7 @@ public static class RequestEndpoints
                         t.FailureReason, authorization.Access?.IsHelpdeskAdmin == true)
                 };
             }).ToList());
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/", async (
             [FromBody] CreateRequestDto dto,
@@ -243,6 +256,22 @@ public static class RequestEndpoints
                 return Results.BadRequest("Title is required when RequestFormId is not provided.");
             }
 
+            var groupId = dto.AssignedSupportGroupId?.Trim();
+            var access = await accessService.ResolveAsync(user, token);
+            var queueActor = TicketQueueEndpoints.ActorId(user, access);
+            await using var tx = groupId == null ? await db.Database.BeginTransactionAsync(token) :
+                await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token);
+            if (groupId != null)
+            {
+                if (string.IsNullOrWhiteSpace(queueActor)) return Results.Forbid();
+                if (await TicketQueueEndpoints.ValidateCreationAsync(db, accessService, access, TicketType.Request,
+                        dto.OrganizationId, groupId, dto.AssignedToId, token) is { } queueIssue) return queueIssue;
+            }
+            if (access.HasRestrictedWorkforceAccess &&
+                (groupId == null || dto.CcRecipients is { Count: > 0 } || dto.Attachments is { Count: > 0 } ||
+                 dto.LinkedAssetIds is { Count: > 0 } || dto.RequestFormId != null || dto.ServiceId != null))
+                return Results.Forbid();
+
             var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
             var validation = await ValidateCategorySelectionAsync(
                 db,
@@ -261,14 +290,14 @@ public static class RequestEndpoints
             }
 
             var customer = customerValidation.Customer!;
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanCreateRequest(dto.OrganizationId, customer.Id, customer.Email) ||
-                (!string.IsNullOrWhiteSpace(dto.AssignedToId) && !access.CanManageRequest(dto.OrganizationId)))
+            if (groupId == null && (!access.CanCreateRequest(dto.OrganizationId, customer.Id, customer.Email) ||
+                (!string.IsNullOrWhiteSpace(dto.AssignedToId) && !access.CanManageRequest(dto.OrganizationId))))
             {
                 return Results.Forbid();
             }
 
-            var assignmentValidation = await TicketAssigneeValidation.RequestAsync(db, dto.OrganizationId, dto.AssignedToId, token);
+            var assignmentValidation = groupId == null
+                ? await TicketAssigneeValidation.RequestAsync(db, dto.OrganizationId, dto.AssignedToId, token) : null;
             if (assignmentValidation is not null)
             {
                 return assignmentValidation;
@@ -341,7 +370,8 @@ public static class RequestEndpoints
             if (dto.Attachments is not null)
                 entity.Attachments = dto.Attachments.ToList();
 
-            await using var tx = await db.Database.BeginTransactionAsync(token);
+            if (groupId != null && queueActor != null)
+                TicketQueueAssignment.Stage(db, entity, groupId, entity.AssignedToId, queueActor, null, DateTime.UtcNow);
 
             var created = await repo.CreateAsync(entity);
             try
@@ -399,6 +429,10 @@ public static class RequestEndpoints
                 UpdatedAt = created.UpdatedAt,
                 TrackingId = created.TrackingId,
                 AssignedToId = created.AssignedToId,
+                AssignedSupportGroupId = created.AssignedSupportGroupId,
+                AssignedSupportGroupName = await db.SupportGroups.Where(queue => queue.Id == created.AssignedSupportGroupId)
+                    .Select(queue => queue.Name).FirstOrDefaultAsync(token),
+                QueueAssignmentVersion = created.QueueAssignmentVersion,
                 CustomerId = created.CustomerId,
                 CustomerName = customer.Name,
                 CustomerEmail = customer.Email,
@@ -416,7 +450,7 @@ public static class RequestEndpoints
                 WorkflowUpdatedAt = created.WorkflowUpdatedAt
             };
             return Results.Created($"/api/v1/requests/{created.Id}", responseDto);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPut("/{id}", async (
             [FromRoute] string id,
@@ -683,9 +717,9 @@ public static class RequestEndpoints
             }
 
             var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanManageRequest(request.OrganizationId))
+            if (!TicketAccessPolicy.CanWrite(access, request))
             {
-                return Results.Forbid();
+                return access.HasRestrictedWorkforceAccess && !TicketAccessPolicy.CanRead(access, request) ? Results.NotFound() : Results.Forbid();
             }
 
             if (!Enum.IsDefined(req.NewState)) return Results.BadRequest("Invalid ticket state.");
@@ -722,6 +756,7 @@ public static class RequestEndpoints
 
             return Results.Ok(new { request.Id, State = request.State, StateVersion = request.WorkflowStateVersion });
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("QuickUpdateRequestState")
         .WithSummary("Quick update request state")
         .WithDescription("Updates one request state from a list row state picker.")
@@ -744,7 +779,7 @@ public static class RequestEndpoints
             var allLogs = await repo.GetAllAsync();
             var logs = allLogs
                 .Where(log => log.TicketId == id)
-                .Where(log => CanReadInternalRequest(authorization.Access!, authorization.OrganizationId) || !log.IsInternalNote)
+                .Where(log => TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Ticket!) || !log.IsInternalNote)
                 .Select(l => new WorkLogDto
             {
                 Id = l.Id,
@@ -776,10 +811,9 @@ public static class RequestEndpoints
             var timelineQuery = db.TicketTimelineEvents
                 .AsNoTracking()
                 .Where(evt => evt.TicketId == id);
-            if (!CanReadInternalRequest(authorization.Access!, authorization.OrganizationId))
-            {
-                timelineQuery = timelineQuery.Where(evt => evt.EventType != TimelineEventType.InternalNote);
-            }
+            var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
+            timelineQuery = TicketTimelineAccess.Filter(timelineQuery,
+                TicketAccessPolicy.CanReadStaffContent(authorization.Access, authorization.Ticket!), restricted);
 
             // The ticket and visibility filters remain in SQL. SQLite cannot order
             // DateTimeOffset, so order this already bounded ticket history in memory.
@@ -787,12 +821,12 @@ public static class RequestEndpoints
             var ordered = string.Equals(order, "asc", StringComparison.OrdinalIgnoreCase)
                 ? events.OrderBy(evt => evt.CreatedUtc)
                 : events.OrderByDescending(evt => evt.CreatedUtc);
-            var timeline = ordered.Select(ToTimelineDto).ToList();
+            var timeline = ordered.Select(evt => TicketTimelineAccess.Project(ToTimelineDto(evt), restricted)).ToList();
 
             return Results.Ok(timeline);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
-        group.MapGet("/{id}/timeline/stream", StreamTimeline);
+        group.MapGet("/{id}/timeline/stream", StreamTimeline).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/{id}/worklogs", async (
             [FromRoute] string id,
@@ -810,7 +844,7 @@ public static class RequestEndpoints
                 return authorization.Failure;
             }
 
-            if ((dto.IsInternalNote || dto.Hours != 0) && !authorization.Access!.CanManageRequest(authorization.OrganizationId))
+            if ((dto.IsInternalNote || dto.Hours != 0) && !TicketAccessPolicy.CanWrite(authorization.Access!, authorization.Ticket!))
             {
                 return Results.Forbid();
             }
@@ -865,10 +899,6 @@ public static class RequestEndpoints
         });
     }
 
-    private static bool CanReadInternalRequest(CurrentUserAccessProfile access, string? organizationId) =>
-        access.CanManageRequest(organizationId) ||
-        access.HasPermission(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestRead, organizationId);
-
     private static async Task<IResult> GetRequests(
         [FromServices] HelpdeskDbContext db,
         [FromServices] ICurrentUserAccessService accessService,
@@ -889,8 +919,9 @@ public static class RequestEndpoints
         page = page.HasValue ? Math.Clamp(page.Value, 1, 1_000_000) : null;
         var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
 
+        var access = await accessService.ResolveAsync(user, cancellationToken);
         var query =
-            from r in filters.Apply(db.Requests.AsNoTracking(), false)
+            from r in filters.Apply(TicketAccessPolicy.Readable(db.Requests.AsNoTracking(), access, TicketType.Request), false)
             join c in db.Customers.AsNoTracking() on r.CustomerId equals c.Id into rc
             from c in rc.DefaultIfEmpty()
             join o in db.Organizations.AsNoTracking() on r.OrganizationId equals o.Id into co
@@ -903,22 +934,6 @@ public static class RequestEndpoints
                 CustomerName = c != null ? c.Name : null,
                 CustomerEmail = c != null ? c.Email : null
             };
-
-        var access = await accessService.ResolveAsync(user, cancellationToken);
-        if (!access.IsHelpdeskAdmin)
-        {
-            var tenantReadOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestRead)
-                .Concat(access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestWrite))
-                .Concat(access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestManager))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var ownOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.RequestUser).ToArray();
-            query = query.Where(x =>
-                tenantReadOrganizationIds.Contains(x.Request.OrganizationId) ||
-                (ownOrganizationIds.Contains(x.Request.OrganizationId) &&
-                 !string.IsNullOrWhiteSpace(access.CustomerId) &&
-                 x.CustomerId == access.CustomerId));
-        }
 
         if (!filters.ExplicitStates)
         {
@@ -940,6 +955,7 @@ public static class RequestEndpoints
             }
         }
 
+        if (aiOnly && access.HasRestrictedWorkforceAccess) return Results.Forbid();
         if (aiOnly)
         {
             query = query.Where(x =>
@@ -969,6 +985,7 @@ public static class RequestEndpoints
 
         var totalCount = includeTotal ? await query.CountAsync(cancellationToken) : 0;
 
+        var visibleSourceTickets = TicketAccessPolicy.Readable(db, access);
         var orderedQuery = filters.Order(query, "Request")
             .Select(x => new
             {
@@ -982,6 +999,10 @@ public static class RequestEndpoints
                 UpdatedAt = x.Request.UpdatedAt ?? x.Request.CreatedAt,
                 x.Request.TrackingId,
                 x.Request.AssignedToId,
+                x.Request.AssignedSupportGroupId,
+                AssignedSupportGroupName = db.SupportGroups.Where(supportGroup => supportGroup.Id == x.Request.AssignedSupportGroupId)
+                    .Select(supportGroup => supportGroup.Name).FirstOrDefault(),
+                x.Request.QueueAssignmentVersion,
                 x.Request.LastReplierName,
                 CustomerOrgName = x.OrgName,
                 x.CustomerId,
@@ -990,8 +1011,9 @@ public static class RequestEndpoints
                 x.Request.ServiceId,
                 x.Request.RequestFormId,
                 x.Request.PayloadJson,
-                x.Request.SourceTicketId,
-                x.Request.SourceAutomationBindingId,
+                SourceTicketId = visibleSourceTickets.Any(source => source.Id == x.Request.SourceTicketId)
+                    ? x.Request.SourceTicketId : null,
+                SourceAutomationBindingId = access.HasRestrictedWorkforceAccess ? null : x.Request.SourceAutomationBindingId,
                 x.Request.AdministrativeClosureReason,
                 x.Request.WorkflowStateVersion,
                 x.Request.WorkflowStatus,
@@ -1021,6 +1043,9 @@ public static class RequestEndpoints
                 UpdatedAt = i.UpdatedAt,
                 TrackingId = i.TrackingId,
                 AssignedToId = i.AssignedToId,
+                AssignedSupportGroupId = i.AssignedSupportGroupId,
+                AssignedSupportGroupName = i.AssignedSupportGroupName,
+                QueueAssignmentVersion = i.QueueAssignmentVersion,
                 LastReplierName = i.LastReplierName,
                 CustomerOrgName = i.CustomerOrgName,
                 CustomerId = i.CustomerId,
@@ -1061,7 +1086,7 @@ public static class RequestEndpoints
             .ToList();
         var sourceTicketLookup = sourceTicketIds.Count == 0
             ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            : await db.Tickets
+            : await TicketAccessPolicy.Readable(db, access)
                 .AsNoTracking()
                 .Where(x => sourceTicketIds.Contains(x.Id))
                 .ToDictionaryAsync(x => x.Id, x => x.TrackingId, cancellationToken);
@@ -1078,6 +1103,9 @@ public static class RequestEndpoints
             UpdatedAt = i.UpdatedAt,
             TrackingId = i.TrackingId,
             AssignedToId = i.AssignedToId,
+            AssignedSupportGroupId = i.AssignedSupportGroupId,
+            AssignedSupportGroupName = i.AssignedSupportGroupName,
+            QueueAssignmentVersion = i.QueueAssignmentVersion,
             LastReplierName = i.LastReplierName,
             CustomerOrgName = i.CustomerOrgName,
             CustomerId = i.CustomerId,
@@ -1378,15 +1406,17 @@ public static class RequestEndpoints
             return;
         }
 
-        var canReadInternalRequest = CanReadInternalRequest(authorization.Access!, authorization.OrganizationId);
+        var canReadInternalRequest = TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Ticket!);
+        var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
         await RequestTimelineSse.RunAsync(id, context, db, eventBus, async token =>
         {
             var current = await AuthorizeRequestAsync(id, context.User, accessService, db, requireManager: false, token);
             if (current.Failure is not null) return false;
-            canReadInternalRequest = CanReadInternalRequest(current.Access!, current.OrganizationId);
+            canReadInternalRequest = TicketAccessPolicy.CanReadStaffContent(current.Access!, current.Ticket!);
+            restricted = current.Access!.HasRestrictedWorkforceAccess;
             return true;
-        }, item => canReadInternalRequest || item.EventType != TimelineEventType.InternalNote,
-            loggerFactory.CreateLogger("RequestEndpoints"), ct);
+        }, item => TicketTimelineAccess.Includes(item.EventType, canReadInternalRequest, restricted),
+            loggerFactory.CreateLogger("RequestEndpoints"), ct, item => TicketTimelineAccess.Project(item, restricted));
     }
 
     private static TicketTimelineEventDto ToTimelineDto(TicketTimelineEvent evt)
@@ -1404,39 +1434,21 @@ public static class RequestEndpoints
         bool requireContributor = false)
     {
         var request = await db.Requests.AsNoTracking()
-            .Where(candidate => candidate.Id == requestId)
-            .Select(candidate => new RequestScope(candidate.OrganizationId, candidate.CustomerId, candidate.RequesterEmail))
-            .FirstOrDefaultAsync(cancellationToken);
-        if (request is null)
-        {
-            return new RequestAuthorization(null, null, Results.NotFound());
-        }
+            .SingleOrDefaultAsync(candidate => candidate.Id == requestId, cancellationToken);
+        if (request is null) return new RequestAuthorization(null, null, Results.NotFound());
 
-        var customer = !string.IsNullOrWhiteSpace(request.CustomerId)
-            ? await db.Customers.AsNoTracking()
-                .Where(candidate => candidate.Id == request.CustomerId)
-                .Select(candidate => new { candidate.Id, candidate.Email })
-                .FirstOrDefaultAsync(cancellationToken)
-            : null;
         var access = await accessService.ResolveAsync(user, cancellationToken);
-        var allowed = requireManager
-            ? access.CanManageRequest(request.OrganizationId)
-            : requireContributor
-                ? access.CanContributeRequest(request.OrganizationId, customer?.Id ?? request.CustomerId, customer?.Email ?? request.RequesterEmail)
-                : access.CanViewRequest(
-                request.OrganizationId,
-                customer?.Id ?? request.CustomerId,
-                customer?.Email ?? request.RequesterEmail);
+        var canRead = TicketAccessPolicy.CanRead(access, request);
+        var allowed = requireManager ? TicketAccessPolicy.CanWrite(access, request) :
+            requireContributor ? TicketAccessPolicy.CanContribute(access, request) : canRead;
         return allowed
-            ? new RequestAuthorization(access, request.OrganizationId, null)
-            : new RequestAuthorization(null, null, Results.Forbid());
+            ? new RequestAuthorization(access, request, null)
+            : new RequestAuthorization(null, null, access.HasRestrictedWorkforceAccess && !canRead ? Results.NotFound() : Results.Forbid());
     }
-
-    private sealed record RequestScope(string? OrganizationId, string? CustomerId, string? RequesterEmail);
 
     private sealed record RequestAuthorization(
         CurrentUserAccessProfile? Access,
-        string? OrganizationId,
+        Request? Ticket,
         IResult? Failure);
 
     private static IEnumerable<string> NormalizeEmails(IEnumerable<string>? values)

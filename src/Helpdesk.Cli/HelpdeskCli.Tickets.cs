@@ -59,7 +59,7 @@ internal static partial class HelpdeskCli
         command.AddCommand(GetProjectedByIdCommand(runtime, globals, "get", basePath + "/{id}", name.TrimEnd('s')));
         command.AddCommand(name == "incidents"
             ? BuildIncidentCreateCommand(runtime, globals, basePath + "/")
-            : BodyCommand(runtime, globals, "create", HttpMethod.Post, basePath + "/", TicketBodyFields));
+            : BodyCommand(runtime, globals, "create", HttpMethod.Post, basePath + "/", [.. TicketBodyFields, ("--support-group-id", "assignedSupportGroupId")]));
         if (name == "incidents")
         {
             command.AddCommand(BuildIncidentBulkCreateCommand(runtime, globals, basePath + "/"));
@@ -69,6 +69,9 @@ internal static partial class HelpdeskCli
         command.AddCommand(BodyCommand(runtime, globals, "state", HttpMethod.Post, basePath + "/{id}/state", ("--new-state", "newState")));
         command.AddCommand(BodyCommand(runtime, globals, "bulk-state", HttpMethod.Post, basePath + "/bulk/state", ("--ids", "ids"), ("--new-state", "newState"), ("--comment", "comment")));
         command.AddCommand(BodyCommand(runtime, globals, "assign", HttpMethod.Post, basePath + "/bulk/assign", ("--ids", "ids"), ("--assigned-to-id", "assignedToId")));
+        command.AddCommand(BodyCommand(runtime, globals, "move-queue", HttpMethod.Post, $"/api/v1/ticket-queues/{name.TrimEnd('s')}/assignment",
+            ("--tickets", "tickets"), ("--support-group-id", "supportGroupId"), ("--assignee-action", "assigneeAction"),
+            ("--assignee-id", "assigneeId"), ("--reason", "reason")));
         command.AddCommand(BuildAssignSelfCommand(runtime, globals, name, basePath + "/bulk/assign"));
         command.AddCommand(BuildTicketWorklogsCommand(runtime, globals, name, basePath));
         command.AddCommand(BodyCommand(runtime, globals, "add-worklog", HttpMethod.Post, basePath + "/{id}/worklogs", ("--hours", "hours"), ("--notes", "notes"), ("--is-internal-note", "isInternalNote")));
@@ -116,6 +119,7 @@ internal static partial class HelpdeskCli
         ("--priority", "priority"),
         ("--state", "state"),
         ("--assigned-to-id", "assignedToId"),
+        ("--support-group-id", "assignedSupportGroupId"),
         ("--category-ids", "categoryIds"),
         ("--cc-recipients", "ccRecipients")
     ];
@@ -502,6 +506,10 @@ internal static partial class HelpdeskCli
         Option<string?>? requesterEmail = null)
     {
         var command = new Command("list", $"List {resource}.");
+        var queueIds = new Option<string[]>("--support-group-id") { Description = "Filter by support group ID. Repeat to include multiple queues." };
+        var mainQueue = new Option<bool>("--main-queue") { Description = "Include Main Queue in the queue filter." };
+        command.AddOption(queueIds);
+        command.AddOption(mainQueue);
         foreach (var option in new Option[] { page, pageSize, limit, take, state, q, activeOnly, historicOnly, aiInvolved, includeTotal, summaryOnly, maxItems })
         {
             command.AddOption(option);
@@ -528,8 +536,12 @@ internal static partial class HelpdeskCli
                 ("requesterEmail", requesterEmail is null ? null : ctx.ParseResult.GetValueForOption(requesterEmail)));
 
             var output = ResolveOutput(ctx, globals, defaultView: "summary");
+            var groupIds = ctx.ParseResult.GetValueForOption(queueIds) ?? [];
+            var includeMain = ctx.ParseResult.GetValueForOption(mainQueue);
             if (output.View == "aggregate")
             {
+                if (groupIds.Length > 0 || includeMain)
+                    throw new ArgumentException("Queue filters require summary, full or raw list output.");
                 await WriteAggregateSummaryAsync(
                     runtime,
                     globals,
@@ -542,6 +554,10 @@ internal static partial class HelpdeskCli
                     ctx.ParseResult.GetValueForOption(includeTotal)).ConfigureAwait(false);
                 return;
             }
+
+            foreach (var groupId in groupIds)
+                query += (query.Length == 0 ? "?" : "&") + "supportGroupId=" + Uri.EscapeDataString(groupId);
+            if (includeMain) query += (query.Length == 0 ? "?" : "&") + "mainQueue=true";
 
             var response = await SendStringAsync(runtime, globals, ctx, HttpMethod.Get, path + query, null).ConfigureAwait(false);
             if (!ctx.ParseResult.GetValueForOption(globals.Quiet))

@@ -402,6 +402,8 @@ public sealed partial class HelpdeskTools(
         }
         if (operation is "create" or "update" or "state" or "bulk_state" or "lifecycle" && TicketEnumValidation(Object(request)) is { } enumError) return Validation(enumError);
         if (operation == "list") return await ListTickets(tool, basePath, request, ct).ConfigureAwait(false);
+        if (operation is "queue_options" or "move_queue")
+            return await TicketQueueOperation(tool, basePath, operation, request, confirm, ct).ConfigureAwait(false);
         if (operation is "timeline_count" or "attachments_count" or "listeners_count") return await DomainTicketCount(tool, basePath, idName, operation, request, ct).ConfigureAwait(false);
         if (operation == "create")
         {
@@ -441,6 +443,26 @@ public sealed partial class HelpdeskTools(
         if (!allowed.Contains(operation)) return Invalid(tool, operation, ["list", .. allowed]);
         var suffix = operation switch { "peek" => "/peek", "timeline" => "/timeline", "tasks" => "/tasks", "worklogs" => "/worklogs", _ => "" };
         return await Execute(() => client.GetAsync($"{basePath}/{Uri.EscapeDataString(id)}{suffix}", true, ct), $"{tool} {operation} completed.").ConfigureAwait(false);
+    }
+
+    private async Task<HelpdeskToolResponse> TicketQueueOperation(
+        string tool, string basePath, string operation, JsonElement? request, bool confirm, CancellationToken ct)
+    {
+        if (HelpdeskToolDefinitions.ValidateSupportedFields(tool, operation, request) is { } fieldError) return Validation(fieldError);
+        var module = basePath[(basePath.LastIndexOf('/') + 1)..].TrimEnd('s');
+        var path = $"/api/v1/ticket-queues/{module}";
+        var body = Object(request);
+        if (operation == "queue_options")
+            return await Execute(() => client.GetAsync(Query(path + "/", body, ["organizationId", "id"]), true, ct),
+                "Authorized queue lookup completed.").ConfigureAwait(false);
+        if (body?["tickets"] is not JsonArray { Count: > 0 and <= 100 } tickets || !body.ContainsKey("supportGroupId"))
+            return Validation("Provide versioned ticket selections and an explicit supportGroupId. Use null for Main Queue.");
+        var ids = tickets.OfType<JsonObject>()
+            .Where(ticket => ticket["id"]?.GetValueKind() == JsonValueKind.String && ticket["expectedVersion"]?.GetValueKind() == JsonValueKind.Number)
+            .Select(ticket => ticket["id"]!.GetValue<string>()).Where(id => !string.IsNullOrWhiteSpace(id)).ToArray();
+        if (ids.Length != tickets.Count || ids.Distinct().Count() != ids.Length)
+            return Validation("Each ticket selection requires a distinct id and an expectedVersion.");
+        return await Mutation(operation, ids, confirm, HttpMethod.Post, path + "/assignment", body, ct).ConfigureAwait(false);
     }
 
     private static string? NormalizeSearchAliases(JsonElement? request, out JsonObject? payload)
@@ -490,8 +512,8 @@ public sealed partial class HelpdeskTools(
         // excluded by Query everywhere else; do not globally forward *Id fields.
         string[] identifierFilters = tool switch
         {
-            "helpdesk_incidents" => ["organizationId", "excludeId", "customerOrgId", "forId", "assigneeId"],
-            "helpdesk_requests" or "helpdesk_changes" => ["customerOrgId", "forId", "assigneeId"],
+            "helpdesk_incidents" => ["organizationId", "excludeId", "customerOrgId", "forId", "assigneeId", "supportGroupId"],
+            "helpdesk_requests" or "helpdesk_changes" => ["customerOrgId", "forId", "assigneeId", "supportGroupId"],
             "helpdesk_request_tasks" => ["assignedToId", "requestId", "serviceId"],
             _ => []
         };

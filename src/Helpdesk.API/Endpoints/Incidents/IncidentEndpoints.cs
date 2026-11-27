@@ -13,6 +13,7 @@ using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Storage;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Article;
 using Helpdesk.Shared.DTOs.Incident;
@@ -66,8 +67,9 @@ public static class IncidentEndpoints
             if (!TicketListQuery.TryParse(httpRequest.Query, false, out var filters, out var filterError)) return Results.BadRequest(new { error = filterError });
             page = Math.Clamp(page, 1, 1_000_000);
             pageSize = Math.Clamp(pageSize, 1, 100);
+            var access = await accessService.ResolveAsync(user, cancellationToken);
             var query =
-                from i in filters.Apply(db.Incidents.AsNoTracking(), false)
+                from i in filters.Apply(TicketAccessPolicy.Readable(db.Incidents.AsNoTracking(), access, TicketType.Incident), false)
                 join c in db.Customers.AsNoTracking() on i.CustomerId equals c.Id into ic
                 from c in ic.DefaultIfEmpty()
                 join o in db.Organizations.AsNoTracking() on i.OrganizationId equals o.Id into co
@@ -80,22 +82,6 @@ public static class IncidentEndpoints
                     CustomerName = c != null ? c.Name : null,
                     CustomerEmail = c != null ? c.Email : null
                 };
-
-            var access = await accessService.ResolveAsync(user, cancellationToken);
-            if (!access.IsHelpdeskAdmin)
-            {
-                var tenantReadOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentRead)
-                    .Concat(access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentWrite))
-                    .Concat(access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentManager))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-                var ownOrganizationIds = access.OrganizationIdsFor(Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentUser).ToArray();
-                query = query.Where(x =>
-                    tenantReadOrganizationIds.Contains(x.Incident.OrganizationId) ||
-                    (ownOrganizationIds.Contains(x.Incident.OrganizationId) &&
-                     !string.IsNullOrWhiteSpace(access.CustomerId) &&
-                     x.CustomerId == access.CustomerId));
-            }
 
             if (!string.IsNullOrWhiteSpace(organizationId))
             {
@@ -180,7 +166,11 @@ public static class IncidentEndpoints
                     x.CustomerEmail,
                     x.Incident.RequesterEmail,
                     x.Incident.LastReplierName,
-                    x.Incident.AssignedToId
+                    x.Incident.AssignedToId,
+                    x.Incident.AssignedSupportGroupId,
+                    AssignedSupportGroupName = db.SupportGroups.Where(supportGroup => supportGroup.Id == x.Incident.AssignedSupportGroupId)
+                        .Select(supportGroup => supportGroup.Name).FirstOrDefault(),
+                    x.Incident.QueueAssignmentVersion
                 })
                 .ToListAsync(cancellationToken);
 
@@ -204,6 +194,9 @@ public static class IncidentEndpoints
                     RequesterEmail = x.RequesterEmail,
                     LastReplierName = x.LastReplierName,
                     AssignedToId = x.AssignedToId,
+                    AssignedSupportGroupId = x.AssignedSupportGroupId,
+                    AssignedSupportGroupName = x.AssignedSupportGroupName,
+                    QueueAssignmentVersion = x.QueueAssignmentVersion,
                     CategoryIds = []
                 }).ToList();
 
@@ -239,6 +232,9 @@ public static class IncidentEndpoints
                 RequesterEmail = x.RequesterEmail,
                 LastReplierName = x.LastReplierName,
                 AssignedToId = x.AssignedToId,
+                AssignedSupportGroupId = x.AssignedSupportGroupId,
+                AssignedSupportGroupName = x.AssignedSupportGroupName,
+                QueueAssignmentVersion = x.QueueAssignmentVersion,
                 CategoryIds = categoryLookup.TryGetValue(x.Id, out var ids) ? ids : new List<Guid>()
             }).ToList();
 
@@ -249,7 +245,7 @@ public static class IncidentEndpoints
                 PageSize = pageSize,
                 TotalCount = includeTotal ? totalCount : items.Count
             });
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapGet("/{id}", async (
             [FromRoute] string id,
@@ -268,6 +264,9 @@ public static class IncidentEndpoints
         {
             var incident = await repo.GetAsync(id);
             if (incident == null) return Results.Problem("Incident not found", statusCode: 404);
+            var access = await accessService.ResolveAsync(user, token);
+            if (!TicketAccessPolicy.CanRead(access, incident))
+                return access.HasRestrictedWorkforceAccess ? Results.Problem("Incident not found", statusCode: 404) : Results.Forbid();
 
             var customer = !string.IsNullOrWhiteSpace(incident.CustomerId)
                 ? await db.Customers
@@ -281,12 +280,6 @@ public static class IncidentEndpoints
                 .Where(x => x.Id == (customer != null ? customer.OrganizationId : incident.OrganizationId))
                 .Select(x => x.Name)
                 .FirstOrDefaultAsync();
-
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanViewIncident(incident.OrganizationId, customer?.Id ?? incident.CustomerId, customer?.Email ?? incident.RequesterEmail))
-            {
-                return Results.Forbid();
-            }
 
             var categoryIds = await db.IncidentCategoryLinks
                 .Where(x => x.IncidentId == incident.Id)
@@ -321,11 +314,15 @@ public static class IncidentEndpoints
                 CustomerEmail = customer?.Email ?? incident.RequesterEmail,
                 CcRecipients = incident.CcRecipients,
                 AssignedToId = incident.AssignedToId,
+                AssignedSupportGroupId = incident.AssignedSupportGroupId,
+                AssignedSupportGroupName = await db.SupportGroups.Where(supportGroup => supportGroup.Id == incident.AssignedSupportGroupId)
+                    .Select(supportGroup => supportGroup.Name).FirstOrDefaultAsync(token),
+                QueueAssignmentVersion = incident.QueueAssignmentVersion,
                 CategoryIds = categoryIds,
                 Sla = ToSlaDto(slaSnapshot)
             };
             return Results.Ok(incidentDto);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         app.MapPost("/api/v1/incidents/", async (
             HttpContext http,
@@ -343,22 +340,36 @@ public static class IncidentEndpoints
         {
             var keyed = http.Request.Headers.ContainsKey(IncidentReceiverContract.KeyHeader) ||
                 http.Request.Headers.ContainsKey(IncidentReceiverContract.SourceHeader) || receiverAuthorization.RequiresKey(user);
-            CreateIncidentDto? dto;
             if (keyed)
             {
                 http.Response.Headers.CacheControl = "no-store";
                 if (!IncidentReceiverContract.TryKey(http.Request.Headers, out var key) ||
                     !IncidentReceiverContract.TrySource(http.Request.Headers, out var sourceId))
                     return IncidentReceiverContract.Problem(400, "invalid-integration-headers");
-                dto = await Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.ReadBoundedAsync<CreateIncidentDto>(http.Request, token);
-                if (dto is null) return IncidentReceiverContract.Problem(400, "invalid-incident-request");
-                return await IncidentReceiver.ExecuteCreateAsync(http.RequestServices, user, sourceId, key, dto, http, token);
+                var receiverRequest = await Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.ReadBoundedAsync<CreateIncidentDto>(http.Request, token);
+                if (receiverRequest is null) return IncidentReceiverContract.Problem(400, "invalid-incident-request");
+                return await IncidentReceiver.ExecuteCreateAsync(http.RequestServices, user, sourceId, key, receiverRequest, http, token);
             }
             if (http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false)
                 return Results.BadRequest();
-            try { dto = await http.Request.ReadFromJsonAsync<CreateIncidentDto>(token); }
+            CreateQueuedIncidentDto? dto;
+            try { dto = await http.Request.ReadFromJsonAsync<CreateQueuedIncidentDto>(token); }
             catch (global::System.Text.Json.JsonException) { return Results.BadRequest(); }
             if (dto is null) return Results.BadRequest();
+            var groupId = dto.AssignedSupportGroupId?.Trim();
+            var access = await accessService.ResolveAsync(user, token);
+            var queueActor = TicketQueueEndpoints.ActorId(user, access);
+            await using var tx = groupId == null ? await db.Database.BeginTransactionAsync(token)
+                : await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token);
+            if (groupId != null)
+            {
+                if (string.IsNullOrWhiteSpace(queueActor)) return Results.Forbid();
+                if (await TicketQueueEndpoints.ValidateCreationAsync(db, accessService, access, TicketType.Incident,
+                        dto.OrganizationId, groupId, dto.AssignedToId, token) is { } queueIssue) return queueIssue;
+            }
+            if (access.HasRestrictedWorkforceAccess &&
+                (groupId == null || dto.CcRecipients is { Count: > 0 } || dto.Attachments is { Count: > 0 } || dto.LinkedAssetIds is { Count: > 0 }))
+                return Results.Forbid();
             var categoryIds = NormalizeCategoryIds(dto.CategoryIds);
             var validation = await ValidateCategorySelectionAsync(
                 db,
@@ -377,14 +388,14 @@ public static class IncidentEndpoints
             }
 
             var customer = customerValidation.Customer!;
-            var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanCreateIncident(dto.OrganizationId, customer.Id, customer.Email) ||
-                (!string.IsNullOrWhiteSpace(dto.AssignedToId) && !access.CanManageIncident(dto.OrganizationId)))
+            if (groupId == null && (!access.CanCreateIncident(dto.OrganizationId, customer.Id, customer.Email) ||
+                (!string.IsNullOrWhiteSpace(dto.AssignedToId) && !access.CanManageIncident(dto.OrganizationId))))
             {
                 return Results.Forbid();
             }
 
-            var assignmentValidation = await ValidateCreateAssigneeAsync(supportAccessService, dto.OrganizationId, dto.AssignedToId, token);
+            var assignmentValidation = groupId == null
+                ? await ValidateCreateAssigneeAsync(supportAccessService, dto.OrganizationId, dto.AssignedToId, token) : null;
             if (assignmentValidation is not null)
             {
                 return assignmentValidation;
@@ -392,8 +403,6 @@ public static class IncidentEndpoints
 
             var cc = NormalizeEmails(dto.CcRecipients, customer.Email);
             var description = ToPlainTextDescription(sanitizer, plainTextConverter, dto.Description);
-
-            await using var tx = await db.Database.BeginTransactionAsync(token);
 
             var command = new CreateIncidentCommand(
                 dto.Title,
@@ -407,8 +416,10 @@ public static class IncidentEndpoints
                 dto.Impact,
                 customer.Email,
                 cc,
-                dto.AssignedToId);
+                dto.AssignedToId) { SuppressUnassignedSupportNotification = groupId != null };
             var created = await sender.Send(command);
+            if (groupId != null && queueActor != null)
+                TicketQueueAssignment.Stage(db, created, groupId, created.AssignedToId?.Trim(), queueActor, null, DateTime.UtcNow);
 
             if (categoryIds.Count > 0)
             {
@@ -417,8 +428,8 @@ public static class IncidentEndpoints
                     IncidentId = created.Id,
                     TicketCategoryId = categoryId
                 }));
-                await db.SaveChangesAsync(token);
             }
+            if (groupId != null || categoryIds.Count > 0) await db.SaveChangesAsync(token);
 
             await tx.CommitAsync(token);
 
@@ -452,11 +463,16 @@ public static class IncidentEndpoints
                 RequesterEmail = created.RequesterEmail,
                 CcRecipients = created.CcRecipients,
                 AssignedToId = created.AssignedToId,
+                AssignedSupportGroupId = created.AssignedSupportGroupId,
+                AssignedSupportGroupName = await db.SupportGroups.Where(queue => queue.Id == created.AssignedSupportGroupId)
+                    .Select(queue => queue.Name).FirstOrDefaultAsync(token),
+                QueueAssignmentVersion = created.QueueAssignmentVersion,
                 CategoryIds = categoryIds
             };
             return Results.Created($"/api/v1/incidents/{created.Id}", createdDto);
         }).WithTags("Incidents").RequireAuthorization(IncidentCreateBoundaryRequirement.Policy)
-            .Accepts<CreateIncidentDto>("application/json")
+            .WithMetadata(new QueueAwareEndpoint())
+            .Accepts<CreateQueuedIncidentDto>("application/json")
             .Produces<IncidentDto>(201).Produces<IntegrationIncidentDto>(200).ProducesProblem(409)
             .WithSummary("Create an incident, optionally using the registered-source idempotency contract")
             .WithDescription("Ordinary callers omit both headers. Keyed calls require Idempotency-Key and X-NetRatel-Source-Instance, current authorized source membership and approved mapping. A keyed 201 adds integrationReceipt; a 200 replays the immutable accepted result and Location. See docs/contracts/rateldesk-incident-create.v1.json.");
@@ -655,23 +671,15 @@ public static class IncidentEndpoints
             }
 
             var access = await accessService.ResolveAsync(user, token);
-            var viewedIncidentCustomer = !string.IsNullOrWhiteSpace(incident.CustomerId)
-                ? await db.Customers.AsNoTracking()
-                    .Where(customer => customer.Id == incident.CustomerId)
-                    .Select(customer => new { customer.Id, customer.Email })
-                    .FirstOrDefaultAsync(token)
-                : null;
-            if (!access.CanViewIncident(
-                    incident.OrganizationId,
-                    viewedIncidentCustomer?.Id ?? incident.CustomerId,
-                    viewedIncidentCustomer?.Email ?? incident.RequesterEmail))
-            {
-                return Results.Forbid();
-            }
+            if (!TicketAccessPolicy.CanRead(access, incident))
+                return access.HasRestrictedWorkforceAccess ? Results.NotFound() : Results.Forbid();
 
+            var visibleTickets = TicketAccessPolicy.Readable(db.Incidents.AsNoTracking(), access, TicketType.Incident);
+            var visibleIds = visibleTickets.Select(ticket => ticket.Id);
             var relations = await db.TicketRelations
                 .AsNoTracking()
                 .Where(x => x.SourceTicketId == incident.Id || x.TargetTicketId == incident.Id)
+                .Where(x => visibleIds.Contains(x.SourceTicketId) && visibleIds.Contains(x.TargetTicketId))
                 .ToListAsync(token);
             relations = relations
                 .OrderByDescending(x => x.CreatedUtc)
@@ -681,39 +689,17 @@ public static class IncidentEndpoints
                 .SelectMany(x => new[] { x.SourceTicketId, x.TargetTicketId })
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            var tickets = await db.Incidents
-                .AsNoTracking()
+            var tickets = await visibleTickets
                 .Where(x => ticketIds.Contains(x.Id))
                 .ToDictionaryAsync(x => x.Id, token);
-            var customerIds = tickets.Values
-                .Select(ticket => ticket.CustomerId)
-                .Where(customerId => !string.IsNullOrWhiteSpace(customerId))
-                .Cast<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var customerEmails = await db.Customers
-                .AsNoTracking()
-                .Where(customer => customerIds.Contains(customer.Id))
-                .ToDictionaryAsync(customer => customer.Id, customer => customer.Email, token);
-
-            bool CanView(Incident candidate)
-            {
-                var customerEmail = !string.IsNullOrWhiteSpace(candidate.CustomerId) &&
-                                    customerEmails.TryGetValue(candidate.CustomerId, out var email)
-                    ? email
-                    : candidate.RequesterEmail;
-                return access.CanViewIncident(candidate.OrganizationId, candidate.CustomerId, customerEmail);
-            }
 
             return Results.Ok(relations
                 .Where(x =>
-                    tickets.TryGetValue(x.SourceTicketId, out var source) &&
-                    tickets.TryGetValue(x.TargetTicketId, out var target) &&
-                    CanView(source) &&
-                    CanView(target))
+                    tickets.ContainsKey(x.SourceTicketId) && tickets.ContainsKey(x.TargetTicketId))
                 .Select(x => ToRelationDto(x, tickets[x.SourceTicketId], tickets[x.TargetTicketId], incident.Id))
                 .ToList());
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .RequireAuthorization("IncidentAccess")
         .WithName("GetIncidentRelations")
         .WithSummary("Gets incident relationships")
@@ -1123,9 +1109,9 @@ public static class IncidentEndpoints
             }
 
             var access = await accessService.ResolveAsync(user, token);
-            if (!access.CanManageIncident(incident.OrganizationId))
+            if (!TicketAccessPolicy.CanWrite(access, incident))
             {
-                return Results.Forbid();
+                return access.HasRestrictedWorkforceAccess && !TicketAccessPolicy.CanRead(access, incident) ? Results.NotFound() : Results.Forbid();
             }
 
             if (!Enum.IsDefined(req.NewState))
@@ -1156,6 +1142,7 @@ public static class IncidentEndpoints
 
             return Results.Ok(new { incident.Id, State = incident.State });
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("QuickUpdateIncidentState")
         .WithSummary("Quick update incident state")
         .WithDescription("Updates one incident state from a list row state picker.")
@@ -1173,10 +1160,10 @@ public static class IncidentEndpoints
             var inc = await repo.GetAsync(id);
             if (inc is null) return Results.NotFound();
             var access = await accessService.ResolveAsync(user, cancellationToken);
-            if (!access.CanViewIncident(inc.OrganizationId, inc.CustomerId, inc.RequesterEmail))
-                return Results.Forbid();
+            if (!TicketAccessPolicy.CanRead(access, inc))
+                return access.HasRestrictedWorkforceAccess ? Results.NotFound() : Results.Forbid();
 
-            string html = IncidentInlineImageLinks.Refresh(
+            string html = access.HasRestrictedWorkforceAccess ? string.Empty : IncidentInlineImageLinks.Refresh(
                 inc.OriginalEmailHtml ?? string.Empty,
                 inc.Id,
                 imageLinkSigner,
@@ -1199,6 +1186,7 @@ public static class IncidentEndpoints
                 text
             ));
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("IncidentPeek")
         .WithSummary("Get incident email preview")
         .WithDescription("Returns sanitized HTML and a text snippet for an incident.")

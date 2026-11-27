@@ -41,7 +41,10 @@ public record CreateIncidentCommand(
     string? Impact,
     string? RequesterEmail,
     IEnumerable<string>? CcRecipients,
-    string? AssignedToId) : IRequest<Incident>;
+    string? AssignedToId) : IRequest<Incident>
+{
+    public bool SuppressUnassignedSupportNotification { get; init; }
+}
 
 /// <summary>
 /// Handles the creation of a new incident based on the provided command.
@@ -120,7 +123,7 @@ public class CreateIncidentCommandHandler(
                 GetCorrelationId()),
             cancellationToken);
 
-        if (string.IsNullOrWhiteSpace(incident.AssignedToId))
+        if (!request.SuppressUnassignedSupportNotification && string.IsNullOrWhiteSpace(incident.AssignedToId))
         {
             try
             {

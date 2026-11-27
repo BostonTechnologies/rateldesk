@@ -91,6 +91,26 @@ internal static class McpRequestSchemas
                 if (op == "assign") fields["assignedToId"] = Nullable(Text());
                 else fields["agentUserEmail"] = Text();
                 break;
+            case "TicketQueueOptionsRequest":
+                foreach (var key in new[] { "organizationId", "id", "q" }) fields[key] = Text();
+                fields["transfer"] = Boolean();
+                fields["take"] = Integer(1, 100);
+                break;
+            case "MoveTicketQueueRequest":
+                var ticketRow = Object();
+                var ticketFields = (JsonObject)ticketRow["properties"]!;
+                var ticketRequired = (JsonArray)ticketRow["required"]!;
+                Field(ticketFields, ticketRequired, "id", Text(), true);
+                Field(ticketFields, ticketRequired, "expectedVersion", new JsonObject { ["type"] = "integer", ["minimum"] = 0 }, true);
+                Field(fields, required, "tickets", new JsonObject
+                {
+                    ["type"] = "array", ["items"] = ticketRow, ["minItems"] = 1, ["maxItems"] = 100
+                }, true);
+                Field(fields, required, "supportGroupId", Nullable(Text()), true);
+                fields["assigneeAction"] = Integer(0, 2);
+                fields["assigneeId"] = Nullable(Text());
+                fields["reason"] = Text();
+                break;
             case "IncidentWorklogRequest": case "TicketWorklogRequest":
                 Field(fields, required, "hours", new JsonObject { ["type"] = "number", ["minimum"] = 0 }, true);
                 Field(fields, required, "notes", Text(), true); fields["isInternalNote"] = Boolean(); break;
@@ -289,9 +309,9 @@ internal static class McpRequestSchemas
             }
             else
             {
-                foreach (var name in new[] { "activeOnly", "summaryOnly", "unassigned", "descending" }) fields[name] = Boolean();
+                foreach (var name in new[] { "activeOnly", "summaryOnly", "unassigned", "descending", "mainQueue" }) fields[name] = Boolean();
                 fields["state"] = EnumSchema<TicketState>(true); fields["view"] = Named("all", "active", "historic");
-                foreach (var name in new[] { "customerOrgId", "forId", "assigneeId" }) fields[name] = Repeated(Text());
+                foreach (var name in new[] { "customerOrgId", "forId", "assigneeId", "supportGroupId" }) fields[name] = Repeated(Text());
                 fields["stateValues"] = Repeated(EnumSchema(tool == "helpdesk_changes" ? typeof(ChangeLifecycleState) : typeof(TicketState), true));
                 fields["priority"] = Repeated(EnumSchema<TicketPriority>(true));
                 fields["timeField"] = Named("updated", "created"); fields["sort"] = Named("updated", "created", "trackingId", "subject", "priority", "state");
