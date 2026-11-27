@@ -156,6 +156,59 @@ public sealed partial class McpGatewayRealAccessPipelineTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Queue_transfer_rejects_mixed_batches_and_commits_one_effect_per_version(bool postgres)
+    {
+        await using var harness = postgres
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync(unscopedData: true)
+            : await GatewayAccessHarness.CreateConcurrentSqliteAsync();
+        await harness.SeedScopedQueuesAsync();
+        var credential = await harness.CreateCredentialAsync("org-a", permissions: string.Join(' ',
+            HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.TicketQueueTransfer));
+        var execution = await harness.DelegateAsync(credential);
+
+        using var mixed = await MoveAsync("app-escalation", [new("queue-visible", 0), new("queue-hidden", 0)]);
+        Assert.Equal(HttpStatusCode.NotFound, mixed.StatusCode);
+        var untouched = await harness.GetAsync<IncidentDto>(execution, "/api/v1/incidents/queue-visible");
+        Assert.Equal("app-vendor", untouched.Body!.AssignedSupportGroupId);
+        Assert.Equal(0, untouched.Body.QueueAssignmentVersion);
+        Assert.Empty(await harness.QueueEffectsAsync("queue-visible"));
+
+        var attempts = await Task.WhenAll(MoveAsync("app-escalation", [new("queue-visible", 0)]),
+            MoveAsync("app-escalation", [new("queue-visible", 0)]));
+        try
+        {
+            foreach (var attempt in attempts)
+            {
+                using var body = new StringReader(await attempt.Content.ReadAsStringAsync());
+                Assert.True(attempt.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.Conflict,
+                    $"{attempt.StatusCode}: {body.ReadLine()} {body.ReadLine()} {body.ReadLine()}");
+            }
+            Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.NoContent);
+            Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.Conflict);
+        }
+        finally
+        {
+            foreach (var attempt in attempts) attempt.Dispose();
+        }
+        using var noOp = await MoveAsync("app-escalation", [new("queue-visible", 1)]);
+        Assert.Equal(HttpStatusCode.NoContent, noOp.StatusCode);
+        using var returnToVendor = await MoveAsync("app-vendor", [new("queue-visible", 1)]);
+        Assert.Equal(HttpStatusCode.NoContent, returnToVendor.StatusCode);
+        using var batch = await MoveAsync("app-escalation", [new("queue-visible", 2), new("queue-linked", 0)]);
+        Assert.Equal(HttpStatusCode.NoContent, batch.StatusCode);
+
+        (long, string?, int)[] expected = [(1, "app-escalation", 1), (2, "app-vendor", 1), (3, "app-escalation", 1)];
+        Assert.Equal(expected, await harness.QueueEffectsAsync("queue-visible"));
+        Assert.Equal((1L, "app-escalation", 1), Assert.Single(await harness.QueueEffectsAsync("queue-linked")));
+
+        Task<HttpResponseMessage> MoveAsync(string destination, TicketQueueSelectionDto[] selected) =>
+            harness.SendAsync(execution, HttpMethod.Post, "/api/v1/ticket-queues/incident/assignment",
+                new AssignTicketQueueDto(selected, destination, QueueAssigneeAction.Keep, null, "Synthetic handoff"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Gateway_scoped_role_crud_from_discovery_executes_with_owned_readbacks_and_preserves_delegation_ceiling(bool postgreSql)
     {
         await using var harness = postgreSql
@@ -499,6 +552,25 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             return await CreateAsync(options => options.UseSqlite(connection), connection, unscopedData);
         }
 
+        public static async Task<GatewayAccessHarness> CreateConcurrentSqliteAsync()
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = $"queue-test-{Guid.NewGuid():N}", Mode = SqliteOpenMode.Memory, Cache = SqliteCacheMode.Shared, Pooling = false
+            }.ToString();
+            var keepAlive = new SqliteConnection(connectionString);
+            try
+            {
+                await keepAlive.OpenAsync();
+                return await CreateAsync(options => options.UseSqlite(connectionString), keepAlive, unscopedData: true);
+            }
+            catch
+            {
+                await keepAlive.DisposeAsync();
+                throw;
+            }
+        }
+
         public static async Task<GatewayAccessHarness> CreatePostgreSqlAsync(bool unscopedData = false)
         {
             var postgres = new PostgreSqlBuilder("postgres:16").Build();
@@ -773,6 +845,22 @@ public sealed partial class McpGatewayRealAccessPipelineTests
                 (member.SupportGroupId == "app-vendor" || member.SupportGroupId == "app-escalation")).ToListAsync();
             foreach (var membership in memberships) membership.IsEnabled = false;
             await db.SaveChangesAsync();
+        }
+
+        public async Task<(long Version, string? Destination, int Effects)[]> QueueEffectsAsync(string ticketId)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var effects = db.Set<MailboxOutboxEffect>();
+            var rows = await db.TicketQueueTransitions.AsNoTracking().Where(row => row.TicketId == ticketId)
+                .OrderBy(row => row.AssignmentVersion).Select(row => new
+                {
+                    row.AssignmentVersion,
+                    row.AssignedSupportGroupId,
+                    Effects = effects.Count(effect => effect.EffectKey == "queue-assignment:" + row.Id &&
+                        effect.Kind == MailboxEffectKind.SupportGroupAssignment)
+                }).ToArrayAsync();
+            return rows.Select(row => (row.AssignmentVersion, row.AssignedSupportGroupId, row.Effects)).ToArray();
         }
 
         public async Task<Credential> CreateCredentialAsync(string organizationId, string? purpose = null, string? permissions = null, string ownerUserId = "owner")

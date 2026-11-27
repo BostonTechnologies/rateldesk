@@ -254,6 +254,12 @@ public static class TicketQueueEndpoints
         {
             return Conflict();
         }
+        catch (DbUpdateException error) when (IsQueueVersionCollision(error.InnerException))
+        {
+            // The transition index can detect a competing write before EF checks
+            // the ticket's optimistic concurrency token.
+            return Conflict();
+        }
         catch (Exception error) when (IsConcurrentWrite(error) || IsConcurrentWrite(error.InnerException))
         {
             return Conflict();
@@ -298,6 +304,11 @@ public static class TicketQueueEndpoints
     internal static bool IsConcurrentWrite(Exception? error) =>
         error is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected } ||
         error is SqliteException { SqliteErrorCode: 5 or 6 };
+
+    private static bool IsQueueVersionCollision(Exception? error) =>
+        error is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_TicketQueueTransitions_TicketId_AssignmentVersion" } ||
+        (error is SqliteException { SqliteExtendedErrorCode: 2067 } sqlite && sqlite.Message.Contains(
+            "TicketQueueTransitions.TicketId, TicketQueueTransitions.AssignmentVersion", StringComparison.Ordinal));
 
     private static IResult Conflict() => Results.Conflict(new
     {
