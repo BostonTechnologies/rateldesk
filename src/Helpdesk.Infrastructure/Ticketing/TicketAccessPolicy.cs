@@ -40,6 +40,9 @@ public static class TicketAccessPolicy
         return Authorized(tickets, access, [permissions.Write, permissions.Manager], null);
     }
 
+    public static IQueryable<Request> ExecutableRequests(IQueryable<Request> requests, CurrentUserAccessProfile access) =>
+        Authorized(requests, access, [HelpdeskPermissions.RequestExecute, HelpdeskPermissions.RequestManager], null);
+
     private static IQueryable<T> Authorized<T>(IQueryable<T> tickets, CurrentUserAccessProfile access, string[] permissions, string? ownPermission)
         where T : Ticket
     {
@@ -114,6 +117,13 @@ public static class TicketAccessPolicy
                (Has(access, ticket.OrganizationId, ticket.AssignedSupportGroupId, workflow) ||
                 Has(access, ticket.OrganizationId, ticket.AssignedSupportGroupId, permissions.Manager));
     }
+
+    public static bool CanTransitionRequestTask(CurrentUserAccessProfile access, Request parent, RequestTaskType type) => type switch
+    {
+        RequestTaskType.Manual => CanWrite(access, parent),
+        RequestTaskType.Automation => CanPerformWorkflowAction(access, parent),
+        _ => false
+    };
 
     public static bool CanTransfer(CurrentUserAccessProfile access, TicketType module, string organizationId, string? groupId) =>
         CanWrite(access, module, organizationId, groupId) &&

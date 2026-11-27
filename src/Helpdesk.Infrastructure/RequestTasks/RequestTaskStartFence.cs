@@ -1,5 +1,6 @@
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Microsoft.EntityFrameworkCore;
@@ -45,21 +46,25 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
         return current;
     }
 
-    public Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct)
-        => PersistAsync(task, intent.StartedAt, _ => intent.Apply(task), approval: false, ct);
+    public Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct, RequestTaskQueueAuthority? queueAuthority = null)
+        => PersistAsync(task, intent.StartedAt, _ => intent.Apply(task), approval: false, ct, queueAuthority);
 
     public Task PersistApprovalAsync(RequestTask task, RequestTaskApprovalStartIntent intent, CancellationToken ct)
         => PersistAsync(task, intent.StartedAt, parent => intent.Apply(task, parent), approval: true, ct);
 
-    private async Task PersistAsync(RequestTask task, DateTimeOffset startedAt, Action<Request> apply, bool approval, CancellationToken ct)
+    private async Task PersistAsync(RequestTask task, DateTimeOffset startedAt, Action<Request> apply, bool approval, CancellationToken ct,
+        RequestTaskQueueAuthority? queueAuthority = null)
     {
         if (db.Database.CurrentTransaction is not null)
             throw new InvalidOperationException("Complete the current workflow transaction before starting execution.");
+        var access = queueAuthority is null ? null : await queueAuthority.ResolveAccessAsync(ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
             var parent = await db.Requests.AsNoTracking().SingleOrDefaultAsync(request => request.Id == task.RequestId, ct)
                 ?? throw new KeyNotFoundException("Request not found");
+            if (queueAuthority is not null && !HasCurrentQueueAuthority(task, parent, queueAuthority, access!))
+                throw new DbUpdateConcurrencyException("The parent request queue or authorization changed.");
             var ownsExistingApprovalHold = approval && parent.WorkflowStatus == "PendingApproval"
                 && parent.WorkflowBlockReason == $"Waiting for approval for task '{task.Name}'.";
             if (parent.AdministrativeClosureReason != null || RequestHoldPolicy.IsOperatorHeld(parent)
@@ -106,4 +111,31 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
             throw;
         }
     }
+
+    public async Task PersistAuthorizedTransitionAsync(RequestTask task, RequestTaskQueueAuthority queueAuthority, Func<Task> save, CancellationToken ct)
+    {
+        try
+        {
+            var access = await queueAuthority.ResolveAccessAsync(ct);
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var parent = await db.Requests.AsNoTracking().SingleOrDefaultAsync(request => request.Id == task.RequestId, ct);
+            if (parent is null || !HasCurrentQueueAuthority(task, parent, queueAuthority, access) ||
+                await db.Requests.Where(request => request.Id == parent.Id && request.QueueAssignmentVersion == parent.QueueAssignmentVersion)
+                    .ExecuteUpdateAsync(update => update.SetProperty(request => request.WorkflowStateVersion, request => request.WorkflowStateVersion), ct) != 1)
+                throw new DbUpdateConcurrencyException("The parent request queue or authorization changed.");
+            await save();
+            await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            db.ChangeTracker.Clear();
+            throw;
+        }
+    }
+
+    private static bool HasCurrentQueueAuthority(RequestTask task, Request parent, RequestTaskQueueAuthority authority,
+        Helpdesk.Shared.Services.CurrentUserAccessProfile access) =>
+        authority.TaskId == task.Id && authority.RequestId == parent.Id && task.OrganizationId == parent.OrganizationId &&
+        authority.ExpectedAssignmentVersion == parent.QueueAssignmentVersion &&
+        TicketAccessPolicy.CanTransitionRequestTask(access, parent, task.Type);
 }

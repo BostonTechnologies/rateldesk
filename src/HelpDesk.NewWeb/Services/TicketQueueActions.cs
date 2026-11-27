@@ -1,6 +1,7 @@
 using HelpDesk.NewWeb.Components.Shared;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.TicketQueue;
+using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using MudBlazor;
 
@@ -33,6 +34,14 @@ public static class TicketQueueActions
     public static bool CanApproveChange(CurrentUserAccessProfile? access, string? organizationId, string? groupId) =>
         access != null && (access.HasPermission(HelpdeskPermissions.ChangeApprove, organizationId, groupId) ||
                            access.HasPermission(HelpdeskPermissions.ChangeManager, organizationId, groupId));
+
+    public static bool CanOperateRequestTask(CurrentUserAccessProfile? access, RequestTaskType type, string? organizationId, string? groupId) => type switch
+    {
+        RequestTaskType.Manual => CanWrite(access, "request", organizationId, groupId),
+        RequestTaskType.Automation => access != null && (access.HasPermission(HelpdeskPermissions.RequestExecute, organizationId, groupId) ||
+            access.HasPermission(HelpdeskPermissions.RequestManager, organizationId, groupId)),
+        _ => false
+    };
 
     public static async Task<bool> MoveAsync(IDialogService dialogs, ISnackbar snackbar, string module,
         IEnumerable<(string Id, string? TenantId, long Version)> selected)

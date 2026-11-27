@@ -220,12 +220,8 @@
     private void ToggleDetails(string id) { if (!expandedTasks.Add(id)) expandedTasks.Remove(id); }
     private static string Seconds(int? value) => value is { } seconds ? $"{seconds} seconds" : "Not reported";
     private CurrentUserAccessProfile? profile;
-    private bool CanOperate(RequestTaskListItemDto task) => task.Type switch
-    {
-        RequestTaskType.Automation => profile?.CanExecuteRequest(task.OrganizationId) == true,
-        RequestTaskType.Manual => profile?.CanManageRequest(task.OrganizationId) == true,
-        _ => false
-    };
+    private bool CanOperate(RequestTaskListItemDto task) => TicketQueueActions.CanOperateRequestTask(profile, task.Type,
+        task.OrganizationId, task.RequestAssignedSupportGroupId);
     private bool CanBulkOperate => _selected.Count > 0 && _selected.All(CanOperate);
 
     [SupplyParameterFromQuery(Name = "search")]

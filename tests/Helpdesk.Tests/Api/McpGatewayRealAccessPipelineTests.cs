@@ -27,9 +27,11 @@ using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Application.WorkLogs;
+using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.RequestTasks;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Incident;
@@ -151,6 +153,42 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         Task<HttpResponseMessage> TransferAsync(string id, string destination) => harness.SendAsync(execution, HttpMethod.Post,
             "/api/v1/ticket-queues/incident/assignment",
             new AssignTicketQueueDto([new(id, 0)], destination, QueueAssigneeAction.Keep, null, null));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Restricted_request_tasks_follow_current_parent_and_operation_authority(bool postgres)
+    {
+        await using var harness = postgres
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync(unscopedData: true)
+            : await GatewayAccessHarness.CreateAsync(unscopedData: true);
+        await harness.SeedScopedQueuesAsync();
+        var writer = await harness.DelegateAsync(await harness.CreateCredentialAsync("org-a", permissions:
+            string.Join(' ', HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite)));
+        var reader = await harness.DelegateAsync(await harness.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.RequestRead));
+        const string route = "/api/v1/request-tasks/";
+
+        using var unauthorized = await harness.SendAsync(reader, HttpMethod.Post, route + "task-visible/start");
+        Assert.Equal(HttpStatusCode.NotFound, unauthorized.StatusCode);
+        using var hidden = await harness.SendAsync(writer, HttpMethod.Post, route + "task-hidden/start");
+        Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        using var started = await harness.SendAsync(writer, HttpMethod.Post, route + "task-visible/start");
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var transition = await started.Content.ReadFromJsonAsync<RequestTaskTransitionDto>();
+        Assert.Equal(RequestTaskStatus.InProgress, transition!.Status);
+        Assert.Null(transition.ResultJson);
+        Assert.Null(transition.AutomationBindingId);
+
+        using var completed = await harness.SendAsync(writer, HttpMethod.Post, route + "bulk/complete",
+            new BulkRequestTaskActionDto { Ids = ["task-visible", "task-hidden", "missing"] });
+        Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal(1, (await completed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("updated").GetInt32());
+        var readback = await harness.GetAsync<RequestTaskDto>(writer, route + "task-visible");
+        Assert.Equal(RequestTaskStatus.Completed, readback.Body!.Status);
+        await harness.RevokeQueueMembershipAsync();
+        using var revoked = await harness.SendAsync(writer, HttpMethod.Post, route + "task-visible/fail");
+        Assert.Equal(HttpStatusCode.NotFound, revoked.StatusCode);
     }
 
     [Theory]
@@ -606,6 +644,14 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             builder.Services.AddScoped<SelfServiceAudienceService>();
             builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddScoped<IRepository<Incident>, EfRepository<Incident>>();
+            builder.Services.AddScoped<IRepository<Request>, EfRepository<Request>>();
+            builder.Services.AddScoped<IRepository<RequestTask>, EfRepository<RequestTask>>();
+            builder.Services.AddScoped<IRequestTaskLifecycleService, RequestTaskLifecycleService>();
+            builder.Services.AddScoped<IRequestTaskStartFence, RequestTaskStartFence>();
+            builder.Services.AddSingleton(Substitute.For<IWorkflowEngine>());
+            builder.Services.AddSingleton(Substitute.For<IRequestTaskPayloadBuilder>());
+            builder.Services.AddSingleton(Substitute.For<IOrchestrationInternalClient>());
+            builder.Services.AddSingleton(Substitute.For<IFailurePolicyEngine>());
             builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
             builder.Services.AddSingleton(Substitute.For<ITicketSlaService>());
             builder.Services.AddSingleton(Substitute.For<ISupportNotificationService>());
@@ -810,7 +856,8 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             {
                 Key = "custom.queue-operator", Name = "App Vendor Operator", OwnerOrganizationId = "org-a",
                 TicketAccessScope = TicketAccessScope.SelectedSupportGroups,
-                Permissions = new[] { HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.RequestRead, HelpdeskPermissions.TicketQueueTransfer }
+                Permissions = new[] { HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.RequestRead,
+                    HelpdeskPermissions.RequestWrite, HelpdeskPermissions.TicketQueueTransfer }
                     .Select(permission => new RolePermission { Permission = permission }).ToList()
             };
             role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = "app-vendor" });

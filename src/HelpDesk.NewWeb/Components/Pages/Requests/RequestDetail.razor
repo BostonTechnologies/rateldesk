@@ -418,8 +418,10 @@ else
     private bool loading = true;
     private bool tasksLoading;
     private bool taskActionInProgress;
-    private bool canRetryAutomationTasks => accessProfile?.CanExecuteRequest(request?.OrganizationId) == true;
-    private bool CanOperateTask(RequestTaskDto task) => task.Type == RequestTaskType.Automation ? canRetryAutomationTasks : task.Type == RequestTaskType.Manual && CanManage;
+    private bool canRetryAutomationTasks => TicketQueueActions.CanOperateRequestTask(accessProfile, RequestTaskType.Automation,
+        request?.OrganizationId, request?.AssignedSupportGroupId);
+    private bool CanOperateTask(RequestTaskDto task) => TicketQueueActions.CanOperateRequestTask(accessProfile, task.Type,
+        request?.OrganizationId, request?.AssignedSupportGroupId);
     private bool canViewWorkflowPayload;
     private bool isUpdating;
     private bool refreshPending;
