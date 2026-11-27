@@ -20,6 +20,8 @@ public sealed class RequestTaskDto
     public int RetryCount { get; set; }
     public string? FailureReason { get; set; }
     public Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic? ProviderDiagnostic { get; set; }
+    public IReadOnlyList<Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic> PreviousProviderRejections { get; set; } = [];
+    public bool PendingRetryRecovery { get; set; }
     public string? OrchestratorExecutionId { get; set; }
     public string? AutomationBindingId { get; set; }
     public string? OrchestrationRequestDefinitionId { get; set; }

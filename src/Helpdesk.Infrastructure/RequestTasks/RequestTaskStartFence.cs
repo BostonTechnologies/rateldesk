@@ -51,6 +51,23 @@ public sealed class RequestTaskStartFence(HelpdeskDbContext db) : IRequestTaskSt
     public Task PersistApprovalAsync(RequestTask task, RequestTaskApprovalStartIntent intent, CancellationToken ct)
         => PersistAsync(task, intent.StartedAt, parent => intent.Apply(task, parent), approval: true, ct);
 
+    public async Task PersistRetryAsync(RequestTask task, Request parent, CancellationToken ct)
+    {
+        // SaveChanges commits the reset, history and parent transition together. Include
+        // both versions even when the task was already Pending or the parent stays held.
+        db.Entry(task).Property(row => row.AutomationStateVersion).IsModified = true;
+        db.Entry(parent).Property(row => row.WorkflowStateVersion).IsModified = true;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            db.ChangeTracker.Clear();
+            throw;
+        }
+    }
+
     private async Task PersistAsync(RequestTask task, DateTimeOffset startedAt, Action<Request> apply, bool approval, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is not null)

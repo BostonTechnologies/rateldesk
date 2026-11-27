@@ -237,12 +237,14 @@ public sealed class AutomationExecutionOutcomeService(
             await workflow.RunAsync(task.RequestId, WorkflowRunReason.AutomationCallback, ct);
             await requestTaskState.EvaluateParentRequestState(task.RequestId, ct);
             var evaluatedVersion = task.AutomationStateVersion;
+            var retryStillHeld = RequestTaskRetryRecovery.HasPendingRetryIntent(task);
             var cleared = await db.RequestTasks.Where(task => task.Id == taskId && task.AutomationAttemptCorrelationId == attempt
                 && task.AutomationReconciliationLeaseId == lease && task.AutomationStateVersion == evaluatedVersion)
                 .ExecuteUpdateAsync(updates => updates
-                    .SetProperty(task => task.AutomationContinuationPending, false)
+                    .SetProperty(task => task.AutomationContinuationPending, retryStillHeld)
                     .SetProperty(task => task.AutomationReconciliationLeaseId, (string?)null)
-                    .SetProperty(task => task.AutomationReconciliationLeaseUntilUtcTicks, (long?)null)
+                    .SetProperty(task => task.AutomationReconciliationLeaseUntilUtcTicks,
+                        retryStillHeld ? now.Add(AutomationExecutionDeadlinePolicy.ReconciliationInterval).UtcTicks : (long?)null)
                     .SetProperty(task => task.AutomationStateVersion, task => task.AutomationStateVersion + 1), ct);
             if (cleared == 0)
             {

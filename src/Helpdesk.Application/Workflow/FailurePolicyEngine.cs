@@ -21,7 +21,8 @@ public sealed class FailurePolicyEngine(
     IRepository<TicketTimelineEvent>? timelineEvents = null,
     IRequestSender? requestSender = null,
     IRepository<Incident>? incidents = null,
-    ITicketNotificationService? ticketNotificationService = null) : IFailurePolicyEngine
+    ITicketNotificationService? ticketNotificationService = null,
+    IRequestTaskReadStore? requestTaskReadStore = null) : IFailurePolicyEngine
 {
     private const string DecisionRetryScheduled = "RetryScheduled";
     private const string DecisionFailRequest = "FailRequest";
@@ -49,6 +50,8 @@ public sealed class FailurePolicyEngine(
         var task = await _requestTasks.GetAsync(taskIdText)
             ?? throw new KeyNotFoundException("Task not found");
 
+        if (task.RequestId != request.Id || task.OrganizationId != request.OrganizationId || task.Status != RequestTaskStatus.Failed)
+            return new FailurePolicyResult { Decision = "TaskFailureUnavailable" };
         if (request.AdministrativeClosureReason != null || task.AdministrativeClosureReason != null)
             return new FailurePolicyResult { Decision = "AdministrativelyClosed" };
         var now = DateTimeOffset.UtcNow;
@@ -125,9 +128,10 @@ public sealed class FailurePolicyEngine(
             case DecisionFailRequest:
                 requestStateChanged = await MarkRequestStateAsync(
                     request,
+                    task,
                     workflowStatus: "Failed",
                     blockReason: submissionFailure ?? $"Critical task '{task.Name}' failed.",
-                    ct);
+                    now, ct);
 
                 await _domainEvents.PublishAsync(
                     new WorkflowRequestFailedByCriticalTaskEvent(
@@ -156,9 +160,10 @@ public sealed class FailurePolicyEngine(
             case DecisionBlockRequest:
                 requestStateChanged = await MarkRequestStateAsync(
                     request,
+                    task,
                     workflowStatus: "Blocked",
                     blockReason: submissionFailure ?? $"Task '{task.Name}' failed.",
-                    ct);
+                    now, ct);
 
                 await _domainEvents.PublishAsync(
                     new WorkflowRequestBlockedByTaskFailureEvent(
@@ -237,7 +242,7 @@ public sealed class FailurePolicyEngine(
         return task.RetryCount < task.MaxRetries.Value;
     }
 
-    private static string ResolveFailurePolicy(string? explicitPolicy, bool isCritical)
+    internal static string ResolveFailurePolicy(string? explicitPolicy, bool isCritical)
     {
         if (!string.IsNullOrWhiteSpace(explicitPolicy))
         {
@@ -263,27 +268,33 @@ public sealed class FailurePolicyEngine(
 
     private async Task<bool> MarkRequestStateAsync(
         Request request,
+        RequestTask task,
         string workflowStatus,
         string blockReason,
+        DateTimeOffset now,
         CancellationToken ct)
     {
-        if (request.State == TicketState.OnHold && !string.IsNullOrWhiteSpace(request.WorkflowBlockReason)
-            && request.WorkflowBlockReason != AutomationTaskStatuses.ReconciliationHoldReason
-            && !RequestHoldPolicy.OwnsOperatorMetadata(request)
-            && request.WorkflowBlockReason != blockReason)
+        if (RequestHoldPolicy.HasUnrelatedWorkflowHold(request) && !RequestHoldPolicy.OwnsFailureHold(request, task))
             return false;
+        if (requestTaskReadStore is not null || RequestHoldPolicy.OwnsReconciliationHold(request))
+        {
+            var current = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, request.Id, ct);
+            if (!current.Any(row => row.Id == task.Id && row.Status == RequestTaskStatus.Failed
+                    && row.AutomationAttemptCorrelationId == task.AutomationAttemptCorrelationId
+                    && row.AdministrativeClosureReason is null)
+                || RequestHoldPolicy.OwnsReconciliationHold(request) &&
+                current.Any(sibling => AutomationTaskStatuses.RequiresManualReconciliation(sibling.LastAutomationStatus)))
+                return false;
+        }
         var changed = request.WorkflowStatus != workflowStatus
             || request.WorkflowBlockReason != blockReason
-            || request.State != TicketState.OnHold;
+            || request.State != TicketState.OnHold
+            || !RequestHoldPolicy.OwnsFailureHold(request, task);
+        if (!changed) return false;
 
-        request.WorkflowStatus = workflowStatus;
-        request.WorkflowBlockReason = blockReason;
-        request.WorkflowUpdatedAt = DateTimeOffset.UtcNow;
-        request.State = TicketState.OnHold;
-        request.UpdatedAt = DateTime.UtcNow;
-
+        RequestHoldPolicy.SetFailureHold(request, task, workflowStatus, blockReason, now);
         await _requests.UpdateAsync(request);
-        return changed;
+        return true;
     }
 
     private async Task CreateFailureTimelineNotificationAsync(
