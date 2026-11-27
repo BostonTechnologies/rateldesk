@@ -74,4 +74,4 @@ Existing v1 and v2 paths, fingerprints and accepted receipts keep their wire
 contracts. New v1 and v2 requests continue to create in Main Queue. Configure
 each NetRatel flow to use v3 only after the receiver is published and advertises
 the capability. Surface validation or permission failures on an explicitly
-routed action for operator review. [NetRatel #862](https://github.com/BostonTechnologies/netratel/issues/862)
+routed action for operator review. The companion writer is tracked in NetRatel #862.

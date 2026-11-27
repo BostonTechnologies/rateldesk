@@ -52,6 +52,11 @@ public sealed class TicketQueueNotificationProcessor(
         var supportDelivery = email.SupportDeliveryId == null ? null : await db.SupportNotificationDeliveries.AsNoTracking()
             .SingleOrDefaultAsync(delivery => delivery.Id == email.SupportDeliveryId, ct);
         if (ticket == null) return supportDelivery?.QueueTransitionId == null ? email : null;
+        if (ticket is RequestTask task)
+        {
+            ticket = await LoadTicketAsync(task.RequestId, ct);
+            if (ticket is not Request || ticket.OrganizationId != task.OrganizationId) return null;
+        }
         if (supportDelivery?.EventType == SupportNotificationEventType.TicketAssignedToSupportGroup)
             return email.Recipients is [var recipient] && email.Cc is [] && email.Bcc is [] &&
                 string.Equals(recipient, supportDelivery.RecipientEmail, StringComparison.OrdinalIgnoreCase) &&

@@ -422,18 +422,19 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             // remains usable even when optional support metadata cannot be decoded.
             email = null;
         }
+        var suppressed = errorCode is "Suppressed" or "TicketRecipientScopeChanged";
         if (email?.SupportDeliveryId is { } supportId)
         {
             var delivery = await db.SupportNotificationDeliveries.SingleOrDefaultAsync(x => x.Id == supportId, ct);
             if (delivery is not null)
             {
-                delivery.Status = errorCode == "Suppressed" ? SupportNotificationDeliveryStatus.Skipped
+                delivery.Status = suppressed ? SupportNotificationDeliveryStatus.Skipped
                     : succeeded ? SupportNotificationDeliveryStatus.Sent
                     : state is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview
                         ? SupportNotificationDeliveryStatus.Failed : SupportNotificationDeliveryStatus.Pending;
                 delivery.AttemptedUtc = now;
                 delivery.UpdatedUtc = now;
-                delivery.SentUtc = succeeded ? now : null;
+                delivery.SentUtc = succeeded && !suppressed ? now : null;
                 delivery.FailedUtc = state is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview ? now : null;
                 delivery.FailureReason = errorCode;
             }
@@ -443,14 +444,16 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
             var delivery = await db.TicketTimelineEvents.SingleOrDefaultAsync(x => x.Id == timelineId, ct);
             if (delivery is not null)
             {
-                delivery.EmailStatus = errorCode == "Suppressed" ? EmailDeliveryStatus.Suppressed
+                delivery.EmailStatus = suppressed ? EmailDeliveryStatus.Suppressed
                     : succeeded ? EmailDeliveryStatus.Delivered
                     : state is MailboxEffectState.Exhausted or MailboxEffectState.NeedsReview
                         ? EmailDeliveryStatus.Failed : EmailDeliveryStatus.Pending;
                 delivery.RetryCount = Math.Max(0, row.Attempts - 1);
                 delivery.LastRetryUtc = now;
                 delivery.RetryError = errorCode;
-                delivery.MessageText = errorCode == "Suppressed" ? "Automatic email suppressed to prevent a mailbox loop."
+                delivery.MessageText = suppressed ? (errorCode == "TicketRecipientScopeChanged"
+                    ? "Email suppressed because the recipient's ticket access changed."
+                    : "Automatic email suppressed to prevent a mailbox loop.")
                     : succeeded ? "Email accepted by provider."
                     : errorCode is "DispatchOutcomeUnknown" or "SubmissionOutcomeUnknown"
                         ? "Email submission outcome is unknown; verify with recipients before taking action."

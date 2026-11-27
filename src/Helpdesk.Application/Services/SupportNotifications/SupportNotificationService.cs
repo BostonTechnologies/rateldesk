@@ -236,7 +236,8 @@ public sealed class SupportNotificationService(
         TenantBrandingResolved branding, CancellationToken ct)
     {
         var ticketRef = ticket.TrackingId ?? string.Empty;
-        var appUrl = branding.TemplateBrand.ApplicationUrl ?? _publicWebAppUrl;
+        var appUrl = string.IsNullOrWhiteSpace(branding.TemplateBrand.ApplicationUrl)
+            ? _publicWebAppUrl : branding.TemplateBrand.ApplicationUrl;
         var ticketLink = ticket.AssignedSupportGroupId != null
             ? AuthenticatedTicketLink(ticket, appUrl)
             : await publicLinks.IssueAsync(ticket, recipient.Email, PublicLinkPurpose.Ticket, appUrl, ct);
