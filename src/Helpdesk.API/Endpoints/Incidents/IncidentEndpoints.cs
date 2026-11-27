@@ -357,15 +357,15 @@ public static class IncidentEndpoints
             catch (global::System.Text.Json.JsonException) { return Results.BadRequest(); }
             if (dto is null) return Results.BadRequest();
             var groupId = dto.AssignedSupportGroupId?.Trim();
-            var access = await accessService.ResolveAsync(user, token);
-            var queueActor = TicketQueueEndpoints.ActorId(user, access);
             await using var tx = groupId == null ? await db.Database.BeginTransactionAsync(token)
                 : await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token);
+            var access = await accessService.ResolveAsync(user, token);
+            var queueActor = TicketQueueEndpoints.ActorId(user, access);
             if (groupId != null)
             {
                 if (string.IsNullOrWhiteSpace(queueActor)) return Results.Forbid();
                 if (await TicketQueueEndpoints.ValidateCreationAsync(db, accessService, access, TicketType.Incident,
-                        dto.OrganizationId, groupId, dto.AssignedToId, token) is { } queueIssue) return queueIssue;
+                        dto.OrganizationId, groupId, dto.CustomerId, dto.AssignedToId, token) is { } queueIssue) return queueIssue;
             }
             if (access.HasRestrictedWorkforceAccess &&
                 (groupId == null || dto.CcRecipients is { Count: > 0 } || dto.Attachments is { Count: > 0 } || dto.LinkedAssetIds is { Count: > 0 }))

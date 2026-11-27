@@ -220,18 +220,19 @@ public static partial class ChangeEndpoints
             }
 
             var groupId = dto.AssignedSupportGroupId?.Trim();
-            var access = await accessService.ResolveAsync(user, token);
-            var queueActor = TicketQueueEndpoints.ActorId(user, access);
             await using var tx = groupId == null ? await db.Database.BeginTransactionAsync(token) :
                 await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, token);
+            var access = await accessService.ResolveAsync(user, token);
+            var queueActor = TicketQueueEndpoints.ActorId(user, access);
             if (groupId != null)
             {
                 if (string.IsNullOrWhiteSpace(queueActor)) return Results.Forbid();
                 if (await TicketQueueEndpoints.ValidateCreationAsync(db, accessService, access, TicketType.Change,
-                        dto.OrganizationId, groupId, dto.ImplementorUserId, token) is { } queueIssue) return queueIssue;
+                        dto.OrganizationId, groupId, dto.RequestedForUserId, dto.ImplementorUserId, token) is { } queueIssue) return queueIssue;
             }
             if (access.HasRestrictedWorkforceAccess &&
-                (groupId == null || dto.Attachments is { Count: > 0 } || dto.LinkedAssetIds is { Count: > 0 }))
+                (groupId == null || dto.Attachments is { Count: > 0 } || dto.LinkedAssetIds is { Count: > 0 } ||
+                 dto.ApproverUserIds is { Count: > 0 } && !TicketAccessPolicy.CanWrite(access, TicketType.Change, dto.OrganizationId, null)))
                 return Results.Forbid();
 
             var implementationWindowError = ValidateImplementationWindow(dto.ImplementationStartAt, dto.ImplementationEndAt, requireBoth: true);

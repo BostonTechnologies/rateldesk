@@ -146,7 +146,11 @@ Use `GET /api/v1/ticket-queues/{module}` with singular `incident`, `request` or
 `change`. It supports `organizationId`, `q`, `id` and `take`. Use
 `transfer=true` with a ticket organization to list permitted transfer
 destinations. Queue options use a null ID for Main Queue. Send optional
-`assignedSupportGroupId` on the ordinary ticket creation endpoint.
+`assignedSupportGroupId` on the ordinary ticket creation endpoint. Callers
+whose ticket write permission is group-scoped can use their own linked requester
+identity or a requester already associated with a visible ticket in the
+destination queue. Choosing additional change approvers requires the existing
+organization-level change write authority.
 
 To move one or more tickets, use `POST /api/v1/ticket-queues/{module}/assignment`.
 The API rechecks each ticket, its current version, destination, and individual
@@ -171,6 +175,6 @@ to an active change's implementor require an eligible Draft. A stale version
 returns a conflict and preserves the committed assignment.
 
 CLI list accepts repeated `--support-group-id` and `--main-queue`. Pass the
-assignment document to `helpdesk incidents move-queue --body-file move.json`
+assignment document to `rateldesk incidents move-queue --body-file move.json`
 or use the corresponding requests or changes command. Stdio and HTTP MCP expose
 the same assignment through confirmed `move_queue`. [MCP operation contracts](mcp-operation-contracts.md#ticket-queues)

@@ -2,19 +2,122 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using Helpdesk.API.Endpoints.Ticketing;
+using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Storage;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs.Attachment;
 using Helpdesk.Shared.DTOs.Change;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Helpdesk.Tests.Api;
 
 public sealed partial class LiveHistoryFilteringEndpointsTests
 {
+    [Theory]
+    [InlineData("Incident")]
+    [InlineData("Request")]
+    [InlineData("Change")]
+    public async Task TicketAttachmentsRequireTheActualParentQueueBeforeListingUploadingOrServingBytes(string module)
+    {
+        var permission = $"{module}.Write";
+        var access = ScopedTicketProfile() with
+        {
+            Permissions = new HashSet<string> { permission }, UsesScopedPermissions = true,
+            RestrictedTicketOrganizationIds = new HashSet<string> { "org-2" },
+            TicketQueuePermissionGrants = new HashSet<TicketQueuePermissionGrant> { new(permission, "org-2", "app", "org-2") }
+        };
+        var directory = Directory.CreateTempSubdirectory("queue-attachments-");
+        try
+        {
+            await using var harness = await LiveHistoryFilteringHarness.CreateAsync(access, storageOptions: new StorageOptions { RootPath = directory.FullName });
+            harness.UseRole(permission);
+            var permitted = $"{module}-b-own";
+            var hidden = $"{module}-b-peer";
+            await harness.SeedAsync(db =>
+            {
+                SeedScopedTickets(db);
+                db.SupportGroups.Add(new SupportGroup { Id = "app", Name = "Application", OwningOrganizationId = "org-2" });
+                db.Tickets.Local.Single(ticket => ticket.Id == permitted).AssignedSupportGroupId = "app";
+            });
+            await using var scope = harness.Services.CreateAsyncScope();
+            var attachments = scope.ServiceProvider.GetRequiredService<ITicketAttachmentService>();
+            var hiddenFile = Assert.Single(await attachments.SaveAsync(hidden,
+                [new AttachmentUpload("hidden.txt", "text/plain", "Synthetic private note"u8.ToArray())], "fixture-owner", default));
+
+            using var deniedList = await harness.Client.GetAsync($"/api/v1/tickets/{hidden}/attachments/");
+            Assert.Equal(HttpStatusCode.NotFound, deniedList.StatusCode);
+            using var deniedFile = await harness.Client.GetAsync($"/api/v1/attachments/{hiddenFile.Id}");
+            Assert.Equal(HttpStatusCode.NotFound, deniedFile.StatusCode);
+            using var hiddenForm = new MultipartFormDataContent();
+            hiddenForm.Add(new StringContent("Synthetic hidden note"), "files", "hidden.txt");
+            using var deniedUpload = await harness.Client.PostAsync($"/api/v1/tickets/{hidden}/attachments/", hiddenForm);
+            Assert.Equal(HttpStatusCode.NotFound, deniedUpload.StatusCode);
+
+            using var form = new MultipartFormDataContent();
+            form.Add(new StringContent("Synthetic authorized note"), "files", "authorized.txt");
+            using var upload = await harness.Client.PostAsync($"/api/v1/tickets/{permitted}/attachments/", form);
+            Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+            var visibleFile = Assert.Single((await harness.Client.GetFromJsonAsync<AttachmentDto[]>($"/api/v1/tickets/{permitted}/attachments/"))!);
+            Assert.Equal("Synthetic authorized note", await harness.Client.GetStringAsync($"/api/v1/attachments/{visibleFile.Id}"));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(TicketType.Incident)]
+    [InlineData(TicketType.Request)]
+    [InlineData(TicketType.Change)]
+    public async Task NamedQueueCreationUsesRelatedRequestersWithoutAnOrganizationDirectoryGrant(TicketType module)
+    {
+        var permitted = new[] { $"{module}.Read", $"{module}.Write", HelpdeskPermissions.TicketQueueTransfer };
+        var profile = ScopedTicketProfile() with
+        {
+            CustomerId = null, UsesScopedPermissions = true,
+            Permissions = permitted.ToHashSet(), RestrictedTicketOrganizationIds = new HashSet<string> { "org-2" },
+            TicketQueuePermissionGrants = permitted.Select(permission => new TicketQueuePermissionGrant(permission, "org-2", "app", "org-2")).ToHashSet()
+        };
+        await using var harness = await LiveHistoryFilteringHarness.CreateAsync(profile);
+        harness.UseRole($"{module}.Write");
+        await harness.SeedAsync(db =>
+        {
+            SeedScopedTickets(db);
+            db.SupportGroups.Add(new SupportGroup { Id = "app", Name = "Application", OwningOrganizationId = "org-2" });
+            var related = db.Tickets.Local.Single(ticket => ticket.Id == $"{module}-b-own");
+            related.AssignedSupportGroupId = "app";
+            if (related is Change change) change.RequestedForUserId = "customer-own";
+        });
+        await harness.WithDbAsync(async db =>
+        {
+            Assert.True(await TicketQueueEndpoints.CanReferenceRequesterAsync(db, profile, module, "org-2", "app", "customer-own", default));
+            foreach (var unrelated in new[] { "customer-b-peer", "customer-a-peer", "unknown" })
+                Assert.False(await TicketQueueEndpoints.CanReferenceRequesterAsync(db, profile, module, "org-2", "app", unrelated, default));
+        });
+        if (module == TicketType.Change)
+        {
+            var input = new CreateChangeDto
+            {
+                Title = "Synthetic change", Description = "Queue intake", ChangeType = "Standard", SaveAsDraft = true,
+                OrganizationId = "org-2", AssignedSupportGroupId = "app", RequestedForUserId = "customer-b-peer",
+                ImplementationStartAt = DateTime.UtcNow.AddDays(1), ImplementationEndAt = DateTime.UtcNow.AddDays(2)
+            };
+            using var denied = await harness.Client.PostAsJsonAsync("/api/v1/changes/", input);
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            input.RequestedForUserId = "customer-own";
+            using var allowed = await harness.Client.PostAsJsonAsync("/api/v1/changes/", input);
+            Assert.Equal(HttpStatusCode.Created, allowed.StatusCode);
+        }
+    }
+
     [Theory]
     [InlineData("Incident")]
     [InlineData("Request")]

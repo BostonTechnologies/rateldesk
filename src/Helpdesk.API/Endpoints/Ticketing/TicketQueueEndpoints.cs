@@ -276,15 +276,33 @@ public static class TicketQueueEndpoints
 
     internal static async Task<IResult?> ValidateCreationAsync(
         HelpdeskDbContext db, ICurrentUserAccessService accessService, CurrentUserAccessProfile access, TicketType module,
-        string? organizationId, string groupId, string? assigneeId, CancellationToken ct)
+        string? organizationId, string groupId, string? requesterId, string? assigneeId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(organizationId) || groupId.Length is 0 or > 64 ||
             !await IsAuthorizedDestinationAsync(db, access, module, organizationId, groupId, ct))
             return Results.BadRequest("The queue is unavailable for this ticket.");
+        if (!await CanReferenceRequesterAsync(db, access, module, organizationId, groupId, requesterId, ct))
+            return Results.Forbid();
         if (!string.IsNullOrWhiteSpace(assigneeId) &&
             !await AssigneeQueries.CanAssignToQueueAsync(db, accessService, module, organizationId, groupId, assigneeId.Trim(), ct))
             return Results.BadRequest("The selected assignee is unavailable for this queue.");
         return null;
+    }
+
+    internal static Task<bool> CanReferenceRequesterAsync(HelpdeskDbContext db, CurrentUserAccessProfile access, TicketType module,
+        string organizationId, string groupId, string? requesterId, CancellationToken ct)
+    {
+        if (!access.HasRestrictedWorkforceAccess || TicketAccessPolicy.CanWrite(access, module, organizationId, null))
+            return Task.FromResult(true);
+        if (string.IsNullOrWhiteSpace(requesterId)) return Task.FromResult(false);
+        if (requesterId == access.CustomerId || module == TicketType.Change && requesterId == access.DomainUserId)
+            return Task.FromResult(true);
+
+        var tickets = VisibleTickets(db, access, module)
+            .Where(ticket => ticket.OrganizationId == organizationId && ticket.AssignedSupportGroupId == groupId);
+        return module == TicketType.Change
+            ? tickets.OfType<Change>().AnyAsync(ticket => ticket.RequestedForUserId == requesterId, ct)
+            : tickets.AnyAsync(ticket => ticket.CustomerId == requesterId, ct);
     }
 
     internal static string? ActorId(ClaimsPrincipal principal, CurrentUserAccessProfile access) =>
