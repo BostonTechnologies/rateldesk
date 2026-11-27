@@ -47,6 +47,13 @@ Coverage complements the customer's existing IT support organization
 relationship. The Primary, Escalation and Backup settings describe support
 routing. Group membership labels describe the member's duties.
 
+Tenant administrators with `Tenant.Settings.Manage` can maintain groups owned
+by their managed organizations. A coverage edit requires that authority for
+both the customer and provider. A provider needs an existing customer IT
+support relationship unless the customer and provider are the same
+organization. Tenant administrators need another authorized administrator to
+activate a group, membership or coverage route that gives them new access.
+
 Custom tenant roles have three ticket access options:
 
 | Scope | Effective access |
