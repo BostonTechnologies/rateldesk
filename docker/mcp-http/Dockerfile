@@ -7,7 +7,7 @@ RUN addgroup -S -g 10001 helpdesk && adduser -S -D -H -u 10001 -G helpdesk helpd
 EXPOSE 8223
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8223/health/live || exit 1
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0.404-alpine3.24 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0.100-alpine3.24 AS build
 WORKDIR /src
 ARG BUILD_CONFIGURATION=Release
 ARG VERSION=0.0.0-local
