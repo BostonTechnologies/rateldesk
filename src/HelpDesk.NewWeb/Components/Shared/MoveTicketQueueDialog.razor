@@ -1,4 +1,5 @@
 @using Helpdesk.Shared.DTOs.TicketQueue
+@using Helpdesk.Shared.DTOs.User
 @inject IHttpClientFactory HttpClientFactory
 
 <MudDialog>
@@ -6,7 +7,7 @@
         <TicketQueuePicker Module="@Module" OrganizationId="@OrganizationId" Label="Destination queue"
                            Placeholder="Choose a queue" Transfer="true" Disabled="saving"
                            Value="@(destination is null ? null : destination.Id ?? TicketQueuePicker.MainQueue)"
-                           SelectionChanged="@(queue => destination = queue)" />
+                           SelectionChanged="SelectDestination" />
         <MudSelect T="QueueAssigneeAction" @bind-Value="action" Label="Individual assignee" Dense="true" Disabled="saving">
             <MudSelectItem Value="QueueAssigneeAction.Keep">Keep current assignee</MudSelectItem>
             <MudSelectItem Value="QueueAssigneeAction.Clear">Clear individual assignment</MudSelectItem>
@@ -14,7 +15,10 @@
         </MudSelect>
         @if (action == QueueAssigneeAction.Replace)
         {
-            <MudTextField T="string" @bind-Value="assigneeId" Label="Assignee user ID" MaxLength="128" Immediate="true" Disabled="saving" />
+            <CreationSearchPicker TItem="UserDto" LookupUrl="@AssigneeLookupUrl" Value="@assigneeId"
+                                  Label="Assignee" Kind="assignees" Placeholder="Search by name or email" Disabled="saving"
+                                  ItemId="@(user => user.Id)" ItemLabel="@(user => user.Name)"
+                                  SelectionChanged="@(user => assigneeId = user?.Id)" />
         }
         <MudTextField T="string" @bind-Value="reason" Label="Reason" MaxLength="1024" Lines="2" Disabled="saving" />
         @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
@@ -39,6 +43,16 @@
     private string? reason;
     private string? error;
     private bool saving;
+
+    private string AssigneeLookupUrl => destination == null ? "" :
+        $"api/v1/ticket-queues/{Module}/assignees?organizationId={Uri.EscapeDataString(OrganizationId)}" +
+        (destination.Id == null ? "" : "&supportGroupId=" + Uri.EscapeDataString(destination.Id));
+
+    private void SelectDestination(TicketQueueOptionDto? queue)
+    {
+        if (queue != destination) assigneeId = null;
+        destination = queue;
+    }
 
     private async Task MoveAsync()
     {
