@@ -313,6 +313,7 @@ public sealed class Beta4MutationIntegrityHttpTests
             Assert.Equal("Connected", (await pairing.SaveAsync(paired.PairId, mapping, "owner", default)).Status);
         }
         var template = Guid.NewGuid();
+        var failedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
         await h.EditAsync(async db =>
         {
             var organization = await db.Organizations.SingleAsync(x => x.Id == h.OrganizationId);
@@ -336,14 +337,16 @@ public sealed class Beta4MutationIntegrityHttpTests
             {
                 Id = "retry-parent", TrackingId = "REQ-DEMO-RETRY", Title = "Synthetic retry request", RequestFormId = "retry-form", PayloadJson = "{}",
                 OrganizationId = h.OrganizationId, CustomerId = h.CustomerId, State = TicketState.OnHold,
-                WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Synthetic automation' failed."
+                WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Synthetic automation' failed.",
+                WorkflowUpdatedAt = failedAt.AddSeconds(1)
             });
             db.RequestTasks.Add(new RequestTask
             {
                 Id = "retry-task", Title = "Synthetic automation", RequestId = "retry-parent", OrganizationId = h.OrganizationId,
                 CustomerId = h.CustomerId, TemplateId = template.ToString("D"), Type = RequestTaskType.Automation,
                 Status = RequestTaskStatus.Failed, State = TicketState.OnHold, FailureReason = "Synthetic previous failure",
-                LastAutomationStatus = AutomationTaskStatuses.SubmitFailedManualRetry, AutoStart = false,
+                LastAutomationStatus = "failed", LastAutomationUpdatedAt = failedAt, AutoStart = false,
+                StartedAt = failedAt.AddMinutes(-1), CompletedAt = failedAt,
                 OrchestrationExternalRunId = "previous-run", AutomationAttemptCorrelationId = "previous-attempt"
             });
         });
