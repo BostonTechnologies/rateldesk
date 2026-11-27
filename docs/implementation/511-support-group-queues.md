@@ -18,7 +18,7 @@ The companion work is tracked in NetRatel #862. [Receiver contract](../contracts
 | Surface and source owner | Gate for restricted workforce identities | Evidence and open verification |
 | --- | --- | --- |
 | Incident, request and change list, filters, totals and detail in the ticket endpoint modules | Module and organization grants, current group membership, coverage and scope apply to the ticket query or record. | Endpoint fixtures cover all three modules and both databases cover the persisted policy. The real gateway fixture proves incident restrictions, delegated scope and revocation. The equivalent delegated request and change journeys remain open. |
-| Ordinary create, transfer and claim in the ticket and queue endpoints | Create checks the authorized destination. Transfer checks source and destination scope and current assignment version for each record. Claim checks current ticket write authority and eligibility. | The gateway fixture covers a committed incident transfer, claim and denied source or destination on both databases. Multi-ticket and concurrent membership scenarios remain open. |
+| Ordinary create, transfer and claim in the ticket and queue endpoints | Create checks the authorized destination and requester identity. Transfer checks source and destination scope and current assignment version for each record. Claim checks current ticket write authority and eligibility. | Both database fixtures cover incident transfer and claim, mixed and permitted batches, concurrent writers, and repeated visits to a queue. Full module creation and concurrent membership acceptance remain open. |
 | Individual assignment, update and state in the ticket endpoint modules | Named-queue assignee writes validate current group eligibility. Restricted state and supported change lifecycle updates use the ticket scope. Generic form updates and legacy individual and bulk routes remain subject to the restricted endpoint gate. | Existing lifecycle regression coverage and rendered state checks. Scoped command coverage remains open. |
 | Worklogs and ticket timeline in the incident, request and change handlers | Record authorization applies before history and freshly before each protected SSE frame. The scoped projection limits legacy mail and diagnostic metadata. | The gateway request stream tests recheck live membership removal before delivering a committed workflow event on SQLite and PostgreSQL. Live incident and change stream acceptance remains open. |
 | Ticket attachment routes and history/attachment counters | Resolve authorized parent before projecting its metadata or serving stored bytes. | Full direct-download, upload, count and legacy signed-content matrix remains open. |
@@ -65,6 +65,8 @@ The companion work is tracked in NetRatel #862. [Receiver contract](../contracts
 - [Request queue transfer](assets/511-queues/request-transfer.png)
 - [Change queue transfer](assets/511-queues/change-transfer.png)
 - [Custom role with selected support groups](assets/511-queues/selected-support-groups.png)
+- [Incident filters on mobile in dark mode](assets/511-queues/incident-filters-mobile-dark.png)
+- [Change workflow at native 200% zoom](assets/511-queues/change-native-200-percent.png)
 
 Independent review, required CI, the remaining authorization matrix, and the
 published native and deployment artifact checks gate the beta. The issue
