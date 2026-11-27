@@ -148,7 +148,11 @@
                     <MudTd DataLabel="Request">@context.RequestTrackingId</MudTd>
                     <MudTd DataLabel="Task">@context.TaskName</MudTd>
                     <MudTd DataLabel="Failure Policy">@context.FailurePolicy</MudTd>
-                    <MudTd DataLabel="Reason">@context.FailureReason</MudTd>
+                    <MudTd DataLabel="Reason">
+                        @if (context.ProviderDiagnostic is { } providerFailure)
+                        { <ProviderExecutionDetails Diagnostic="providerFailure" /> }
+                        else { @context.FailureReason }
+                    </MudTd>
                     <MudTd DataLabel="Status">@context.Status</MudTd>
                     <MudTd DataLabel="Actions"><div class="workspace-actions"><WorkspaceAction Href="@($"/requests/{context.RequestId}")" Label="Open" Icon="@Icons.Material.Outlined.OpenInNew" /></div></MudTd>
                 </RowTemplate>
@@ -301,7 +305,7 @@
             lastRefreshed = DateTimeOffset.UtcNow;
             if (Category is null) selectedCategory = Categories.FirstOrDefault(c => (isAdmin || c.Key != "retries") && Count(c.Key) > 0).Key ?? "critical";
         }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
         finally
         {
             loading = false;

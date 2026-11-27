@@ -197,7 +197,11 @@ else
                                                     }
                                                     @if (context.Task.AutomationSubmissionIssue is { } issue) { <p>@issue</p> }
                                                     @if (!string.IsNullOrWhiteSpace(context.Task.AutomationBlockReason)) { <p>@context.Task.AutomationBlockReason</p> }
-                                                    @if (!string.IsNullOrWhiteSpace(context.Task.FailureReason)) { <p class="request-task-error">@context.Task.FailureReason</p> }
+                                                    @if (context.Task.ProviderDiagnostic is { } providerFailure)
+                                                    {
+                                                        <ProviderExecutionDetails Diagnostic="providerFailure" />
+                                                    }
+                                                    else if (!string.IsNullOrWhiteSpace(context.Task.FailureReason)) { <p class="request-task-error">@context.Task.FailureReason</p> }
                                                 </section>
                                             </td>
                                         </MudTr>

@@ -5,18 +5,21 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Helpdesk.API.Endpoints.Requests;
+using Helpdesk.API.Background;
 using Helpdesk.API.Services;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Resources;
 using Helpdesk.Application.Services.Notifications;
+using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.Tenants;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Html;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Resources;
 using NSubstitute;
@@ -219,17 +222,36 @@ public sealed class RequestCreateEndpointsTests
             PayloadJson = "{}"
         };
 
-        var response = await harness.Client.PostAsJsonAsync("/api/v1/self-service/requests", dto);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Notification.ConfirmationCompletion = release.Task;
+        var timeout = TimeSpan.FromSeconds(15);
+        Task<int> dispatch;
+        try
+        {
+            var response = await harness.Client.PostAsJsonAsync("/api/v1/self-service/requests", dto).WaitAsync(timeout);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>();
-        Assert.Equal("REQ-TEST-001", result!.TrackingId);
-        var created = Assert.Single((await harness.Requests.GetAllAsync()).ToList());
-        Assert.Equal("REQ-TEST-001", created.TrackingId);
-        Assert.Equal("customer-1", created.CustomerId);
-        Assert.Equal("customer@example.com", created.RequesterEmail);
-        Assert.Equal("org-1", created.OrganizationId);
-        Assert.Empty(created.CcRecipients);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<SelfServiceRequestSubmittedDto>();
+            Assert.Equal("REQ-TEST-001", result!.TrackingId);
+            var created = Assert.Single((await harness.Requests.GetAllAsync()).ToList());
+            Assert.Equal("REQ-TEST-001", created.TrackingId);
+            Assert.Equal("customer-1", created.CustomerId);
+            Assert.Equal("customer@example.com", created.RequesterEmail);
+            Assert.Equal("org-1", created.OrganizationId);
+            Assert.Empty(created.CcRecipients);
+            Assert.Equal(0, harness.Notification.SendCount);
+
+            dispatch = harness.DispatchSubmissionEffectsAsync();
+            await harness.Notification.ConfirmationStarted.Task.WaitAsync(timeout);
+            Assert.False(dispatch.IsCompleted);
+        }
+        finally
+        {
+            release.TrySetResult(true);
+        }
+
+        Assert.Equal(1, await dispatch);
+        Assert.Equal(0, await harness.DispatchSubmissionEffectsAsync());
         Assert.Equal("SelfServiceRequestCreated", harness.Notification.LastNotificationKind);
         Assert.Equal("REQ-TEST-001", harness.Notification.LastTicket?.TrackingId);
         Assert.Equal("Laptop Request", harness.Notification.LastRequestForm?.Title);
@@ -382,6 +404,7 @@ public sealed class RequestCreateEndpointsTests
         Assert.Equal("requested@example.com", created.RequesterEmail);
         Assert.Equal("org-1", created.OrganizationId);
         Assert.Equal(["requested@example.com", "customer@example.com"], created.CcRecipients);
+        Assert.Equal(1, await harness.DispatchSubmissionEffectsAsync());
         Assert.Equal("requested@example.com", harness.Notification.LastRecipientEmail);
         Assert.Equal("Requested User", harness.Notification.LastRecipientName);
         Assert.Equal(["requested@example.com", "customer@example.com"], harness.Notification.LastCc);
@@ -654,6 +677,13 @@ public sealed class RequestCreateEndpointsTests
         public CapturingTicketNotificationService Notification { get; }
         public IServiceProvider Services => app.Services;
 
+        public async Task<int> DispatchSubmissionEffectsAsync()
+        {
+            using var worker = new MailboxOutboxDispatcher(app.Services.GetRequiredService<IServiceScopeFactory>(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<MailboxOutboxDispatcher>.Instance);
+            return await worker.DispatchBatchAsync();
+        }
+
         public static async Task<SelfServiceRequestTestHarness> CreateAsync(string authHeader = "SelfService")
         {
             var connection = new SqliteConnection("Data Source=:memory:");
@@ -683,6 +713,11 @@ public sealed class RequestCreateEndpointsTests
             builder.Services.AddSingleton<ITicketSlaInitializer, NoopTicketSlaInitializer>();
             builder.Services.AddSingleton<AppTicketServices.ITicketRefGeneratorService>(new FixedTicketRefGenerator("REQ-TEST-001"));
             builder.Services.AddSingleton<ITicketNotificationService>(notification);
+            builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
+            builder.Services.AddScoped<IIngressEffectContext, IngressEffectContext>();
+            builder.Services.AddScoped<MailboxOutboxStore>();
+            builder.Services.AddScoped<SelfServiceSubmissionEffectHandler>();
+            builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ITenantProvisioningService, TestTenantProvisioningService>();
             builder.Services.AddSingleton<IDomainEventPublisher, NoopDomainEventPublisher>();
             builder.Services.AddSingleton<ICorrelationContext, TestCorrelationContext>();
@@ -880,6 +915,8 @@ public sealed class RequestCreateEndpointsTests
         public string? LastRecipientName { get; private set; }
         public IReadOnlyList<string>? LastCc { get; private set; }
         public int SendCount { get; private set; }
+        public Task<bool>? ConfirmationCompletion { get; set; }
+        public TaskCompletionSource ConfirmationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<bool> SendNewTicketConfirmationAsync(
             Ticket ticket,
@@ -912,7 +949,8 @@ public sealed class RequestCreateEndpointsTests
             LastRecipientEmail = recipientEmail;
             LastRecipientName = recipientName;
             LastCc = cc?.ToList();
-            return Task.FromResult(true);
+            ConfirmationStarted.TrySetResult();
+            return ConfirmationCompletion?.WaitAsync(cancellationToken) ?? Task.FromResult(true);
         }
 
         public Task<bool> SendSelfServiceRequestCompletedAsync(

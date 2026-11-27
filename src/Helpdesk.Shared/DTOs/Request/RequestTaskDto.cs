@@ -19,6 +19,7 @@ public sealed class RequestTaskDto
     public DateTimeOffset? DueAt { get; set; }
     public int RetryCount { get; set; }
     public string? FailureReason { get; set; }
+    public Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic? ProviderDiagnostic { get; set; }
     public string? OrchestratorExecutionId { get; set; }
     public string? AutomationBindingId { get; set; }
     public string? OrchestrationRequestDefinitionId { get; set; }

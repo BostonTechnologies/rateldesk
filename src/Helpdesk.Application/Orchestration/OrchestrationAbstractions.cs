@@ -102,8 +102,11 @@ public sealed class OrchestrationAcknowledgementException(
     OrchestrationIngestResult? acknowledgement = null)
     : OrchestrationSubmissionUncertainException(message, acknowledgement);
 
-public sealed class OrchestrationSubmissionRejectedException(string message)
-    : InvalidOperationException(message);
+public sealed class OrchestrationSubmissionRejectedException(string message, ProviderExecutionDiagnostic? diagnostic = null)
+    : InvalidOperationException(message)
+{
+    public ProviderExecutionDiagnostic? Diagnostic { get; } = diagnostic;
+}
 
 public sealed class RequestTaskPayloadBuildResult
 {
@@ -251,6 +254,8 @@ public sealed class OrchestrationProviderException(OrchestrationProviderErrorDto
 
 public interface IOrchestrationCatalogService
 {
+    Task<AutomationExecutionReadinessDto> GetExecutionReadinessAsync(ulong jobId, string organizationId, Guid connectionId, CancellationToken ct = default)
+        => Task.FromResult(new AutomationExecutionReadinessDto(null, "unreported", "The NetRatel peer has not reported execution readiness."));
     Task<OrchestrationAutomationCapabilitiesDto> GetCapabilitiesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)
         => Task.FromResult(new OrchestrationAutomationCapabilitiesDto { Message = "This peer supports fixed-agent jobs. Upgrade NetRatel for target-based authoring and aggregate execution." });
     Task<IReadOnlyList<OrchestrationAutomationTargetChoiceDto>> ListTargetChoicesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)

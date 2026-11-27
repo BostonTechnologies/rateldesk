@@ -56,6 +56,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         Assert.Equal("[]", task.AutomationAttemptHistoryJson);
         Assert.Null(task.AutomationOriginJson);
         Assert.Null(task.AutomationDispatchPayloadJson);
+        Assert.Null(task.ProviderDiagnostic);
         Assert.Null(task.AutomationDeadlineUtcTicks);
         Assert.False(task.AutomationContinuationPending);
         Assert.Equal(0, task.AutomationStateVersion);
@@ -732,6 +733,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             builder.Entity<Request>().Ignore(request => request.OperatorHold);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationOriginJson);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationDispatchPayloadJson);
+            builder.Entity<RequestTask>().Ignore(task => task.ProviderDiagnostic);
             builder.Entity<Customer>().Ignore("IdentityUserId");
             if (Database.IsSqlite())
             {

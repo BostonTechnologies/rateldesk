@@ -107,24 +107,24 @@ public sealed class OrchestrationInternalClient(
                 {
                     if (!response.IsSuccessStatusCode)
                     {
-                        var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings, request.Headers.Authorization?.Parameter)}";
+                        var message = $"External NetRatel ingest failed (HTTP {(int)response.StatusCode}).";
                         if ((int)response.StatusCode is 408 or 429 or >= 500)
                             throw new OrchestrationSubmissionUncertainException(message);
                         if ((int)response.StatusCode is >= 400 and < 500)
-                            throw new OrchestrationSubmissionRejectedException(message);
+                            throw Rejected((int)response.StatusCode, null, null);
                         throw new InvalidOperationException(message);
                     }
 
                     throw new OrchestrationAcknowledgementException("NetRatel accepted the HTTP request without returning an execution acknowledgement.");
                 }
 
-                var parsed = TryParseIngest(content, settings, request.Headers.Authorization?.Parameter, out var hasStatus);
+                var parsed = TryParseIngest(content, settings, request.Headers.Authorization?.Parameter, out var hasStatus, out var reasonCode);
                 if (parsed is not null)
                     OrchestrationIngestClassifier.Apply(parsed, hasStatus);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var message = $"External NetRatel ingest failed ({(int)response.StatusCode}): {ExtractErrorMessage(content, settings, request.Headers.Authorization?.Parameter)}";
+                    var message = $"External NetRatel ingest failed (HTTP {(int)response.StatusCode}).";
                     if (parsed?.HasRemoteIdentity == true)
                     {
                         parsed.Disposition = OrchestrationSubmissionDisposition.Unknown;
@@ -133,7 +133,7 @@ public sealed class OrchestrationInternalClient(
                     if ((int)response.StatusCode is 408 or 429 or >= 500)
                         throw new OrchestrationSubmissionUncertainException(message, parsed);
                     if ((int)response.StatusCode is >= 400 and < 500)
-                        throw new OrchestrationSubmissionRejectedException(message);
+                        throw Rejected((int)response.StatusCode, reasonCode, parsed?.Diagnostic);
                     throw new InvalidOperationException(message);
                 }
 
@@ -143,8 +143,7 @@ public sealed class OrchestrationInternalClient(
                         return parsed;
 
                     if (parsed.Disposition == OrchestrationSubmissionDisposition.Rejected)
-                        throw new OrchestrationSubmissionRejectedException(
-                            FirstNonEmpty(parsed.Message, "NetRatel explicitly rejected the submitted operation.")!);
+                        throw Rejected((int)response.StatusCode, reasonCode, parsed.Diagnostic);
                 }
 
                 throw new OrchestrationAcknowledgementException(
@@ -170,6 +169,13 @@ public sealed class OrchestrationInternalClient(
             throw new OrchestrationSubmissionUncertainException("The NetRatel submission could not be confirmed because the provider connection failed.");
         }
 
+        OrchestrationSubmissionRejectedException Rejected(int status, string? code, ProviderExecutionDiagnostic? diagnostic)
+        {
+            var result = ProviderExecutionDiagnostics.Rejection(status, code, requestPayload, settings.Pairing?.MappingId,
+                diagnostic is { Provider: "NetRatel", Stage: "admission", ExecutionCreated: false } &&
+                diagnostic.CorrelationId == requestPayload.CorrelationId ? diagnostic : null);
+            return new($"NetRatel rejected admission (HTTP {status}, {result.Code}). {result.Message}", result);
+        }
     }
 
     public async Task<OrchestrationCallbackDto?> ReadExecutionAsync(OrchestrationResolvedSettings settings,
@@ -303,9 +309,10 @@ public sealed class OrchestrationInternalClient(
         string content,
         OrchestrationResolvedSettings settings,
         string? bearerToken,
-        out bool hasStatus)
+        out bool hasStatus, out string? reasonCode)
     {
         hasStatus = false;
+        reasonCode = null;
         try
         {
             using var document = JsonDocument.Parse(content);
@@ -315,6 +322,7 @@ public sealed class OrchestrationInternalClient(
             var root = document.RootElement;
             var status = TryGetIngestString(root, "status");
             hasStatus = !string.IsNullOrWhiteSpace(status);
+            reasonCode = TryGetIngestString(root, "code");
             var message = TryGetIngestString(root, "message");
             return new OrchestrationIngestResult
             {
@@ -322,7 +330,8 @@ public sealed class OrchestrationInternalClient(
                 RunId = TryGetIngestString(root, "runId"),
                 ExecutionId = TryGetIngestString(root, "executionId") ?? string.Empty,
                 Status = status is null ? string.Empty : IntegrationErrorSafety.ProviderMessage(status, 128, settings.ClientSecret, bearerToken),
-                Message = message is null ? null : IntegrationErrorSafety.ProviderMessage(message, 500, settings.ClientSecret, bearerToken)
+                Message = message is null ? null : IntegrationErrorSafety.ProviderMessage(message, 500, settings.ClientSecret, bearerToken),
+                Diagnostic = ReadDiagnostic(root)
             };
         }
         catch (JsonException exception)
@@ -330,6 +339,13 @@ public sealed class OrchestrationInternalClient(
             _logger.LogDebug("NetRatel returned malformed ingest JSON. ExceptionType={ExceptionType}", exception.GetType().Name);
             return null;
         }
+    }
+
+    private static ProviderExecutionDiagnostic? ReadDiagnostic(JsonElement root)
+    {
+        if (!TryGetProperty(root, "diagnostic", out var value) || value.ValueKind != JsonValueKind.Object) return null;
+        try { return value.Deserialize<ProviderExecutionDiagnostic>(JsonSerializerOptions.Web); }
+        catch (JsonException) { return null; }
     }
 
     private static string? TryGetIngestString(JsonElement root, string name)

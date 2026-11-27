@@ -15,6 +15,20 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     public const int MaximumAttempts = 5;
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
 
+    public void StageSelfServiceSubmission(SelfServiceSubmissionEffect effect)
+    {
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Self-service effects require the request transaction.");
+
+        db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+        {
+            EffectKey = $"self-service:{effect.RequestId}",
+            Kind = MailboxEffectKind.SelfServiceSubmission,
+            Payload = JsonSerializer.Serialize(effect),
+            AvailableUnixMilliseconds = timeProvider.GetUtcNow().ToUnixTimeMilliseconds()
+        });
+    }
+
     public Task<bool> OwnsDeliveryHistoryAsync(Guid deliveryEventId, CancellationToken ct = default) =>
         db.Set<MailboxOutboxEffect>().AsNoTracking().AnyAsync(x =>
             x.Kind == MailboxEffectKind.Email && x.DeliveryEventId == deliveryEventId, ct);
@@ -227,8 +241,16 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
     public Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct) =>
         CompleteAsync(claim, succeeded, errorCode, ct, false);
 
-    public async Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct,
-        bool requiresReview, MailboxSubmissionResult? submission = null)
+    public Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode, CancellationToken ct,
+        bool requiresReview, MailboxSubmissionResult? submission = null) =>
+        CompleteAsync(claim, succeeded, errorCode, ct, requiresReview, submission, null);
+
+    internal Task<bool> CompleteSelfServiceSubmissionAsync(MailboxOutboxEffect claim,
+        SelfServiceSubmissionEffectHandler handler, CancellationToken ct) =>
+        CompleteAsync(claim, true, null, ct, false, null, token => handler.ApplyAsync(claim, token));
+
+    private async Task<bool> CompleteAsync(MailboxOutboxEffect claim, bool succeeded, string? errorCode,
+        CancellationToken ct, bool requiresReview, MailboxSubmissionResult? submission, Func<CancellationToken, Task>? apply)
     {
         var now = timeProvider.GetUtcNow();
         var milliseconds = now.ToUnixTimeMilliseconds();
@@ -256,6 +278,8 @@ public sealed class MailboxOutboxStore(HelpdeskDbContext db, IIngressEffectConte
                 .SetProperty(x => x.RecipientOutcomeJson, recipientOutcomeJson), ct);
         if (changed != 1)
             return false;
+        if (apply is not null)
+            await apply(ct);
         await UpdateDeliveryAsync(claim, succeeded, state, errorCode, now, ct);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);

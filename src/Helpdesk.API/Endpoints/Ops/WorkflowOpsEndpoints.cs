@@ -400,6 +400,7 @@ public static class WorkflowOpsEndpoints
                 IsCritical = task.IsCritical,
                 FailurePolicy = task.FailurePolicy,
                 FailureReason = task.FailureReason,
+                ProviderDiagnostic = task.ProviderDiagnostic,
                 RetryCount = task.RetryCount
             };
 

@@ -415,6 +415,13 @@
                                                             </MudAlert>
                                                         }
 
+                                                        @if (SelectedBinding is { SystemConnectionId: { } executionConnection } executionBinding &&
+                                                             model.OrganizationId is { Length: > 0 } executionOrganization &&
+                                                             ulong.TryParse(executionBinding.OrchestrationJobDefinitionId ?? executionBinding.OrchestrationRequestDefinitionId, out var executionJob))
+                                                        {
+                                                            <AutomationExecutionReadiness OrganizationId="@executionOrganization" ConnectionId="executionConnection" JobId="executionJob" />
+                                                        }
+
                                                         @if (orchestrationCatalogLoading)
                                                         {
                                                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-1">

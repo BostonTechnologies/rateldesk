@@ -1,4 +1,5 @@
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.DTOs.Orchestration;
 
 namespace Helpdesk.Application.Events;
 
@@ -295,7 +296,8 @@ public sealed record RequestTaskAutomationFailedEvent(
     string? TenantId,
     DateTimeOffset Timestamp,
     string CorrelationId,
-    string? CallerClientId = null)
+    string? CallerClientId = null,
+    ProviderExecutionDiagnostic? Diagnostic = null)
     : DomainEvent(
         EventType: RequestTaskDomainEventTypes.AutomationFailed,
         Source: "RequestTask",
@@ -331,7 +333,8 @@ public sealed record RequestTaskAutomationSubmitUncertainEvent(
     string Reason,
     string? TenantId,
     DateTimeOffset Timestamp,
-    string CorrelationId)
+    string CorrelationId,
+    ProviderExecutionDiagnostic? Diagnostic = null)
     : DomainEvent(
         EventType: RequestTaskDomainEventTypes.AutomationSubmitUncertain,
         Source: "RequestTask",
@@ -347,7 +350,8 @@ public sealed record RequestTaskAutomationSubmitRejectedEvent(
     string Reason,
     string? TenantId,
     DateTimeOffset Timestamp,
-    string CorrelationId)
+    string CorrelationId,
+    ProviderExecutionDiagnostic? Diagnostic = null)
     : DomainEvent(
         EventType: RequestTaskDomainEventTypes.AutomationSubmitRejected,
         Source: "RequestTask",

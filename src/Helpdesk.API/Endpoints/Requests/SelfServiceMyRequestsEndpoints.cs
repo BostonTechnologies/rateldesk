@@ -229,6 +229,7 @@ public static partial class SelfServiceMyRequestsEndpoints
 
         var ownedTasks = db.RequestTasks.IgnoreQueryFilters().AsNoTracking()
             .Where(task => task.RequestId == request.Id && task.OrganizationId == request.OrganizationId);
+        const string supportReview = "Automation needs support review.";
         var tasks = await ownedTasks.OrderBy(t => t.Order)
             .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
             .Select(t => new MyRequestTaskDto
@@ -243,7 +244,7 @@ public static partial class SelfServiceMyRequestsEndpoints
                 NextRetryAt = t.NextRetryAt,
                 DueAt = t.DueAt,
                 RetryCount = t.RetryCount,
-                FailureReason = t.FailureReason,
+                FailureReason = t.ProviderDiagnostic != null ? supportReview : t.FailureReason,
                 LastAutomationStatus = t.LastAutomationStatus,
                 AutomationAttemptCorrelationId = t.AutomationAttemptCorrelationId
             })
@@ -278,7 +279,8 @@ public static partial class SelfServiceMyRequestsEndpoints
         foreach (var task in tasks)
         {
             if (task.Type == RequestTaskType.Automation)
-                task.FailureReason = AutomationTaskStatuses.SafeSubmissionFailure(task.LastAutomationStatus, task.FailureReason);
+                task.FailureReason = AutomationTaskStatuses.SafeSubmissionFailure(task.LastAutomationStatus, task.FailureReason)
+                    ?? (task.FailureReason == supportReview ? supportReview : null);
             if (approvalsByTask.TryGetValue(task.Id, out var approvals))
             {
                 task.PendingApprovals = approvals;

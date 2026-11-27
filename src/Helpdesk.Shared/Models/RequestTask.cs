@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using Helpdesk.Shared.DTOs.Orchestration;
 
 namespace Helpdesk.Shared.Models;
 
@@ -60,6 +61,7 @@ public class RequestTask : Ticket
     public string? AutomationReconciliationLeaseId { get; set; }
     public long? AutomationReconciliationLeaseUntilUtcTicks { get; set; }
     public bool AutomationContinuationPending { get; set; }
+    public ProviderExecutionDiagnostic? ProviderDiagnostic { get; set; }
     public long AutomationStateVersion { get; set; }
     public string? TimeoutIncidentId { get; set; }
     public string? OrchestratorExecutionId { get; set; }

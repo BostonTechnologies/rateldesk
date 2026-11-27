@@ -76,6 +76,7 @@ public sealed class RequestTaskTransitionDto
     public string? OrchestrationPeerInstanceId { get; init; }
     public long? OrchestrationLinkRevision { get; init; }
     public string? ResultJson { get; init; }
+    public Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic? ProviderDiagnostic { get; init; }
     public int Order { get; init; }
     public string Name { get; init; } = string.Empty;
     public string CorrelationId { get; init; } = string.Empty;

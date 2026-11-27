@@ -190,6 +190,7 @@ public sealed class OrchestrationIngestResult
     public string ExecutionId { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string? Message { get; set; }
+    public ProviderExecutionDiagnostic? Diagnostic { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public OrchestrationSubmissionDisposition Disposition { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]

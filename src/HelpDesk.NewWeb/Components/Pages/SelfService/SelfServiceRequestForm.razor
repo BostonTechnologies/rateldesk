@@ -313,7 +313,17 @@
                     <MudButton Variant="Variant.Text" OnClick="GoToCatalog">Cancel</MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                Disabled="@(submitting || submissionPending || (uncertainAttempt is null && EffectiveOrganizationId is null))"
-                               OnClick="SubmitAsync">@(uncertainAttempt is null ? "Submit" : "Retry previous submission")</MudButton>
+                               OnClick="SubmitAsync">
+                        @if (submitting)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                            <span role="status">Submitting request</span>
+                        }
+                        else
+                        {
+                            @(uncertainAttempt is null ? "Submit" : "Retry previous submission")
+                        }
+                    </MudButton>
                 </MudStack>
             </MudForm>
         </MudPaper>

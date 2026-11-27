@@ -227,3 +227,21 @@ The existing local outbox projects associations in bounded transactions. Project
 For owner retesting after distribution verification: publish/select an internal template, submit a successful isolated request and confirm normal fulfillment, then submit a deliberately failing isolated multi-node directory check. Inspect the safe subject, **5 of 5 targets failed**, actual later activity/exit code, report and reciprocal request relation. Search both tracking references, open the exact job execution and flow, and confirm that source failure and successful incident delivery remain separate. Retry/restart the delivery without another incident, report or relation. Production deployment and owner acceptance remain separate from automated and distribution checks.
 
 See the mirrored [v2 contract](../contracts/rateldesk-incident-create.v2.md) for exact bounds and fingerprint semantics.
+
+## Saved execution accounts and submission receipts
+
+An automation binding's **Execution readiness** shows the status of its
+selected NetRatel job and saved system connection. A job can need saved-account
+approval even when the connection is Connected and the binding is In Sync.
+Review and approve the saved account scope under **Paired Run as** in NetRatel.
+An older NetRatel peer may leave readiness unreported.
+
+Self-service returns the tracking reference after validation and durable
+commit. The workflow and notifications progress in the background. Use
+**My Requests** to follow the request status.
+
+Operators can search the attempt reference in **Operations → Notifications**
+and open the automation task for the provider stage and reason. A rejection
+such as `run_as_denied` has no provider execution. For an admitted failure,
+the diagnostics show the provider request and run when available. Reconcile
+an uncertain attempt before retrying.

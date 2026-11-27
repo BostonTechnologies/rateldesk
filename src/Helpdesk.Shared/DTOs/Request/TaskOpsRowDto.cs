@@ -18,5 +18,6 @@ public sealed class TaskOpsRowDto
     public bool IsCritical { get; set; }
     public string? FailurePolicy { get; set; }
     public string? FailureReason { get; set; }
+    public Helpdesk.Shared.DTOs.Orchestration.ProviderExecutionDiagnostic? ProviderDiagnostic { get; set; }
     public int RetryCount { get; set; }
 }

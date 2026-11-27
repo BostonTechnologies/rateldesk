@@ -1,0 +1,54 @@
+@using System.Net.Http.Json
+@using Helpdesk.Shared.DTOs.Orchestration
+@inject IHttpClientFactory Clients
+
+<MudStack Spacing="1" Class="mb-2" data-testid="automation-execution-readiness">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        <MudText Typo="Typo.subtitle2">Execution readiness</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" aria-label="Refresh execution readiness"
+                       OnClick="RefreshAsync" Disabled="loading" />
+    </MudStack>
+    @if (loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (readiness is { } result)
+    {
+        <MudAlert Dense="true" Variant="Variant.Outlined" Severity="@(result.Ready switch { true => Severity.Success, false => Severity.Warning, _ => Severity.Info })">
+            @result.Message
+        </MudAlert>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public string OrganizationId { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public Guid ConnectionId { get; set; }
+    [Parameter, EditorRequired] public ulong JobId { get; set; }
+    private (string Organization, Guid Connection, ulong Job) current;
+    private AutomationExecutionReadinessDto? readiness;
+    private bool loading;
+
+    protected override Task OnParametersSetAsync() => current == (OrganizationId, ConnectionId, JobId)
+        ? Task.CompletedTask : RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        var selection = (OrganizationId, ConnectionId, JobId);
+        current = selection;
+        loading = true;
+        AutomationExecutionReadinessDto? result;
+        try
+        {
+            using var client = Clients.CreateClient("HelpdeskApi");
+            result = await client.GetFromJsonAsync<AutomationExecutionReadinessDto>(
+                $"api/v1/admin/orchestration/catalog/jobs/{selection.JobId}/execution-readiness?organizationId={Uri.EscapeDataString(selection.OrganizationId)}&connectionId={selection.ConnectionId:D}");
+        }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
+        {
+            result = new(null, "unavailable", "Execution readiness could not be checked. Review the saved system connection and refresh.");
+        }
+        if (current != selection) return;
+        readiness = result;
+        loading = false;
+    }
+}

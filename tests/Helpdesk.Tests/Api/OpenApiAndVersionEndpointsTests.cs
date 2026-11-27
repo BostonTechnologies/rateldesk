@@ -160,13 +160,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Multi-organization self service adds one scoped submission organization lookup.
         // Change lifecycle adds one administrator-only bulk cancellation operation.
         // Reviewed automation input changes add one administrator-only apply operation.
+        // Paired automation readiness adds one administrator-only read operation.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(545, operationCount);
+        Assert.Equal(546, operationCount);
 #else
-        Assert.Equal(544, operationCount);
+        Assert.Equal(545, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]
@@ -188,6 +189,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         const string providersPath = "/api/v1/admin/ai-providers";
         var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>();
+        const string readinessPath = "/api/v1/admin/orchestration/catalog/jobs/{jobId}/execution-readiness";
+        var readiness = paths.GetProperty(readinessPath).GetProperty("get");
+        Assert.Equal("GetPairedAutomationExecutionReadiness", readiness.GetProperty("operationId").GetString());
+        Assert.Equal(["External Orchestration"], readiness.GetProperty("tags").EnumerateArray().Select(value => value.GetString()).ToArray());
+        var readinessEndpoint = Assert.Single(routes, endpoint =>
+            endpoint.RoutePattern.RawText?.TrimEnd('/') == readinessPath.Replace("{jobId}", "{jobId:long}", StringComparison.Ordinal) &&
+            endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("GET") == true);
+        Assert.Null(readinessEndpoint.Metadata.GetMetadata<IAllowAnonymous>());
+        Assert.Contains(readinessEndpoint.Metadata.OfType<IAuthorizeData>(), metadata => metadata.Policy == "HelpdeskAdmin");
         foreach (var (suffix, method, operationId) in new[]
         {
             ("/setup-options", "get", "GetAiProviderSetupOptions"),

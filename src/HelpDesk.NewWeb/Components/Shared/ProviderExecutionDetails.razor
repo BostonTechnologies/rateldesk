@@ -1,0 +1,62 @@
+@using Helpdesk.Shared.DTOs.Orchestration
+
+<MudStack Spacing="1" Class="my-2" data-testid="provider-execution-diagnostic">
+    <MudText Typo="Typo.subtitle2">@Diagnostic.Provider · @Diagnostic.Stage.Replace('-', ' ')</MudText>
+    <MudText Typo="Typo.body2">
+        <code>@Diagnostic.Code</code>
+        @if (Diagnostic.HttpStatus is { } status) { <span> · HTTP @status</span> }
+        <span> · @ExecutionState</span>
+    </MudText>
+    <MudText Typo="Typo.body2">@Diagnostic.Message</MudText>
+    <MudText Typo="Typo.caption">@RetryState · Attempt @Diagnostic.CorrelationId</MudText>
+    @if (Diagnostic.RequiredShell is { } shell)
+    {
+        <MudText Typo="Typo.caption">Required engine @shell</MudText>
+    }
+    @if (Diagnostic.RequestedExecutor is { } requested)
+    {
+        <MudText Typo="Typo.caption">Requested engine @requested</MudText>
+    }
+    @if (Diagnostic.ResolvedEngine is { } resolved)
+    {
+        <MudText Typo="Typo.caption">Resolved engine @resolved</MudText>
+    }
+    @if (Diagnostic.NodeId is { } node)
+    {
+        <MudText Typo="Typo.caption">Node @node</MudText>
+    }
+    @if (Diagnostic.StepOrdinal is { } step)
+    {
+        <MudText Typo="Typo.caption">Step @step</MudText>
+    }
+    @if (Diagnostic.ParentResult is { } parent)
+    {
+        <MudText Typo="Typo.caption">Parent result @parent</MudText>
+    }
+    @if (Diagnostic.ProviderRequestUrl is { } requestLink)
+    {
+        <MudLink Href="@requestLink" Target="_blank" rel="noopener noreferrer">NetRatel request @Diagnostic.ProviderRequestId</MudLink>
+    }
+    @if (Diagnostic.ProviderRunUrl is { } runLink)
+    {
+        <MudLink Href="@runLink" Target="_blank" rel="noopener noreferrer">NetRatel run @Diagnostic.ProviderRunId</MudLink>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public ProviderExecutionDiagnostic Diagnostic { get; set; } = default!;
+
+    private string ExecutionState => Diagnostic.ExecutionCreated switch
+    {
+        true => "Execution recorded",
+        false => "No execution created",
+        null => "Execution unconfirmed"
+    };
+
+    private string RetryState => Diagnostic.RetryDisposition switch
+    {
+        "configuration_required" => "Configuration required",
+        "reconciliation_required" => "Reconciliation required",
+        _ => "Operator review"
+    };
+}

@@ -1,14 +1,15 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
+using Helpdesk.API.Background;
 using Helpdesk.API.Services;
 using Helpdesk.API.Endpoints.Orchestration;
 using AppTicketServices = Helpdesk.Application.Services.Tickets;
-using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Sla;
-using Helpdesk.Application.Workflow;
 using Helpdesk.Application.Resources;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Shared.Auth;
@@ -63,12 +64,11 @@ public static class SelfServiceRequestEndpoints
         [FromServices] ISelfServiceDatasetBindingResolver datasetBindingResolver,
         [FromServices] SelfServiceAudienceService audience,
         [FromServices] IRequestTaskGenerationService requestTaskGeneration,
-        [FromServices] IWorkflowEngine workflowEngine,
         [FromServices] ITicketSlaInitializer ticketSlaInitializer,
         [FromServices] AppTicketServices.ITicketRefGeneratorService refs,
-        [FromServices] ITicketNotificationService ticketNotificationService,
         [FromServices] ICurrentUserAccessService accessService,
-        [FromServices] IDomainEventPublisher domainEvents,
+        [FromServices] MailboxOutboxStore outbox,
+        [FromServices] IBackgroundJobQueue jobs,
         [FromServices] ICorrelationContext correlation,
         [FromServices] ILoggerFactory loggerFactory,
         ClaimsPrincipal user,
@@ -105,6 +105,7 @@ public static class SelfServiceRequestEndpoints
 
         var requestedTarget = dto.TargetOrganizationId?.Trim();
         var submissionId = dto.SubmissionId?.ToString("N");
+        var requesterStarted = Stopwatch.GetTimestamp();
         var submitterKeys = SubmissionOwners(user, await accessService.ResolveAsync(user, token));
         var submitterKey = submitterKeys.FirstOrDefault();
         await using var tx = await db.Database.BeginTransactionAsync(token);
@@ -182,6 +183,8 @@ public static class SelfServiceRequestEndpoints
         }
 
         using var organizationScope = db.BindSelfServiceOrganization(organizationId);
+        var requesterMs = Stopwatch.GetElapsedTime(requesterStarted).TotalMilliseconds;
+        var datasetStarted = Stopwatch.GetTimestamp();
         var parsedSchema = schemaParser.Parse(requestForm.JsonSchema);
         var normalizedPayload = await datasetBindingResolver.NormalizePayloadAsync(
             organizationId,
@@ -193,6 +196,8 @@ public static class SelfServiceRequestEndpoints
             return SubmissionError(http, 400, "invalid_form_selections", string.Join(" ", normalizedPayload.Errors));
         }
 
+        var datasetMs = Stopwatch.GetElapsedTime(datasetStarted).TotalMilliseconds;
+        var preflightStarted = Stopwatch.GetTimestamp();
         var automationPayloadValidation = await automationPayloadContractService.ValidateBoundRequestPayloadAsync(
             requestForm,
             normalizedPayload.PayloadJson,
@@ -202,6 +207,8 @@ public static class SelfServiceRequestEndpoints
             return SubmissionError(http, 400, "automation_not_ready", string.Join(" ", automationPayloadValidation.Errors));
         }
 
+        var preflightMs = Stopwatch.GetElapsedTime(preflightStarted).TotalMilliseconds;
+        var persistenceStarted = Stopwatch.GetTimestamp();
         if (!onBehalf)
         {
             customer = await SelfServiceRequesterResolver.EnsureCustomerAsync(db, authority.Identity!, organizationId, token);
@@ -248,39 +255,31 @@ public static class SelfServiceRequestEndpoints
         }
 
         await requestTaskGeneration.GenerateForRequestAsync(created, token);
-        var automationContinuation = await db.RequestTasks
-            .Where(task => task.RequestId == created.Id && task.Type == RequestTaskType.Automation)
-            .OrderBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(token);
-        if (automationContinuation is not null)
-            automationContinuation.AutomationContinuationPending = true;
+        var continuation = await db.RequestTasks.Where(task => task.RequestId == created.Id)
+            .OrderBy(task => task.Type == RequestTaskType.Automation ? 0 : 1)
+            .ThenBy(task => task.Order).ThenBy(task => task.Id).FirstOrDefaultAsync(token);
+        if (continuation is not null)
+            continuation.AutomationContinuationPending = true;
+        outbox.StageSelfServiceSubmission(new(created.Id, organizationId, recipient?.DomainUser?.Name ?? customer.Name,
+            GetCorrelationId(correlation), DateTimeOffset.UtcNow));
         await db.SaveChangesAsync(token);
         await tx.CommitAsync(token);
 
-        if (automationContinuation is null)
-            await workflowEngine.RunAsync(created.Id, WorkflowRunReason.RequestCreated, token);
-        else
-            await http.RequestServices.GetRequiredService<AutomationExecutionOutcomeService>()
-                .ContinueAsync(automationContinuation.Id, automationContinuation.AutomationAttemptCorrelationId, token);
+        if (continuation is not null)
+        {
+            var taskId = continuation.Id;
+            var attempt = continuation.AutomationAttemptCorrelationId;
+            jobs.Queue(async (services, stoppingToken) =>
+            {
+                var workerDb = services.GetRequiredService<HelpdeskDbContext>();
+                using var workerOrganization = workerDb.BindSelfServiceOrganization(organizationId);
+                await services.GetRequiredService<AutomationExecutionOutcomeService>()
+                    .ContinueAsync(taskId, attempt, stoppingToken);
+            });
+        }
 
-        await domainEvents.PublishAsync(
-            new SelfServiceRequestSubmittedEvent(
-                created.Id,
-                requestForm.Id,
-                requestForm.ServiceId,
-                created.TrackingId,
-                customer.Id,
-                customer.OrganizationId,
-                DateTimeOffset.UtcNow,
-                GetCorrelationId(correlation)),
-            token);
-
-        _ = await ticketNotificationService.SendSelfServiceRequestCreatedAsync(
-            created,
-            requestForm,
-            customer.Email,
-            recipient?.DomainUser?.Name ?? customer.Name,
-            created.CcRecipients,
-            token);
+        logger.LogInformation("Self-service receipt committed. RequestId={RequestId} RequesterMs={RequesterMs} DatasetMs={DatasetMs} ProviderPreflightMs={ProviderPreflightMs} PersistenceMs={PersistenceMs}",
+            created.Id, requesterMs, datasetMs, preflightMs, Stopwatch.GetElapsedTime(persistenceStarted).TotalMilliseconds);
 
         return Results.Ok(SubmissionReceipt(created, authority.Organizations[organizationId]));
     }

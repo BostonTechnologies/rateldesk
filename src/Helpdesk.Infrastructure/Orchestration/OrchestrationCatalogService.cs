@@ -27,6 +27,21 @@ public sealed class OrchestrationCatalogService(
     private readonly IOrchestrationTokenService _tokenService = tokenService;
     private readonly IOrchestrationConnectivityService _connectivityService = connectivityService;
 
+    public async Task<AutomationExecutionReadinessDto> GetExecutionReadinessAsync(ulong jobId, string organizationId, Guid connectionId, CancellationToken ct = default)
+    {
+        var readiness = await GetDocumentAsync<AutomationExecutionReadinessDto>(
+            $"jobs/{jobId.ToString(CultureInfo.InvariantCulture)}/execution-readiness", organizationId, connectionId, true, ct);
+        return (readiness?.Ready, readiness?.Code) switch
+        {
+            (true, "agent_account") => new(true, "agent_account", "The job uses the agent service account."),
+            (true, "run_as_approved") => new(true, "run_as_approved", "Saved execution accounts are approved in NetRatel."),
+            (false, "run_as_denied") => new(false, "run_as_denied", "Approve the saved execution accounts for this connection and job in NetRatel."),
+            (false, "required_shell_unavailable") => new(false, "required_shell_unavailable", "Review the required engine and target availability in NetRatel."),
+            (false, _) => new(false, "configuration_required", "Review the current job targets and execution accounts in NetRatel."),
+            _ => new(null, "unreported", "The NetRatel peer has not reported execution readiness.")
+        };
+    }
+
     public async Task<OrchestrationAutomationCapabilitiesDto> GetCapabilitiesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)
     {
         var result = await GetDocumentAsync<OrchestrationAutomationCapabilitiesDto>("capabilities", organizationId, connectionId, true, ct);
