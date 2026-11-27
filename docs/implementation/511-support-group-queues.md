@@ -47,12 +47,16 @@ The companion work is tracked in NetRatel #862. [Receiver contract](../contracts
 - The rendered workspace run passed 97 tests across three ticket modules. Its
   synthetic fixture exercised selection, filter totals, URL restoration,
   versioned moves and a vendor claim. The session access suite passed four
-  tests including partial queue revocation. The database fixtures exercise API
-  authorization.
+  tests including partial queue revocation. Three administration browser cases
+  passed, including selecting two group IDs and reopening their labels in the
+  role editor. The database fixtures exercise API authorization.
 - The first passing hosted run covers all six .NET regression shards, incident
   receiver acceptance, documentation and layout, the disclosure gate and
   PostgreSQL Compose configuration. It ran at `8cf1d289`, before the latest
   related-resource and administration changes. [GitHub Actions](https://github.com/BostonTechnologies/RatelDesk/actions/runs/46064236635)
+- At `227e1e82`, the hosted rehearsal passed the seven archive size and checksum
+  checks, native execution on Linux x64, Linux ARM64 and Windows x64, and
+  candidate API, Web and HTTP MCP images for amd64 and arm64. [Artifact rehearsal](https://github.com/BostonTechnologies/RatelDesk/actions/runs/46066593965)
 
 ### Rendered screenshots
 
@@ -60,6 +64,7 @@ The companion work is tracked in NetRatel #862. [Receiver contract](../contracts
 - [Vendor claim in the allowed incident queue](assets/511-queues/vendor-claim.png)
 - [Request queue transfer](assets/511-queues/request-transfer.png)
 - [Change queue transfer](assets/511-queues/change-transfer.png)
+- [Custom role with selected support groups](assets/511-queues/selected-support-groups.png)
 
 Independent review, required CI, the remaining authorization matrix, and the
 published native and deployment artifact checks gate the beta. The issue
