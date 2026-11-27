@@ -50,7 +50,7 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         if (prior is not null)
         {
             if (prior.AssignedSupportGroupId != null && prior.Fingerprint == fingerprint &&
-                !await CanReadQueuedReceiptAsync(principal, approved, prior, ct))
+                !await CanUseQueueAsync(approved, prior.AssignedSupportGroupId, ct))
                 return IncidentReceiverContract.Problem(403, "queue-not-authorized");
             return Replay(prior, approved, fingerprint, http);
         }
@@ -66,7 +66,7 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         {
             var renewed = await authorization.ResolveAsync(principal, sourceId, operation, ct);
             if (renewed == null || renewed.Source.SourceNamespaceId != approved.Source.SourceNamespaceId ||
-                !await CanUseQueueAsync(principal, approved, groupId, write: true, ct))
+                !await CanUseQueueAsync(approved, groupId, ct))
                 return IncidentReceiverContract.Problem(403, "queue-not-authorized");
             if (!string.IsNullOrWhiteSpace(dto.AssignedToId) && (queueAccess is null ||
                 !await AssigneeQueries.CanAssignToQueueAsync(db, queueAccess, TicketType.Incident, approved.Organization.Id, groupId, dto.AssignedToId, ct)))
@@ -187,37 +187,15 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         var receipt = await db.IncidentCreateReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
             x.SourceNamespaceId == approved.Source.SourceNamespaceId && x.Key == key, ct);
         if (receipt == null || queued != (receipt.AssignedSupportGroupId != null)) return Results.NotFound();
-        if (queued && !await CanReadQueuedReceiptAsync(principal, approved, receipt, ct))
+        if (receipt.AssignedSupportGroupId is { } groupId && !await CanUseQueueAsync(approved, groupId, ct))
             return IncidentReceiverContract.Problem(403, "queue-not-authorized");
         return Replay(receipt, approved, null, http);
     }
 
-    internal async Task<bool> CanUseQueueAsync(
-        ClaimsPrincipal principal, AuthorizedIncidentSource source, string groupId, bool write, CancellationToken ct)
-    {
-        if (!await db.IncidentReceiverQueueRoutes.AnyAsync(route =>
-                route.SourceNamespaceId == source.Source.SourceNamespaceId && route.SupportGroupId == groupId, ct) ||
-            !await TicketQueueAssignment.Destinations(db, source.Organization.Id).AnyAsync(group => group.Id == groupId, ct))
-            return false;
-        if (authorization.RequiresKey(principal)) return true;
-        if (queueAccess == null) return false;
-        var access = await queueAccess.ResolveAsync(principal, ct);
-        return write
-            ? TicketAccessPolicy.CanTransfer(access, TicketType.Incident, source.Organization.Id, groupId)
-            : TicketAccessPolicy.Has(access, source.Organization.Id, groupId, Helpdesk.Shared.Auth.HelpdeskPermissions.IncidentRead) ||
-              TicketAccessPolicy.CanWrite(access, TicketType.Incident, source.Organization.Id, groupId);
-    }
-
-    private async Task<bool> CanReadQueuedReceiptAsync(
-        ClaimsPrincipal principal, AuthorizedIncidentSource source, IncidentCreateReceipt receipt, CancellationToken ct)
-    {
-        if (receipt.AssignedSupportGroupId == null || !await CanUseQueueAsync(principal, source, receipt.AssignedSupportGroupId, false, ct))
-            return false;
-        if (authorization.RequiresKey(principal)) return true;
-        var incident = await db.Incidents.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(ticket => ticket.Id == receipt.IncidentId, ct);
-        return incident != null && queueAccess != null &&
-            TicketAccessPolicy.CanRead(await queueAccess.ResolveAsync(principal, ct), incident);
-    }
+    private async Task<bool> CanUseQueueAsync(AuthorizedIncidentSource source, string groupId, CancellationToken ct) =>
+        await db.IncidentReceiverQueueRoutes.AnyAsync(route =>
+            route.SourceNamespaceId == source.Source.SourceNamespaceId && route.SupportGroupId == groupId, ct) &&
+        await TicketQueueAssignment.Destinations(db, source.Organization.Id).AnyAsync(group => group.Id == groupId, ct);
 
     private static IResult Replay(IncidentCreateReceipt receipt, AuthorizedIncidentSource approved, string? fingerprint, HttpContext http)
     {

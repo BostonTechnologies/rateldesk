@@ -7,7 +7,6 @@ using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.DTOs.TicketQueue;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
-using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.Integrations;
@@ -51,7 +50,7 @@ public static class IncidentQueueReceiverEndpoints
         }).WithName("GetIncidentQueueReceiverCapabilities");
 
         group.MapGet("/queues", async (HttpContext http, string? q, string? id, int? take,
-            IIncidentReceiverAuthorization authorization, ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
+            IIncidentReceiverAuthorization authorization, HelpdeskDbContext db, CancellationToken ct) =>
         {
             if (!IncidentReceiverContract.TrySource(http.Request.Headers, out var sourceId) || q?.Length > 200 ||
                 (id != null && !IncidentQueueContract.ValidGroupId(id)))
@@ -59,18 +58,6 @@ public static class IncidentQueueReceiverEndpoints
             var approved = await authorization.ResolveAsync(http.User, sourceId, IncidentReceiverOperation.CreateQueued, ct);
             if (approved == null) return IncidentReceiverContract.Problem(403, "source-not-authorized");
             var routes = db.IncidentReceiverQueueRoutes.Where(route => route.SourceNamespaceId == approved.Source.SourceNamespaceId);
-            if (!authorization.RequiresKey(http.User))
-            {
-                var access = await accessService.ResolveAsync(http.User, ct);
-                if (!TicketAccessPolicy.CanTransfer(access, TicketType.Incident, approved.Organization.Id, null))
-                {
-                    var writable = TicketAccessPolicy.StaffQueueGrants(access, TicketType.Incident)
-                        .Where(grant => grant.OrganizationId == approved.Organization.Id &&
-                            TicketAccessPolicy.CanTransfer(access, TicketType.Incident, approved.Organization.Id, grant.SupportGroupId))
-                        .Select(grant => grant.SupportGroupId).Distinct().ToArray();
-                    routes = routes.Where(route => writable.Contains(route.SupportGroupId));
-                }
-            }
             var queues = TicketQueueAssignment.Destinations(db, approved.Organization.Id)
                 .Where(queue => routes.Any(route => route.SupportGroupId == queue.Id));
             if (id != null) queues = queues.Where(queue => queue.Id == id);

@@ -59,7 +59,8 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
             if (!customers.Contains(serviceSource.CustomerId, StringComparer.Ordinal)) return null;
             return await ResolveEnabledMappingAsync(serviceSource, ct);
         }
-        if (principal.Identity?.IsAuthenticated != true || principal.FindFirstValue("auth_mode") != "integration" ||
+        if (operation is IncidentReceiverOperation.CreateQueued or IncidentReceiverOperation.ReadQueuedReceipt ||
+            principal.Identity?.IsAuthenticated != true || principal.FindFirstValue("auth_mode") != "integration" ||
             !Guid.TryParseExact(principal.FindFirstValue("integration_credential_id"), "N", out var id)) return null;
         var credential = await identity.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
         if (credential is null || credential.Purpose != IntegrationCredentialAuthenticationHandler.ApiPurpose ||
@@ -79,15 +80,9 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
         var customer = approved.Customer;
         var organization = approved.Organization;
         var access = await accessService.ResolveAsync(principal, ct);
-        var allowed = operation switch
-        {
-            IncidentReceiverOperation.ReadReceipt => access.CanViewIncident(organization.Id, customer.Id, customer.Email),
-            IncidentReceiverOperation.CreateQueued => access.HasPermissionInAnyQueue(HelpdeskPermissions.IncidentWrite, organization.Id) &&
-                access.HasPermissionInAnyQueue(HelpdeskPermissions.TicketQueueTransfer, organization.Id),
-            IncidentReceiverOperation.ReadQueuedReceipt => access.HasPermissionInAnyQueue(HelpdeskPermissions.IncidentRead, organization.Id) ||
-                access.HasPermissionInAnyQueue(HelpdeskPermissions.IncidentWrite, organization.Id),
-            _ => access.CanCreateIncident(organization.Id, customer.Id, customer.Email)
-        };
+        var allowed = operation == IncidentReceiverOperation.ReadReceipt
+            ? access.CanViewIncident(organization.Id, customer.Id, customer.Email)
+            : access.CanCreateIncident(organization.Id, customer.Id, customer.Email);
         return allowed ? new(source, customer, organization) : null;
     }
 

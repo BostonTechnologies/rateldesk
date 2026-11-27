@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rateldesk.example/rateldesk.incident-create.v3.json",
+  "title": "RatelDesk incident create with explicit queue routing",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": { "const": "rateldesk.incident-create.v3" },
+    "assignedSupportGroupId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "incident": {
+      "$ref": "https://schemas.rateldesk.example/rateldesk.incident-create.v2.json#/$defs/create"
+    }
+  },
+  "required": ["contractVersion", "assignedSupportGroupId", "incident"]
+}

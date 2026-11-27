@@ -16,7 +16,7 @@ internal static class IncidentQueueContract
     public static string Fingerprint(AutomationIncidentCreate incident, string groupId)
     {
         var value = $"{Version}\n{AutomationTraceValidation.Fingerprint(incident)}\n{groupId}";
-        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }
 
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

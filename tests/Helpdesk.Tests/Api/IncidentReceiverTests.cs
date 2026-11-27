@@ -7,8 +7,6 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Diagnostics;
-using AutomationTrace;
-using AutomationTrace.Contracts;
 using Helpdesk.API.Bootstrap;
 using Helpdesk.API.Authentication;
 using Helpdesk.API.Background;
@@ -28,7 +26,6 @@ using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.EmailTemplates;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
-using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.Enums;
@@ -61,67 +58,6 @@ public sealed class IncidentReceiverCollection;
 [Collection("Incident receiver")]
 public sealed class IncidentReceiverTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Negotiated_queue_create_is_source_bound_and_replays_the_same_committed_assignment(bool postgres)
-    {
-        await using var harness = await Harness.CreateAsync(postgres, serviceIdentity: true);
-        await harness.ChangeCredentialAsync("queue-routing");
-        using var route = await harness.AdminAsync(HttpMethod.Put,
-            $"/api/v1/integrations/netratel/sources/{harness.NamespaceId:D}/queues",
-            new { expectedRevision = 1, supportGroupIds = new[] { "support-group" } });
-        Assert.Equal(HttpStatusCode.OK, route.StatusCode);
-        using var capabilities = await harness.GetAsync("/api/v1/integrations/netratel/queue-capabilities");
-        Assert.Equal(HttpStatusCode.OK, capabilities.StatusCode);
-        using var discovery = JsonDocument.Parse(await capabilities.Content.ReadAsStringAsync());
-        Assert.Equal("rateldesk.incident-create.v3", discovery.RootElement.GetProperty("contractVersion").GetString());
-        using var choices = await harness.GetAsync("/api/v1/integrations/netratel/queues");
-        Assert.Equal(HttpStatusCode.OK, choices.StatusCode);
-        Assert.Contains("support-group", await choices.Content.ReadAsStringAsync());
-
-        var context = InternalIncidentTemplateService.SyntheticContext("monitoring") with { Origin = null };
-        var incident = new AutomationIncidentCreate(AutomationTraceContract.IncidentVersion,
-            new(harness.OrganizationId, harness.CustomerId, null, [], 2), InternalIncidentTemplateService.Standard, context);
-        using var unauthorized = await SendAsync("unapproved-route", "not-allowlisted");
-        Assert.Equal(HttpStatusCode.Forbidden, unauthorized.StatusCode);
-        using var created = await SendAsync("queued-incident", "support-group");
-        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
-        var accepted = await created.Content.ReadAsStringAsync();
-        using var envelope = JsonDocument.Parse(accepted);
-        var receipt = envelope.RootElement.GetProperty("integrationReceipt");
-        Assert.Equal("support-group", receipt.GetProperty("assignedSupportGroupId").GetString());
-        Assert.Equal(IncidentQueueContract.Fingerprint(incident, "support-group"), receipt.GetProperty("fingerprint").GetString());
-        using var retry = await SendAsync("queued-incident", "support-group");
-        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
-        Assert.Equal(accepted, await retry.Content.ReadAsStringAsync());
-        using var conflict = await SendAsync("queued-incident", "not-allowlisted");
-        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
-
-        await using (var scope = harness.App.Services.CreateAsyncScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-            Assert.Equal("support-group", (await db.Incidents.SingleAsync()).AssignedSupportGroupId);
-            Assert.Single(await db.TicketQueueTransitions.ToListAsync());
-            Assert.Single(await db.Set<MailboxOutboxEffect>().Where(effect => effect.Kind == MailboxEffectKind.SupportGroupAssignment).ToListAsync());
-        }
-        await harness.EditAsync(async db => (await db.SupportGroups.SingleAsync()).IsEnabled = false);
-        using var revoked = await SendAsync("queued-incident", "support-group");
-        Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
-        Assert.Equal(1, (await harness.CountsAsync()).Incidents);
-
-        async Task<HttpResponseMessage> SendAsync(string key, string groupId)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/integrations/netratel/queued-incidents")
-            {
-                Content = JsonContent.Create(new { contractVersion = "rateldesk.incident-create.v3", assignedSupportGroupId = groupId, incident },
-                    options: AutomationTraceValidation.Json)
-            };
-            harness.Authorize(request, key);
-            return await harness.Client.SendAsync(request);
-        }
-    }
-
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -878,7 +814,6 @@ public sealed class IncidentReceiverTests
                 case "owner-disabled": owner.IsEnabled = false; break;
                 case "wrong-purpose": credential.Purpose = "mcp"; break;
                 case "insufficient-permission": credential.Permissions = "Incident.Delete"; break;
-                case "queue-routing": credential.Permissions = $"Incident.Read Incident.Write {HelpdeskPermissions.TicketQueueTransfer}"; break;
                 case "foreign-organization": credential.OrganizationId = Guid.NewGuid().ToString(); break;
             }
             await identity.SaveChangesAsync();

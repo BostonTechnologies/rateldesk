@@ -53,7 +53,9 @@ public sealed class TicketQueueNotificationProcessor(
             .SingleOrDefaultAsync(delivery => delivery.Id == email.SupportDeliveryId, ct);
         if (ticket == null) return supportDelivery?.QueueTransitionId == null ? email : null;
         if (supportDelivery?.EventType == SupportNotificationEventType.TicketAssignedToSupportGroup)
-            return await QueueRecipientStillAuthorizedAsync(ticket, supportDelivery, ct) ? email : null;
+            return email.Recipients is [var recipient] && email.Cc is [] && email.Bcc is [] &&
+                string.Equals(recipient, supportDelivery.RecipientEmail, StringComparison.OrdinalIgnoreCase) &&
+                await QueueRecipientStillAuthorizedAsync(ticket, supportDelivery, ct) ? email : null;
         if (supportDelivery?.EventType == SupportNotificationEventType.TicketAssigned &&
             ticket.AssignedSupportGroupId != null && ticket.AssignedToId != supportDelivery.RecipientUserId)
             return null;

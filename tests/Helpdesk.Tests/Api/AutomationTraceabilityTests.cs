@@ -3,8 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AutomationTrace;
 using AutomationTrace.Contracts;
+using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.EmailTemplates;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Persistence.Entities;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
@@ -16,6 +18,82 @@ namespace Helpdesk.Tests.Api;
 [Collection("Incident receiver")]
 public sealed class AutomationTraceabilityTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Negotiated_queue_create_is_source_bound_and_replays_the_same_committed_assignment(bool postgres)
+    {
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
+        var client = await PairingBusinessFixture.CreateAsync(h);
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var route = await h.AdminAsync(HttpMethod.Put,
+            $"/api/v1/integrations/netratel/sources/{client.MappingId:D}/queues",
+            new { expectedRevision = 1, supportGroupIds = new[] { "support-group" } });
+        Assert.Equal(HttpStatusCode.OK, route.StatusCode);
+        var body = Payload(h);
+        using var capabilities = await SendQueuedAsync(HttpMethod.Get, "queue-capabilities");
+        Assert.Equal(HttpStatusCode.OK, capabilities.StatusCode);
+        using var discovery = JsonDocument.Parse(await capabilities.Content.ReadAsStringAsync());
+        Assert.Equal(IncidentQueueContract.Version, discovery.RootElement.GetProperty("contractVersion").GetString());
+        Assert.Equal(client.MappingId, discovery.RootElement.GetProperty("sourceNamespaceId").GetGuid());
+        using var choices = await SendQueuedAsync(HttpMethod.Get, "queues");
+        Assert.Equal(HttpStatusCode.OK, choices.StatusCode);
+        Assert.Contains("support-group", await choices.Content.ReadAsStringAsync());
+
+        await SeedOriginAsync(h, client, body.Context);
+        using var unauthorized = await SendQueuedAsync(HttpMethod.Post, "queued-incidents", "unapproved-route", "not-allowlisted");
+        Assert.Equal(HttpStatusCode.Forbidden, unauthorized.StatusCode);
+
+        var attempts = await Task.WhenAll(
+            SendQueuedAsync(HttpMethod.Post, "queued-incidents", "queued-incident", "support-group"),
+            SendQueuedAsync(HttpMethod.Post, "queued-incidents", "queued-incident", "support-group"));
+        try
+        {
+            var created = Assert.Single(attempts, attempt => attempt.StatusCode == HttpStatusCode.Created);
+            var retry = Assert.Single(attempts, attempt => attempt.StatusCode == HttpStatusCode.OK);
+            var accepted = await created.Content.ReadAsStringAsync();
+            using var envelope = JsonDocument.Parse(accepted);
+            var receipt = envelope.RootElement.GetProperty("integrationReceipt");
+            Assert.Equal("support-group", receipt.GetProperty("assignedSupportGroupId").GetString());
+            Assert.Equal(IncidentQueueContract.Fingerprint(body, "support-group"), receipt.GetProperty("fingerprint").GetString());
+            Assert.Equal(accepted, await retry.Content.ReadAsStringAsync());
+
+            await h.RestartAsync();
+            using var lookup = await SendQueuedAsync(HttpMethod.Get, "queue-receipt", "queued-incident");
+            Assert.Equal(HttpStatusCode.OK, lookup.StatusCode);
+            Assert.Equal(accepted, await lookup.Content.ReadAsStringAsync());
+            using var conflict = await SendQueuedAsync(HttpMethod.Post, "queued-incidents", "queued-incident", "not-allowlisted");
+            Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+            using var legacyConflict = await SendAsync(h, token, "queued-incident", body);
+            Assert.Equal(HttpStatusCode.Conflict, legacyConflict.StatusCode);
+        }
+        finally
+        {
+            foreach (var attempt in attempts) attempt.Dispose();
+        }
+
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal("support-group", (await db.Incidents.SingleAsync()).AssignedSupportGroupId);
+            Assert.Single(await db.TicketQueueTransitions.ToListAsync());
+            Assert.Single(await db.Set<MailboxOutboxEffect>().Where(effect => effect.Kind == MailboxEffectKind.SupportGroupAssignment).ToListAsync());
+            (await db.SupportGroups.SingleAsync()).IsEnabled = false;
+        });
+        using var revoked = await SendQueuedAsync(HttpMethod.Get, "queue-receipt", "queued-incident");
+        Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
+        Assert.Equal(1, (await h.CountsAsync()).Incidents);
+
+        async Task<HttpResponseMessage> SendQueuedAsync(HttpMethod method, string path, string? key = null, string? groupId = null)
+        {
+            using var request = new HttpRequestMessage(method, $"/api/v1/integrations/netratel/{path}");
+            request.Headers.Authorization = new("Bearer", token);
+            request.Headers.Add("X-NetRatel-Source-Instance", h.SourceId.ToString("D"));
+            if (key is not null) request.Headers.Add("Idempotency-Key", key);
+            if (groupId is not null) request.Content = JsonContent.Create(new IncidentQueueContract.Create(IncidentQueueContract.Version, groupId, body));
+            return await h.Client.SendAsync(request);
+        }
+    }
+
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Human_report_origin_relation_and_effects_commit_once_and_replay_after_restart(bool postgres)
     {
