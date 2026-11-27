@@ -30,8 +30,21 @@ public static class RoleDefinitionCatalog
             HelpdeskPermissions.ChangeRead,
             HelpdeskPermissions.ChangeWrite,
             HelpdeskPermissions.ChangeDelete,
-            HelpdeskPermissions.ChangeApprove
+            HelpdeskPermissions.ChangeApprove,
+            HelpdeskPermissions.TicketQueueTransfer
         };
+
+    public static bool IsQueueScopedPermission(string permission) => permission is
+        HelpdeskPermissions.IncidentRead or HelpdeskPermissions.IncidentWrite or HelpdeskPermissions.IncidentDelete or
+        HelpdeskPermissions.RequestRead or HelpdeskPermissions.RequestWrite or HelpdeskPermissions.RequestDelete or HelpdeskPermissions.RequestExecute or
+        HelpdeskPermissions.ChangeRead or HelpdeskPermissions.ChangeWrite or HelpdeskPermissions.ChangeDelete or HelpdeskPermissions.ChangeApprove or
+        HelpdeskPermissions.TicketQueueTransfer;
+
+    public static bool IsWorkforceTicketPermission(string permission) => IsQueueScopedPermission(permission) || permission is
+        HelpdeskPermissions.IncidentManager or HelpdeskPermissions.RequestManager or HelpdeskPermissions.ChangeManager;
+
+    public static bool IsOwnTicketPermission(string permission) => permission is
+        HelpdeskPermissions.IncidentUser or HelpdeskPermissions.RequestUser or HelpdeskPermissions.ChangeUser;
 
     public static readonly IReadOnlyList<BuiltInRoleDefinition> BuiltIns =
     [

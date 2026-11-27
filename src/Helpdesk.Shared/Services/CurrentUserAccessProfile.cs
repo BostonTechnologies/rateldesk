@@ -21,6 +21,21 @@ public sealed record CurrentUserAccessProfile(
     public IReadOnlySet<ScopedPermissionGrant> ScopedPermissionGrants { get; init; } =
         new HashSet<ScopedPermissionGrant>();
 
+    public IReadOnlySet<TicketQueuePermissionGrant> TicketQueuePermissionGrants { get; init; } =
+        new HashSet<TicketQueuePermissionGrant>();
+
+    public IReadOnlySet<string> RestrictedTicketOrganizationIds { get; init; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public string? DomainUserId { get; init; }
+
+    public bool HasRestrictedWorkforceAccess => !IsHelpdeskAdmin && RestrictedTicketOrganizationIds.Count > 0;
+
+    public bool HasPermissionInAnyQueue(string permission, string? organizationId) =>
+        HasPermission(permission, organizationId) || TicketQueuePermissionGrants.Any(grant =>
+            string.Equals(grant.Permission, permission, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(grant.OrganizationId, organizationId, StringComparison.OrdinalIgnoreCase));
+
     public bool HasPermission(string permission) =>
         IsHelpdeskAdmin || Permissions.Contains(permission);
 
@@ -202,12 +217,15 @@ public sealed record CurrentUserAccessProfile(
 
     private bool CanOwn(string permission, string? organizationId, string? customerId, string? requesterEmail) =>
         HasPermission(permission, organizationId) &&
+        (organizationId == null || !RestrictedTicketOrganizationIds.Contains(organizationId)) &&
         !string.IsNullOrWhiteSpace(customerId) &&
         string.Equals(customerId, CustomerId, StringComparison.OrdinalIgnoreCase);
 
     private bool InAllowedOrg(string? organizationId) =>
         !string.IsNullOrWhiteSpace(organizationId) && AllowedOrganizationIds.Contains(organizationId);
 }
+
+public sealed record TicketQueuePermissionGrant(string Permission, string OrganizationId, string SupportGroupId, string OwnerOrganizationId);
 
 public sealed record ScopedPermissionGrant(string Permission, string OrganizationId)
 {

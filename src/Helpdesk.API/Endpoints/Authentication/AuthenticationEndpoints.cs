@@ -1,3 +1,4 @@
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Infrastructure.Persistence;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -40,6 +41,7 @@ public static class AuthenticationEndpoints
             return Results.Ok(ToDto(access, user.FindFirstValue(ClaimTypes.NameIdentifier)) with { GrantKind = grantKind, AssignmentUserId = assignmentUserId });
         })
         .RequireAuthorization()
+        .WithMetadata(new QueueAwareEndpoint())
         .WithTags("Authentication")
         .WithName("GetCurrentUserAccess")
         .WithSummary("Gets the current user's resolved Helpdesk authorization profile.");
@@ -114,6 +116,12 @@ public static class AuthenticationEndpoints
         {
             UserId = userId,
             UsesScopedPermissions = access.UsesScopedPermissions,
+            HasRestrictedWorkforceAccess = access.HasRestrictedWorkforceAccess,
+            TicketQueuePermissionGrants = access.TicketQueuePermissionGrants
+                .OrderBy(grant => grant.OrganizationId, StringComparer.Ordinal)
+                .ThenBy(grant => grant.SupportGroupId, StringComparer.Ordinal)
+                .ThenBy(grant => grant.Permission, StringComparer.Ordinal)
+                .ToArray(),
             ScopedPermissionGrants = access.ScopedPermissionGrants
                 .OrderBy(grant => grant.OrganizationId, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(grant => grant.Permission, StringComparer.OrdinalIgnoreCase)

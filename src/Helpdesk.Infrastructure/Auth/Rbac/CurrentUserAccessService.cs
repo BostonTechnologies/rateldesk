@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
@@ -166,6 +167,16 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             }
         }
         var providerPermissions = permissions.ToArray();
+        var restrictedOwners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queueRoles = new List<TicketWorkforcePermissionResolver.QueueRole>();
+        var tenantAdministratorOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (domainUserId is not null)
+        {
+            restrictedOwners.UnionWith(await _db.TicketWorkforceRestrictions.AsNoTracking()
+                .Where(restriction => restriction.UserId == domainUserId)
+                .Select(restriction => restriction.OrganizationId)
+                .ToArrayAsync(ct));
+        }
         if (hasActiveDomainUser)
         {
             var assignments = await (
@@ -186,6 +197,8 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
                 {
                     role.Key,
                     role.OwnerOrganizationId,
+                    role.TicketAccessScope,
+                    GroupIds = role.SupportGroups.Select(link => link.SupportGroupId).ToArray(),
                     Permissions = role.Permissions.Select(permission => permission.Permission).ToArray()
                 })
                 .ToDictionaryAsync(role => role.Key, StringComparer.OrdinalIgnoreCase, ct);
@@ -198,6 +211,29 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
                     continue;
                 }
 
+                if (persistedRole is not null && persistedRole.TicketAccessScope != TicketAccessScope.AllAuthorizedQueues)
+                {
+                    // A current scoped assignment fails closed even if its durable ceiling
+                    // has not been materialized yet.
+                    restrictedOwners.Add(assignment.OrganizationId);
+                    if (persistedRole.OwnerOrganizationId != assignment.OrganizationId ||
+                        (domainUser!.OrganizationId != null && domainUserOrganization?.IsEnabled != true))
+                        continue;
+                    string[]? groupsForRole = persistedRole.TicketAccessScope switch
+                    {
+                        TicketAccessScope.MySupportGroups => null,
+                        TicketAccessScope.SelectedSupportGroups => persistedRole.GroupIds,
+                        _ => []
+                    };
+                    queueRoles.Add(new TicketWorkforcePermissionResolver.QueueRole(
+                        assignment.OrganizationId,
+                        persistedRole.Permissions.Where(RoleDefinitionCatalog.IsQueueScopedPermission).ToArray(),
+                        groupsForRole));
+                    continue;
+                }
+
+                if (assignment.RoleKey.Equals(ScopedRoleCatalog.TenantAdministrator, StringComparison.OrdinalIgnoreCase))
+                    tenantAdministratorOrganizations.Add(assignment.OrganizationId);
                 var assignedPermissions = persistedRole is not null
                     ? (IReadOnlyList<string>)persistedRole.Permissions
                     : ScopedRoleCatalog.PermissionsFor(assignment.RoleKey);
@@ -210,14 +246,18 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
 
         }
 
+        var tenantAdministrationGrants = scopedPermissionGrants.Where(grant =>
+            tenantAdministratorOrganizations.Contains(grant.OrganizationId)).ToHashSet();
+        var queueGrants = domainUserId is null
+            ? new HashSet<TicketQueuePermissionGrant>()
+            : await TicketWorkforcePermissionResolver.ResolveGroupsAsync(_db, domainUserId, queueRoles, ct);
+
         // An explicit IT support organization delegates ticket work, not tenant
         // administration. Derive only one-hop ticket grants from current persisted
         // assignments; removing the assignment or support link revokes them.
-        var supportGrants = scopedPermissionGrants.Where(grant =>
-            grant.Permission is HelpdeskPermissions.IncidentRead or HelpdeskPermissions.IncidentWrite or HelpdeskPermissions.IncidentManager or HelpdeskPermissions.IncidentDelete
-                or HelpdeskPermissions.RequestRead or HelpdeskPermissions.RequestWrite or HelpdeskPermissions.RequestManager or HelpdeskPermissions.RequestDelete or HelpdeskPermissions.RequestExecute
-                or HelpdeskPermissions.ChangeRead or HelpdeskPermissions.ChangeWrite or HelpdeskPermissions.ChangeManager or HelpdeskPermissions.ChangeDelete or HelpdeskPermissions.ChangeApprove).ToArray();
-        var supportIds = supportGrants.Select(x => x.OrganizationId).Distinct().ToArray();
+        var supportGrants = scopedPermissionGrants.Where(grant => RoleDefinitionCatalog.IsWorkforceTicketPermission(grant.Permission)).ToArray();
+        var originalSupportIds = supportGrants.Select(grant => grant.OrganizationId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var supportIds = originalSupportIds.Concat(restrictedOwners).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var supportedOrganizations = await _db.Organizations.AsNoTracking()
             .Where(x => x.IsEnabled && x.ItSupportOrganizationId != null && supportIds.Contains(x.ItSupportOrganizationId))
             .Select(x => new { x.Id, x.ItSupportOrganizationId }).ToListAsync(ct);
@@ -225,13 +265,19 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         foreach (var grant in supportGrants.Where(x => x.OrganizationId == supported.ItSupportOrganizationId))
             scopedPermissionGrants.Add(new ScopedPermissionGrant(grant.Permission, supported.Id));
 
+        var restrictedOrganizations = restrictedOwners.Concat(supportedOrganizations
+                .Where(supported => supported.ItSupportOrganizationId is { } ownerId && restrictedOwners.Contains(ownerId))
+                .Select(supported => supported.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var primaryOrganizationId = hasActiveCustomer
             ? customer!.OrganizationId
             : domainUserOrganization?.IsEnabled == true
                 ? domainUser!.OrganizationId
                 : null;
         var allowedOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var managedOrganizations = supportedOrganizations.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var managedOrganizations = supportedOrganizations
+            .Where(supported => supported.ItSupportOrganizationId is { } ownerId && originalSupportIds.Contains(ownerId))
+            .Select(supported => supported.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(primaryOrganizationId))
         {
@@ -241,6 +287,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         {
             allowedOrganizations.Add(grant.OrganizationId);
         }
+        allowedOrganizations.UnionWith(queueGrants.Select(grant => grant.OrganizationId));
 
         var providerManagedOrganizations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var isTechnical = bundles.Contains(HelpdeskRoleBundles.Technical);
@@ -263,7 +310,8 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         {
             // Membership alone is not permission. A local account with no
             // assignments must remain without access after all later logins.
-            allowedOrganizations.IntersectWith(scopedPermissionGrants.Select(grant => grant.OrganizationId));
+            allowedOrganizations.IntersectWith(scopedPermissionGrants.Select(grant => grant.OrganizationId)
+                .Concat(queueGrants.Select(grant => grant.OrganizationId)));
         }
         else
         {
@@ -274,6 +322,26 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             foreach (var permission in providerPermissions)
                 scopedPermissionGrants.Add(new ScopedPermissionGrant(permission, organizationId));
         }
+
+        if (restrictedOrganizations.Count > 0)
+        {
+            var interactive = !user.HasClaim("auth_mode", "integration");
+            scopedPermissionGrants.RemoveWhere(grant => restrictedOrganizations.Contains(grant.OrganizationId) &&
+                (RoleDefinitionCatalog.IsOwnTicketPermission(grant.Permission) ||
+                 (RoleDefinitionCatalog.IsWorkforceTicketPermission(grant.Permission) &&
+                  !(interactive && tenantAdministrationGrants.Contains(grant)))));
+            var effectiveBroadPermissions = scopedPermissionGrants.Select(grant => grant.Permission).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            permissions.RemoveWhere(permission => (RoleDefinitionCatalog.IsWorkforceTicketPermission(permission) ||
+                RoleDefinitionCatalog.IsOwnTicketPermission(permission)) && !effectiveBroadPermissions.Contains(permission));
+            bundles.Remove(HelpdeskRoleBundles.Technical);
+            if (!isAdmin)
+            {
+                allowedOrganizations.IntersectWith(scopedPermissionGrants.Select(grant => grant.OrganizationId)
+                    .Concat(queueGrants.Select(grant => grant.OrganizationId)));
+                managedOrganizations.IntersectWith(allowedOrganizations);
+            }
+        }
+        permissions.UnionWith(queueGrants.Select(grant => grant.Permission));
 
         var profile = new CurrentUserAccessProfile(
             IsAuthenticated: true,
@@ -289,7 +357,10 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             ManagedOrganizationIds: managedOrganizations)
         {
             UsesScopedPermissions = true,
-            ScopedPermissionGrants = scopedPermissionGrants
+            ScopedPermissionGrants = scopedPermissionGrants,
+            TicketQueuePermissionGrants = queueGrants,
+            RestrictedTicketOrganizationIds = restrictedOrganizations,
+            DomainUserId = domainUserId
         };
 
         return await Helpdesk.Infrastructure.McpPolicies.McpAccessPolicyEnforcement.ApplyAsync(_db, await ConstrainIntegrationCredentialAsync(profile, user, ct), user, ct);
@@ -383,12 +454,13 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
                 PrimaryOrganizationId = requestedOrganization.Id, PrimaryOrganizationName = requestedOrganization.Name,
                 IsHelpdeskAdmin = false, CustomerId = null, RoleBundles = new HashSet<string>(), Permissions = new HashSet<string>(),
                 AllowedOrganizationIds = new HashSet<string> { requestedOrganization.Id }, ManagedOrganizationIds = new HashSet<string>(),
-                UsesScopedPermissions = true, ScopedPermissionGrants = new HashSet<ScopedPermissionGrant>()
+                UsesScopedPermissions = true, ScopedPermissionGrants = new HashSet<ScopedPermissionGrant>(),
+                TicketQueuePermissionGrants = new HashSet<TicketQueuePermissionGrant>()
             };
         }
 
         HashSet<ScopedPermissionGrant> effectiveGrants;
-        if (profile.IsHelpdeskAdmin)
+        if (profile.IsHelpdeskAdmin && !profile.RestrictedTicketOrganizationIds.Contains(requestedOrganization.Id))
         {
             // Instance administration authorizes issuing a deliberately
             // bounded ordinary credential. Owner administration is a distinct opt-in kind.
@@ -401,18 +473,22 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             effectiveGrants = profile.ScopedPermissionGrants
                 .Where(grant => requestedPermissions.Contains(grant.Permission) &&
                                 string.Equals(grant.OrganizationId, requestedOrganization.Id, StringComparison.OrdinalIgnoreCase))
-                .Select(grant => new ScopedPermissionGrant(grant.Permission, requestedOrganization.Id))
                 .ToHashSet();
         }
 
-        if (effectiveGrants.Count == 0)
-            return Empty(true);
+        var effectiveQueueGrants = profile.TicketQueuePermissionGrants
+            .Where(grant => grant.OrganizationId == requestedOrganization.Id && requestedPermissions.Contains(grant.Permission))
+            .ToHashSet();
+        if (effectiveGrants.Count == 0 && effectiveQueueGrants.Count == 0)
+            return Empty(true) with { RestrictedTicketOrganizationIds = profile.RestrictedTicketOrganizationIds, DomainUserId = profile.DomainUserId };
 
         var effectivePermissions = effectiveGrants
             .Select(grant => grant.Permission)
+            .Concat(effectiveQueueGrants.Select(grant => grant.Permission))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var effectiveOrganizations = effectiveGrants
             .Select(grant => grant.OrganizationId)
+            .Concat(effectiveQueueGrants.Select(grant => grant.OrganizationId))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return profile with
@@ -430,7 +506,8 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
                 .Where(effectiveOrganizations.Contains)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase),
             UsesScopedPermissions = true,
-            ScopedPermissionGrants = effectiveGrants
+            ScopedPermissionGrants = effectiveGrants,
+            TicketQueuePermissionGrants = effectiveQueueGrants
         };
     }
 

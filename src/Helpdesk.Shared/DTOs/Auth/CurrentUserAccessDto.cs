@@ -27,4 +27,8 @@ public sealed record CurrentUserAccessDto(
     public bool UsesScopedPermissions { get; init; }
 
     public IReadOnlyList<ScopedPermissionGrant> ScopedPermissionGrants { get; init; } = [];
+
+    public IReadOnlyList<TicketQueuePermissionGrant> TicketQueuePermissionGrants { get; init; } = [];
+
+    public bool HasRestrictedWorkforceAccess { get; init; }
 }

@@ -76,7 +76,12 @@ public static class McpAccessPolicyEnforcement
 
     private static CurrentUserAccessProfile Constrain(CurrentUserAccessProfile profile, string organizationId, string[] allowed)
     {
-        var permissions = allowed.Where(permission => profile.HasPermission(permission, organizationId))
+        var broadGrants = allowed.Where(permission => profile.HasPermission(permission, organizationId))
+            .Select(permission => new ScopedPermissionGrant(permission, organizationId)).ToHashSet();
+        var queueGrants = profile.TicketQueuePermissionGrants
+            .Where(grant => grant.OrganizationId == organizationId && allowed.Contains(grant.Permission, StringComparer.OrdinalIgnoreCase))
+            .ToHashSet();
+        var permissions = broadGrants.Select(grant => grant.Permission).Concat(queueGrants.Select(grant => grant.Permission))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         return profile with
         {
@@ -87,7 +92,8 @@ public static class McpAccessPolicyEnforcement
             Permissions = permissions, RoleBundles = permissions,
             AllowedOrganizationIds = permissions.Count > 0 ? new HashSet<string> { organizationId } : new HashSet<string>(),
             ManagedOrganizationIds = new HashSet<string>(),
-            ScopedPermissionGrants = permissions.Select(x => new ScopedPermissionGrant(x, organizationId)).ToHashSet()
+            ScopedPermissionGrants = broadGrants,
+            TicketQueuePermissionGrants = queueGrants
         };
     }
 }

@@ -8,15 +8,24 @@ namespace Helpdesk.Infrastructure.Ticketing;
 public static class TicketQueueAssignment
 {
     public static IQueryable<SupportGroup> Destinations(HelpdeskDbContext db, string organizationId) =>
+        Routes(db).Where(route => route.OrganizationId == organizationId).Select(route => route.Group);
+
+    internal static IQueryable<QueueRoute> Routes(HelpdeskDbContext db) =>
         from queue in db.SupportGroups
         join owner in db.Organizations on queue.OwningOrganizationId equals owner.Id
         from customer in db.Organizations
-        where queue.IsEnabled && owner.IsEnabled && customer.IsEnabled && customer.Id == organizationId &&
+        where queue.IsEnabled && owner.IsEnabled && customer.IsEnabled &&
               (customer.Id == owner.Id || (customer.ItSupportOrganizationId == owner.Id &&
                   db.OrganizationSupportCoverages.Any(coverage => coverage.IsEnabled &&
                       coverage.CustomerOrganizationId == customer.Id && coverage.ProviderOrganizationId == owner.Id &&
                       coverage.SupportGroupId == queue.Id)))
-        select queue;
+        select new QueueRoute { Group = queue, OrganizationId = customer.Id };
+
+    internal sealed class QueueRoute
+    {
+        public required SupportGroup Group { get; init; }
+        public required string OrganizationId { get; init; }
+    }
 
     // Callers authorize the ticket, destination and assignee before staging.
     // The caller commits the ticket and transition in the same unit of work.

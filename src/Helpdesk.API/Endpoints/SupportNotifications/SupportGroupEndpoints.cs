@@ -58,7 +58,7 @@ public static class SupportGroupEndpoints
             if (existing.OwningOrganizationId != ownerId &&
                 (await IsReferencedAsync(db, id, ct) || await db.SupportGroupMembers.AnyAsync(member => member.SupportGroupId == id, ct)))
             {
-                return Results.Conflict(new { message = "A support group with existing assignments, members or coverage must retain its owning organization." });
+                return Results.Conflict(new { message = "A support group with existing ticket, role, membership or coverage references must retain its owning organization." });
             }
 
             if (existing.IsEnabled != dto.IsEnabled)
@@ -77,7 +77,7 @@ public static class SupportGroupEndpoints
             var existing = await db.SupportGroups.SingleOrDefaultAsync(candidate => candidate.Id == id, ct);
             if (existing is null) return Results.NotFound();
             if (await IsReferencedAsync(db, id, ct))
-                return Results.Conflict(new { message = "Remove ticket assignments and coverage before deleting this support group." });
+                return Results.Conflict(new { message = "Remove ticket assignments, role references and coverage before deleting this support group." });
 
             db.SupportGroups.Remove(existing);
             RecordChange(db, actor, id, "Deleted support group.");
@@ -88,6 +88,7 @@ public static class SupportGroupEndpoints
 
     private static async Task<bool> IsReferencedAsync(HelpdeskDbContext db, string id, CancellationToken ct) =>
         await db.Tickets.IgnoreQueryFilters().AnyAsync(ticket => ticket.AssignedSupportGroupId == id, ct) ||
+        await db.RoleSupportGroups.AnyAsync(link => link.SupportGroupId == id, ct) ||
         await db.OrganizationSupportCoverages.AnyAsync(coverage => coverage.SupportGroupId == id, ct);
 
     private static async Task<IResult?> ValidateAsync(HelpdeskDbContext db, string organizationId, string name, string? description, CancellationToken ct)

@@ -1203,6 +1203,26 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("TicketQueueTransitions");
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.TicketWorkforceRestriction", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("OrganizationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("RestrictedUtc")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("UserId", "OrganizationId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.ToTable("TicketWorkforceRestrictions");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCapability", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3837,6 +3857,11 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<int>("Scope")
                         .HasColumnType("integer");
 
+                    b.Property<int>("TicketAccessScope")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Key")
@@ -3860,6 +3885,22 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasKey("RoleId", "Permission");
 
                     b.ToTable("RolePermissions");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.RoleSupportGroup", b =>
+                {
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("RoleId", "SupportGroupId");
+
+                    b.HasIndex("SupportGroupId");
+
+                    b.ToTable("RoleSupportGroups");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.ScopedRoleAssignment", b =>
@@ -5644,6 +5685,21 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.RoleSupportGroup", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.Role", null)
+                        .WithMany("SupportGroups")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Helpdesk.Shared.Models.SupportGroup", null)
+                        .WithMany()
+                        .HasForeignKey("SupportGroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.SlaEscalationRule", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.SlaPolicy", null)
@@ -5724,6 +5780,8 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Helpdesk.Shared.Models.Role", b =>
                 {
                     b.Navigation("Permissions");
+
+                    b.Navigation("SupportGroups");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.SlaPolicy", b =>

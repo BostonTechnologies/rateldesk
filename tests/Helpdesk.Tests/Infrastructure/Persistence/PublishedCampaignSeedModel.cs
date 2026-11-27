@@ -13,6 +13,8 @@ internal static class PublishedCampaignSeedModel
     public static void Configure(ModelBuilder builder)
     {
         OmitTicketQueueAssignment(builder);
+        builder.Ignore<RoleSupportGroup>();
+        builder.Entity<Role>().Ignore(role => role.TicketAccessScope);
         builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativeClosureReason);
         builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativelyClosedBy);
         foreach (var name in new[] { nameof(Request.SelfServiceSubmissionId), nameof(Request.SelfServiceSubmitterId),

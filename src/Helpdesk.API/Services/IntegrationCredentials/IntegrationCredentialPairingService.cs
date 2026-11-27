@@ -95,7 +95,7 @@ public sealed class IntegrationCredentialPairingService(
         var allowed = organizations
             .Select(o => new IntegrationPairingOrganization(o.Id, o.Name,
                 pair.Purpose == IntegrationCredentialIssuer.SetupVerificationPurpose ? [] :
-                    HelpdeskPermissions.AssignablePermissions.Where(p => access.HasPermission(p, o.Id)).ToArray())).ToArray();
+                    HelpdeskPermissions.AssignablePermissions.Where(p => access.HasPermissionInAnyQueue(p, o.Id)).ToArray())).ToArray();
         return new(NormalizeHuman(human).Insert(4, "-"), pair.Name, pair.Purpose is IntegrationCredentialIssuer.SetupVerificationPurpose or IntegrationCredentialGrantKinds.OwnerAdministrationPurpose ? "mcp" : pair.Purpose, pair.McpResourceUri,
             DateTimeOffset.FromUnixTimeMilliseconds(pair.ExpiresAtUnixMilliseconds), allowed)
             {

@@ -87,6 +87,8 @@ public class HelpdeskDbContext(
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<User> Users => Set<User>();
     public DbSet<ScopedRoleAssignment> ScopedRoleAssignments => Set<ScopedRoleAssignment>();
+    public DbSet<RoleSupportGroup> RoleSupportGroups => Set<RoleSupportGroup>();
+    public DbSet<TicketWorkforceRestriction> TicketWorkforceRestrictions => Set<TicketWorkforceRestriction>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<TicketQueueTransition> TicketQueueTransitions => Set<TicketQueueTransition>();
     public DbSet<WorkLog> WorkLogs => Set<WorkLog>();
@@ -912,9 +914,28 @@ public class HelpdeskDbContext(
             entity.Property(x => x.Key).HasMaxLength(128).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(256).IsRequired();
             entity.Property(x => x.Scope).HasConversion<int>();
+            entity.Property(x => x.TicketAccessScope).HasDefaultValue(TicketAccessScope.AllAuthorizedQueues);
             entity.Property(x => x.OwnerOrganizationId).HasMaxLength(128);
             entity.HasIndex(x => x.Key).IsUnique();
             entity.HasIndex(x => new { x.Scope, x.OwnerOrganizationId });
+        });
+
+        modelBuilder.Entity<RoleSupportGroup>(entity =>
+        {
+            entity.HasKey(link => new { link.RoleId, link.SupportGroupId });
+            entity.Property(link => link.SupportGroupId).HasMaxLength(64);
+            entity.HasOne<Role>().WithMany(role => role.SupportGroups)
+                .HasForeignKey(link => link.RoleId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<SupportGroup>().WithMany()
+                .HasForeignKey(link => link.SupportGroupId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<TicketWorkforceRestriction>(entity =>
+        {
+            entity.HasKey(restriction => new { restriction.UserId, restriction.OrganizationId });
+            entity.Property(restriction => restriction.UserId).HasMaxLength(128);
+            entity.Property(restriction => restriction.OrganizationId).HasMaxLength(128);
+            entity.HasIndex(restriction => restriction.OrganizationId);
         });
 
         modelBuilder.Entity<RolePermission>(entity =>

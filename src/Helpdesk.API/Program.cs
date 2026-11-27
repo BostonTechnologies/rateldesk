@@ -1235,6 +1235,7 @@ app.MapGet("/health/db", async ([FromServices] HelpdeskDbContext db, Cancellatio
 
 app.MapGlobalSearchLookupEndpoints();
 app.MapRoleDefinitionEndpoints();
+app.MapTicketWorkforceEndpoints();
 MapCrudEndpoints<Organization>(app, "/api/v1/organizations");
 MapCrudEndpoints<Customer>(app, "/api/v1/customers");
 MapCrudEndpoints<Asset>(app, "/api/v1/assets");
