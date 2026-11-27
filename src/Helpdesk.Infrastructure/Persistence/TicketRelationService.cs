@@ -10,26 +10,24 @@ namespace Helpdesk.Infrastructure.Persistence;
 /// <summary>Neutral relations only. No ticket state, SLA, listener, notification or automation writes.</summary>
 public sealed class TicketRelationService(HelpdeskDbContext db)
 {
-    public IQueryable<Ticket> Visible(CurrentUserAccessProfile access, string organization)
-    {
-        var incidents = TicketAccessPolicy.Readable(db.Incidents, access, TicketType.Incident)
-            .Where(x => x.OrganizationId == organization).Select(x => x.Id);
-        var requests = TicketAccessPolicy.Readable(db.Requests, access, TicketType.Request)
-            .Where(x => x.OrganizationId == organization).Select(x => x.Id);
-        var changes = TicketAccessPolicy.Readable(db.Changes, access, TicketType.Change)
-            .Where(x => x.OrganizationId == organization).Select(x => x.Id);
-        var tasks = db.RequestTasks.Where(x => x.OrganizationId == organization && requests.Contains(x.RequestId)).Select(x => x.Id);
-        var ids = incidents.Concat(requests).Concat(changes).Concat(tasks);
-        return db.Tickets.AsNoTracking().Where(x => x.OrganizationId == organization && ids.Contains(x.Id));
-    }
+    public IQueryable<Ticket> Visible(CurrentUserAccessProfile access, string? organization = null) => Authorized(
+        TicketAccessPolicy.Readable(db.Incidents, access, TicketType.Incident),
+        TicketAccessPolicy.Readable(db.Requests, access, TicketType.Request),
+        TicketAccessPolicy.Readable(db.Changes, access, TicketType.Change), organization);
 
-    public static bool CanManage(CurrentUserAccessProfile access, Ticket ticket) => ticket switch
+    public IQueryable<Ticket> Writable(CurrentUserAccessProfile access, string organization) => Authorized(
+        TicketAccessPolicy.Writable(db.Incidents, access, TicketType.Incident),
+        TicketAccessPolicy.Writable(db.Requests, access, TicketType.Request),
+        TicketAccessPolicy.Writable(db.Changes, access, TicketType.Change), organization);
+
+    private IQueryable<Ticket> Authorized(IQueryable<Incident> incidents, IQueryable<Request> requests, IQueryable<Change> changes, string? organization)
     {
-        Incident => access.CanManageIncident(ticket.OrganizationId),
-        Request or RequestTask => access.CanManageRequest(ticket.OrganizationId),
-        Change => access.CanManageChange(ticket.OrganizationId),
-        _ => false
-    };
+        var tasks = db.RequestTasks.Where(task => requests.Any(parent => parent.Id == task.RequestId && parent.OrganizationId == task.OrganizationId));
+        var ids = incidents.Select(ticket => ticket.Id).Concat(requests.Select(ticket => ticket.Id))
+            .Concat(changes.Select(ticket => ticket.Id)).Concat(tasks.Select(task => task.Id));
+        return db.Tickets.AsNoTracking().Where(ticket => ticket.OrganizationId != null && ticket.OrganizationId != "" &&
+            (organization == null || ticket.OrganizationId == organization) && ids.Contains(ticket.Id));
+    }
     public static string Type(Ticket ticket) => ticket switch { Incident => "incidents", Request => "requests", Change => "changes", RequestTask => "request-tasks", _ => "unknown" };
     public static string State(Ticket ticket) => ticket switch
     {
@@ -42,12 +40,8 @@ public sealed class TicketRelationService(HelpdeskDbContext db)
         : "/" + Type(ticket) + "/" + Uri.EscapeDataString(ticket.Id);
     public static TicketLinkChoice Choice(Ticket ticket) => new(ticket.Id, Type(ticket), ticket.TrackingId, ticket.Title, State(ticket), Url(ticket));
 
-    public async Task<Ticket?> ResolveVisibleAsync(string id, CurrentUserAccessProfile access, CancellationToken ct)
-    {
-        var ticket = await db.Tickets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (ticket?.OrganizationId is not { Length: > 0 } org) return null;
-        return await Visible(access, org).SingleOrDefaultAsync(x => x.Id == ticket.Id, ct);
-    }
+    public Task<Ticket?> ResolveVisibleAsync(string id, CurrentUserAccessProfile access, CancellationToken ct) =>
+        Visible(access).SingleOrDefaultAsync(ticket => ticket.Id == id, ct);
 
     public async Task<TicketRelationPage> ListAsync(Ticket source, CurrentUserAccessProfile access, int page, int size, CancellationToken ct)
     {
@@ -86,8 +80,10 @@ public sealed class TicketRelationService(HelpdeskDbContext db)
             Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 2067 })
         {
             db.Entry(relation).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
-            return await db.TicketRelations.OrderBy(x => x.Id).FirstAsync(x => x.RelationType == TicketRelationType.RelatedTo &&
+            var concurrentRelation = await db.TicketRelations.OrderBy(x => x.Id).FirstOrDefaultAsync(x => x.RelationType == TicketRelationType.RelatedTo &&
                 (x.SourceTicketId == source.Id && x.TargetTicketId == target.Id || x.SourceTicketId == target.Id && x.TargetTicketId == source.Id), ct);
+            if (concurrentRelation is null) throw;
+            return concurrentRelation;
         }
         return relation;
     }

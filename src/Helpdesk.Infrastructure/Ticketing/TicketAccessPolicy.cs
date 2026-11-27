@@ -30,19 +30,31 @@ public static class TicketAccessPolicy
     public static IQueryable<T> Readable<T>(IQueryable<T> tickets, CurrentUserAccessProfile access, TicketType module, bool includeOwned = true)
         where T : Ticket
     {
+        var permissions = For(module);
+        return Authorized(tickets, access, [permissions.Read, permissions.Write, permissions.Manager], includeOwned ? permissions.Own : null);
+    }
+
+    public static IQueryable<T> Writable<T>(IQueryable<T> tickets, CurrentUserAccessProfile access, TicketType module) where T : Ticket
+    {
+        var permissions = For(module);
+        return Authorized(tickets, access, [permissions.Write, permissions.Manager], null);
+    }
+
+    private static IQueryable<T> Authorized<T>(IQueryable<T> tickets, CurrentUserAccessProfile access, string[] permissions, string? ownPermission)
+        where T : Ticket
+    {
         if (!access.IsAuthenticated) return tickets.Where(ticket => false);
         if (access.IsHelpdeskAdmin) return tickets;
 
-        var permissions = For(module);
-        var broadOrganizations = access.OrganizationIdsForAny(permissions.Read, permissions.Write, permissions.Manager).ToArray();
-        var ownOrganizations = includeOwned ? access.OrganizationIdsFor(permissions.Own).Except(access.RestrictedTicketOrganizationIds).ToArray() : [];
-        var customerId = includeOwned ? access.CustomerId : null;
+        var broadOrganizations = access.OrganizationIdsForAny(permissions).ToArray();
+        var ownOrganizations = ownPermission == null ? [] : access.OrganizationIdsFor(ownPermission).Except(access.RestrictedTicketOrganizationIds).ToArray();
+        var customerId = ownPermission == null ? null : access.CustomerId;
         Expression<Func<T, bool>> visible = ticket =>
             (ticket.OrganizationId != null && broadOrganizations.Contains(ticket.OrganizationId)) ||
             (customerId != null && ticket.OrganizationId != null && ownOrganizations.Contains(ticket.OrganizationId)
                 && customerId == ticket.CustomerId);
         var queuesByOrganization = access.TicketQueuePermissionGrants
-            .Where(grant => grant.Permission == permissions.Read || grant.Permission == permissions.Write || grant.Permission == permissions.Manager)
+            .Where(grant => permissions.Contains(grant.Permission))
             .GroupBy(grant => grant.OrganizationId);
 
         foreach (var queues in queuesByOrganization)

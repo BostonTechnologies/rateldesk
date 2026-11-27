@@ -92,6 +92,18 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         Assert.Equal(HttpStatusCode.OK, relations.StatusCode);
         Assert.Single(relations.Body!.Items);
         Assert.All(relations.Body.Items, relation => Assert.DoesNotContain("queue-hidden", new[] { relation.SourceTicketId, relation.TargetTicketId }));
+        var relationChoices = await harness.GetAsync<TicketLinkChoicePage>(execution, "/api/v1/tickets/queue-visible/relations/choices?type=incidents");
+        Assert.Equal(HttpStatusCode.OK, relationChoices.StatusCode);
+        Assert.Equal("queue-linked", Assert.Single(relationChoices.Body!.Items).Id);
+        using var hiddenLink = await harness.SendAsync(execution, HttpMethod.Post, "/api/v1/tickets/queue-visible/relations/",
+            new LinkTicketRequest("queue-hidden", null));
+        Assert.Equal(HttpStatusCode.NotFound, hiddenLink.StatusCode);
+        var existingLink = Assert.Single(relations.Body.Items);
+        using var removeLink = await harness.SendAsync(execution, HttpMethod.Delete, $"/api/v1/tickets/queue-linked/relations/{existingLink.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, removeLink.StatusCode);
+        using var restoreLink = await harness.SendAsync(execution, HttpMethod.Post, "/api/v1/tickets/queue-visible/relations/",
+            new LinkTicketRequest("queue-linked", "Synthetic related work"));
+        Assert.Equal(HttpStatusCode.OK, restoreLink.StatusCode);
         using var hiddenSource = await TransferAsync("queue-hidden", "app-vendor");
         Assert.Equal(HttpStatusCode.NotFound, hiddenSource.StatusCode);
         using var hiddenDestination = await TransferAsync("queue-visible", "wintel-l2");

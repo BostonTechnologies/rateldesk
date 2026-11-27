@@ -295,7 +295,7 @@ public static class TicketQueueEndpoints
     private static bool TryModule(string module, out TicketType ticketType) =>
         Enum.TryParse(module, ignoreCase: true, out ticketType) && Enum.IsDefined(ticketType) && !char.IsDigit(module[0]);
 
-    private static bool IsConcurrentWrite(Exception? error) =>
+    internal static bool IsConcurrentWrite(Exception? error) =>
         error is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected } ||
         error is SqliteException { SqliteErrorCode: 5 or 6 };
 
