@@ -57,6 +57,10 @@ For recovery, send the original source and key headers to
 even when a later authorized operation changes the ticket's current queue.
 Current source, route and credential authority are checked again before replay.
 
+The routed incident title uses the automation outcome. Its description gives
+aggregate results. The configured presentation and source request details stay
+in the separately authorized automation report.
+
 ## Approving routes
 
 An interactive instance administrator can read the allowlist and current

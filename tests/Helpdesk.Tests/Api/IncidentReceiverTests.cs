@@ -100,31 +100,8 @@ public sealed class IncidentReceiverTests
                 db.ScopedRoleAssignments.Add(new ScopedRoleAssignment
                     { UserId = userId, OrganizationId = harness.OrganizationId, RoleKey = role.Key });
             await TicketWorkforceRestrictions.EnsureAsync(db, harness.OrganizationId, ["support-user", "revoked-user"], "owner", default);
-            db.SupportNotificationSubscriptions.Add(new SupportNotificationSubscription
-            {
-                CustomerOrganizationId = harness.OrganizationId, RecipientId = "support-group",
-                EventType = SupportNotificationEventType.TicketAssignedToSupportGroup
-            });
-            db.EmailTemplates.Add(new EmailTemplate
-            {
-                Name = "SupportTicketAssignedToSupportGroup", Subject = "Synthetic queue {{{TICKET_REF}}}",
-                HtmlContent = "<p><a href=\"{{TicketLink}}\">{{TicketRef}}</a></p>"
-            });
-            var mailbox = new EmailInboxSettings
-            {
-                Id = Guid.NewGuid(), Scope = MailboxScope.Global, MailboxAddress = "sender@example.test", SourceKey = "synthetic-support-queue", Enabled = true
-            };
-            db.EmailInboxSettings.Add(mailbox);
-            var outgoing = new MailboxOutgoingSettings
-            {
-                MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
-                SmtpHost = "localhost", SmtpPort = port,
-                SmtpTlsMode = smtp == null ? MailboxTlsMode.StartTls : MailboxTlsMode.TlsOnConnect,
-                SmtpUsername = mailbox.MailboxAddress
-            };
-            outgoing.ProtectedSmtpPassword = scope.ServiceProvider.GetRequiredService<MailboxOutgoingCredentialProtector>()
-                .Protect(outgoing, "synthetic-queue-fixture");
-            db.Add(outgoing);
+            ConfigureQueueEmail(scope.ServiceProvider, harness.OrganizationId, "support-group", port,
+                smtp == null ? MailboxTlsMode.StartTls : MailboxTlsMode.TlsOnConnect);
 
             Ticket ticket = module switch { TicketType.Incident => new Incident(), TicketType.Request => new Request(), _ => new Change() };
             ticket.Id = "synthetic-queue-ticket";
@@ -166,6 +143,36 @@ public sealed class IncidentReceiverTests
         Assert.Contains(smtp.Commands, command => command.Equals("RCPT TO:<support@example.test>", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(smtp.Commands, command => command.Contains("revoked@example.test", StringComparison.OrdinalIgnoreCase));
         Assert.Contains($"https://receiver.example.test/{module.ToString().ToLowerInvariant()}s/", smtp.Message);
+    }
+
+    internal static void ConfigureQueueEmail(IServiceProvider services, string organizationId, string groupId, int port, MailboxTlsMode tls)
+    {
+        var db = services.GetRequiredService<HelpdeskDbContext>();
+        db.SupportNotificationSubscriptions.Add(new SupportNotificationSubscription
+        {
+            CustomerOrganizationId = organizationId, RecipientId = groupId,
+            EventType = SupportNotificationEventType.TicketAssignedToSupportGroup
+        });
+        db.EmailTemplates.Add(new EmailTemplate
+        {
+            Name = "SupportTicketAssignedToSupportGroup", Subject = "Synthetic queue {{{TICKET_REF}}}",
+            HtmlContent = "<p><a href=\"{{TicketLink}}\">{{TicketRef}}</a></p>"
+        });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Global, MailboxAddress = "sender@example.test", SourceKey = "synthetic-support-queue", Enabled = true
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "localhost", SmtpPort = port,
+            SmtpTlsMode = tls,
+            SmtpUsername = mailbox.MailboxAddress
+        };
+        outgoing.ProtectedSmtpPassword = services.GetRequiredService<MailboxOutgoingCredentialProtector>()
+            .Protect(outgoing, "synthetic-queue-fixture");
+        db.Add(outgoing);
     }
 
     [Theory]
@@ -813,7 +820,7 @@ public sealed class IncidentReceiverTests
                 ["Database__Provider"] = postgres ? "PostgreSql" : "Sqlite", ["Database__Sqlite__Path"] = Path.Combine(root, "receiver.db"),
                 ["ConnectionStrings__HelpdeskDb"] = postgres ? connectionString : "", ["Bootstrap__StateDirectory"] = Path.Combine(root, "bootstrap"),
                 ["Bootstrap__DataDirectory"] = root, ["DataProtection__KeyRingPath"] = Path.Combine(root, "bootstrap", "keys"),
-                ["Authentication__Mode"] = "Local", ["Authentication__Local__AllowInsecureLocalhost"] = "true",
+                ["Authentication__Mode"] = "Local", ["Authentication__AllowInsecureLocalhost"] = "true",
                 ["StorageOptions__RootPath"] = Path.Combine(root, "storage"), ["StorageOptions__ImageSigningSecret"] = "synthetic-receiver-signing-key-32-characters",
                 ["StorageOptions__PublicApiBaseUrl"] = "https://receiver.example.test/prefix", ["Netclaw__Enabled"] = "false",
                 ["ServiceIdentity__ApiBaseUrl"] = "https://receiver.example.test", ["ServiceIdentity__WebBaseUrl"] = "https://receiver-web.example.test",

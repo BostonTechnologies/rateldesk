@@ -101,7 +101,10 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         var categories = IncidentReceiverContract.Categories(dto.CategoryIds);
         var cc = IncidentReceiverContract.Cc(dto.CcRecipients);
         cc.Remove(approved.Customer.Email.Trim().ToLowerInvariant());
-        var created = await sender.Send(new CreateIncidentCommand(report?.Subject ?? dto.Title,
+        // A queued incident can be visible to an operator who has no access to the source request.
+        // Keep presentation fields derived from that request in the separately authorized report.
+        var subject = groupId == null ? report?.Subject ?? dto.Title : $"Automation {trace!.Context.SourceOutcome}";
+        var created = await sender.Send(new CreateIncidentCommand(subject,
             report?.Summary ?? converter.Convert(sanitizer.Sanitize(dto.Description)), dto.Priority, approved.Customer.Id, approved.Organization.Id,
             dto.LinkedAssetIds, dto.Attachments, IncidentReceiverContract.DueDateUtc(dto.DueDate), dto.Impact,
             approved.Customer.Email, cc, dto.AssignedToId) { SuppressUnassignedSupportNotification = groupId != null }, ct);
