@@ -151,10 +151,16 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         Assert.Equal(2, provider.Submissions);
 
         var token = await PairingBusinessFixture.TokenAsync(h, client);
-        using var stale = await SendCorrelatedAsync(h, token, Callback(task), oldAttempt!);
-        Assert.Equal(HttpStatusCode.NoContent, stale.StatusCode);
+        var staleCallback = Callback(task);
+        staleCallback.CorrelationId = oldAttempt;
+        using var stale = await SendCorrelatedAsync(h, token, staleCallback, oldAttempt!);
+        Assert.Equal(HttpStatusCode.Forbidden, stale.StatusCode);
+        using var mismatched = await SendCorrelatedAsync(h, token, staleCallback, replacement!);
+        Assert.Equal(HttpStatusCode.Forbidden, mismatched.StatusCode);
         await h.EditAsync(async db => Assert.Equal(RequestTaskStatus.InProgress, (await db.RequestTasks.SingleAsync()).Status));
-        using var completed = await SendCorrelatedAsync(h, token, Callback(task), replacement!);
+        var completion = Callback(task);
+        completion.CorrelationId = replacement;
+        using var completed = await SendCorrelatedAsync(h, token, completion, replacement!);
         Assert.Equal(HttpStatusCode.NoContent, completed.StatusCode);
         await h.EditAsync(async db =>
         {

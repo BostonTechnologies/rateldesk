@@ -220,6 +220,13 @@ public static class OrchestrationCallbackEndpoints
             !await db.Requests.AnyAsync(x => x.Id == task.RequestId && x.OrganizationId == registration.OrganizationId, ct))
             return (null, false);
 
+        // A replacement attempt must match its own correlation as well as the
+        // provider references. Legacy first attempts can still match by provider IDs.
+        if (task.AutomationAttemptHistoryJson is not null &&
+            (!string.Equals(task.AutomationAttemptCorrelationId, correlationId, StringComparison.Ordinal) ||
+                !MatchesOrEmpty(dto.CorrelationId, task.AutomationAttemptCorrelationId)))
+            return (null, false);
+
         // Start persists the scoped attempt before invoking the provider. A fast
         // callback may precede its ingest response, but cannot establish remote IDs.
         // Ask for the same callback again only for that exact in-flight attempt.
