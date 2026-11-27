@@ -3,10 +3,33 @@ import { reviewCapture, reviewPage } from './owner-review-matrix';
 import {test,expect} from '@playwright/test';
 test.use({ timezoneId: 'Africa/Johannesburg' });
 const fixture='http://127.0.0.1:18330/fixture';
-test.beforeEach(async({page,request})=>{
+const vendorWeb = 'https://127.0.0.1:5202';
+test.beforeEach(async({page,request,baseURL})=>{
  page.on('pageerror',error=>console.error('Browser error:',error.message));
  page.on('console',message=>{if(message.type()==='error')console.error('Browser console:',message.text());});
- await request.get(fixture+'/reset');await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
+ await request.get(fixture+'/reset');
+ if (baseURL === vendorWeb) await request.get(fixture + '/permissions?mode=vendor');
+ await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
+});
+test.describe('restricted vendor', () => {
+ test.use({ baseURL: vendorWeb });
+
+ test('can claim an incident in the authorized queue', async ({ page, request }, info) => {
+  await page.goto('/incidents?sort=trackingId&descending=false');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByText('1-20 of 20')).toBeVisible();
+  await expect(page.getByText('Main Queue', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Move to queue', exact: true })).toHaveCount(0);
+  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'SYN-000', exact: true }) });
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Application Vendor');
+  const claim = row.getByRole('button', { name: 'Claim ticket', exact: true });
+  await page.screenshot({ path: info.outputPath('vendor-queue.png'), fullPage: true });
+  await claim.click();
+  await expect.poll(async () => (await (await request.get(fixture + '/state')).json()).mutations)
+   .toEqual([{ path: '/api/v1/ticket-queues/incident/row-0/claim', version: 1 }]);
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Application Vendor');
+  await expect(claim).toHaveCount(0);
+ });
 });
 for(const module of ['incidents','requests','changes']) {
  test(module+' queue selection filters before paging and restores from the URL',async({page},info)=>{

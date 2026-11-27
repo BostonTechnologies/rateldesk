@@ -70,6 +70,20 @@ test('a permission change before the first poll reloads the stale rendered princ
   await expect.poll(() => navigations).toBe(1);
 });
 
+test('revoking one named queue reloads the browser while module permissions remain unchanged', async ({ page }) => {
+  let navigations = 0;
+  const remaining = { permission: 'Incident.Read', organizationId: 'tenant-a', supportGroupId: 'group-a', ownerOrganizationId: 'provider' };
+  const revoked = { ...remaining, supportGroupId: 'group-b' };
+  const live = { ...profile, scopedPermissionGrants: [], hasRestrictedWorkforceAccess: true, ticketQueuePermissionGrants: [remaining] };
+  await serve(page, route => route.fulfill({ json: live }));
+  page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations++; });
+  await page.evaluate(async initial => {
+    const session = await import('/js/session-access.js');
+    session.start(initial);
+  }, { ...live, ticketQueuePermissionGrants: [revoked, remaining] });
+  await expect.poll(() => navigations).toBe(1);
+});
+
 test('account mutation waits for an old poll and suppresses its unauthorized redirect before replacing the cookie', async ({ page, context }) => {
   let oldPoll: Route | undefined;
   let polls = 0;

@@ -5,6 +5,7 @@ let mutationPauses = 0;
 function fingerprintOf(profile) {
     const sorted = values => [...new Set(values ?? [])].sort();
     const grants = profile.scopedPermissionGrants ?? [];
+    const queueGrants = profile.ticketQueuePermissionGrants ?? [];
     return JSON.stringify({
         authenticated: profile.isAuthenticated,
         admin: profile.isHelpdeskAdmin,
@@ -18,7 +19,11 @@ function fingerprintOf(profile) {
         organizations: profile.usesScopedPermissions
             ? sorted(grants.map(grant => grant.organizationId))
             : sorted(profile.allowedOrganizationIds),
-        grants: sorted(grants.map(grant => `${grant.permission}|${grant.organizationId}`))
+        grants: sorted(grants.map(grant => `${grant.permission}|${grant.organizationId}`)),
+        restrictedWorkforce: !!profile.hasRestrictedWorkforceAccess,
+        queueGrants: sorted(queueGrants.map(grant => JSON.stringify([
+            grant.permission, grant.organizationId, grant.supportGroupId, grant.ownerOrganizationId
+        ])))
     });
 }
 
