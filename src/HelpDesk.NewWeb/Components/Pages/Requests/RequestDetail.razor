@@ -399,7 +399,8 @@ else
         return OnParametersSetAsync();
     }
     private bool CanManage => accessProfile?.CanManageRequest(request?.OrganizationId) == true;
-    private bool CanContribute => request is not null && accessProfile?.CanContributeRequest(request.OrganizationId, request.CustomerId, request.CustomerEmail) == true;
+    private bool CanContribute => request is not null && (accessProfile?.CanContributeRequest(request.OrganizationId, request.CustomerId, request.CustomerEmail) == true ||
+        TicketQueueActions.CanWrite(accessProfile, "request", request.OrganizationId, request.AssignedSupportGroupId));
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     [Parameter] public string Id { get; set; } = string.Empty;

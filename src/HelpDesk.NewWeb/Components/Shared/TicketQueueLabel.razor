@@ -5,7 +5,7 @@
 @inject IHttpClientFactory HttpClientFactory
 
 <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center" Style="min-width:0" @onclick:stopPropagation="true">
-    <MudText Typo="Typo.body2" Style="overflow-wrap:anywhere" data-testid="ticket-assigned-queue">@(Name ?? "Main Queue")</MudText>
+    <MudText Typo="Typo.body2" Style="overflow-wrap:anywhere" data-testid="ticket-assigned-queue">@(GroupId == null ? "Main Queue" : Name ?? "Assigned support group")</MudText>
     @if (TicketQueueActions.CanTransfer(Access, Module, OrganizationId, GroupId))
     {
         <MudTooltip Text="Move to queue">

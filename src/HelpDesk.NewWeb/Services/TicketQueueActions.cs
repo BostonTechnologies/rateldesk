@@ -30,6 +30,10 @@ public static class TicketQueueActions
         CanTransfer(access, module, organizationId, null) || access?.TicketQueuePermissionGrants.Any(grant =>
             grant.OrganizationId == organizationId && CanTransfer(access, module, organizationId, grant.SupportGroupId)) == true;
 
+    public static bool CanApproveChange(CurrentUserAccessProfile? access, string? organizationId, string? groupId) =>
+        access != null && (access.HasPermission(HelpdeskPermissions.ChangeApprove, organizationId, groupId) ||
+                           access.HasPermission(HelpdeskPermissions.ChangeManager, organizationId, groupId));
+
     public static async Task<bool> MoveAsync(IDialogService dialogs, ISnackbar snackbar, string module,
         IEnumerable<(string Id, string? TenantId, long Version)> selected)
     {

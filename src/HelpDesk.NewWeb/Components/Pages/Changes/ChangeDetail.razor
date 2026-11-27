@@ -304,7 +304,8 @@
         return LoadChangeAsync();
     }
     private bool CanManage => accessProfile?.CanManageChange(change?.OrganizationId) == true;
-    private bool CanContribute => change is not null && accessProfile?.CanContributeChange(change.OrganizationId, change.CustomerId, change.CustomerEmail) == true;
+    private bool CanContribute => change is not null && (accessProfile?.CanContributeChange(change.OrganizationId, change.CustomerId, change.CustomerEmail) == true ||
+        TicketQueueActions.CanWrite(accessProfile, "change", change.OrganizationId, change.AssignedSupportGroupId));
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     [Parameter] public string Id { get; set; } = string.Empty;

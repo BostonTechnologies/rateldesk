@@ -161,7 +161,8 @@ else
         return OnParametersSetAsync();
     }
     private bool CanManage => accessProfile?.CanManageIncident(incident?.OrganizationId) == true;
-    private bool CanContribute => incident is not null && accessProfile?.CanContributeIncident(incident.OrganizationId, incident.CustomerId, incident.RequesterEmail) == true;
+    private bool CanContribute => incident is not null && (accessProfile?.CanContributeIncident(incident.OrganizationId, incident.CustomerId, incident.RequesterEmail) == true ||
+        TicketQueueActions.CanWrite(accessProfile, "incident", incident.OrganizationId, incident.AssignedSupportGroupId));
 
     [Parameter] public string Id { get; set; } = string.Empty;
 

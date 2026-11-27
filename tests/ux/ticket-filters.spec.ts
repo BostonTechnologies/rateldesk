@@ -25,6 +25,24 @@ for(const module of ['incidents','requests','changes']) {
   await expect(page.getByText('1-20 of 20')).toBeVisible();
   await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
  });
+ test(`${module} moves a Main Queue ticket using its current version`, async ({ page, request }, info) => {
+  await page.goto(`/${module}?sort=trackingId&descending=false`);
+  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'SYN-001', exact: true }) });
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Main Queue');
+  await row.getByRole('button', { name: 'Move to queue', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox', { name: 'Destination queue' }).fill('Application');
+  await page.getByRole('option', { name: 'Application Vendor', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Reason' }).fill('Synthetic handover');
+  await page.screenshot({ path: info.outputPath('move-queue.png'), fullPage: true });
+  await dialog.getByRole('button', { name: 'Move ticket', exact: true }).click();
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Application Vendor');
+  const state = await (await request.get(fixture + '/state')).json();
+  expect(state.mutations).toEqual([{
+   path: `/api/v1/ticket-queues/${module.slice(0, -1)}/assignment`,
+   body: { tickets: [{ id: 'row-1', expectedVersion: 0 }], supportGroupId: 'app-vendor', assigneeAction: 0, assigneeId: null, reason: 'Synthetic handover' }
+  }]);
+ });
  test(`${module} opening a ticket and browser Back restores the exact filtered page`,async({page,request})=>{
   const listUrl=`/${module}?customerOrgId=org-b&q=Synthetic&page=2&pageSize=25&sort=trackingId&descending=false`;
   await page.goto(listUrl);

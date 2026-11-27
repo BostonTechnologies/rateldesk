@@ -56,10 +56,34 @@ http.createServer(async (req,res) => {
    queue.name.toLowerCase().includes((q.get('q') ?? '').toLowerCase()));
   return reply(q.get('picker') === 'true' ? {items:choices,totalEligible:queues.length,hasMore:false} : choices);
  }
+ if (req.method === 'POST' && /^\/api\/v1\/ticket-queues\/(incident|request|change)\/assignment$/.test(url.pathname)) {
+  let raw = '';
+  for await (const chunk of req) raw += chunk;
+  const body = JSON.parse(raw);
+  const selection = body.tickets.map(ticket => ({ request: ticket, row: rows.find(row => row.id === ticket.id) }));
+  if (selection.some(item => !item.row || item.row.queueAssignmentVersion !== item.request.expectedVersion)) return reply({}, 409);
+  mutations.push({ path: url.pathname, body });
+  for (const { row } of selection) {
+   if (row.assignedSupportGroupId !== body.supportGroupId) row.queueAssignmentVersion++;
+   row.assignedSupportGroupId = body.supportGroupId;
+   row.assignedSupportGroupName = body.supportGroupId === 'app-vendor' ? 'Application Vendor' : null;
+  }
+  res.writeHead(204);
+  return res.end();
+ }
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({totalEligible:(options[q.get('dimension')]??[]).length,items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname==='/api/v1/ticketing/organizations') return reply(options.customer.map(o=>({id:o.id,name:o.label,state:0})));
  if(url.pathname==='/api/v1/ticketing/customers') return reply(layoutCustomers.map(customer=>({...customer,organizationId:q.get('organizationId'),isEnabled:true})));
+ if (url.pathname === '/api/v1/ticketing/customers/search') {
+  const id = q.get('id');
+  const search = (q.get('q') ?? '').trim().toLowerCase();
+  const limit = Number(q.get('limit') ?? 20);
+  const matches = layoutCustomers.filter(customer => id ? customer.id === id :
+   `${customer.name} ${customer.email}`.toLowerCase().includes(search));
+  return reply({ items: matches.slice(0, limit).map(customer => ({ ...customer, organizationId: q.get('organizationId'), state: 0 })),
+   totalEligible: layoutCustomers.length, hasMore: matches.length > limit });
+ }
  const customerMutation=url.pathname.match(/^\/api\/v1\/(incidents|requests)\/(row-\d+)\/customer$/);
  if(customerMutation&&req.method==='POST') {
   let raw='';for await(const chunk of req)raw+=chunk;

@@ -205,8 +205,8 @@
         builder.OpenComponent<ChangeLifecycleStatePicker>(0);
         builder.SetKey(change.Id);
         builder.AddAttribute(1, nameof(ChangeLifecycleStatePicker.ChangeId), change.Id);
-        builder.AddAttribute(4, nameof(ChangeLifecycleStatePicker.CanWrite), accessProfile?.CanManageChange(change.OrganizationId) == true);
-        builder.AddAttribute(5, nameof(ChangeLifecycleStatePicker.CanApprove), accessProfile?.CanApproveChange(change.OrganizationId) == true);
+        builder.AddAttribute(4, nameof(ChangeLifecycleStatePicker.CanWrite), TicketQueueActions.CanWrite(accessProfile, "change", change.OrganizationId, change.AssignedSupportGroupId));
+        builder.AddAttribute(5, nameof(ChangeLifecycleStatePicker.CanApprove), TicketQueueActions.CanApproveChange(accessProfile, change.OrganizationId, change.AssignedSupportGroupId));
         builder.AddAttribute(2, nameof(ChangeLifecycleStatePicker.LifecycleState), change.LifecycleState);
         builder.AddAttribute(3, nameof(ChangeLifecycleStatePicker.ChangeUpdated), EventCallback.Factory.Create<ChangeDto>(this, async updated =>
         {
