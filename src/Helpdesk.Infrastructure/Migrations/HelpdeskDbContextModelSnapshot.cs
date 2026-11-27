@@ -1145,6 +1145,64 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.ToTable("NotificationReads", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.TicketQueueTransition", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("AssignedSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AssignedToId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("AssignmentVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PreviousAssigneeId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PreviousSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("TicketType")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId", "AssignmentVersion")
+                        .IsUnique();
+
+                    b.ToTable("TicketQueueTransitions");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCapability", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4367,6 +4425,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("AdministrativelyClosedBy")
                         .HasColumnType("text");
 
+                    b.Property<string>("AssignedSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("AssignedToId")
                         .HasColumnType("text");
 
@@ -4423,6 +4485,12 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<int>("Priority")
                         .HasColumnType("integer");
 
+                    b.Property<long>("QueueAssignmentVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<int>("Replies")
                         .HasColumnType("integer");
 
@@ -4454,9 +4522,13 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedSupportGroupId");
+
                     b.HasIndex("State");
 
                     b.HasIndex("OrganizationId", "ClosedAt");
+
+                    b.HasIndex("OrganizationId", "AssignedSupportGroupId", "State");
 
                     b.ToTable("Tickets");
 
@@ -5597,6 +5669,14 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .HasForeignKey("SupportGroupId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.Ticket", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.SupportGroup", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedSupportGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketCategory", b =>

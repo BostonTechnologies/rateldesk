@@ -1,9 +1,12 @@
+using System.Security.Claims;
 using Helpdesk.Application.Services.SupportNotifications;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.SupportNotifications;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Endpoints.SupportNotifications;
 
@@ -28,41 +31,64 @@ public static class OrganizationSupportCoverageEndpoints
             return Results.Ok(items);
         });
 
-        group.MapPost("/", async ([FromBody] CreateOrganizationSupportCoverageDto dto, [FromServices] IRepository<OrganizationSupportCoverage> repo) =>
+        group.MapPost("/", async (CreateOrganizationSupportCoverageDto dto, HelpdeskDbContext db, ClaimsPrincipal actor, CancellationToken ct) =>
         {
-            var validation = Validate(dto.CustomerOrganizationId, dto.ProviderOrganizationId, dto.SupportGroupId);
+            var validation = await ValidateAsync(db, dto.CustomerOrganizationId, dto.ProviderOrganizationId, dto.SupportGroupId, dto.Role, ct);
             if (validation is not null) return validation;
 
-            var created = await repo.CreateAsync(new OrganizationSupportCoverage
+            var created = new OrganizationSupportCoverage
             {
                 CustomerOrganizationId = dto.CustomerOrganizationId.Trim(),
                 ProviderOrganizationId = dto.ProviderOrganizationId.Trim(),
                 SupportGroupId = dto.SupportGroupId.Trim(),
                 Role = dto.Role,
                 IsEnabled = dto.IsEnabled
-            });
+            };
+            db.OrganizationSupportCoverages.Add(created);
+            SupportGroupEndpoints.RecordChange(db, actor, created.Id, "Created support coverage.");
+            await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/support/coverage/{created.Id}", ToDto(created));
         });
 
-        group.MapPut("/{id}", async (string id, [FromBody] UpdateOrganizationSupportCoverageDto dto, [FromServices] IRepository<OrganizationSupportCoverage> repo) =>
+        group.MapPut("/{id}", async (string id, UpdateOrganizationSupportCoverageDto dto, HelpdeskDbContext db, ClaimsPrincipal actor, CancellationToken ct) =>
         {
-            var existing = await repo.GetAsync(id);
+            var existing = await db.OrganizationSupportCoverages.SingleOrDefaultAsync(coverage => coverage.Id == id, ct);
             if (existing is null) return Results.NotFound();
-            var validation = Validate(dto.CustomerOrganizationId, dto.ProviderOrganizationId, dto.SupportGroupId);
-            if (validation is not null) return validation;
+            var disabling = !dto.IsEnabled &&
+                existing.CustomerOrganizationId == dto.CustomerOrganizationId?.Trim() &&
+                existing.ProviderOrganizationId == dto.ProviderOrganizationId?.Trim() &&
+                existing.SupportGroupId == dto.SupportGroupId?.Trim() && existing.Role == dto.Role;
+            if (disabling)
+            {
+                existing.IsEnabled = false;
+                existing.UpdatedUtc = DateTimeOffset.UtcNow;
+                SupportGroupEndpoints.RecordChange(db, actor, id, "Disabled support coverage.");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(ToDto(existing));
+            }
 
+            var validation = await ValidateAsync(db, dto.CustomerOrganizationId, dto.ProviderOrganizationId, dto.SupportGroupId, dto.Role, ct);
+            if (validation is not null) return validation;
             existing.CustomerOrganizationId = dto.CustomerOrganizationId.Trim();
             existing.ProviderOrganizationId = dto.ProviderOrganizationId.Trim();
             existing.SupportGroupId = dto.SupportGroupId.Trim();
             existing.Role = dto.Role;
             existing.IsEnabled = dto.IsEnabled;
             existing.UpdatedUtc = DateTimeOffset.UtcNow;
-            var updated = await repo.UpdateAsync(existing);
-            return Results.Ok(ToDto(updated!));
+            SupportGroupEndpoints.RecordChange(db, actor, id, "Updated support coverage.");
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToDto(existing));
         });
 
-        group.MapDelete("/{id}", async (string id, [FromServices] IRepository<OrganizationSupportCoverage> repo) =>
-            await repo.DeleteAsync(id) ? Results.NoContent() : Results.NotFound());
+        group.MapDelete("/{id}", async (string id, HelpdeskDbContext db, ClaimsPrincipal actor, CancellationToken ct) =>
+        {
+            var existing = await db.OrganizationSupportCoverages.SingleOrDefaultAsync(coverage => coverage.Id == id, ct);
+            if (existing is null) return Results.NotFound();
+            db.OrganizationSupportCoverages.Remove(existing);
+            SupportGroupEndpoints.RecordChange(db, actor, id, "Removed support coverage.");
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
 
         app.MapPost("/api/v1/support/bootstrap/defaults", async (
             [FromServices] ISupportNotificationBootstrapper bootstrapper,
@@ -104,16 +130,25 @@ public static class OrganizationSupportCoverageEndpoints
         .RequireAuthorization("HelpdeskAdmin");
     }
 
-    private static IResult? Validate(string customerOrganizationId, string providerOrganizationId, string supportGroupId)
+    private static async Task<IResult?> ValidateAsync(
+        HelpdeskDbContext db, string customerOrganizationId, string providerOrganizationId, string supportGroupId,
+        SupportCoverageRole role, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(customerOrganizationId) ||
             string.IsNullOrWhiteSpace(providerOrganizationId) ||
-            string.IsNullOrWhiteSpace(supportGroupId))
+            string.IsNullOrWhiteSpace(supportGroupId) || !Enum.IsDefined(role))
         {
-            return Results.BadRequest("Customer organization, provider organization, and support group are required.");
+            return Results.BadRequest("Choose a customer, provider, support group and valid coverage role.");
         }
 
-        return null;
+        var customerId = customerOrganizationId.Trim();
+        var providerId = providerOrganizationId.Trim();
+        var groupId = supportGroupId.Trim();
+        var valid = await db.SupportGroups.AnyAsync(group => group.Id == groupId &&
+            group.OwningOrganizationId == providerId &&
+            db.Organizations.Any(organization => organization.Id == providerId && organization.IsEnabled) &&
+            db.Organizations.Any(organization => organization.Id == customerId && organization.IsEnabled), ct);
+        return valid ? null : Results.BadRequest("Choose enabled organizations and a group owned by the provider.");
     }
 
     private static OrganizationSupportCoverageDto ToDto(OrganizationSupportCoverage source) => new()

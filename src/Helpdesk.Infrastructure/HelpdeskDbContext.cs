@@ -88,6 +88,7 @@ public class HelpdeskDbContext(
     public DbSet<User> Users => Set<User>();
     public DbSet<ScopedRoleAssignment> ScopedRoleAssignments => Set<ScopedRoleAssignment>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<TicketQueueTransition> TicketQueueTransitions => Set<TicketQueueTransition>();
     public DbSet<WorkLog> WorkLogs => Set<WorkLog>();
     public DbSet<TicketTimelineEvent> TicketTimelineEvents => Set<TicketTimelineEvent>();
     public DbSet<TicketRelation> TicketRelations => Set<TicketRelation>();
@@ -154,6 +155,16 @@ public class HelpdeskDbContext(
     private void AdvanceAutomationVersions()
     {
         ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<Ticket>().Where(entry => entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified))
+        {
+            if (entry.Property(ticket => ticket.AssignedSupportGroupId).OriginalValue != entry.Entity.AssignedSupportGroupId ||
+                entry.Property(ticket => ticket.AssignedToId).OriginalValue != entry.Entity.AssignedToId ||
+                entry.Property(ticket => ticket.OrganizationId).OriginalValue != entry.Entity.OrganizationId)
+            {
+                var version = entry.Property(ticket => ticket.QueueAssignmentVersion);
+                version.CurrentValue = checked(version.OriginalValue + 1);
+            }
+        }
         foreach (var entry in ChangeTracker.Entries<Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateRevision>())
         {
             if (entry.State == Microsoft.EntityFrameworkCore.EntityState.Deleted ||
@@ -374,6 +385,31 @@ public class HelpdeskDbContext(
             .HasIndex(t => t.State);
         modelBuilder.Entity<Ticket>()
             .HasIndex(t => new { t.OrganizationId, t.ClosedAt });
+        modelBuilder.Entity<Ticket>(entity =>
+        {
+            entity.Property(ticket => ticket.AssignedSupportGroupId).HasMaxLength(64);
+            entity.Property(ticket => ticket.QueueAssignmentVersion).HasDefaultValue(0L).IsConcurrencyToken();
+            entity.HasOne<SupportGroup>()
+                .WithMany()
+                .HasForeignKey(ticket => ticket.AssignedSupportGroupId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(ticket => new { ticket.OrganizationId, ticket.AssignedSupportGroupId, ticket.State });
+        });
+
+        modelBuilder.Entity<TicketQueueTransition>(entity =>
+        {
+            entity.HasKey(transition => transition.Id);
+            entity.Property(transition => transition.Id).HasMaxLength(64);
+            entity.Property(transition => transition.TicketId).HasMaxLength(64);
+            entity.Property(transition => transition.OrganizationId).HasMaxLength(128);
+            entity.Property(transition => transition.PreviousSupportGroupId).HasMaxLength(64);
+            entity.Property(transition => transition.AssignedSupportGroupId).HasMaxLength(64);
+            entity.Property(transition => transition.ActorId).HasMaxLength(128);
+            entity.Property(transition => transition.PreviousAssigneeId).HasMaxLength(128);
+            entity.Property(transition => transition.AssignedToId).HasMaxLength(128);
+            entity.Property(transition => transition.Reason).HasMaxLength(1024);
+            entity.HasIndex(transition => new { transition.TicketId, transition.AssignmentVersion }).IsUnique();
+        });
 
         modelBuilder.Entity<TicketRelation>(entity =>
         {

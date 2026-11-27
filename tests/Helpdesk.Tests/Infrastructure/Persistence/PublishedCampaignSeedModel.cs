@@ -12,6 +12,7 @@ internal static class PublishedCampaignSeedModel
 {
     public static void Configure(ModelBuilder builder)
     {
+        OmitTicketQueueAssignment(builder);
         builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativeClosureReason);
         builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativelyClosedBy);
         foreach (var name in new[] { nameof(Request.SelfServiceSubmissionId), nameof(Request.SelfServiceSubmitterId),
@@ -29,6 +30,16 @@ internal static class PublishedCampaignSeedModel
         // historical rows must still be seeded through the published shape.
         builder.Entity<User>().Ignore("IsDeleted");
         builder.Entity<User>().Ignore("DeletedAtUtc");
+    }
+
+    public static void OmitTicketQueueAssignment(ModelBuilder builder)
+    {
+        var ticket = builder.Entity<Ticket>();
+        var queueForeignKey = ticket.Metadata.GetForeignKeys().Single(
+            key => key.PrincipalEntityType.ClrType == typeof(SupportGroup));
+        ticket.Metadata.RemoveForeignKey(queueForeignKey);
+        ticket.Ignore(entity => entity.AssignedSupportGroupId);
+        ticket.Ignore(entity => entity.QueueAssignmentVersion);
     }
 }
 
