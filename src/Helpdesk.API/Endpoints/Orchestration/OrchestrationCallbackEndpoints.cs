@@ -222,7 +222,7 @@ public static class OrchestrationCallbackEndpoints
 
         // A replacement attempt must match its own correlation as well as the
         // provider references. Legacy first attempts can still match by provider IDs.
-        if (task.AutomationAttemptHistoryJson is not null &&
+        if (RequestTaskRetryRecovery.IsReplacementAttempt(task) &&
             (!string.Equals(task.AutomationAttemptCorrelationId, correlationId, StringComparison.Ordinal) ||
                 !MatchesOrEmpty(dto.CorrelationId, task.AutomationAttemptCorrelationId)))
             return (null, false);

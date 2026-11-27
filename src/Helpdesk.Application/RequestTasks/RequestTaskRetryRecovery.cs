@@ -14,6 +14,10 @@ public static class RequestTaskRetryRecovery
     public static bool HasPendingRetryIntent(RequestTask task) =>
         task.AutomationContinuationPending && IsUnstartedRetry(task);
 
+    public static bool IsReplacementAttempt(RequestTask task) =>
+        task.AutomationAttemptCorrelationId?.StartsWith(AttemptPrefix, StringComparison.Ordinal) == true
+        && task.AutomationAttemptHistoryJson is { Length: > 2 };
+
     public static bool IsUnstartedRetry(RequestTask task) =>
         task.Type == RequestTaskType.Automation && task.Status == RequestTaskStatus.Pending && task.State == TicketState.New
         && task.StartedAt is null && task.CompletedAt is null && task.LastAutomationStatus is null
@@ -21,8 +25,7 @@ public static class RequestTaskRetryRecovery
         && task.AutomationOriginJson is null && task.AutomationDispatchPayloadJson is null
         && task.OrchestrationExternalRequestId is null && task.OrchestrationExternalRunId is null
         && task.OrchestratorExecutionId is null && task.ProviderDiagnostic is null
-        && task.AutomationAttemptCorrelationId?.StartsWith(AttemptPrefix, StringComparison.Ordinal) == true
-        && task.AutomationAttemptHistoryJson is not null;
+        && IsReplacementAttempt(task);
 
     internal static JsonArray ReadHistory(RequestTask task)
     {
