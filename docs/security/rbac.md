@@ -35,6 +35,43 @@ assigned tenant only. Its delegation ceiling is deliberately smaller: self
 service and the incident, request, and change read/write/delete/approval permissions. It
 cannot delegate tenant-management, data-management, or instance permissions.
 
+## Support group ticket queues
+
+Each incident, request and change belongs to Main Queue or one assigned support
+group. The queue is independent of the individual assignee. Existing tickets
+retain their assignees and enter Main Queue on upgrade.
+
+Create provider-owned groups in **People & Organizations → Support Routing**.
+Add active support agents and configure coverage for each supported customer.
+Coverage complements the customer's existing IT support organization
+relationship. The Primary, Escalation and Backup settings describe support
+routing. Group membership labels describe the member's duties.
+
+Custom tenant roles have three ticket access options:
+
+| Scope | Effective access |
+| --- | --- |
+| All authorized queues | Existing module permissions within the user's authorized organizations |
+| My support groups | Selected ticket operations within the user's active groups |
+| Selected support groups | Selected ticket operations within the intersection of the role's groups and the user's active memberships |
+
+Assigning a group-scoped role records a restriction for that user and
+organization. It covers supported customers of that organization. The group
+scope remains in effect after membership or role removal. To restore broad
+ticket access, remove the group-scoped roles and record a reason when switching
+the user's effective ticket access mode. Tenant administrators keep their
+existing authority in their own authorized organizations.
+
+Use **Queue** beside the Tenant filter to find accessible work. Moving a ticket
+requires module write and queue transfer authority at both ends. Choose whether
+to keep, clear or replace the current assignee. If the assignee cannot work in
+the destination queue, choose a valid replacement or clear the assignment.
+
+An opted-in **Ticket assigned to support group** rule sends to current members
+who can read that ticket, subject to their email preferences. The recipient
+signs in to open the ticket. Delivery checks membership and ticket access again
+before sending.
+
 ## Tenant membership delegation
 
 The tenant member directory is available at **Administration → People & Organizations →

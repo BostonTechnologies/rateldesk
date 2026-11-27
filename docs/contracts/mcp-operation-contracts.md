@@ -7,7 +7,7 @@ credential requirements, authority, identifiers and prerequisites. The API
 resolves live access; discovery does not grant permission. These MCP contracts
 apply to stdio and HTTP transports against the same product version; the
 [CLI guide](../integrations/cli-stdio.md) describes command-line syntax.
-The current catalog revision `2026-11-24.change-lifecycle-v36` contains 394
+The current catalog revision `2026-11-27.ticket-queues-v37` contains 400
 operations on 37 tools. The retained [inventory delta](mcp-operation-inventory-delta-beta13.json)
 compares the complete [beta.10 source catalog](mcp-operation-catalog-beta10.json)
 with beta.11 at revision `2026-10-25.beta11-contracts-v25`: all 389 prior
@@ -41,6 +41,16 @@ bulk creation accepts the same field on each `request.items` entry. Omitting it
 preserves existing creation semantics. Creating a draft remains a confirmed
 write, with the same authority checks. The generated schemas include this
 optional Boolean; the catalog retains all 390 operations and 37 tools.
+
+## Ticket queues
+
+The incident, request and change tools accept `supportGroupId` and `mainQueue`
+filters in `list` and `assignedSupportGroupId` in `create`. Use `queue_options`
+to resolve authorized destinations. For `move_queue`, send current ticket IDs
+and assignment versions with a named destination or explicit null for Main
+Queue. The server checks both ends and any individual assignee for every
+ticket. Send `confirm:true` to apply the assignment.
+[Ticket queue query and assignment contracts](ticket-list-queries.md#ticket-queues)
 
 ## Requests, previews and effects
 

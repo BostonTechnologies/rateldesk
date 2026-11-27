@@ -33,6 +33,24 @@ available. Priority and Change Type remain short finite menus. Save validates
 the selected IDs and organization again on the server; a stale or unauthorized
 choice does not gain authority through the picker.
 
+## Queues and assignment
+
+**Queue** filters the current authorized organization selection. Choose **Main
+Queue** for tickets without a group. Choose a named queue to see work assigned
+to that group. Clearing the filter shows your authorized queues. A named queue
+can also be selected during creation once the organization is chosen.
+
+Use the queue icon on a row or in ticket details to move a single record. Use
+**Move to queue** for selected records in the same organization. Choose a
+destination and keep, clear or replace the assignee. The replacement picker
+searches eligible assignees for the destination queue. A stale assignment version
+or incompatible assignee returns a conflict. Refresh the selection before
+retrying. Individual assignment changes on a change require Draft.
+
+Use **Claim** on an unassigned ticket when your account is eligible for its
+current queue. An assigned ticket stays in its current queue after a claim.
+[Roles and queue authority](../security/rbac.md#support-group-ticket-queues)
+
 ## State popups
 
 On an editable row, activate the colored state chip using mouse, Enter or Space.

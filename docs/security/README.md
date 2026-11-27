@@ -1,6 +1,7 @@
 # Security and access
 
 - [Roles and scoped authorization](rbac.md)
+- [Support group ticket queues](rbac.md#support-group-ticket-queues)
 - [Owner administration through HTTP MCP](rbac.md#owner-administration-through-http-mcp)
 - [Deployment security and account authentication](../deployment/self-hosting.md)
 - [Account-bound integration credential pairing](../integrations/browser-pairing.md)
