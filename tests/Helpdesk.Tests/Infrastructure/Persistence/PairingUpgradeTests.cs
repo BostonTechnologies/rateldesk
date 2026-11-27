@@ -225,6 +225,7 @@ public sealed class PairingUpgradeTests
         {
             base.OnModelCreating(modelBuilder);
             PublishedCampaignSeedModel.Configure(modelBuilder);
+            modelBuilder.Entity<IncidentCreateReceipt>().Ignore(receipt => receipt.AssignedSupportGroupId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.AutoStart);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptCorrelationId);
             modelBuilder.Entity<RequestTask>().Ignore(x => x.AutomationAttemptHistoryJson);

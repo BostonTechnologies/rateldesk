@@ -18,7 +18,9 @@ public sealed partial class IntegrationCredentialSetupProviderTests
         await using var fixture = await CreateFixtureAsync(postgres);
         var clock = new Clock();
         var request = Request(clock);
-        var permissions = HelpdeskPermissions.AssignablePermissions.Order(StringComparer.Ordinal).ToArray();
+        // The historical preset predates queue transfer. Its permission fingerprint is frozen.
+        var permissions = HelpdeskPermissions.AssignablePermissions.Where(permission => permission != HelpdeskPermissions.TicketQueueTransfer)
+            .Order(StringComparer.Ordinal).ToArray();
         // Seed the catalog the old release wrote, including its HTTP-only boundary.
         using var historical = JsonDocument.Parse(await File.ReadAllTextAsync(
             Path.Combine(TestEnvironment.RepositoryRoot, "tools", "ci", "beta10-operation-ids.json")));

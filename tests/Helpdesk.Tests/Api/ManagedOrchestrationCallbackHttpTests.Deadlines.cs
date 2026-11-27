@@ -730,6 +730,8 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             base.OnModelCreating(builder);
             builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativeClosureReason);
             builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativelyClosedBy);
+            builder.Entity<Ticket>().Ignore(ticket => ticket.AssignedSupportGroupId);
+            builder.Entity<Ticket>().Ignore(ticket => ticket.QueueAssignmentVersion);
             builder.Entity<Request>().Ignore(request => request.OperatorHold);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationOriginJson);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationDispatchPayloadJson);
