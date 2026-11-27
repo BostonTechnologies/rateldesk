@@ -279,7 +279,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
             if (eventData.Context!.ChangeTracker.Entries<RequestTask>().Any(entry =>
-                    entry.State == EntityState.Modified && RequestTaskRetryRecovery.HasPendingRetryIntent(entry.Entity)))
+                    entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified && RequestTaskRetryRecovery.HasPendingRetryIntent(entry.Entity)))
             {
                 Reached.TrySetResult();
                 await Release.Task.WaitAsync(cancellationToken);
