@@ -7,6 +7,7 @@ using Helpdesk.API.Endpoints.Tickets;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.Tickets;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Security;
@@ -28,6 +29,42 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class PublicTicketEndpointsTests
 {
+    [Fact]
+    public async Task Old_ticket_view_grant_stops_working_for_restricted_workforce_but_requester_access_is_independent()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var ticket = new Incident();
+        await harness.SeedAsync(ticket);
+        const string recipient = "vendor@example.test";
+        var launch = await PublicLinkFixture.IssueAsync(harness.Services, ticket.Id, recipient);
+        var unusedLaunch = await PublicLinkFixture.IssueAsync(harness.Services, ticket.Id, recipient);
+        var grant = await PublicLinkFixture.ExchangeAsync(harness.Services, launch);
+
+        await using var scope = harness.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+        var current = await db.Incidents.IgnoreQueryFilters().SingleAsync(row => row.Id == ticket.Id);
+        var vendor = new User { Id = "public-link-vendor", OrganizationId = current.OrganizationId, Email = recipient };
+        db.Users.Add(vendor);
+        await TicketWorkforceRestrictions.EnsureAsync(db, current.OrganizationId!, [vendor.Id], "synthetic-admin", default);
+        await db.SaveChangesAsync();
+
+        using var denied = await PublicLinkFixture.SendAsync(harness.Client, grant, "ticket");
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        using var deniedExchange = await harness.ExchangeAsync(new(unusedLaunch, null, PublicLinkFixture.Browser()));
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedExchange.StatusCode);
+        var service = scope.ServiceProvider.GetRequiredService<PublicLinkService>();
+        Assert.Empty(await service.IssueAsync(current, recipient, PublicLinkPurpose.Ticket, "https://desk.example.test", default));
+
+        var customer = new Customer { Id = "vendor-as-customer", OrganizationId = current.OrganizationId!, Email = recipient };
+        db.Customers.Add(customer);
+        current.CustomerId = customer.Id;
+        await db.SaveChangesAsync();
+        var requesterGrant = await PublicLinkFixture.ExchangeAsync(harness.Services,
+            await PublicLinkFixture.IssueAsync(harness.Services, current.Id, recipient));
+        using var requesterView = await PublicLinkFixture.SendAsync(harness.Client, requesterGrant, "ticket");
+        Assert.Equal(HttpStatusCode.OK, requesterView.StatusCode);
+    }
+
     [Theory]
     [InlineData("request", false)]
     [InlineData("request", true)]

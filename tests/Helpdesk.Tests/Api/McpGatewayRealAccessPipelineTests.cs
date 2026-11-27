@@ -15,6 +15,7 @@ using Helpdesk.API.Endpoints.Email;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Integrations;
 using Helpdesk.API.Endpoints.Requests;
+using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.API.Endpoints.Orchestration;
 using Helpdesk.API.Endpoints.Organization;
 using Helpdesk.API.Endpoints.Ticketing;
@@ -106,9 +107,23 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         var deniedRead = await tools.helpdesk_incidents("get", JsonSerializer.SerializeToElement(new { incidentId = "queue-hidden" }));
         Assert.False(deniedRead.Success);
         Assert.Equal(404, deniedRead.Failure!.UpstreamStatus);
+
+        var taskCredential = await harness.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.RequestRead);
+        var taskExecution = await harness.DelegateAsync(taskCredential);
+        var tasks = await harness.GetAsync<PagedResponse<RequestTaskListItemDto>>(taskExecution, "/api/v1/request-tasks/?q=Queue&includeTotal=true");
+        Assert.Equal(HttpStatusCode.OK, tasks.StatusCode);
+        Assert.Equal(1, tasks.Body!.TotalCount);
+        var task = Assert.Single(tasks.Body.Items);
+        Assert.Equal("task-visible", task.Id);
+        Assert.Null(task.OrchestrationExternalRunId);
+        using var hiddenTask = await harness.GetAsync(taskExecution, "/api/v1/request-tasks/task-hidden");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenTask.StatusCode);
+
         await harness.RevokeQueueMembershipAsync();
         using var revoked = await harness.GetAsync(execution, "/api/v1/incidents/queue-visible");
         Assert.Contains(revoked.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+        using var revokedTask = await harness.GetAsync(taskExecution, "/api/v1/request-tasks/task-visible");
+        Assert.Contains(revokedTask.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
 
         Task<HttpResponseMessage> TransferAsync(string id, string destination) => harness.SendAsync(execution, HttpMethod.Post,
             "/api/v1/ticket-queues/incident/assignment",
@@ -582,6 +597,7 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             app.MapSelfServiceMyRequestsEndpoints();
             app.MapIncidentEndpoints();
             app.MapRequestEndpoints();
+            app.MapRequestTaskEndpoints();
             app.MapTicketQueueEndpoints();
             app.MapTicketRelationEndpoints();
             app.MapExternalOrchestrationEndpoints();
@@ -697,7 +713,7 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             {
                 Key = "custom.queue-operator", Name = "App Vendor Operator", OwnerOrganizationId = "org-a",
                 TicketAccessScope = TicketAccessScope.SelectedSupportGroups,
-                Permissions = new[] { HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.TicketQueueTransfer }
+                Permissions = new[] { HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.RequestRead, HelpdeskPermissions.TicketQueueTransfer }
                     .Select(permission => new RolePermission { Permission = permission }).ToList()
             };
             role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = "app-vendor" });
@@ -715,6 +731,11 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             db.TicketRelations.AddRange(
                 new TicketRelation { SourceTicketId = "queue-visible", TargetTicketId = "queue-linked", RelationType = TicketRelationType.RelatedTo },
                 new TicketRelation { SourceTicketId = "queue-visible", TargetTicketId = "queue-hidden", RelationType = TicketRelationType.RelatedTo });
+            db.Requests.Add(new Request { Id = "request-visible", OrganizationId = "org-a", Title = "Queue workflow", AssignedSupportGroupId = "app-vendor" });
+            db.RequestTasks.AddRange(
+                new RequestTask { Id = "task-visible", RequestId = "request-visible", OrganizationId = "org-a", Name = "Queue task",
+                    OrchestrationExternalRunId = "internal-run-reference" },
+                new RequestTask { Id = "task-hidden", RequestId = "request-a", OrganizationId = "org-a", Name = "Queue task in Main" });
             await db.SaveChangesAsync();
         }
 

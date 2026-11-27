@@ -167,12 +167,7 @@ public static class RequestEndpoints
                 .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
                 .ToListAsync(token);
             if (restricted)
-                return Results.Ok(tasks.Select(t => new RequestTaskDto
-                {
-                    Id = t.Id, Name = t.Name, Description = t.Description, Type = t.Type, Status = t.Status,
-                    Order = t.Order, AssignedToId = t.AssignedToId, StateVersion = t.AutomationStateVersion,
-                    StartedAt = t.StartedAt, CompletedAt = t.CompletedAt, DueAt = t.DueAt
-                }).ToArray());
+                return Results.Ok(tasks.Select(RequestTaskEndpoints.ToScopedDto).ToArray());
             var bindingStates = await LoadAutomationBindingStatesAsync(
                 db,
                 request.RequestFormId,
@@ -864,8 +859,9 @@ public static class RequestEndpoints
                 dto.Notes,
                 techId,
                 techName,
-                NotifyCustomer: !dto.IsInternalNote,
-                IsInternalNote: dto.IsInternalNote));
+                NotifyCustomer: !dto.IsInternalNote && !authorization.Access!.HasRestrictedWorkforceAccess,
+                IsInternalNote: dto.IsInternalNote,
+                AuthorizedTicket: authorization.Access.HasRestrictedWorkforceAccess ? authorization.Ticket : null));
 
             var response = new WorkLogDto
             {
@@ -880,7 +876,7 @@ public static class RequestEndpoints
                 TechnicianName = user.Identity?.Name
             };
             return Results.Created($"/api/v1/worklogs/{response.Id}", response);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapDelete("/{id}", async (
             [FromRoute] string id,

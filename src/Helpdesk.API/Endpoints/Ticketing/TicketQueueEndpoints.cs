@@ -20,7 +20,7 @@ public static class TicketQueueEndpoints
     public static void MapTicketQueueEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/ticket-queues/{module}")
-            .WithTags("Ticket queues")
+            .WithTags("Ticket Queues")
             .RequireAuthorization("TicketReadAccess")
             .WithMetadata(new QueueAwareEndpoint());
         group.MapGet("/", GetOptionsAsync).WithName("SearchTicketQueues");

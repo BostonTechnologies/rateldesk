@@ -327,6 +327,11 @@ public sealed class McpOperationCatalogTests
     private static JsonElement? ContractRequest(McpOperationDefinition operation)
     {
         if (operation.RequestContract == "None") return null;
+        if (operation.RequestContract is "TicketQueueOptionsRequest" or "MoveTicketQueueRequest")
+        {
+            var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(ToolSchemas[operation.Tool], operation.Operation);
+            return JsonSerializer.SerializeToElement(arguments["request"]);
+        }
         if (operation.RequestContract == "OperatorRequest")
         {
             var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(ToolSchemas[operation.Tool], operation.Operation);

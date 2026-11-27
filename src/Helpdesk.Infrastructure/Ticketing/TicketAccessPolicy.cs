@@ -27,7 +27,7 @@ public static class TicketAccessPolicy
         _ => throw new ArgumentOutOfRangeException(nameof(ticket))
     };
 
-    public static IQueryable<T> Readable<T>(IQueryable<T> tickets, CurrentUserAccessProfile access, TicketType module)
+    public static IQueryable<T> Readable<T>(IQueryable<T> tickets, CurrentUserAccessProfile access, TicketType module, bool includeOwned = true)
         where T : Ticket
     {
         if (!access.IsAuthenticated) return tickets.Where(ticket => false);
@@ -35,8 +35,8 @@ public static class TicketAccessPolicy
 
         var permissions = For(module);
         var broadOrganizations = access.OrganizationIdsForAny(permissions.Read, permissions.Write, permissions.Manager).ToArray();
-        var ownOrganizations = access.OrganizationIdsFor(permissions.Own).Except(access.RestrictedTicketOrganizationIds).ToArray();
-        var customerId = access.CustomerId;
+        var ownOrganizations = includeOwned ? access.OrganizationIdsFor(permissions.Own).Except(access.RestrictedTicketOrganizationIds).ToArray() : [];
+        var customerId = includeOwned ? access.CustomerId : null;
         Expression<Func<T, bool>> visible = ticket =>
             (ticket.OrganizationId != null && broadOrganizations.Contains(ticket.OrganizationId)) ||
             (customerId != null && ticket.OrganizationId != null && ownOrganizations.Contains(ticket.OrganizationId)

@@ -169,14 +169,14 @@ public static class AttachmentEndpoints
     }
 
     private static bool CanAccessTicket(CurrentUserAccessProfile access, Ticket ticket, bool requireManager) =>
-        requireManager
+        ticket is Incident or Request or Change && (requireManager
             ? TicketAccessPolicy.CanWrite(access, ticket) || CanSelfServiceUpload(access, ticket)
-            : TicketAccessPolicy.CanRead(access, ticket);
+            : TicketAccessPolicy.CanRead(access, ticket));
 
     private static bool CanSelfServiceUpload(CurrentUserAccessProfile access, Ticket ticket) =>
         ticket is Incident or Request &&
-        access.CustomerId != null && access.CustomerId == ticket.CustomerId &&
-        (ticket.OrganizationId == null || !access.RestrictedTicketOrganizationIds.Contains(ticket.OrganizationId)) &&
+        (!access.HasRestrictedWorkforceAccess || (access.CustomerId != null && access.CustomerId == ticket.CustomerId &&
+            (ticket.OrganizationId == null || !access.RestrictedTicketOrganizationIds.Contains(ticket.OrganizationId)))) &&
         access.HasPermission(HelpdeskPermissions.SelfServiceUser, ticket.OrganizationId) &&
         TicketAccessPolicy.CanRead(access, ticket);
 }

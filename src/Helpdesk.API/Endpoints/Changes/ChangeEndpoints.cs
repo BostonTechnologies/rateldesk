@@ -1090,19 +1090,18 @@ public static partial class ChangeEndpoints
         {
             var authorization = await AuthorizeChangeAsync(id, user, accessService, db, requireManager: false, token);
             if (authorization.Failure is not null) return authorization.Failure;
-            var change = await db.Changes.AsNoTracking().FirstOrDefaultAsync(candidate => candidate.Id == id, token);
-            if (change is null) return Results.NotFound();
+            var change = authorization.Ticket!;
             var current = EffectiveLifecycleState(change);
             var access = authorization.Access!;
             var template = changeTemplateService.DeserializeTemplate(change.ChangeTemplateJson);
             var validation = changeTemplateService.ValidateTemplate(change.ChangeType, template);
             var hasPendingApprovals = await db.ChangeApprovals.AsNoTracking()
                 .AnyAsync(approval => approval.ChangeId == id && approval.Status == ChangeApprovalStatus.Pending, token);
-            var canManage = access.CanManageChange(change.OrganizationId);
+            var canManage = TicketAccessPolicy.CanWrite(access, change);
             var choices = Enum.GetValues<ChangeLifecycleState>()
                 .Where(target => target != current && ChangeLifecycle.ValidateTransition(current, target, detail: detail == true) is null)
                 .Where(target => target == ChangeLifecycleState.ApprovedForImplementation
-                    ? access.CanApproveChange(change.OrganizationId) : canManage)
+                    ? TicketAccessPolicy.CanPerformWorkflowAction(access, change) : canManage)
                 .Select(target => new ChangeLifecycleOptionDto(target,
                     target == ChangeLifecycleState.ApprovedForImplementation && hasPendingApprovals
                         ? "Outstanding approvals must be completed in the change details."
@@ -1113,7 +1112,7 @@ public static partial class ChangeEndpoints
                     RequiresComment = ChangeLifecycle.RequiresComment(current, target),
                     RequiresDetailUpdate = detail == true && ChangeLifecycle.ValidateTransition(current, target) is not null
                 })
-                .Where(option => !option.RequiresDetailUpdate || canManage)
+                .Where(option => !option.RequiresDetailUpdate || (canManage && !access.HasRestrictedWorkforceAccess))
                 .ToArray();
             var guidance = current == ChangeLifecycleState.Draft
                 ? "Submit evaluates the saved template and approvals. The change may remain Draft until its template is complete."
@@ -1122,6 +1121,7 @@ public static partial class ChangeEndpoints
                     : choices.Length == 0 ? "No lifecycle actions are available with your current permissions." : null;
             return Results.Ok(new ChangeLifecycleOptionsDto(change.Id, current, choices, guidance) { UpdatedAt = change.UpdatedAt });
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("GetChangeLifecycleOptions")
         .WithSummary("Gets current, permitted lifecycle actions without changing the change");
 
@@ -1158,10 +1158,11 @@ public static partial class ChangeEndpoints
                 var access = await accessService.ResolveAsync(user, token);
                 var isApproval = req.LifecycleState == ChangeLifecycleState.ApprovedForImplementation;
                 if (isApproval
-                    ? !access.CanApproveChange(change.OrganizationId)
-                    : !access.CanManageChange(change.OrganizationId))
+                    ? !TicketAccessPolicy.CanPerformWorkflowAction(access, change)
+                    : !TicketAccessPolicy.CanWrite(access, change))
                 {
-                    return Results.Forbid();
+                    return access.HasRestrictedWorkforceAccess && !TicketAccessPolicy.CanRead(access, change)
+                        ? Results.NotFound() : Results.Forbid();
                 }
 
                 if (!await FenceChangeDecisionAsync(db, change, token)) return ChangeApprovalConflict();
@@ -1198,7 +1199,7 @@ public static partial class ChangeEndpoints
                     nextLifecycleState = ResolveInitialLifecycleState(
                         currentTemplateValidation.IsComplete,
                         change.ApproverUserIds,
-                        access.CanApproveChange(change.OrganizationId));
+                        TicketAccessPolicy.CanPerformWorkflowAction(access, change));
                 }
 
                 if (nextLifecycleState == ChangeLifecycleState.ApprovedForImplementation &&
@@ -1327,6 +1328,7 @@ public static partial class ChangeEndpoints
                 return ChangeApprovalConflict();
             }
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("QuickUpdateChangeLifecycle")
         .WithSummary("Quick update change lifecycle")
         .WithDescription("Updates one change lifecycle state from a list row state picker.")
@@ -1398,8 +1400,9 @@ public static partial class ChangeEndpoints
                 dto.Notes,
                 techId,
                 techName,
-                NotifyCustomer: !dto.IsInternalNote,
-                IsInternalNote: dto.IsInternalNote));
+                NotifyCustomer: !dto.IsInternalNote && !authorization.Access!.HasRestrictedWorkforceAccess,
+                IsInternalNote: dto.IsInternalNote,
+                AuthorizedTicket: authorization.Access.HasRestrictedWorkforceAccess ? authorization.Ticket : null));
 
             var response = new WorkLogDto
             {
@@ -1414,7 +1417,7 @@ public static partial class ChangeEndpoints
                 TechnicianName = techName
             };
             return Results.Created($"/api/v1/worklogs/{response.Id}", response);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapDelete("/{id}", async (
             [FromRoute] string id,

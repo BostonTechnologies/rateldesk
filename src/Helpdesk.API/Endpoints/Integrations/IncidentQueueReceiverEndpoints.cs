@@ -16,7 +16,7 @@ public static class IncidentQueueReceiverEndpoints
     public static void MapIncidentQueueReceiverEndpoints(this IEndpointRouteBuilder app)
     {
         const string prefix = "/api/v1/integrations/netratel";
-        var group = app.MapGroup(prefix).WithTags("NetRatel Incident Receiver")
+        var group = app.MapGroup(prefix).WithTags("NetRatel Queue Routing")
             .RequireAuthorization().WithMetadata(new QueueAwareEndpoint());
         group.AddEndpointFilter(async (context, next) =>
         {

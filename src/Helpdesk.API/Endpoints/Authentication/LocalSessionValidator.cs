@@ -13,7 +13,7 @@ public static class LocalSessionValidator
     public static async Task<bool> IsValidAsync(HttpContext context, CancellationToken cancellationToken = default)
     {
         if (context.GetEndpoint()?.Metadata.GetMetadata<QueueAwareEndpoint>() is null &&
-            context.RequestServices.GetService<ICurrentUserAccessService>() is { } accessService &&
+            context.RequestServices?.GetService<ICurrentUserAccessService>() is { } accessService &&
             (await accessService.ResolveAsync(context.User, cancellationToken)).HasRestrictedWorkforceAccess)
             return false;
         if (context.User.HasClaim("auth_mode", "integration"))

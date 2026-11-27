@@ -5,9 +5,11 @@ using Helpdesk.Application.Messaging;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Request;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -66,6 +68,8 @@ public static class RequestTaskEndpoints
             {
                 return Results.Forbid();
             }
+            var restricted = access.HasRestrictedWorkforceAccess;
+            if (restricted && !string.IsNullOrWhiteSpace(serviceId)) return Results.Forbid();
 
             if (q?.Length > 200)
                 return Results.BadRequest(new { error = "Search is limited to 200 characters." });
@@ -76,9 +80,12 @@ public static class RequestTaskEndpoints
             var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
             var shouldFilterAssignedToMe = assignedToMe ?? false;
 
+            var requests = restricted
+                ? TicketAccessPolicy.Readable(db.Requests.AsNoTracking(), access, TicketType.Request, includeOwned: false)
+                : db.Requests.AsNoTracking();
             var query =
                 from task in db.RequestTasks.AsNoTracking()
-                join request in db.Requests.AsNoTracking() on task.RequestId equals request.Id
+                join request in requests on task.RequestId equals request.Id
                 join assignedUser in db.Users.AsNoTracking() on task.AssignedToId equals assignedUser.Id into assignedUsers
                 from assignedUser in assignedUsers.DefaultIfEmpty()
                 select new
@@ -90,7 +97,7 @@ public static class RequestTaskEndpoints
 
             query = query.Where(x => x.Task.OrganizationId == x.Request.OrganizationId);
 
-            if (!access.IsHelpdeskAdmin)
+            if (!access.IsHelpdeskAdmin && !restricted)
             {
                 var requestManagerOrganizationIds = RequestReaderOrganizationIds(access).ToArray();
                 if (requestManagerOrganizationIds.Length == 0)
@@ -184,6 +191,23 @@ public static class RequestTaskEndpoints
                 .Take(effectivePageSize)
                 .ToListAsync(token);
 
+            if (restricted)
+                return Results.Ok(new PagedResponse<RequestTaskListItemDto>
+                {
+                    Page = effectivePage,
+                    PageSize = effectivePageSize,
+                    TotalCount = includeTotal ? totalCount : taskRows.Count,
+                    Items = taskRows.Select(x => new RequestTaskListItemDto
+                    {
+                        Id = x.Task.Id, RequestId = x.Task.RequestId, OrganizationId = x.Task.OrganizationId,
+                        RequestTrackingId = x.Request.TrackingId, RequestTitle = x.Request.Title, Name = x.Task.Name,
+                        Type = x.Task.Type, Status = x.Task.Status, AssignedToId = x.Task.AssignedToId,
+                        Order = x.Task.Order, StateVersion = x.Task.AutomationStateVersion,
+                        CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(x.Task.CreatedAt, DateTimeKind.Utc)),
+                        StartedAt = x.Task.StartedAt, DueAt = x.Task.DueAt
+                    }).ToList()
+                });
+
             var bindingStates = await LoadAutomationBindingStatesAsync(
                 db,
                 taskRows.Select(x => (RequestFormId: x.Request.RequestFormId, TemplateId: (string?)x.Task.TemplateId)),
@@ -260,7 +284,7 @@ public static class RequestTaskEndpoints
                 TotalCount = includeTotal ? totalCount : items.Count,
                 Items = items
             });
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapGet("/{id}", async (
             [FromRoute] string id,
@@ -275,16 +299,23 @@ public static class RequestTaskEndpoints
                 return Results.Forbid();
             }
 
-            var task = await db.RequestTasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
+            var query = db.RequestTasks.AsNoTracking();
+            if (access.HasRestrictedWorkforceAccess)
+            {
+                var visible = TicketAccessPolicy.Readable(db.Requests.AsNoTracking(), access, TicketType.Request, includeOwned: false);
+                query = query.Where(task => visible.Any(request => request.Id == task.RequestId && request.OrganizationId == task.OrganizationId));
+            }
+            var task = await query.FirstOrDefaultAsync(x => x.Id == id, token);
             if (task is null)
             {
                 return Results.Problem("Task not found", statusCode: 404);
             }
 
+            if (access.HasRestrictedWorkforceAccess) return Results.Ok(ToScopedDto(task));
             return CanReadOrganization(access, task.OrganizationId)
                 ? Results.Ok(task)
                 : Results.Forbid();
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/", async (
             [FromBody] CreateRequestTaskDto dto,
@@ -975,6 +1006,13 @@ public static class RequestTaskEndpoints
 
     internal static bool CanReadTasks(CurrentUserAccessProfile access) =>
         CanManageTasks(access) || access.HasPermission(HelpdeskPermissions.RequestRead);
+
+    internal static RequestTaskDto ToScopedDto(RequestTask task) => new()
+    {
+        Id = task.Id, Name = task.Name, Description = task.Description, Type = task.Type, Status = task.Status,
+        Order = task.Order, AssignedToId = task.AssignedToId, StateVersion = task.AutomationStateVersion,
+        StartedAt = task.StartedAt, CompletedAt = task.CompletedAt, DueAt = task.DueAt
+    };
 
     internal static bool CanReadOrganization(CurrentUserAccessProfile access, string? organizationId) =>
         access.IsHelpdeskAdmin || organizationId is not null && RequestReaderOrganizationIds(access).Contains(organizationId);
