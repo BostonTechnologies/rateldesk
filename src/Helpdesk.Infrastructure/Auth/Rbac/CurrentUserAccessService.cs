@@ -26,7 +26,13 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         _identityDb = identityDb;
     }
 
-    public async Task<CurrentUserAccessProfile> ResolveAsync(ClaimsPrincipal user, CancellationToken ct = default)
+    public Task<CurrentUserAccessProfile> ResolveAsync(ClaimsPrincipal user, CancellationToken ct = default) =>
+        ResolveAccountAsync(user, useObservedProviderClaims: true, ct);
+
+    internal Task<CurrentUserAccessProfile> ResolveStoredAccountAsync(ClaimsPrincipal user, CancellationToken ct) =>
+        ResolveAccountAsync(user, useObservedProviderClaims: false, ct);
+
+    private async Task<CurrentUserAccessProfile> ResolveAccountAsync(ClaimsPrincipal user, bool useObservedProviderClaims, CancellationToken ct)
     {
         if (user.Identity?.IsAuthenticated != true)
         {
@@ -74,6 +80,7 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
             var external = await ReadExternalAccountAsync(issuer, subject, ct);
             if (external.Removed) return Empty(false);
             externalAccount = external.Account;
+            if (!useObservedProviderClaims && externalAccount == null) return Empty(false);
         }
         if (externalAccount?.IsDeleted == true) return Empty(false);
         if (externalAccount is { IsEnabled: false }) return Empty(true);
@@ -91,12 +98,13 @@ public sealed class CurrentUserAccessService : ICurrentUserAccessService
         var bundles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var scopedPermissionGrants = new HashSet<ScopedPermissionGrant>();
         var isAdmin = localAccount?.IsInstanceAdministrator == true ||
+                      (!useObservedProviderClaims && externalAccount?.IsInstanceAdministrator == true) ||
                       groups.Contains(HelpdeskPermissions.HelpdeskAdmin) ||
                       groups.Contains(AuthentikRbacGroups.HelpdeskAdmin);
 
         // Provider claims remain the authority for OIDC-only accounts. Persist
         // the current projection for account-bound credentials, including removal.
-        if (externalAccount is not null && externalAccount.IsInstanceAdministrator != isAdmin)
+        if (useObservedProviderClaims && externalAccount is not null && externalAccount.IsInstanceAdministrator != isAdmin)
         {
             externalAccount.IsInstanceAdministrator = isAdmin;
             externalAccount.AuthorizationRevision++;

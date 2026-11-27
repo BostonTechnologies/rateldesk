@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.SupportNotifications;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Ticketing;
 using Microsoft.Data.Sqlite;
@@ -43,7 +44,10 @@ public static class AssigneeQueries
         var claims = link is { LocalAccountId: null, OidcIssuer.Length: > 0, OidcSubject.Length: > 0 }
             ? new[] { new Claim("iss", link.OidcIssuer), new Claim("sub", link.OidcSubject) }
             : [new Claim("auth_mode", "local"), new Claim(ClaimTypes.NameIdentifier, link?.LocalAccountId ?? domainUserId)];
-        return await accessService.ResolveAsync(new ClaimsPrincipal(new ClaimsIdentity(claims, "TicketAssignment")), ct);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "TicketAssignment"));
+        return accessService is CurrentUserAccessService resolver
+            ? await resolver.ResolveStoredAccountAsync(principal, ct)
+            : await accessService.ResolveAsync(principal, ct);
     }
     public static IQueryable<User> Eligible(HelpdeskDbContext db, string module, Helpdesk.Shared.Models.Organization organization) =>
         Eligible(db, module, db.Organizations.Where(candidate => candidate.Id == organization.Id));
