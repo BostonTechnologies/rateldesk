@@ -18,6 +18,17 @@ namespace Helpdesk.Tests.Api;
 [Collection("Incident receiver")]
 public sealed class AutomationTraceabilityTests
 {
+    [Fact]
+    public void Queue_fingerprint_matches_the_documented_vector_with_the_frozen_v2_payload()
+    {
+        var path = Path.Combine(TestEnvironment.RepositoryRoot, "docs", "contracts", "rateldesk-incident-create.v2.fixtures.json");
+        using var vector = JsonDocument.Parse(File.ReadAllText(path));
+        var incident = vector.RootElement.GetProperty("create").Deserialize<AutomationIncidentCreate>(AutomationTraceValidation.Json)!;
+        Assert.Equal(vector.RootElement.GetProperty("fingerprint").GetString(), AutomationTraceValidation.Fingerprint(incident));
+        Assert.Equal("bcfab6e3eb8b9e5a3a5f20d258bb2098e8af3e471c02cdd299ae5715ca4300b9",
+            IncidentQueueContract.Fingerprint(incident, "app-vendor"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
