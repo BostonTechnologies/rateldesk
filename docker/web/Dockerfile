@@ -1,5 +1,5 @@
 # 1) Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-alpine3.24 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:11.0.0-alpine3.24 AS base
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8111
 # Enable full globalization support (ICU) for culture-sensitive components
