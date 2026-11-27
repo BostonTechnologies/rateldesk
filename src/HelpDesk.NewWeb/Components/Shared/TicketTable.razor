@@ -32,6 +32,10 @@
                               ReadOnly="@(BulkOrganizationId is null)" Busy="_bulkAssigning" SelectionChanged="OnBulkAssigneeChanged" />
             <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="RequestBulkAssign"
                        Disabled="@(BulkOrganizationId is null || !_bulkChoiceMade || _bulkAssigning)">Assign</MudButton>
+            @if (CanTransferSelection)
+            {
+                <MudButton Variant="Variant.Outlined" OnClick="BulkQueueRequested">Move to queue</MudButton>
+            }
 
             @if (BulkActions.Count > 0)
             {
@@ -88,6 +92,7 @@
         }
         <MudTh Class="ticket-subject-column">Subject</MudTh>
         <MudTh>State</MudTh>
+        @if (QueueTemplate is not null) { <MudTh>Queue</MudTh> }
         <MudTh>Assignee</MudTh>
         <MudTh>Priority</MudTh>
     </HeaderContent>
@@ -134,6 +139,7 @@
                 @RenderDefaultState(context)
             }
         </MudTd>
+        @if (QueueTemplate is not null) { <MudTd DataLabel="Queue">@QueueTemplate(context)</MudTd> }
         <MudTd DataLabel="Assignee">
             @if (AssigneeTemplate is not null)
             {
@@ -169,11 +175,14 @@
     [Parameter] public RenderFragment<TTicket>? SubjectTemplate { get; set; }
     [Parameter] public RenderFragment<TTicket>? StateTemplate { get; set; }
     [Parameter] public RenderFragment<TTicket>? AssigneeTemplate { get; set; }
+    [Parameter] public RenderFragment<TTicket>? QueueTemplate { get; set; }
     [Parameter] public RenderFragment<TTicket>? CustomerTemplate { get; set; }
     [Parameter] public HashSet<TTicket> SelectedItems { get; set; } = new();
     [Parameter] public EventCallback<HashSet<TTicket>> SelectedItemsChanged { get; set; }
     [Parameter] public EventCallback BulkStateRequested { get; set; }
     [Parameter] public EventCallback BulkAssignRequested { get; set; }
+    [Parameter] public EventCallback BulkQueueRequested { get; set; }
+    [Parameter] public bool CanTransferSelection { get; set; }
     [Parameter] public IReadOnlyList<BulkActionOption> BulkActions { get; set; } = [];
     [Parameter] public EventCallback<string> BulkActionRequested { get; set; }
     [Parameter] public bool EnableSelection { get; set; }

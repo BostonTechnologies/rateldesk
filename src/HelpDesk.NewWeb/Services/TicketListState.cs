@@ -12,6 +12,8 @@ public sealed class TicketListState
     public List<string> ForIds { get; set; } = [];
     public List<string> States { get; set; } = [];
     public List<string> AssigneeIds { get; set; } = [];
+    public List<string> SupportGroupIds { get; set; } = [];
+    public bool MainQueue { get; set; }
     public List<string> Priorities { get; set; } = [];
     public bool Unassigned { get; set; }
     public string View { get; set; } = "active";
@@ -24,7 +26,8 @@ public sealed class TicketListState
     public bool Descending { get; set; } = true;
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 25;
-    public int ActiveCount => CustomerOrgIds.Count + ForIds.Count + States.Count + AssigneeIds.Count + Priorities.Count + (Unassigned ? 1 : 0) + (From.HasValue ? 1 : 0) + (To.HasValue ? 1 : 0);
+    public int ActiveCount => CustomerOrgIds.Count + ForIds.Count + States.Count + AssigneeIds.Count + Priorities.Count +
+        SupportGroupIds.Count + (MainQueue ? 1 : 0) + (Unassigned ? 1 : 0) + (From.HasValue ? 1 : 0) + (To.HasValue ? 1 : 0);
 
     public static TicketListState Parse(string uri, bool changes)
     {
@@ -35,6 +38,7 @@ public sealed class TicketListState
             HasExplicitTimeZone = q.ContainsKey("tz"),
             Search = One("search", One("q")), CustomerOrgIds = Many("customerOrgId"), ForIds = Many("forId"), States = Many("stateValues"),
             AssigneeIds = Many("assigneeId"), Priorities = Many("priority"), Unassigned = One("unassigned") == "true",
+            SupportGroupIds = Many("supportGroupId"), MainQueue = One("mainQueue") == "true",
             View = One("view", One("historicOnly") == "true" ? "historic" : "active"),
             TimeField = One("timeField", "updated"), TimeZone = One("tz", "UTC"), Sort = One("sort", "updated"), Descending = One("descending", "true") != "false",
             Page = int.TryParse(One("page"), out var page) ? Math.Clamp(page, 1, 1_000_000) : 1,
@@ -64,6 +68,8 @@ public sealed class TicketListState
         foreach (var id in ForIds) Add("forId", id);
         foreach (var id in States) Add("stateValues", id);
         foreach (var id in AssigneeIds) Add("assigneeId", id);
+        foreach (var id in SupportGroupIds) Add("supportGroupId", id);
+        if (MainQueue) Add("mainQueue", "true");
         foreach (var id in Priorities) Add("priority", id);
         if (Unassigned) Add("unassigned", "true");
         Add("view", States.Count > 0 ? "all" : View);

@@ -40,7 +40,9 @@
                  InitialPage="@(filters.Page - 1)" PageSize="filters.PageSize" QueryError="@queryError"
                  @ref="_table"
                  TicketType="incidents"
-                 CanEditItem="@(item => accessProfile?.CanManageIncident(item.OrganizationId) == true)"
+                 CanTransferSelection="@(_selected.Count > 0 && _selected.All(item => TicketQueueActions.CanTransfer(accessProfile, "incident", item.OrganizationId, item.AssignedSupportGroupId)))"
+                 BulkQueueRequested="MoveSelectedToQueueAsync"
+                 CanEditItem="@(item => TicketQueueActions.CanWrite(accessProfile, "incident", item.OrganizationId, item.AssignedSupportGroupId))"
                  IsStateWriteDenied="@(id => deniedStateWrites.Contains(id))" StateWriteDenied="RememberStateWriteDenial"
                  EnableSelection="@CanWriteAny"
                  ServerData="LoadServerData"
@@ -51,6 +53,11 @@
                  BulkAssignRequested="ApplyBulkAssign"
                  BulkActions="AvailableBulkActions"
                  BulkActionRequested="ApplyBulkAction">
+        <QueueTemplate Context="incident">
+            <TicketQueueLabel Module="incident" TicketId="@incident.Id" OrganizationId="@incident.OrganizationId"
+                              GroupId="@incident.AssignedSupportGroupId" Name="@incident.AssignedSupportGroupName" Version="@incident.QueueAssignmentVersion"
+                              Unassigned="@(incident.AssignedToId == null)" Access="@accessProfile" Changed="Reload" />
+        </QueueTemplate>
         <SubjectTemplate Context="incident">
             <MudStack Spacing="0">
                 <IncidentSubjectWithPeek IncidentId="@incident.Id"
@@ -125,6 +132,16 @@
 
     private TicketTable<IncidentDto>? _table;
     private HashSet<IncidentDto> _selected = new();
+
+    private async Task MoveSelectedToQueueAsync()
+    {
+        if (await TicketQueueActions.MoveAsync(DialogService, Snackbar, "incident",
+                _selected.Select(item => (item.Id, item.OrganizationId, item.QueueAssignmentVersion))))
+        {
+            _selected.Clear();
+            await Reload();
+        }
+    }
     private IReadOnlyList<TicketTable<IncidentDto>.BulkActionOption> AvailableBulkActions =>
         _selected.Count > 0 && _selected.All(item => accessProfile?.CanDeleteIncident(item.OrganizationId) == true)
             ? IncidentBulkActions : IncidentBulkActions.Where(action => action.Key != "delete").ToList();

@@ -10,4 +10,5 @@
 .filter-chip span:first-child { min-width: 0; overflow-wrap: anywhere; text-align: start; }
 .filter-chip:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
 .filter-toolbar ::deep .filter-lookup { flex: 1 1 14rem; max-width: 22rem; min-width: 0; }
+.filter-toolbar ::deep .ticket-queue-picker { flex: 1 1 13rem; max-width: 20rem; min-width: 0; }
 .filter-grid ::deep .mud-input-control { margin-top: 0; }

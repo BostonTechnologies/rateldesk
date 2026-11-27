@@ -3,6 +3,9 @@ import http from 'node:http';
 let queries = [], details = [], mutations = [], fault = '', permissionMode = 'admin';
 const createRows = () => Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, title: `Synthetic ticket ${i}`, subject: `Synthetic ticket ${i}`,
   trackingId: `SYN-${String(i).padStart(3, '0')}`, description: 'Synthetic fixture', organizationId: i % 2 ? 'org-b' : 'org-a',
+  assignedSupportGroupId: i % 3 === 0 ? 'app-vendor' : null,
+  assignedSupportGroupName: i % 3 === 0 ? 'Application Vendor' : null,
+  queueAssignmentVersion: i % 3 === 0 ? 1 : 0,
   customerOrgName: i % 2 ? 'Beta customer' : 'Alpha customer', customerId: 'contact', customerName: 'Contact', customerEmail: 'contact@example.test',
   requestedForUserId: 'contact', requestedForUserName: 'Contact', requestedForUserEmail: 'contact@example.test',
   state: i < 60 ? 0 : 6, lifecycleState: i < 60 ? 0 : 5, priority: i % 2 ? 0 : 2,
@@ -47,6 +50,12 @@ http.createServer(async (req,res) => {
  }
  if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'Synthetic operator',userId:'filter-operator',customerId:null,primaryOrganizationId:null,primaryOrganizationName:null,isHelpdeskAdmin:permissionMode!=='reader',roleBundles:permissionMode==='reader'?[]:['HelpdeskAdmin'],permissions:permissionMode==='reader'?['Incident.Read','Request.Read','Change.Read']:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
  if(url.pathname==='/api/v1/branding') return reply({applicationName:'RatelDesk'});
+ if (/^\/api\/v1\/ticket-queues\/(incident|request|change)\/?$/.test(url.pathname)) {
+  const queues = [{id:null,name:'Main Queue'},{id:'app-vendor',name:'Application Vendor'}];
+  const choices = queues.filter(queue => (!q.has('id') || q.get('id') === (queue.id ?? 'main')) &&
+   queue.name.toLowerCase().includes((q.get('q') ?? '').toLowerCase()));
+  return reply(q.get('picker') === 'true' ? {items:choices,totalEligible:queues.length,hasMore:false} : choices);
+ }
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({totalEligible:(options[q.get('dimension')]??[]).length,items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname==='/api/v1/ticketing/organizations') return reply(options.customer.map(o=>({id:o.id,name:o.label,state:0})));
@@ -134,6 +143,8 @@ http.createServer(async (req,res) => {
   let filtered=rows.filter(r=>q.get('view')==='all'||(q.get('view')==='historic'?closed(r):!closed(r)));
   if(q.get('q')) filtered=q.get('q')==='slow'?[rows[0]]:filtered.filter(r=>r.title.toLowerCase().includes(q.get('q').toLowerCase()));
   if(q.has('customerOrgId')) filtered=filtered.filter(r=>q.getAll('customerOrgId').includes(r.organizationId));
+  if(q.has('supportGroupId') || q.get('mainQueue') === 'true')
+   filtered=filtered.filter(r=>r.assignedSupportGroupId === null ? q.get('mainQueue') === 'true' : q.getAll('supportGroupId').includes(r.assignedSupportGroupId));
   if(q.has('forId')) filtered=filtered.filter(r=>q.getAll('forId').includes(r.customerId));
   if(q.has('assigneeId')&&!q.has('unassigned')) filtered=[];
   if(q.has('priority')) filtered=filtered.filter(r=>q.getAll('priority').includes(r.priority===2?'High':'Low'));

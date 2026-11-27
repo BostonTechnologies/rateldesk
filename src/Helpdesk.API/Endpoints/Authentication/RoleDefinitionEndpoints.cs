@@ -2,6 +2,8 @@ using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.TicketQueue;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
@@ -19,6 +21,27 @@ public static class RoleDefinitionEndpoints
             .WithTags("Role definitions")
             .WithMetadata(new QueueAwareEndpoint())
             .RequireAuthorization();
+
+        group.MapGet("/support-group-options", async (string organizationId, string? q, string? id, int? limit,
+            ClaimsPrincipal principal, ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            if (!CanManageOrganization(await accessService.ResolveAsync(principal, ct), organizationId)) return Results.Forbid();
+            if (q?.Length > 200 || id?.Length > 64) return Results.BadRequest();
+            var groups = db.SupportGroups.Where(candidate => candidate.OwningOrganizationId == organizationId &&
+                (id != null ? candidate.Id == id : candidate.IsEnabled));
+            var total = await groups.CountAsync(ct);
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                var term = q.Trim().ToLowerInvariant();
+                groups = groups.Where(candidate => candidate.Name.ToLower().Contains(term));
+            }
+            var size = Math.Clamp(limit ?? 20, 1, 50);
+            var items = await groups.OrderBy(candidate => candidate.Name).ThenBy(candidate => candidate.Id).Take(size + 1)
+                .Select(candidate => new TicketQueueOptionDto(candidate.Id, candidate.Name)).ToListAsync(ct);
+            var more = items.Count > size;
+            if (more) items.RemoveAt(size);
+            return Results.Ok(new CreationLookupResult<TicketQueueOptionDto>(items, total, more));
+        }).WithName("SearchRoleSupportGroups");
 
         group.MapGet("/", async (
             HttpContext context,

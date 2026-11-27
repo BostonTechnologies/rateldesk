@@ -1,4 +1,6 @@
 @using Helpdesk.Shared.Auth
+@using Helpdesk.Shared.DTOs.TicketQueue
+@using Helpdesk.Shared.Enums
 @using HelpDesk.NewWeb.Components.Shared
 @using System.Net.Http.Json
 @using System.Text.Json
@@ -15,10 +17,33 @@
             @if (HasUnsupportedPermissions) { <MudAlert Severity="Severity.Warning" Dense="true">This role contains permissions outside your current authority. An instance administrator must review it; its saved permissions are preserved.</MudAlert> }
             <div class="role-editor-details">
                 <MudTextField @bind-Value="draftName" Label="Role name" Required="true" MaxLength="200" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(saving || HasUnsupportedPermissions)" />
-                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search" AutoSelectSingle="false" Label="Owning organization" @bind-Value="draftOwner" Disabled="@(saving || IsEditing)" Clearable="false" />
+                <OrganizationSearchPicker SearchUrl="api/v1/tenant-admin/organizations/search" AutoSelectSingle="false" Label="Owning organization" Value="@draftOwner" ValueChanged="OwnerChanged" Disabled="@(saving || IsEditing)" Clearable="false" />
+                <MudSelect T="TicketAccessScope" Label="Ticket access" Value="queueScope" ValueChanged="ScopeChanged"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="saving">
+                    @foreach (var scope in Enum.GetValues<TicketAccessScope>())
+                    {
+                        <MudSelectItem Value="@scope">@RoleManagement.TicketScopeLabel(scope)</MudSelectItem>
+                    }
+                </MudSelect>
             </div>
+            @if (queueScope != TicketAccessScope.AllAuthorizedQueues)
+            {
+                <MudText Typo="Typo.caption">Group access requires active membership and applies to the ticket operations selected below.</MudText>
+            }
+            @if (queueScope == TicketAccessScope.SelectedSupportGroups)
+            {
+                <CreationSearchPicker TItem="TicketQueueOptionDto" LookupUrl="@GroupLookup" Label="Support groups" Kind="support groups"
+                                      ItemId="@(group => group.Id ?? string.Empty)" ItemLabel="@(group => group.Name)"
+                                      ClearAfterSelection="true" SelectionChanged="GroupSelected" Disabled="saving" />
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                    @foreach (var group in selectedGroups)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" OnClose="@(() => RemoveGroup(group.Key))">@group.Value</MudChip>
+                    }
+                </MudStack>
+            }
             <div class="role-editor-permissions">
-                <GroupedPermissionSelector EligiblePermissions="EligiblePermissions" SelectedValues="draftPermissions" SelectedValuesChanged="PermissionsChanged" AriaLabel="Custom role permissions" Disabled="@(saving || HasUnsupportedPermissions)" />
+                <GroupedPermissionSelector EligiblePermissions="ScopePermissions" SelectedValues="draftPermissions" SelectedValuesChanged="PermissionsChanged" AriaLabel="Custom role permissions" Disabled="@(saving || HasUnsupportedPermissions)" />
             </div>
             <p class="role-editor-hint">Write, delete, execute and approve permissions require their matching Read permission. Manager permissions require their matching User permission.</p>
         </div>
@@ -53,21 +78,56 @@
     [Parameter] public bool IsClone { get; set; }
     private string draftName = "";
     private string? draftOwner;
+    private TicketAccessScope queueScope;
+    private readonly Dictionary<string, string> selectedGroups = new(StringComparer.Ordinal);
     private HashSet<string> draftPermissions = new(StringComparer.OrdinalIgnoreCase);
     private bool saving;
     private string? error;
     private string initialDraft = "";
     private bool IsEditing => Role is not null && !IsClone;
     private bool HasUnsupportedPermissions => Role?.Permissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase).Any() == true;
-    private string Fingerprint() => JsonSerializer.Serialize(new { draftName, draftOwner, permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase) });
-    protected override void OnInitialized()
+    private IEnumerable<string> ScopePermissions => queueScope == TicketAccessScope.AllAuthorizedQueues
+        ? EligiblePermissions : EligiblePermissions.Where(RoleDefinitionCatalog.IsQueueScopedPermission);
+    private string GroupLookup => draftOwner == null ? "" : "api/v1/admin/role-definitions/support-group-options?organizationId=" + Uri.EscapeDataString(draftOwner);
+    private string Fingerprint() => JsonSerializer.Serialize(new { draftName, draftOwner, queueScope, groups = selectedGroups.Keys.Order(), permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase) });
+    protected override async Task OnInitializedAsync()
     {
         draftName = Role is null ? "" : IsClone ? $"{Role.Name} copy" : Role.Name;
         draftOwner = Role?.OwnerOrganizationId ?? Organizations.FirstOrDefault()?.Id;
         draftPermissions = Role?.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new(StringComparer.OrdinalIgnoreCase);
+        queueScope = Role?.TicketAccessScope ?? TicketAccessScope.AllAuthorizedQueues;
+        foreach (var id in Role?.SupportGroupIds ?? [])
+            selectedGroups[id] = id;
         initialDraft = Fingerprint();
+        var api = HttpClientFactory.CreateClient("HelpdeskApi");
+        foreach (var id in selectedGroups.Keys.ToArray())
+        {
+            try
+            {
+                var options = await api.GetFromJsonAsync<Helpdesk.Shared.DTOs.CreationLookupResult<TicketQueueOptionDto>>($"{GroupLookup}&id={Uri.EscapeDataString(id)}");
+                if (selectedGroups.ContainsKey(id) && options?.Items.FirstOrDefault() is { } group) selectedGroups[id] = group.Name;
+            }
+            catch (HttpRequestException) { error = "Some support group names could not be loaded."; }
+        }
     }
     private void PermissionsChanged(IEnumerable<string> values) => draftPermissions = values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private void OwnerChanged(string? value)
+    {
+        if (draftOwner != value) selectedGroups.Clear();
+        draftOwner = value;
+    }
+    private void ScopeChanged(TicketAccessScope value)
+    {
+        queueScope = value;
+        if (value != TicketAccessScope.SelectedSupportGroups) selectedGroups.Clear();
+        if (value != TicketAccessScope.AllAuthorizedQueues)
+            draftPermissions.RemoveWhere(permission => !RoleDefinitionCatalog.IsQueueScopedPermission(permission));
+    }
+    private void GroupSelected(TicketQueueOptionDto? group)
+    {
+        if (group?.Id is { } id) selectedGroups[id] = group.Name;
+    }
+    private void RemoveGroup(string id) => selectedGroups.Remove(id);
     private async Task CancelAsync()
     {
         if (saving) return;
@@ -82,6 +142,7 @@
         if (string.IsNullOrWhiteSpace(draftName)) { error = "Enter a role name."; return; }
         if (string.IsNullOrWhiteSpace(draftOwner)) { error = "Choose an authorized owning organization."; return; }
         if (draftPermissions.Count == 0) { error = "Select at least one permission."; return; }
+        if (queueScope == TicketAccessScope.SelectedSupportGroups && selectedGroups.Count == 0) { error = "Choose at least one support group."; return; }
         if (draftPermissions.Except(EligiblePermissions, StringComparer.OrdinalIgnoreCase).Any()) { error = "This role includes permissions outside your current authority. Ask an instance administrator to review it."; return; }
         if (!RoleDefinitionCatalog.SatisfiesDependencies(draftPermissions)) { error = "Include the matching Read permission for Write, Delete, Execute or Approve, and the matching User permission for Manager."; return; }
         saving = true;
@@ -89,8 +150,8 @@
         {
             var api = HttpClientFactory.CreateClient("HelpdeskApi");
             using var response = IsEditing
-                ? await api.PutAsJsonAsync($"api/v1/admin/role-definitions/{Role!.Id}", new { name = draftName.Trim(), permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase).ToArray() })
-                : await api.PostAsJsonAsync("api/v1/admin/role-definitions/", new { name = draftName.Trim(), key = (string?)null, ownerOrganizationId = draftOwner, permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase).ToArray() });
+                ? await api.PutAsJsonAsync($"api/v1/admin/role-definitions/{Role!.Id}", new { name = draftName.Trim(), ticketAccessScope = queueScope, supportGroupIds = selectedGroups.Keys.ToArray(), permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase).ToArray() })
+                : await api.PostAsJsonAsync("api/v1/admin/role-definitions/", new { name = draftName.Trim(), key = (string?)null, ownerOrganizationId = draftOwner, ticketAccessScope = queueScope, supportGroupIds = selectedGroups.Keys.ToArray(), permissions = draftPermissions.Order(StringComparer.OrdinalIgnoreCase).ToArray() });
             if (!response.IsSuccessStatusCode) { error = await SaveErrorAsync(response); return; }
             MudDialog.Close(DialogResult.Ok(true));
         }

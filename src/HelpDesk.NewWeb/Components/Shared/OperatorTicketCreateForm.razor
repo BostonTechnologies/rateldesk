@@ -71,6 +71,12 @@
                                         }
                                     </MudSelect>
 
+                                    @if (HelpDesk.NewWeb.Services.TicketQueueActions.CanChooseDestination(profile, Module, model.OrganizationId))
+                                    {
+                                        <TicketQueuePicker Module="@Module" OrganizationId="@model.OrganizationId" Transfer="true"
+                                                           Label="Assigned group" Placeholder="Main Queue" Value="@model.AssignedSupportGroupId"
+                                                           SelectionChanged="@(queue => model.AssignedSupportGroupId = queue?.Id)" Disabled="isSubmitting" />
+                                    }
                                     <AssigneeSelector Module="@Module" OrganizationId="@model.OrganizationId"
                                                       Value="@model.AssignedToId" Label="Technician assignment (optional)"
                                                       ReadOnly="@(!canAssign)" Busy="isSubmitting"
@@ -151,6 +157,7 @@
         };
         canCreateCustomers = canAssign;
         model.AssignedToId = null;
+        model.AssignedSupportGroupId = null;
         model.CustomerId = null;
         model.CategoryIds.Clear();
         return Task.CompletedTask;

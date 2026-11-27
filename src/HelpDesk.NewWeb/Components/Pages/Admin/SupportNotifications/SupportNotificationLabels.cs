@@ -8,6 +8,7 @@ internal static class SupportNotificationLabels
     {
         SupportNotificationEventType.TicketCreatedUnassigned => "New unassigned ticket",
         SupportNotificationEventType.TicketAssigned => "Ticket assigned",
+        SupportNotificationEventType.TicketAssignedToSupportGroup => "Ticket assigned to support group",
         _ => value.ToString()
     };
 

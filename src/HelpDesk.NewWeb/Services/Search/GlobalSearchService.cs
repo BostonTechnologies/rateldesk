@@ -294,6 +294,8 @@ public sealed class GlobalSearchService : IGlobalSearchService
 
         foreach (var section in Sections)
         {
+            if (user.HasClaim("ticket_workforce_scope", "restricted") && section.Key is not ("incidents" or "requests" or "changes"))
+                continue;
             if (section.Audience == SearchAudience.Admin && !isAdmin)
             {
                 continue;

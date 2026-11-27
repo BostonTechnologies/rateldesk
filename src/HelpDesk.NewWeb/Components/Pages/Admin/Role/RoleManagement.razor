@@ -3,6 +3,7 @@
 @using System.Net.Http.Json
 @using Helpdesk.Shared.Models
 @using Helpdesk.Shared.Auth
+@using Helpdesk.Shared.Enums
 @inject IHttpClientFactory HttpClientFactory
 @inject IDialogService DialogService
 @inject AuthenticationStateProvider AuthenticationState
@@ -69,6 +70,7 @@
                     @if (!string.IsNullOrWhiteSpace(context.OwnerOrganizationId))
                     {
                         <MudText Typo="Typo.caption" Color="Color.Secondary">@OrganizationLabel(context.OwnerOrganizationId)</MudText>
+                        <MudText Typo="Typo.caption">@TicketScopeLabel(context.TicketAccessScope)</MudText>
                     }
                     </MudStack>
                 </MudTd>
@@ -226,5 +228,16 @@
     };
 
     public sealed record TenantOrganization(string Id, string Name);
-    public sealed record RoleDefinition(string Id, string Key, string Name, RoleScopeKind Scope, string? OwnerOrganizationId, bool IsBuiltIn, bool IsProtected, IReadOnlyList<string> Permissions, int AssignmentCount);
+    public static string TicketScopeLabel(TicketAccessScope scope) => scope switch
+    {
+        TicketAccessScope.MySupportGroups => "My support groups",
+        TicketAccessScope.SelectedSupportGroups => "Selected support groups",
+        _ => "All authorized queues"
+    };
+
+    public sealed record RoleDefinition(string Id, string Key, string Name, RoleScopeKind Scope, string? OwnerOrganizationId, bool IsBuiltIn, bool IsProtected, IReadOnlyList<string> Permissions, int AssignmentCount)
+    {
+        public TicketAccessScope TicketAccessScope { get; init; }
+        public IReadOnlyList<string> SupportGroupIds { get; init; } = [];
+    }
 }

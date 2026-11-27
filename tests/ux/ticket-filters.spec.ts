@@ -9,6 +9,22 @@ test.beforeEach(async({page,request})=>{
  await request.get(fixture+'/reset');await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
 });
 for(const module of ['incidents','requests','changes']) {
+ test(module+' queue selection filters before paging and restores from the URL',async({page},info)=>{
+  await page.goto('/'+module);
+  await expect(page.getByText('1-25 of 60')).toBeVisible();
+  const queue=page.getByLabel('Queue',{exact:true});
+  await queue.fill('Application');
+  await page.getByRole('option',{name:'Application Vendor',exact:true}).click();
+  await expect(page).toHaveURL(url=>url.searchParams.get('supportGroupId')==='app-vendor');
+  await expect(page.getByText('1-20 of 20')).toBeVisible();
+  await expect(page.getByTestId('ticket-assigned-queue')).toHaveCount(20);
+  await expect(page.getByTestId('ticket-assigned-queue').first()).toHaveText('Application Vendor');
+  await page.screenshot({path:info.outputPath('queue-filter.png'),fullPage:true});
+  await page.reload();
+  await expect(queue).toHaveValue('Application Vendor');
+  await expect(page.getByText('1-20 of 20')).toBeVisible();
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+ });
  test(`${module} opening a ticket and browser Back restores the exact filtered page`,async({page,request})=>{
   const listUrl=`/${module}?customerOrgId=org-b&q=Synthetic&page=2&pageSize=25&sort=trackingId&descending=false`;
   await page.goto(listUrl);

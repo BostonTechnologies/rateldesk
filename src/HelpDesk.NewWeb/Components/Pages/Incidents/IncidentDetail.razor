@@ -47,6 +47,9 @@ else
                 AllCategories="@categories"
                 CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
+            <TicketQueueLabel Module="incident" TicketId="@incident.Id" OrganizationId="@incident.OrganizationId"
+                              GroupId="@incident.AssignedSupportGroupId" Name="@incident.AssignedSupportGroupName" Version="@incident.QueueAssignmentVersion"
+                              Unassigned="@(incident.AssignedToId == null)" Access="@accessProfile" Changed="ReloadQueueDetails" />
 
             <TicketActivityTabs
                 @key="activityTabsKey"
@@ -152,6 +155,11 @@ else
     }
 
     private CurrentUserAccessProfile? accessProfile;
+    private Task ReloadQueueDetails()
+    {
+        loadedIncidentId = null;
+        return OnParametersSetAsync();
+    }
     private bool CanManage => accessProfile?.CanManageIncident(incident?.OrganizationId) == true;
     private bool CanContribute => incident is not null && accessProfile?.CanContributeIncident(incident.OrganizationId, incident.CustomerId, incident.RequesterEmail) == true;
 
@@ -194,7 +202,9 @@ else
         {
             var incidentTask = HelpdeskApi.GetFromJsonAsync<IncidentDto>($"api/v1/incidents/{Id}");
             accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
-            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Incident}");
+            var categoriesTask = accessProfile.HasRestrictedWorkforceAccess
+                ? Task.FromResult<List<TicketCategoryDto>?>([])
+                : HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Incident}");
 
             await Task.WhenAll(incidentTask, categoriesTask);
 
@@ -234,6 +244,9 @@ else
         {
             Id = source.Id,
             OrganizationId = source.OrganizationId,
+            AssignedSupportGroupId = source.AssignedSupportGroupId,
+            AssignedSupportGroupName = source.AssignedSupportGroupName,
+            QueueAssignmentVersion = source.QueueAssignmentVersion,
             TrackingId = source.TrackingId,
             Subject = source.Subject,
             State = source.State,

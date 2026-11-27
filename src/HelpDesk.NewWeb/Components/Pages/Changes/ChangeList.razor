@@ -43,7 +43,9 @@
                  InitialPage="@(filters.Page - 1)" PageSize="filters.PageSize" QueryError="@queryError"
                  @ref="_table"
                  TicketType="changes"
-                 CanEditItem="@(item => accessProfile?.CanManageChange(item.OrganizationId) == true)"
+                 CanTransferSelection="@(_selected.Count > 0 && _selected.All(item => TicketQueueActions.CanTransfer(accessProfile, "change", item.OrganizationId, item.AssignedSupportGroupId)))"
+                 BulkQueueRequested="MoveSelectedToQueueAsync"
+                 CanEditItem="@(item => TicketQueueActions.CanWrite(accessProfile, "change", item.OrganizationId, item.AssignedSupportGroupId))"
                  EnableSelection="@(accessProfile?.IsHelpdeskAdmin == true)"
                  ServerData="LoadServerData"
                  SelectedItems="_selected"
@@ -54,6 +56,11 @@
                  BulkActions="CancellationActions"
                  BulkActionRequested="ApplyBulkAction"
                  BulkAssignRequested="ApplyBulkAssign">
+        <QueueTemplate Context="change">
+            <TicketQueueLabel Module="change" TicketId="@change.Id" OrganizationId="@change.OrganizationId"
+                              GroupId="@change.AssignedSupportGroupId" Name="@change.AssignedSupportGroupName" Version="@change.QueueAssignmentVersion"
+                              Unassigned="@(change.AssignedToId == null)" Access="@accessProfile" Changed="Reload" />
+        </QueueTemplate>
         <SubjectTemplate Context="change">
             <MudStack Spacing="0">
                 <MudText Typo="Typo.body2">@change.Title</MudText>
@@ -119,6 +126,16 @@
 
     private TicketTable<ChangeDto>? _table;
     private HashSet<ChangeDto> _selected = new();
+
+    private async Task MoveSelectedToQueueAsync()
+    {
+        if (await TicketQueueActions.MoveAsync(DialogService, Snackbar, "change",
+                _selected.Select(item => (item.Id, item.OrganizationId, item.QueueAssignmentVersion))))
+        {
+            _selected.Clear();
+            await Reload();
+        }
+    }
 
     private async Task<TableData<ChangeDto>> LoadServerData(TableState state, CancellationToken token)
     {

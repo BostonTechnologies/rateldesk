@@ -53,6 +53,9 @@ else
                 AllCategories="@categories"
                 CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
+            <TicketQueueLabel Module="request" TicketId="@request.Id" OrganizationId="@request.OrganizationId"
+                              GroupId="@request.AssignedSupportGroupId" Name="@request.AssignedSupportGroupName" Version="@request.QueueAssignmentVersion"
+                              Unassigned="@(request.AssignedToId == null)" Access="@accessProfile" Changed="ReloadQueueDetails" />
 
             <div class="request-progress-summary">
                 <div class="request-progress-text" data-testid="request-workflow-summary">
@@ -390,6 +393,11 @@ else
     }
 
     private CurrentUserAccessProfile? accessProfile;
+    private Task ReloadQueueDetails()
+    {
+        loadedRequestId = null;
+        return OnParametersSetAsync();
+    }
     private bool CanManage => accessProfile?.CanManageRequest(request?.OrganizationId) == true;
     private bool CanContribute => request is not null && accessProfile?.CanContributeRequest(request.OrganizationId, request.CustomerId, request.CustomerEmail) == true;
 
@@ -461,11 +469,13 @@ else
         try
         {
             var requestTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{Id}", token);
-            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Request}", token);
-            var requestTasksTask = LoadTasksAsync();
-            var workflowTimelineTask = LoadWorkflowTimelineAsync(reset: true);
-            var rolesTask = ResolveRolesAsync();
             accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
+            var categoriesTask = accessProfile.HasRestrictedWorkforceAccess
+                ? Task.FromResult<List<TicketCategoryDto>?>([])
+                : HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Request}", token);
+            var requestTasksTask = LoadTasksAsync();
+            var workflowTimelineTask = accessProfile.HasRestrictedWorkforceAccess ? Task.CompletedTask : LoadWorkflowTimelineAsync(reset: true);
+            var rolesTask = ResolveRolesAsync();
 
             await Task.WhenAll(requestTask, categoriesTask, requestTasksTask, workflowTimelineTask, rolesTask);
 
@@ -504,6 +514,9 @@ else
         {
             Id = source.Id,
             OrganizationId = source.OrganizationId,
+            AssignedSupportGroupId = source.AssignedSupportGroupId,
+            AssignedSupportGroupName = source.AssignedSupportGroupName,
+            QueueAssignmentVersion = source.QueueAssignmentVersion,
             Title = source.Title,
             Description = source.Description,
             State = source.State,
