@@ -3114,6 +3114,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("AssignedSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTimeOffset>("CommittedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -3177,6 +3181,22 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasKey("SourceNamespaceId", "PrincipalKind", "PrincipalId");
 
                     b.ToTable("IncidentReceiverPrincipalBindings");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverQueueRoute", b =>
+                {
+                    b.Property<Guid>("SourceNamespaceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("SourceNamespaceId", "SupportGroupId");
+
+                    b.HasIndex("SupportGroupId");
+
+                    b.ToTable("IncidentReceiverQueueRoutes");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverSource", b =>
@@ -4256,6 +4276,10 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("FailureReason")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("QueueTransitionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("RecipientEmail")
                         .IsRequired()
@@ -5588,6 +5612,21 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.HasOne("Helpdesk.Shared.Models.IncidentReceiverSource", null)
                         .WithMany()
                         .HasForeignKey("SourceNamespaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverQueueRoute", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.IncidentReceiverSource", null)
+                        .WithMany()
+                        .HasForeignKey("SourceNamespaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Helpdesk.Shared.Models.SupportGroup", null)
+                        .WithMany()
+                        .HasForeignKey("SupportGroupId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

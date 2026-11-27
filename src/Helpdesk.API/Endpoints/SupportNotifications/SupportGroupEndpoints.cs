@@ -89,6 +89,7 @@ public static class SupportGroupEndpoints
     private static async Task<bool> IsReferencedAsync(HelpdeskDbContext db, string id, CancellationToken ct) =>
         await db.Tickets.IgnoreQueryFilters().AnyAsync(ticket => ticket.AssignedSupportGroupId == id, ct) ||
         await db.RoleSupportGroups.AnyAsync(link => link.SupportGroupId == id, ct) ||
+        await db.IncidentReceiverQueueRoutes.AnyAsync(route => route.SupportGroupId == id, ct) ||
         await db.OrganizationSupportCoverages.AnyAsync(coverage => coverage.SupportGroupId == id, ct);
 
     private static async Task<IResult?> ValidateAsync(HelpdeskDbContext db, string organizationId, string name, string? description, CancellationToken ct)

@@ -26,12 +26,13 @@ public sealed class SupportNotificationService(
 {
     private const string TicketCreatedUnassignedTemplate = "SupportTicketCreatedUnassigned";
     private const string TicketAssignedTemplate = "SupportTicketAssigned";
+    private const string TicketAssignedToSupportGroupTemplate = "SupportTicketAssignedToSupportGroup";
 
     private readonly string _publicWebAppUrl = configuration["PublicWebAppUrl"] ?? string.Empty;
 
     public async Task NotifyTicketCreatedUnassignedAsync(Ticket ticket, CancellationToken ct = default)
     {
-        if (!string.IsNullOrWhiteSpace(ticket.AssignedToId))
+        if (!string.IsNullOrWhiteSpace(ticket.AssignedToId) || ticket.AssignedSupportGroupId != null)
         {
             return;
         }
@@ -48,6 +49,11 @@ public sealed class SupportNotificationService(
             recipient => $"support:ticket-created-unassigned:{ticket.Id}:user:{recipient.UserId}",
             ct);
     }
+
+    public Task NotifyTicketAssignedToSupportGroupAsync(Ticket ticket, string transitionId,
+        IReadOnlyList<SupportNotificationRecipient> recipients, CancellationToken ct = default) =>
+        NotifyAsync(ticket, SupportNotificationEventType.TicketAssignedToSupportGroup, TicketAssignedToSupportGroupTemplate,
+            recipients, recipient => $"support:queue-assignment:{transitionId}:user:{recipient.UserId}", ct, transitionId);
 
     public async Task NotifyTicketAssignedAsync(
         Ticket ticket,
@@ -80,7 +86,8 @@ public sealed class SupportNotificationService(
         string templateName,
         IReadOnlyList<SupportNotificationRecipient> recipients,
         Func<SupportNotificationRecipient, string> dedupeKeyFactory,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? queueTransitionId = null)
     {
         if (recipients.Count == 0)
         {
@@ -95,7 +102,10 @@ public sealed class SupportNotificationService(
         foreach (var recipient in recipients)
         {
             var dedupeKey = dedupeKeyFactory(recipient);
-            if ((await deliveries.GetAllAsync()).Any(x => string.Equals(x.DeduplicationKey, dedupeKey, StringComparison.OrdinalIgnoreCase)))
+            var duplicate = queueTransitionId == null
+                ? (await deliveries.GetAllAsync()).Any(x => string.Equals(x.DeduplicationKey, dedupeKey, StringComparison.OrdinalIgnoreCase))
+                : await deliveries.CountAsync(delivery => delivery.DeduplicationKey == dedupeKey, ct) > 0;
+            if (duplicate)
             {
                 logger.LogInformation(
                     "Skipping duplicate support notification delivery. DeduplicationKey={DeduplicationKey}",
@@ -108,6 +118,7 @@ public sealed class SupportNotificationService(
                 DeduplicationKey = dedupeKey,
                 TicketId = ticket.Id,
                 TicketTrackingId = ticket.TrackingId,
+                QueueTransitionId = queueTransitionId,
                 EventType = eventType,
                 Channel = SupportNotificationChannel.Email,
                 RecipientUserId = recipient.UserId,
@@ -225,17 +236,19 @@ public sealed class SupportNotificationService(
         TenantBrandingResolved branding, CancellationToken ct)
     {
         var ticketRef = ticket.TrackingId ?? string.Empty;
-        var ticketLink = await publicLinks.IssueAsync(ticket, recipient.Email, PublicLinkPurpose.Ticket,
-            branding.TemplateBrand.ApplicationUrl ?? _publicWebAppUrl, ct);
+        var appUrl = branding.TemplateBrand.ApplicationUrl ?? _publicWebAppUrl;
+        var ticketLink = ticket.AssignedSupportGroupId != null
+            ? AuthenticatedTicketLink(ticket, appUrl)
+            : await publicLinks.IssueAsync(ticket, recipient.Email, PublicLinkPurpose.Ticket, appUrl, ct);
         return new EmailTemplateContext
         {
             UserName = string.IsNullOrWhiteSpace(recipient.UserName) ? recipient.Email : recipient.UserName,
             TicketRef = ticketRef,
-            TicketType = ticket is Incident ? "Incident" : "Ticket",
-            TicketTypeLower = ticket is Incident ? "incident" : "ticket",
+            TicketType = ticket switch { Incident => "Incident", Request => "Request", Change => "Change", _ => "Ticket" },
+            TicketTypeLower = ticket switch { Incident => "incident", Request => "request", Change => "change", _ => "ticket" },
             TicketLink = ticketLink,
             RequestTitle = ticket.Title ?? string.Empty,
-            RequestDescription = ticket.Description ?? string.Empty,
+            RequestDescription = ticket.AssignedSupportGroupId != null ? string.Empty : ticket.Description ?? string.Empty,
             UpdateMessageText = $"Support notification for {ticketRef}",
             LayoutHtml = layout?.HtmlContent ?? string.Empty,
             BrandName = branding.BrandName,
@@ -244,6 +257,15 @@ public sealed class SupportNotificationService(
             FooterHtml = branding.FooterHtml,
             PrimaryColor = branding.PrimaryColor
         };
+    }
+
+    private static string AuthenticatedTicketLink(Ticket ticket, string appUrl)
+    {
+        if (!Uri.TryCreate(appUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") ||
+            uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0)
+            throw new InvalidOperationException("An authenticated ticket link requires a configured Web URL.");
+        var path = ticket switch { Incident => "incidents", Request => "requests", Change => "changes", _ => "tickets" };
+        return $"{uri.AbsoluteUri.TrimEnd('/')}/{path}/{Uri.EscapeDataString(ticket.Id)}";
     }
 
     private static string RenderSubject(string subject, EmailTemplateContext context)

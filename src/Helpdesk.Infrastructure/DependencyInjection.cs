@@ -134,6 +134,7 @@ public static class DependencyInjection
         services.AddScoped<IRequestTaskAssignees, TicketSupportAccessService>();
         services.AddScoped<ISupportNotificationRecipientResolver, SupportNotificationRecipientResolver>();
         services.AddScoped<ISupportNotificationService, SupportNotificationService>();
+        services.AddScoped<Helpdesk.Infrastructure.Ticketing.TicketQueueNotificationProcessor>();
         services.AddScoped<ISupportNotificationBootstrapper, SupportNotificationBootstrapper>();
         services.AddSingleton<TicketAttachmentFileStore>();
         services.AddHostedService(sp => sp.GetRequiredService<TicketAttachmentFileStore>());

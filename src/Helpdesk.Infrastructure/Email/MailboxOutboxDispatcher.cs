@@ -2,6 +2,7 @@ using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.Notification;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
@@ -115,6 +116,12 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             case MailboxEffectKind.Email:
                 var store = services.GetRequiredService<MailboxOutboxStore>();
                 var email = store.PrepareEmailForDelivery(effect);
+                if (services.GetService<TicketQueueNotificationProcessor>() is { } queueNotifications)
+                {
+                    var authorized = await queueNotifications.AuthorizeDeliveryAsync(email, ct);
+                    if (authorized == null) return new("Suppressed");
+                    email = authorized;
+                }
                 if (email.MailboxId is null)
                     return new("Needs review", email.SenderBindingError ?? "LegacySenderBindingMissing");
                 return await services.GetRequiredService<MailboxEmailService>().SendPinnedAsync(email.MailboxId.Value,
@@ -125,6 +132,10 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             case MailboxEffectKind.Notification:
                 services.GetRequiredService<INotificationEventBus>().Publish(
                     MailboxOutboxStore.Deserialize<NotificationDto>(effect.Payload));
+                return new("Accepted by provider");
+            case MailboxEffectKind.SupportGroupAssignment:
+                await services.GetRequiredService<TicketQueueNotificationProcessor>().DispatchAssignmentAsync(
+                    MailboxOutboxStore.Deserialize<string>(effect.Payload), ct);
                 return new("Accepted by provider");
             case MailboxEffectKind.Timeline:
                 var timeline = MailboxOutboxStore.Deserialize<TicketTimelineEventDto>(effect.Payload);

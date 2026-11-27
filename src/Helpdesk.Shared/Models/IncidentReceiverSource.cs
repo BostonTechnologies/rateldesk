@@ -39,6 +39,12 @@ public sealed class IncidentReceiverSourceAudit
     public bool IsEnabled { get; set; }
 }
 
+public sealed class IncidentReceiverQueueRoute
+{
+    public Guid SourceNamespaceId { get; set; }
+    public string SupportGroupId { get; set; } = string.Empty;
+}
+
 /// <summary>The reservation and its immutable accepted result commit with the incident and ingress effects.</summary>
 public sealed class IncidentCreateReceipt
 {
@@ -49,6 +55,7 @@ public sealed class IncidentCreateReceipt
     public string OrganizationId { get; set; } = string.Empty;
     public string CustomerId { get; set; } = string.Empty;
     public string IncidentId { get; set; } = string.Empty;
+    public string? AssignedSupportGroupId { get; set; }
     public string Location { get; set; } = string.Empty;
     public string AcceptedJson { get; set; } = string.Empty;
     public DateTimeOffset CommittedAtUtc { get; set; }

@@ -24,7 +24,8 @@ public enum SupportCoverageRole
 public enum SupportNotificationEventType
 {
     TicketCreatedUnassigned = 0,
-    TicketAssigned = 1
+    TicketAssigned = 1,
+    TicketAssignedToSupportGroup = 2
 }
 
 public enum SupportNotificationRecipientType

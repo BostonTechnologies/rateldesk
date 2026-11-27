@@ -1908,6 +1908,8 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
 
     private sealed class NoopSupportNotificationService : ISupportNotificationService
     {
+        public Task NotifyTicketAssignedToSupportGroupAsync(Ticket ticket, string transitionId,
+            IReadOnlyList<SupportNotificationRecipient> recipients, CancellationToken ct = default) => Task.CompletedTask;
         public Task NotifyTicketCreatedUnassignedAsync(Ticket ticket, CancellationToken ct = default) =>
             Task.CompletedTask;
 

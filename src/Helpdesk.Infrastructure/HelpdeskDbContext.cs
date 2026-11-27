@@ -71,6 +71,7 @@ public class HelpdeskDbContext(
     public DbSet<IncidentReceiverPrincipalBinding> IncidentReceiverPrincipalBindings => Set<IncidentReceiverPrincipalBinding>();
     public DbSet<IncidentReceiverSourceAudit> IncidentReceiverSourceAudits => Set<IncidentReceiverSourceAudit>();
     public DbSet<IncidentCreateReceipt> IncidentCreateReceipts => Set<IncidentCreateReceipt>();
+    public DbSet<IncidentReceiverQueueRoute> IncidentReceiverQueueRoutes => Set<IncidentReceiverQueueRoute>();
     public DbSet<Request> Requests => Set<Request>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerAuthLink> CustomerAuthLinks => Set<CustomerAuthLink>();
@@ -159,9 +160,7 @@ public class HelpdeskDbContext(
         ChangeTracker.DetectChanges();
         foreach (var entry in ChangeTracker.Entries<Ticket>().Where(entry => entry.State == Microsoft.EntityFrameworkCore.EntityState.Modified))
         {
-            if (entry.Property(ticket => ticket.AssignedSupportGroupId).OriginalValue != entry.Entity.AssignedSupportGroupId ||
-                entry.Property(ticket => ticket.AssignedToId).OriginalValue != entry.Entity.AssignedToId ||
-                entry.Property(ticket => ticket.OrganizationId).OriginalValue != entry.Entity.OrganizationId)
+            if (entry.Property(ticket => ticket.AssignedSupportGroupId).OriginalValue != entry.Entity.AssignedSupportGroupId)
             {
                 var version = entry.Property(ticket => ticket.QueueAssignmentVersion);
                 version.CurrentValue = checked(version.OriginalValue + 1);
@@ -260,8 +259,18 @@ public class HelpdeskDbContext(
             entity.Property(x => x.PrincipalKind).HasMaxLength(64);
             entity.Property(x => x.PrincipalId).HasMaxLength(256);
         });
+        modelBuilder.Entity<IncidentReceiverQueueRoute>(entity =>
+        {
+            entity.HasKey(route => new { route.SourceNamespaceId, route.SupportGroupId });
+            entity.Property(route => route.SupportGroupId).HasMaxLength(64);
+            entity.HasOne<IncidentReceiverSource>().WithMany().HasForeignKey(route => route.SourceNamespaceId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<SupportGroup>().WithMany().HasForeignKey(route => route.SupportGroupId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<IncidentCreateReceipt>(entity =>
         {
+            entity.Property(receipt => receipt.AssignedSupportGroupId).HasMaxLength(64);
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.SourceNamespaceId, x.Key }).IsUnique();
             entity.Property(x => x.Key).HasMaxLength(256);
@@ -723,6 +732,7 @@ public class HelpdeskDbContext(
             entity.Property(x => x.DeduplicationKey).HasMaxLength(512).IsRequired();
             entity.Property(x => x.TicketId).HasMaxLength(64).IsRequired();
             entity.Property(x => x.TicketTrackingId).HasMaxLength(64);
+            entity.Property(x => x.QueueTransitionId).HasMaxLength(64);
             entity.Property(x => x.EventType).HasConversion<int>();
             entity.Property(x => x.Channel).HasConversion<int>();
             entity.Property(x => x.RecipientUserId).HasMaxLength(128);

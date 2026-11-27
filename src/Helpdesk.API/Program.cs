@@ -1165,6 +1165,7 @@ app.MapTicketRelationEndpoints();
 app.MapAutomationReportEndpoints();
 Helpdesk.API.Endpoints.Integrations.AutomationIncidentEndpoints.MapAutomationIncidentEndpoints(app);
 Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.MapIncidentReceiverEndpoints(app);
+Helpdesk.API.Endpoints.Integrations.IncidentQueueReceiverEndpoints.MapIncidentQueueReceiverEndpoints(app);
 Helpdesk.API.Endpoints.Integrations.IncidentReceiverSourceEndpoints.MapIncidentReceiverSourceEndpoints(app);
 app.MapEmailEndpoints();
 app.MapEmailSettingsEndpoints();

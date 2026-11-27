@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Entities;
 using Helpdesk.Shared.Enums;
@@ -41,7 +42,7 @@ public static class TicketQueueAssignment
         if (previousGroupId != supportGroupId)
         {
             var version = checked(ticket.QueueAssignmentVersion + 1);
-            db.TicketQueueTransitions.Add(new TicketQueueTransition
+            var transition = new TicketQueueTransition
             {
                 TicketId = ticket.Id,
                 TicketType = ticket switch
@@ -60,7 +61,18 @@ public static class TicketQueueAssignment
                 ActorId = actorId,
                 Reason = reason,
                 OccurredUtc = occurredUtc
-            });
+            };
+            db.TicketQueueTransitions.Add(transition);
+            if (supportGroupId != null)
+            {
+                db.Set<MailboxOutboxEffect>().Add(new MailboxOutboxEffect
+                {
+                    Kind = MailboxEffectKind.SupportGroupAssignment,
+                    EffectKey = $"queue-assignment:{transition.Id}",
+                    Payload = JsonSerializer.Serialize(transition.Id),
+                    AvailableUnixMilliseconds = new DateTimeOffset(occurredUtc).ToUnixTimeMilliseconds()
+                });
+            }
             ticket.QueueAssignmentVersion = version;
         }
         ticket.AssignedSupportGroupId = supportGroupId;

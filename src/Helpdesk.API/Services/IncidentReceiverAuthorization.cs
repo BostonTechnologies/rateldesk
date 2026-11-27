@@ -4,13 +4,14 @@ using Helpdesk.API.Authentication;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Services;
 
-public enum IncidentReceiverOperation { Create, ReadReceipt, ValidateTarget, ReadPresentation }
+public enum IncidentReceiverOperation { Create, ReadReceipt, ValidateTarget, ReadPresentation, CreateQueued, ReadQueuedReceipt }
 public sealed record AuthorizedIncidentSource(IncidentReceiverSource Source, Customer Customer, Organization Organization);
 
 /// <summary>Resolves current, explicitly approved receiver membership without granting a machine human authority.</summary>
@@ -34,8 +35,8 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
             if (services is null) return null;
             var scope = operation switch
             {
-                IncidentReceiverOperation.Create => ServiceIdentityScopes.IncidentCreate,
-                IncidentReceiverOperation.ReadReceipt => ServiceIdentityScopes.IncidentReceipts,
+                IncidentReceiverOperation.Create or IncidentReceiverOperation.CreateQueued => ServiceIdentityScopes.IncidentCreate,
+                IncidentReceiverOperation.ReadReceipt or IncidentReceiverOperation.ReadQueuedReceipt => ServiceIdentityScopes.IncidentReceipts,
                 IncidentReceiverOperation.ValidateTarget => ServiceIdentityScopes.IncidentTargets,
                 IncidentReceiverOperation.ReadPresentation => ServiceIdentityScopes.IncidentTemplates,
                 _ => throw new ArgumentOutOfRangeException(nameof(operation))
@@ -78,9 +79,15 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
         var customer = approved.Customer;
         var organization = approved.Organization;
         var access = await accessService.ResolveAsync(principal, ct);
-        var allowed = operation == IncidentReceiverOperation.ReadReceipt
-            ? access.CanViewIncident(organization.Id, customer.Id, customer.Email)
-            : access.CanCreateIncident(organization.Id, customer.Id, customer.Email);
+        var allowed = operation switch
+        {
+            IncidentReceiverOperation.ReadReceipt => access.CanViewIncident(organization.Id, customer.Id, customer.Email),
+            IncidentReceiverOperation.CreateQueued => access.HasPermissionInAnyQueue(HelpdeskPermissions.IncidentWrite, organization.Id) &&
+                access.HasPermissionInAnyQueue(HelpdeskPermissions.TicketQueueTransfer, organization.Id),
+            IncidentReceiverOperation.ReadQueuedReceipt => access.HasPermissionInAnyQueue(HelpdeskPermissions.IncidentRead, organization.Id) ||
+                access.HasPermissionInAnyQueue(HelpdeskPermissions.IncidentWrite, organization.Id),
+            _ => access.CanCreateIncident(organization.Id, customer.Id, customer.Email)
+        };
         return allowed ? new(source, customer, organization) : null;
     }
 
