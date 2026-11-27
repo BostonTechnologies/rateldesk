@@ -18,6 +18,7 @@
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
                    Size="Size.Small"
+                   Disabled="@(FixedOwnership && string.IsNullOrWhiteSpace(DefaultOwningOrganizationId))"
                    StartIcon="@Icons.Material.Filled.Add"
                    OnClick="@(() => RunActionAsync(OpenCreateGroupDialogAsync))">
             Add Group
@@ -34,9 +35,12 @@
                           AdornmentIcon="@Icons.Material.Filled.Search"
                           Immediate="true" />
         </MudItem>
+        @if (!FixedOwnership)
+        {
         <MudItem xs="12" md="4">
             <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Label="Owner organization" @bind-Value="ownerFilter" Required="false" Placeholder="All organizations" />
         </MudItem>
+        }
         <MudItem xs="12" md="3" Class="d-flex align-center">
             <MudSwitch T="bool" @bind-Value="showDisabled" Label="Show disabled groups" />
         </MudItem>
@@ -84,6 +88,7 @@
     [Parameter] public List<OrganizationDto> Organizations { get; set; } = new();
     [Parameter] public List<UserDto> Users { get; set; } = new();
     [Parameter] public string? DefaultOwningOrganizationId { get; set; }
+    [Parameter] public bool FixedOwnership { get; set; }
     [Parameter] public EventCallback OnChanged { get; set; }
 
     private string groupSearch = string.Empty;
@@ -106,6 +111,7 @@
         var parameters = new DialogParameters
         {
             ["Organizations"] = Organizations,
+            ["FixedOwnership"] = FixedOwnership,
             ["DefaultOwningOrganizationId"] = ownerFilter ?? DefaultOwningOrganizationId
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
@@ -140,6 +146,7 @@
         {
             ["Group"] = group,
             ["Organizations"] = Organizations,
+            ["FixedOwnership"] = FixedOwnership,
             ["DefaultOwningOrganizationId"] = DefaultOwningOrganizationId
         };
         var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };

@@ -11,7 +11,14 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="form" Model="model" Class="mt-2">
-            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Owning organization" @bind-Value="model.OwningOrganizationId" Clearable="false" />
+            @if (FixedOwnership)
+            {
+                <MudText Typo="Typo.body2">@Organizations.FirstOrDefault(item => item.Id == model.OwningOrganizationId)?.Name</MudText>
+            }
+            else
+            {
+                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Owning organization" @bind-Value="model.OwningOrganizationId" Clearable="false" />
+            }
             <MudTextField @bind-Value="model.Name" Label="Name" Required="true" />
             <MudTextField @bind-Value="model.Description" Label="Description" Lines="2" />
             <MudSwitch T="bool" @bind-Value="model.IsEnabled" Label="Enabled" />
@@ -28,6 +35,7 @@
     [Parameter] public SupportGroupDto? Group { get; set; }
     [Parameter] public List<OrganizationDto> Organizations { get; set; } = new();
     [Parameter] public string? DefaultOwningOrganizationId { get; set; }
+    [Parameter] public bool FixedOwnership { get; set; }
 
     private MudForm form = default!;
     private SupportGroupFormModel model = new();
