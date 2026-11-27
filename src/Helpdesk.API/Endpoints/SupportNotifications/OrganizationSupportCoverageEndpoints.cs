@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.SupportNotifications;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
@@ -16,24 +18,35 @@ public static class OrganizationSupportCoverageEndpoints
     {
         var group = app.MapGroup("/api/v1/support/coverage")
             .WithTags("Support Coverage")
-            .RequireAuthorization("HelpdeskAdmin");
+            .RequireAuthorization()
+            .WithMetadata(new QueueAwareEndpoint())
+            .AddEndpointFilter(SupportGroupEndpoints.FenceMutationAsync);
 
-        group.MapGet("/", async (
-            [FromServices] IRepository<OrganizationSupportCoverage> repo,
-            string? customerOrganizationId = null) =>
+        group.MapGet("/", async (HelpdeskDbContext db, ClaimsPrincipal actor, ICurrentUserAccessService accessService,
+            string? customerOrganizationId, CancellationToken ct) =>
         {
-            var items = (await repo.GetAllAsync())
-                .Where(x => string.IsNullOrWhiteSpace(customerOrganizationId) || string.Equals(x.CustomerOrganizationId, customerOrganizationId, StringComparison.OrdinalIgnoreCase))
+            var access = await accessService.ResolveAsync(actor, ct);
+            if (!SupportGroupEndpoints.CanManageGroups(access, actor)) return Results.Forbid();
+            var routes = ManagedCoverage(db, access).AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(customerOrganizationId))
+            {
+                var customer = customerOrganizationId.Trim().ToLowerInvariant();
+                routes = routes.Where(route => route.CustomerOrganizationId.ToLower() == customer);
+            }
+            var items = await routes
                 .OrderBy(x => x.CustomerOrganizationId)
                 .ThenBy(x => x.ProviderOrganizationId)
-                .Select(ToDto)
-                .ToList();
-            return Results.Ok(items);
+                .ToListAsync(ct);
+            return Results.Ok(items.Select(ToDto));
         });
 
-        group.MapPost("/", async (CreateOrganizationSupportCoverageDto dto, HelpdeskDbContext db, ClaimsPrincipal actor, CancellationToken ct) =>
+        group.MapPost("/", async (CreateOrganizationSupportCoverageDto dto, HelpdeskDbContext db, ClaimsPrincipal actor,
+            ICurrentUserAccessService accessService, CancellationToken ct) =>
         {
-            var validation = await ValidateAsync(db, dto.CustomerOrganizationId, dto.ProviderOrganizationId, dto.SupportGroupId, dto.Role, ct);
+            var access = await accessService.ResolveAsync(actor, ct);
+            if (!CanManageCoverage(access, actor, dto.CustomerOrganizationId, dto.ProviderOrganizationId)) return Results.Forbid();
+            var validation = await ValidateAsync(db, access, dto.CustomerOrganizationId, dto.ProviderOrganizationId,
+                dto.SupportGroupId, dto.Role, dto.IsEnabled, ct);
             if (validation is not null) return validation;
 
             var created = new OrganizationSupportCoverage
@@ -50,10 +63,14 @@ public static class OrganizationSupportCoverageEndpoints
             return Results.Created($"/api/v1/support/coverage/{created.Id}", ToDto(created));
         });
 
-        group.MapPut("/{id}", async (string id, UpdateOrganizationSupportCoverageDto dto, HelpdeskDbContext db, ClaimsPrincipal actor, CancellationToken ct) =>
+        group.MapPut("/{id}", async (string id, UpdateOrganizationSupportCoverageDto dto, HelpdeskDbContext db, ClaimsPrincipal actor,
+            ICurrentUserAccessService accessService, CancellationToken ct) =>
         {
-            var existing = await db.OrganizationSupportCoverages.SingleOrDefaultAsync(coverage => coverage.Id == id, ct);
+            var access = await accessService.ResolveAsync(actor, ct);
+            if (!SupportGroupEndpoints.CanManageGroups(access, actor)) return Results.Forbid();
+            var existing = await ManagedCoverage(db, access).SingleOrDefaultAsync(coverage => coverage.Id == id, ct);
             if (existing is null) return Results.NotFound();
+            if (!CanManageCoverage(access, actor, dto.CustomerOrganizationId, dto.ProviderOrganizationId)) return Results.Forbid();
             var disabling = !dto.IsEnabled &&
                 existing.CustomerOrganizationId == dto.CustomerOrganizationId?.Trim() &&
                 existing.ProviderOrganizationId == dto.ProviderOrganizationId?.Trim() &&
@@ -67,7 +84,10 @@ public static class OrganizationSupportCoverageEndpoints
                 return Results.Ok(ToDto(existing));
             }
 
-            var validation = await ValidateAsync(db, dto.CustomerOrganizationId, dto.ProviderOrganizationId, dto.SupportGroupId, dto.Role, ct);
+            var unchangedTarget = existing.IsEnabled && existing.CustomerOrganizationId == dto.CustomerOrganizationId?.Trim() &&
+                existing.ProviderOrganizationId == dto.ProviderOrganizationId?.Trim() && existing.SupportGroupId == dto.SupportGroupId?.Trim();
+            var validation = await ValidateAsync(db, access, dto.CustomerOrganizationId, dto.ProviderOrganizationId,
+                dto.SupportGroupId, dto.Role, dto.IsEnabled && !unchangedTarget, ct);
             if (validation is not null) return validation;
             existing.CustomerOrganizationId = dto.CustomerOrganizationId.Trim();
             existing.ProviderOrganizationId = dto.ProviderOrganizationId.Trim();
@@ -80,9 +100,12 @@ public static class OrganizationSupportCoverageEndpoints
             return Results.Ok(ToDto(existing));
         });
 
-        group.MapDelete("/{id}", async (string id, HelpdeskDbContext db, ClaimsPrincipal actor, CancellationToken ct) =>
+        group.MapDelete("/{id}", async (string id, HelpdeskDbContext db, ClaimsPrincipal actor,
+            ICurrentUserAccessService accessService, CancellationToken ct) =>
         {
-            var existing = await db.OrganizationSupportCoverages.SingleOrDefaultAsync(coverage => coverage.Id == id, ct);
+            var access = await accessService.ResolveAsync(actor, ct);
+            if (!SupportGroupEndpoints.CanManageGroups(access, actor)) return Results.Forbid();
+            var existing = await ManagedCoverage(db, access).SingleOrDefaultAsync(coverage => coverage.Id == id, ct);
             if (existing is null) return Results.NotFound();
             db.OrganizationSupportCoverages.Remove(existing);
             SupportGroupEndpoints.RecordChange(db, actor, id, "Removed support coverage.");
@@ -130,9 +153,21 @@ public static class OrganizationSupportCoverageEndpoints
         .RequireAuthorization("HelpdeskAdmin");
     }
 
+    private static bool CanManageCoverage(CurrentUserAccessProfile access, ClaimsPrincipal actor, string? customerId, string? providerId) =>
+        SupportGroupEndpoints.CanManageGroups(access, actor) &&
+        access.HasPermission(HelpdeskPermissions.TenantSettingsManage, customerId?.Trim()) &&
+        access.HasPermission(HelpdeskPermissions.TenantSettingsManage, providerId?.Trim());
+
+    private static IQueryable<OrganizationSupportCoverage> ManagedCoverage(HelpdeskDbContext db, CurrentUserAccessProfile access)
+    {
+        if (access.IsHelpdeskAdmin) return db.OrganizationSupportCoverages;
+        var owners = access.OrganizationIdsFor(HelpdeskPermissions.TenantSettingsManage).ToArray();
+        return db.OrganizationSupportCoverages.Where(route => owners.Contains(route.CustomerOrganizationId) && owners.Contains(route.ProviderOrganizationId));
+    }
+
     private static async Task<IResult?> ValidateAsync(
-        HelpdeskDbContext db, string customerOrganizationId, string providerOrganizationId, string supportGroupId,
-        SupportCoverageRole role, CancellationToken ct)
+        HelpdeskDbContext db, CurrentUserAccessProfile access, string customerOrganizationId, string providerOrganizationId,
+        string supportGroupId, SupportCoverageRole role, bool activating, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(customerOrganizationId) ||
             string.IsNullOrWhiteSpace(providerOrganizationId) ||
@@ -147,8 +182,12 @@ public static class OrganizationSupportCoverageEndpoints
         var valid = await db.SupportGroups.AnyAsync(group => group.Id == groupId &&
             group.OwningOrganizationId == providerId &&
             db.Organizations.Any(organization => organization.Id == providerId && organization.IsEnabled) &&
-            db.Organizations.Any(organization => organization.Id == customerId && organization.IsEnabled), ct);
-        return valid ? null : Results.BadRequest("Choose enabled organizations and a group owned by the provider.");
+            db.Organizations.Any(organization => organization.Id == customerId && organization.IsEnabled &&
+                (access.IsHelpdeskAdmin || customerId == providerId || organization.ItSupportOrganizationId == providerId)), ct);
+        if (!valid) return Results.BadRequest("Choose enabled organizations with an authorized support relationship and a group owned by the provider.");
+        if (activating && !access.IsHelpdeskAdmin && await db.SupportGroupMembers.AnyAsync(member =>
+            member.SupportGroupId == groupId && member.UserId == access.DomainUserId && member.IsEnabled, ct)) return Results.Forbid();
+        return null;
     }
 
     private static OrganizationSupportCoverageDto ToDto(OrganizationSupportCoverage source) => new()
