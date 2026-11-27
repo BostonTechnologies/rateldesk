@@ -158,12 +158,22 @@ internal static class McpRequestSchemas
                 fields["priority"] = Named(Enum.GetNames<TicketPriority>());
                 fields["linkedAssetIds"] = Strings(); fields["attachments"] = Strings(); fields["dueDate"] = Date();
                 fields["clearAssignment"] = Boolean(); fields["clearDueDate"] = Boolean();
-                schema["anyOf"] = new JsonArray(new[] { "title", "description", "priority", "assignedToId", "linkedAssetIds", "attachments", "dueDate", "clearAssignment", "clearDueDate" }.Select(name => (JsonNode)new JsonObject
+                fields["claimForMe"] = new JsonObject { ["type"] = "boolean", ["const"] = true };
+                string[] taskMetadataFields = ["title", "description", "priority", "assignedToId", "linkedAssetIds", "attachments", "dueDate", "clearAssignment", "clearDueDate"];
+                schema["anyOf"] = new JsonArray(taskMetadataFields.Append("claimForMe").Select(name => (JsonNode)new JsonObject
                 {
                     ["required"] = new JsonArray(name),
                     ["properties"] = name.StartsWith("clear", StringComparison.Ordinal) ? new JsonObject { [name] = new JsonObject { ["const"] = true } } : new JsonObject()
                 }).ToArray());
-                schema["allOf"] = new JsonArray(ExclusiveClear("clearAssignment", "assignedToId"), ExclusiveClear("clearDueDate", "dueDate"));
+                schema["allOf"] = new JsonArray(ExclusiveClear("clearAssignment", "assignedToId"), ExclusiveClear("clearDueDate", "dueDate"),
+                    new JsonObject
+                    {
+                        ["not"] = new JsonObject
+                        {
+                            ["required"] = new JsonArray("claimForMe"),
+                            ["anyOf"] = new JsonArray(taskMetadataFields.Select(name => (JsonNode)new JsonObject { ["required"] = new JsonArray(name) }).ToArray())
+                        }
+                    });
                 break;
         }
 

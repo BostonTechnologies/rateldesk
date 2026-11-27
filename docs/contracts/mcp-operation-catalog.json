@@ -1,7 +1,7 @@
 {
-  "schemaHash": "00a3325c0050c594f4064e2d37974696b5b2e8b0b77e9c0a2d131c4aed626f08",
+  "schemaHash": "43af5f668451e6a31f230f4abbae3d9c506faa14d20c558caff82b6360597402",
   "catalogRevision": "2026-11-27.ticket-queues-v37",
-  "catalogHash": "ce93e98469671a1b7ff662db2050ea7366ebf20e25ae371d9b664b94eb2f0028",
+  "catalogHash": "235d7dcd05a4d558e73f9e48ab1b1640021a0cadf47d95247d1269403d7e7044",
   "operationCount": 400,
   "operations": [
     {
@@ -7654,7 +7654,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Read, Request.Write or Request.Manager on the parent organization; owned-request permission alone does not grant task administration",
+      "authority": "Request.Read, Request.Write or Request.Manager on the parent request\u0027s organization and current queue",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7788,7 +7788,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Read, Request.Write or Request.Manager on the parent organization; owned-request permission alone does not grant task administration",
+      "authority": "Request.Read, Request.Write or Request.Manager on the parent request\u0027s organization and current queue",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7849,7 +7849,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity",
+      "authority": "Organization-wide Request.Write or Request.Manager on the parent organization",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7955,7 +7955,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity",
+      "authority": "Organization-wide Request.Write or Request.Manager for metadata edits. A manual task claim requires request write access in the parent queue and an eligible unassigned task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8030,6 +8030,10 @@
           },
           "clearDueDate": {
             "type": "boolean"
+          },
+          "claimForMe": {
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -8098,6 +8102,12 @@
                 "const": true
               }
             }
+          },
+          {
+            "required": [
+              "claimForMe"
+            ],
+            "properties": {}
           }
         ],
         "allOf": [
@@ -8125,6 +8135,60 @@
                   "const": true
                 }
               }
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "claimForMe"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "title"
+                  ]
+                },
+                {
+                  "required": [
+                    "description"
+                  ]
+                },
+                {
+                  "required": [
+                    "priority"
+                  ]
+                },
+                {
+                  "required": [
+                    "assignedToId"
+                  ]
+                },
+                {
+                  "required": [
+                    "linkedAssetIds"
+                  ]
+                },
+                {
+                  "required": [
+                    "attachments"
+                  ]
+                },
+                {
+                  "required": [
+                    "dueDate"
+                  ]
+                },
+                {
+                  "required": [
+                    "clearAssignment"
+                  ]
+                },
+                {
+                  "required": [
+                    "clearDueDate"
+                  ]
+                }
+              ]
             }
           }
         ]
@@ -8155,7 +8219,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity",
+      "authority": "Organization-wide Request.Delete or Request.Manager on the parent organization",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8216,7 +8280,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8277,7 +8341,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8338,7 +8402,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8399,7 +8463,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8461,7 +8525,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8520,7 +8584,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -8579,7 +8643,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -64375,6 +64439,10 @@
                   },
                   "clearDueDate": {
                     "type": "boolean"
+                  },
+                  "claimForMe": {
+                    "type": "boolean",
+                    "const": true
                   }
                 },
                 "required": [
@@ -64443,6 +64511,12 @@
                         "const": true
                       }
                     }
+                  },
+                  {
+                    "required": [
+                      "claimForMe"
+                    ],
+                    "properties": {}
                   }
                 ],
                 "allOf": [
@@ -64470,6 +64544,60 @@
                           "const": true
                         }
                       }
+                    }
+                  },
+                  {
+                    "not": {
+                      "required": [
+                        "claimForMe"
+                      ],
+                      "anyOf": [
+                        {
+                          "required": [
+                            "title"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "description"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "priority"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "assignedToId"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "linkedAssetIds"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "attachments"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "dueDate"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "clearAssignment"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "clearDueDate"
+                          ]
+                        }
+                      ]
                     }
                   }
                 ]

@@ -134,6 +134,11 @@
             <MudTd DataLabel="Created"><span>@context.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</span><span class="workspace-secondary">@context.CreatedAt.LocalDateTime.ToString("HH:mm")</span></MudTd>
             <MudTd DataLabel="Actions">
                 <div class="workspace-actions" @onclick:stopPropagation="true">
+                    @if (CanClaim(context))
+                    {
+                        <WorkspaceAction Label="Claim task" Icon="@Icons.Material.Outlined.PersonAdd" Disabled="rowActionBusy"
+                            OnClick="() => ClaimTaskAsync(context.Id)" />
+                    }
                     @if (CanClose(context))
                     {
                         <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseTasksAsync([context])" />
@@ -222,6 +227,9 @@
     private CurrentUserAccessProfile? profile;
     private bool CanOperate(RequestTaskListItemDto task) => TicketQueueActions.CanOperateRequestTask(profile, task.Type,
         task.OrganizationId, task.RequestAssignedSupportGroupId);
+    private bool CanClaim(RequestTaskListItemDto task) => profile?.HasRestrictedWorkforceAccess == true &&
+        task.Type == RequestTaskType.Manual && task.AssignedToId is null && task.AdministrativeClosureReason is null &&
+        task.Status is (RequestTaskStatus.Pending or RequestTaskStatus.InProgress) && CanOperate(task);
     private bool CanBulkOperate => _selected.Count > 0 && _selected.All(CanOperate);
 
     [SupplyParameterFromQuery(Name = "search")]
@@ -504,6 +512,7 @@
     private async Task StartTaskAsync(string id) => await ExecuteRowActionAsync(id, "start", "Task started.");
     private async Task CompleteTaskAsync(string id) => await ExecuteRowActionAsync(id, "complete", "Task completed.");
     private async Task RetryTaskAsync(string id) => await ExecuteRowActionAsync(id, "retry", "Task retry requested.");
+    private async Task ClaimTaskAsync(string id) => await ExecuteRowActionAsync(id, "claim", "Task claimed.");
 
     private async Task ExecuteRowActionAsync(string id, string action, string successMessage)
     {
@@ -511,7 +520,10 @@
         rowActionBusy = true;
         try
         {
-            using var response = await HelpdeskApi.PostAsJsonAsync($"/api/v1/request-tasks/{id}/{action}", new { });
+            var taskPath = $"/api/v1/request-tasks/{Uri.EscapeDataString(id)}";
+            using var response = action == "claim"
+                ? await HelpdeskApi.PatchAsJsonAsync(taskPath, new { claimForMe = true })
+                : await HelpdeskApi.PostAsJsonAsync($"{taskPath}/{action}", new { });
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();

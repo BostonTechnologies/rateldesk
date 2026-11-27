@@ -178,3 +178,19 @@ CLI list accepts repeated `--support-group-id` and `--main-queue`. Pass the
 assignment document to `rateldesk incidents move-queue --body-file move.json`
 or use the corresponding requests or changes command. Stdio and HTTP MCP expose
 the same assignment through confirmed `move_queue`. [MCP operation contracts](mcp-operation-contracts.md#ticket-queues)
+
+Request tasks inherit the parent request's queue. Task listings include
+`requestAssignedSupportGroupId`. Claim an unassigned manual task with
+`{"claimForMe":true}` on `PATCH /api/v1/request-tasks/{id}`. The CLI command
+is `rateldesk request-tasks claim TASK-ID`. In either MCP transport, confirm
+`helpdesk_request_tasks` operation `update` with `taskId` and `claimForMe` set
+to true. Manual state changes require request write authority. Automation
+commands use request execute authority. Bulk start, completion and retry
+consider only eligible tasks in queues authorized for the operation. The
+committed transition rechecks the parent assignment and current authority.
+Scoped transition responses omit provider diagnostics and prepared automation data.
+
+An authenticated group-scoped request approver needs the designated approval and write
+authority on the parent request. A scoped change approver needs the designated
+approval and change approval authority in the current queue. Recipient-bound
+customer approval links retain their existing independent authority.

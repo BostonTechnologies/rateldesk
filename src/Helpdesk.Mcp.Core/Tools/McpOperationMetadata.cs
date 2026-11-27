@@ -121,11 +121,14 @@ public static class McpOperationMetadata
         };
         if (item.Tool == "helpdesk_incidents") return item.Effect == "read" ? "Incident read/write/manager permission or permitted owned incident in organization scope" : "Incident management/write authority in selected organization; API action-specific policy applies";
         if (item.Operation == "bulk_close") return "Request.Write or Request.Manager within each selected record’s organization, or active instance administrator. Scope is rechecked for every record.";
-        if (item.Tool == "helpdesk_request_tasks") return item.Effect == "read"
-            ? "Request.Read, Request.Write or Request.Manager on the parent organization; owned-request permission alone does not grant task administration"
-            : item.Operation is "create" or "update" or "delete"
-                ? "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity"
-                : "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.";
+        if (item.Tool == "helpdesk_request_tasks") return item.Operation switch
+        {
+            "list" or "get" => "Request.Read, Request.Write or Request.Manager on the parent request's organization and current queue",
+            "create" => "Organization-wide Request.Write or Request.Manager on the parent organization",
+            "update" => "Organization-wide Request.Write or Request.Manager for metadata edits. A manual task claim requires request write access in the parent queue and an eligible unassigned task.",
+            "delete" => "Organization-wide Request.Delete or Request.Manager on the parent organization",
+            _ => "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request's organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task."
+        };
         if (item.Tool == "helpdesk_requests") return item.Effect == "read" ? "Request read/write/manager permission or permitted owned request in organization scope" : "Request management/write authority in selected organization; task lifecycle eligibility applies";
         if (item.Tool == "helpdesk_changes") return item.Effect == "read" ? "Change read/write/manager permission or permitted owned change in organization scope" : "Change.Write or Change.Manager authority in selected organization; draft edit lock and lifecycle invariants apply";
         throw new InvalidOperationException($"Missing explicit authority metadata for {item.Tool}.{item.Operation}.");

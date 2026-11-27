@@ -173,6 +173,20 @@ public sealed partial class McpGatewayRealAccessPipelineTests
         Assert.Equal(HttpStatusCode.NotFound, unauthorized.StatusCode);
         using var hidden = await harness.SendAsync(writer, HttpMethod.Post, route + "task-hidden/start");
         Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        using var hiddenClaim = await harness.SendAsync(writer, HttpMethod.Patch, route + "task-hidden", new { claimForMe = true });
+        Assert.Equal(HttpStatusCode.NotFound, hiddenClaim.StatusCode);
+        using var ambiguousClaim = await harness.SendAsync(writer, HttpMethod.Patch, route + "task-visible", new { claimForMe = true, assignedToId = "another-user" });
+        Assert.Equal(HttpStatusCode.BadRequest, ambiguousClaim.StatusCode);
+        var tools = new HelpdeskTools(new HelpdeskAgentClient(AgentClientConfiguration.Empty with
+        {
+            ApiBaseUrl = "https://gateway-api.example.test", CredentialMode = "gateway"
+        }, new GatewayClientFactory(harness), new GatewayLifetime(), new GatewayToken(writer)),
+            new AgentClientConfigurationStore(Path.Combine("work", "queues", "unused-profile.json")));
+        var update = JsonSerializer.SerializeToElement(new { taskId = "task-visible", claimForMe = true });
+        Assert.Equal("confirmation_required", (await tools.helpdesk_request_tasks("update", update)).Status);
+        Assert.Null((await harness.GetAsync<RequestTaskDto>(writer, route + "task-visible")).Body!.AssignedToId);
+        Assert.True((await tools.helpdesk_request_tasks("update", update, confirm: true)).Success);
+        Assert.Equal("owner", (await harness.GetAsync<RequestTaskDto>(writer, route + "task-visible")).Body!.AssignedToId);
         using var started = await harness.SendAsync(writer, HttpMethod.Post, route + "task-visible/start");
         Assert.Equal(HttpStatusCode.OK, started.StatusCode);
         var transition = await started.Content.ReadFromJsonAsync<RequestTaskTransitionDto>();

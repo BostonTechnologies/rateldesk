@@ -44,7 +44,7 @@ public sealed partial class HelpdeskTools(
 
     private static readonly HashSet<string> RequestTaskUpdateFields = new(StringComparer.Ordinal)
     {
-        "taskId", "title", "description", "priority", "assignedToId", "clearAssignment", "linkedAssetIds", "attachments", "dueDate", "clearDueDate"
+        "taskId", "title", "description", "priority", "assignedToId", "clearAssignment", "linkedAssetIds", "attachments", "dueDate", "clearDueDate", "claimForMe"
     };
 
     [McpServerTool(UseStructuredContent = true), Description("Read the downstream execution identity. access reads current API permissions, organization scope and linked customer for every credential mode. status preserves integration/gateway application status or exact Authentik AI-agent status. External HTTP hosts use their separately configured downstream principal, not the ingress caller. The MCP server never returns bearer tokens.")]
@@ -875,6 +875,9 @@ public sealed partial class HelpdeskTools(
         if (request is null) return "request must be an object.";
         var unsupported = request.Select(pair => pair.Key).FirstOrDefault(key => !RequestTaskUpdateFields.Contains(key));
         if (unsupported is not null) return $"request.{unsupported} is not supported for request-task update.";
+        if (request.ContainsKey("claimForMe"))
+            return request["claimForMe"]?.GetValueKind() == JsonValueKind.True && request.Count == 2
+                ? null : "Set claimForMe to true and provide only the task ID for a claim.";
         if (request["title"] is not null && !HasText(request["title"])) return "request.title cannot be empty.";
         if (request["description"] is not null && !HasText(request["description"])) return "request.description cannot be empty.";
         if (PriorityValidation(request) is { } priorityError) return priorityError;

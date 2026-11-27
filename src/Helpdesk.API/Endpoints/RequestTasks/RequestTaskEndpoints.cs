@@ -454,10 +454,14 @@ public static class RequestTaskEndpoints
             [FromServices] IRepository<RequestTask> repo,
             [FromServices] HelpdeskDbContext db,
             [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IRequestTaskStartFence? queueFence,
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
             var access = await accessService.ResolveAsync(user, token);
+            if (dto.ClaimForMe)
+                return await ClaimTaskAsync(db, queueFence, access, accessService, user, id, dto, token);
+            if (access.HasRestrictedWorkforceAccess) return Results.Forbid();
             if (!CanManageTasks(access))
             {
                 return Results.Forbid();
@@ -526,7 +530,7 @@ public static class RequestTaskEndpoints
 
             var updated = await repo.UpdateAsync(existing);
             return Results.Ok(updated);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapDelete("/{id}", async (
             [FromRoute] string id,
@@ -1104,6 +1108,30 @@ public static class RequestTaskEndpoints
             : new(null, Results.NotFound());
     }
 
+    private static async Task<IResult> ClaimTaskAsync(HelpdeskDbContext db, IRequestTaskStartFence? queueFence,
+        CurrentUserAccessProfile access, ICurrentUserAccessService accessService, ClaimsPrincipal user,
+        string id, UpdateRequestTaskDto dto, CancellationToken ct)
+    {
+        if (dto.HasUpdate) return Results.BadRequest("Claim a task separately from other updates.");
+        if (queueFence is null || access.DomainUserId is not { } caller) return Results.Forbid();
+
+        var target = await AuthorizableTaskTransitions(db, access,
+            db.RequestTasks.AsNoTracking().Where(task => task.Id == id && task.Type == RequestTaskType.Manual)).SingleOrDefaultAsync(ct);
+        if (target is null) return Results.NotFound();
+        var task = await db.RequestTasks.SingleOrDefaultAsync(row => row.Id == target.Id, ct);
+        if (task is null || task.Type != RequestTaskType.Manual) return Results.NotFound();
+        if (task.AssignedToId == caller) return Results.NoContent();
+        if (task.AssignedToId != null || task.AdministrativeClosureReason != null ||
+            task.Status is not (RequestTaskStatus.Pending or RequestTaskStatus.InProgress))
+            return Results.Conflict("Refresh the task before claiming it.");
+
+        task.AssignedToId = caller;
+        task.UpdatedAt = DateTime.UtcNow;
+        await queueFence.PersistAuthorizedTransitionAsync(task, CreateQueueAuthority(target, accessService, user),
+            () => db.SaveChangesAsync(ct), ct);
+        return Results.NoContent();
+    }
+
     private static IQueryable<ScopedTaskTransition> AuthorizableTaskTransitions(HelpdeskDbContext db, CurrentUserAccessProfile access,
         IQueryable<RequestTask> tasks)
     {
@@ -1236,6 +1264,7 @@ public sealed record UpdateRequestTaskDto
     public TicketPriority? Priority { get; init; }
     public string? AssignedToId { get; init; }
     public bool ClearAssignment { get; init; }
+    public bool ClaimForMe { get; init; }
     public List<string>? LinkedAssetIds { get; init; }
     public List<string>? Attachments { get; init; }
     public DateTime? DueDate { get; init; }

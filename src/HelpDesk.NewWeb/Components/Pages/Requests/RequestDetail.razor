@@ -132,6 +132,11 @@ else
                                             AssignedToIdChanged="value => context.Task.AssignedToId = value" /></MudTd>
                                     <MudTd DataLabel="Actions"><div class="workspace-actions">
                                         <div class="request-task-actions">
+                                            @if (CanClaimTask(context.Task))
+                                            {
+                                                <WorkspaceAction Label="Claim task" Icon="@Icons.Material.Outlined.PersonAdd" Disabled="taskActionInProgress"
+                                                    OnClick="() => ClaimTaskAsync(context.Task)" />
+                                            }
                                             @if (CanManage && context.Task.AdministrativeClosureReason == null && context.Task.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped))
                                             {
                                                 <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseWorkAsync(context.Task)" />
@@ -422,6 +427,9 @@ else
         request?.OrganizationId, request?.AssignedSupportGroupId);
     private bool CanOperateTask(RequestTaskDto task) => TicketQueueActions.CanOperateRequestTask(accessProfile, task.Type,
         request?.OrganizationId, request?.AssignedSupportGroupId);
+    private bool CanClaimTask(RequestTaskDto task) => accessProfile?.HasRestrictedWorkforceAccess == true &&
+        task.Type == RequestTaskType.Manual && task.AssignedToId is null && task.AdministrativeClosureReason is null &&
+        task.Status is (RequestTaskStatus.Pending or RequestTaskStatus.InProgress) && CanOperateTask(task);
     private bool canViewWorkflowPayload;
     private bool isUpdating;
     private bool refreshPending;
@@ -881,6 +889,8 @@ else
         await ExecuteTaskActionAsync(task.Id, "fail", "Task marked failed.");
     }
 
+    private Task ClaimTaskAsync(RequestTaskDto task) => ExecuteTaskActionAsync(task.Id, "claim", "Task claimed.");
+
     private async Task RetryTaskAsync(RequestTaskDto task)
     {
         if (!canRetryAutomationTasks)
@@ -919,7 +929,10 @@ else
         taskActionInProgress = true;
         try
         {
-            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/request-tasks/{taskId}/{action}", new { }, token);
+            var taskPath = $"api/v1/request-tasks/{Uri.EscapeDataString(taskId)}";
+            using var response = action == "claim"
+                ? await HelpdeskApi.PatchAsJsonAsync(taskPath, new { claimForMe = true }, token)
+                : await HelpdeskApi.PostAsJsonAsync($"{taskPath}/{action}", new { }, token);
             if (!IsCurrent(version)) return;
             if (!response.IsSuccessStatusCode)
             {
