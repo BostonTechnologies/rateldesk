@@ -11,6 +11,8 @@ public abstract class Ticket
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public string? AssignedToId { get; set; }
+    public string? AssignedSupportGroupId { get; set; }
+    public long QueueAssignmentVersion { get; set; }
     public string? CustomerId { get; set; }
     public string? OrganizationId { get; set; }
     public string? ServiceId { get; set; }

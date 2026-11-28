@@ -18,9 +18,11 @@
   [schema](rateldesk-incident-create.v1.json),
   [frozen fixtures](rateldesk-incident-create.v1.fixtures.json) and
   [checksums](rateldesk-incident-create.v1.SHA256SUMS)
+- [RatelDesk incident-create v2](rateldesk-incident-create.v2.md)
+- [RatelDesk incident-create v3 queue routing](rateldesk-incident-create.v3.md)
 
 These versioned contracts remain distinct from account-owned browser pairing.
-The current catalog is revision `2026-11-11.automation-targets-v29`: 390 operations
+The current catalog is revision `2026-11-27.ticket-queues-v37` contains 400 operations
 on 37 tools. The retained beta.13-to-beta.14 mapping preserves every operation
 identity and records 26 schema changes for numeric-string enum compatibility and
 incomplete draft change updates. The 200-character task-search boundary is
@@ -31,5 +33,4 @@ bytes and do not establish acceptance of this candidate.
 `request.body.requestId` for retrying the same explicit creation draft. Omitting
 it preserves legacy creation behavior, including the default schema when columns
 are omitted. Supplying it requires a nonempty UUID and an explicit valid schema.
-This adds a field to an existing operation; the counts remain 390 operations on
-37 tools. See [dataset request semantics](mcp-operation-contracts.md#typed-operator-adapters).
+See [dataset request semantics](mcp-operation-contracts.md#typed-operator-adapters).

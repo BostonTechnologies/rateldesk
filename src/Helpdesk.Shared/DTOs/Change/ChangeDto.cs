@@ -6,6 +6,9 @@ using Helpdesk.Shared.Models;
 public class ChangeDto
 {
     public string? OrganizationId { get; set; }
+    public string? AssignedSupportGroupId { get; set; }
+    public string? AssignedSupportGroupName { get; set; }
+    public long QueueAssignmentVersion { get; set; }
     public string? OrganizationName { get; set; }
     public string Id { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;

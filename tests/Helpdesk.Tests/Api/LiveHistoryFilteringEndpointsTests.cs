@@ -7,6 +7,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Background;
+using Helpdesk.API.Endpoints.Attachments;
 using Helpdesk.API.Endpoints.Changes;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Requests;
@@ -17,6 +18,7 @@ using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Services.Changes;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Services.SupportNotifications;
+using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Sla;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Application.Timeline;
@@ -1694,7 +1696,11 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             builder.Services.AddSingleton<IImageLinkSigner>(imageLinkSigner ?? new TestImageLinkSigner());
             builder.Services.AddSingleton<ITimelineEventBus>(timelineEventBus ?? new TestTimelineEventBus());
             if (storageOptions is not null)
+            {
                 builder.Services.AddSingleton<IOptions<StorageOptions>>(Options.Create(storageOptions));
+                builder.Services.AddSingleton<TicketAttachmentFileStore>();
+                builder.Services.AddScoped<ITicketAttachmentService, TicketAttachmentService>();
+            }
             builder.Services.AddSingleton<IRequestSender, FailFastRequestSender>();
             if (lifecycleService is not null)
             {
@@ -1781,6 +1787,7 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
             app.MapChangeEndpoints();
             app.MapRequestTaskEndpoints();
             app.MapWorkLogEndpoints();
+            if (storageOptions is not null) app.MapAttachmentEndpoints();
 
             using (var scope = app.Services.CreateScope())
             {
@@ -1908,6 +1915,8 @@ public sealed partial class LiveHistoryFilteringEndpointsTests
 
     private sealed class NoopSupportNotificationService : ISupportNotificationService
     {
+        public Task NotifyTicketAssignedToSupportGroupAsync(Ticket ticket, string transitionId,
+            IReadOnlyList<SupportNotificationRecipient> recipients, CancellationToken ct = default) => Task.CompletedTask;
         public Task NotifyTicketCreatedUnassignedAsync(Ticket ticket, CancellationToken ct = default) =>
             Task.CompletedTask;
 

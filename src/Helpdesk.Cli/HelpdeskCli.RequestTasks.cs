@@ -35,6 +35,7 @@ internal static partial class HelpdeskCli
         tasks.AddCommand(GetProjectedByIdCommand(runtime, globals, "get", "/api/v1/request-tasks/{id}", "request-task"));
         tasks.AddCommand(BodyCommand(runtime, globals, "create", HttpMethod.Post, "/api/v1/request-tasks/", RequestTaskBodyFields));
         tasks.AddCommand(BodyCommand(runtime, globals, "update", HttpMethod.Put, "/api/v1/request-tasks/{id}", RequestTaskBodyFields));
+        tasks.AddCommand(BuildTaskClaimCommand(runtime, globals));
         tasks.AddCommand(DeleteByIdCommand(runtime, globals, "delete", "/api/v1/request-tasks/{id}"));
         tasks.AddCommand(BodyCommand(runtime, globals, "start", HttpMethod.Post, "/api/v1/request-tasks/{id}/start", ("--comment", "comment")));
         tasks.AddCommand(BodyCommand(runtime, globals, "complete", HttpMethod.Post, "/api/v1/request-tasks/{id}/complete", ("--comment", "comment")));
@@ -90,6 +91,21 @@ internal static partial class HelpdeskCli
         return command;
     }
 
+    private static Command BuildTaskClaimCommand(CliRuntime runtime, GlobalOptions globals)
+    {
+        var id = new Argument<string>("id") { Description = "Unassigned manual task ID." };
+        var command = new Command("claim", "Claim a manual task as the authenticated user.") { id };
+        command.SetHandler(async context =>
+        {
+            var taskId = RequiredArgument(context.ParseResult, id);
+            await SendStringAsync(runtime, globals, context, HttpMethod.Patch, "/api/v1/request-tasks/" + Escape(taskId),
+                "{\"claimForMe\":true}").ConfigureAwait(false);
+            if (!context.ParseResult.GetValueForOption(globals.Quiet))
+                await WriteJsonAsync(runtime, new JsonObject { ["id"] = taskId }, context, globals).ConfigureAwait(false);
+        });
+        return command;
+    }
+
     private static Command BuildTicketsCommand(CliRuntime runtime, GlobalOptions globals)
     {
         var tickets = new Command("tickets", "Shared ticket helper operations.");
@@ -106,6 +122,7 @@ internal static partial class HelpdeskCli
         {
             ["id"] = CloneNode(source["id"]),
             ["requestId"] = CloneNode(source["requestId"]),
+            ["requestAssignedSupportGroupId"] = CloneNode(source["requestAssignedSupportGroupId"]),
             ["stateVersion"] = CloneNode(source["stateVersion"] ?? source["automationStateVersion"]),
             ["administrativeClosureReason"] = CloneNode(source["administrativeClosureReason"]),
             ["trackingId"] = CloneNode(source["trackingId"] ?? source["requestTrackingId"]),

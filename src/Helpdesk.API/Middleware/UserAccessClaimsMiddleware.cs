@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Services;
 using Helpdesk.Infrastructure.ServiceIdentity;
@@ -41,6 +42,12 @@ public sealed class UserAccessClaimsMiddleware(RequestDelegate next)
                     return;
                 }
                 await next(context);
+                return;
+            }
+            if (access.HasRestrictedWorkforceAccess && context.Request.Path.StartsWithSegments("/api") &&
+                context.GetEndpoint()?.Metadata.GetMetadata<QueueAwareEndpoint>() is null)
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
             }
             RemoveApplicationAccessClaims(identity);

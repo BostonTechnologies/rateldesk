@@ -15,6 +15,8 @@ public static class WebAccessClaimsProjection
         foreach (var organization in access.AllowedOrganizationIds) AddClaim(identity, "allowed_organization_id", organization);
         foreach (var organization in access.ManagedOrganizationIds) AddClaim(identity, "managed_organization_id", organization);
         foreach (var grant in access.ScopedPermissionGrants) AddClaim(identity, "scoped_permission", grant.ToString());
+        if (access.HasRestrictedWorkforceAccess) AddClaim(identity, "ticket_workforce_scope", "restricted");
+        foreach (var grant in access.TicketQueuePermissionGrants) AddClaim(identity, "ticket_queue_permission", grant.ToString());
         foreach (var role in access.RoleBundles.Concat(access.Permissions))
         {
             AddClaim(identity, ClaimTypes.Role, role);
@@ -30,6 +32,8 @@ public static class WebAccessClaimsProjection
                      "managed_organization_id" or
                      "customer_id" or
                      "scoped_permission" or
+                     "ticket_queue_permission" or
+                     "ticket_workforce_scope" or
                      "permission_scope_mode" or
                      ClaimTypes.Role or
                      "roles").ToArray())

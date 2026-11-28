@@ -14,6 +14,7 @@
         <MudForm @ref="form" Model="model" Class="mt-2">
             <MudSelect T="SupportNotificationEventType" @bind-Value="model.EventType" Label="Event" Dense="true">
                 <MudSelectItem Value="SupportNotificationEventType.TicketCreatedUnassigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketCreatedUnassigned)</MudSelectItem>
+                <MudSelectItem Value="SupportNotificationEventType.TicketAssignedToSupportGroup">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketAssignedToSupportGroup)</MudSelectItem>
                 @if (Subscription?.EventType == SupportNotificationEventType.TicketAssigned)
                 {
                     <MudSelectItem Value="SupportNotificationEventType.TicketAssigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketAssigned)</MudSelectItem>

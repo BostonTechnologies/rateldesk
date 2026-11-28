@@ -10,6 +10,7 @@ public static class EmailSeedDefaults
         ["NewTicketConfirmation"] = "Your {{{TICKET_TYPE}}} Has Been Created {{{TICKET_REF}}}",
         ["SupportTicketCreatedUnassigned"] = "New Unassigned Ticket {{{TICKET_REF}}}: {{{REQUEST_TITLE}}}",
         ["SupportTicketAssigned"] = "Ticket Assigned To You {{{TICKET_REF}}}: {{{REQUEST_TITLE}}}",
+        ["SupportTicketAssignedToSupportGroup"] = "{{{TICKET_REF}}} assigned to your support group",
         ["TicketUpdated"] = "Update from Helpdesk for {{{TICKET_REF}}}",
         ["SelfServiceRequestCreated"] = "Self-Service Request Created {{{TICKET_REF}}}: {{{SERVICE_NAME}}}",
         ["SelfServiceRequestCompleted"] = "Self-Service Request Completed {{{TICKET_REF}}}: {{{SERVICE_NAME}}}",

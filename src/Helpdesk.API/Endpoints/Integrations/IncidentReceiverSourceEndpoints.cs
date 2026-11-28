@@ -4,6 +4,7 @@ using Helpdesk.API.Authentication;
 using Helpdesk.API.Services;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ public static class IncidentReceiverSourceEndpoints
 {
     public sealed record RegisterSource(Guid SourceInstanceId, string OrganizationId, string CustomerId, Guid CredentialId);
     public sealed record ChangeGrant(long ExpectedRevision, bool IsEnabled);
+    public sealed record ChangeQueueRoutes(long ExpectedRevision, IReadOnlyList<string> SupportGroupIds);
 
     public static void MapIncidentReceiverSourceEndpoints(this IEndpointRouteBuilder app)
     {
@@ -108,6 +110,53 @@ public static class IncidentReceiverSourceEndpoints
         }).Accepts<ChangeGrant>("application/json");
         group.MapGet("/", async (HelpdeskDbContext db, CancellationToken ct) => Results.Ok(
             await db.IncidentReceiverSources.AsNoTracking().OrderBy(x => x.SourceInstanceId).Take(256).ToListAsync(ct)));
+        group.MapGet("/{namespaceId:guid}/queues", async (Guid namespaceId, HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            var source = await db.IncidentReceiverSources.AsNoTracking().SingleOrDefaultAsync(row => row.SourceNamespaceId == namespaceId, ct);
+            return source == null ? Results.NotFound() : Results.Ok(new
+            {
+                source.Revision,
+                SupportGroupIds = await db.IncidentReceiverQueueRoutes.Where(route => route.SourceNamespaceId == namespaceId)
+                    .Select(route => route.SupportGroupId).OrderBy(id => id).ToArrayAsync(ct)
+            });
+        }).WithName("GetIncidentReceiverQueueRoutes");
+        group.MapPut("/{namespaceId:guid}/queues", async (
+            Guid namespaceId, ChangeQueueRoutes request, ClaimsPrincipal principal, HelpdeskDbContext db, TimeProvider time, CancellationToken ct) =>
+        {
+            if (request.SupportGroupIds == null || request.SupportGroupIds.Count > 100 ||
+                request.SupportGroupIds.Any(id => !IncidentQueueContract.ValidGroupId(id)) ||
+                request.SupportGroupIds.Count != request.SupportGroupIds.Distinct().Count())
+                return IncidentReceiverContract.Problem(400, "invalid-queue-routes");
+            var source = await db.IncidentReceiverSources.SingleOrDefaultAsync(row => row.SourceNamespaceId == namespaceId, ct);
+            if (source == null) return Results.NotFound();
+            if (source.Revision != request.ExpectedRevision)
+                return IncidentReceiverContract.Problem(409, "source-revision-conflict");
+            var actor = principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue("sub");
+            if (string.IsNullOrWhiteSpace(actor) || principal.HasClaim("auth_mode", "integration")) return Results.Forbid();
+            var wanted = request.SupportGroupIds.ToArray();
+            if (await TicketQueueAssignment.Destinations(db, source.OrganizationId).CountAsync(queue => wanted.Contains(queue.Id), ct) != wanted.Length)
+                return IncidentReceiverContract.Problem(422, "invalid-queue-routes");
+
+            var current = await db.IncidentReceiverQueueRoutes.Where(route => route.SourceNamespaceId == namespaceId).ToArrayAsync(ct);
+            db.IncidentReceiverQueueRoutes.RemoveRange(current.Where(route => !wanted.Contains(route.SupportGroupId)));
+            db.IncidentReceiverQueueRoutes.AddRange(wanted.Except(current.Select(route => route.SupportGroupId)).Select(id => new IncidentReceiverQueueRoute
+            {
+                SourceNamespaceId = namespaceId,
+                SupportGroupId = id
+            }));
+            source.Revision++;
+            source.UpdatedBy = actor;
+            source.UpdatedAtUtc = time.GetUtcNow();
+            Audit(db, source, actor, "queue-routes-changed", Guid.Empty, source.IsEnabled);
+            db.ActivityLogs.Add(new ActivityLog
+            {
+                RelatedEntityId = namespaceId.ToString("D"), UserId = actor,
+                Message = $"Updated NetRatel incident queue allowlist to [{string.Join(", ", wanted)}]."
+            });
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateConcurrencyException) { return IncidentReceiverContract.Problem(409, "source-revision-conflict"); }
+            return Results.Ok(new { source.Revision, SupportGroupIds = wanted });
+        }).WithName("SetIncidentReceiverQueueRoutes");
     }
 
     private static async Task<bool> ValidCredentialAsync(RatelDeskIdentityDbContext identity, Guid id, string organizationId,

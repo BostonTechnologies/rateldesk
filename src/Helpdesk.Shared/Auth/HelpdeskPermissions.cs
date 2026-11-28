@@ -20,6 +20,7 @@ public static class HelpdeskPermissions
     public const string ChangeWrite = "Change.Write";
     public const string ChangeDelete = "Change.Delete";
     public const string ChangeApprove = "Change.Approve";
+    public const string TicketQueueTransfer = "Ticket.Queue.Transfer";
     public const string DataManagementAdmin = "DataManagement.Admin";
     public const string HelpdeskAdmin = "HelpdeskAdmin";
     public const string TenantUsersManage = "Tenant.Users.Manage";
@@ -48,6 +49,7 @@ public static class HelpdeskPermissions
         ChangeWrite,
         ChangeDelete,
         ChangeApprove,
+        TicketQueueTransfer,
         DataManagementAdmin,
         TenantUsersManage,
         TenantRolesAssign,

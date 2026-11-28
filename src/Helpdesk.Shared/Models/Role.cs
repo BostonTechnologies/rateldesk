@@ -1,4 +1,5 @@
 using Dodo.Primitives;
+using Helpdesk.Shared.Enums;
 
 namespace Helpdesk.Shared.Models;
 
@@ -11,6 +12,8 @@ public class Role
     public string? OwnerOrganizationId { get; set; }
     public bool IsBuiltIn { get; set; }
     public bool IsProtected { get; set; }
+    public TicketAccessScope TicketAccessScope { get; set; }
+    public ICollection<RoleSupportGroup> SupportGroups { get; set; } = new List<RoleSupportGroup>();
     public ICollection<RolePermission> Permissions { get; set; } = new List<RolePermission>();
 }
 

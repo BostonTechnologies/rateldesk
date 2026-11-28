@@ -53,6 +53,9 @@ else
                 AllCategories="@categories"
                 CategoryRemoved="OnCategoryRemoved" ReadOnly="@(!CanManage || isUpdating)">
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
+            <TicketQueueLabel Module="request" TicketId="@request.Id" OrganizationId="@request.OrganizationId"
+                              GroupId="@request.AssignedSupportGroupId" Name="@request.AssignedSupportGroupName" Version="@request.QueueAssignmentVersion"
+                              Unassigned="@(request.AssignedToId == null)" Access="@accessProfile" Changed="ReloadQueueDetails" />
 
             <div class="request-progress-summary">
                 <div class="request-progress-text" data-testid="request-workflow-summary">
@@ -129,6 +132,11 @@ else
                                             AssignedToIdChanged="value => context.Task.AssignedToId = value" /></MudTd>
                                     <MudTd DataLabel="Actions"><div class="workspace-actions">
                                         <div class="request-task-actions">
+                                            @if (CanClaimTask(context.Task))
+                                            {
+                                                <WorkspaceAction Label="Claim task" Icon="@Icons.Material.Outlined.PersonAdd" Disabled="taskActionInProgress"
+                                                    OnClick="() => ClaimTaskAsync(context.Task)" />
+                                            }
                                             @if (CanManage && context.Task.AdministrativeClosureReason == null && context.Task.Status is not (RequestTaskStatus.Completed or RequestTaskStatus.Skipped))
                                             {
                                                 <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseWorkAsync(context.Task)" />
@@ -391,8 +399,14 @@ else
     }
 
     private CurrentUserAccessProfile? accessProfile;
+    private Task ReloadQueueDetails()
+    {
+        loadedRequestId = null;
+        return OnParametersSetAsync();
+    }
     private bool CanManage => accessProfile?.CanManageRequest(request?.OrganizationId) == true;
-    private bool CanContribute => request is not null && accessProfile?.CanContributeRequest(request.OrganizationId, request.CustomerId, request.CustomerEmail) == true;
+    private bool CanContribute => request is not null && (accessProfile?.CanContributeRequest(request.OrganizationId, request.CustomerId, request.CustomerEmail) == true ||
+        TicketQueueActions.CanWrite(accessProfile, "request", request.OrganizationId, request.AssignedSupportGroupId));
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     [Parameter] public string Id { get; set; } = string.Empty;
@@ -410,8 +424,13 @@ else
     private bool loading = true;
     private bool tasksLoading;
     private bool taskActionInProgress;
-    private bool canRetryAutomationTasks => accessProfile?.CanExecuteRequest(request?.OrganizationId) == true;
-    private bool CanOperateTask(RequestTaskDto task) => task.Type == RequestTaskType.Automation ? canRetryAutomationTasks : task.Type == RequestTaskType.Manual && CanManage;
+    private bool canRetryAutomationTasks => TicketQueueActions.CanOperateRequestTask(accessProfile, RequestTaskType.Automation,
+        request?.OrganizationId, request?.AssignedSupportGroupId);
+    private bool CanOperateTask(RequestTaskDto task) => TicketQueueActions.CanOperateRequestTask(accessProfile, task.Type,
+        request?.OrganizationId, request?.AssignedSupportGroupId);
+    private bool CanClaimTask(RequestTaskDto task) => accessProfile?.HasRestrictedWorkforceAccess == true &&
+        task.Type == RequestTaskType.Manual && task.AssignedToId is null && task.AdministrativeClosureReason is null &&
+        task.Status is (RequestTaskStatus.Pending or RequestTaskStatus.InProgress) && CanOperateTask(task);
     private bool canViewWorkflowPayload;
     private bool isUpdating;
     private bool refreshPending;
@@ -462,11 +481,13 @@ else
         try
         {
             var requestTask = HelpdeskApi.GetFromJsonAsync<RequestDto>($"api/v1/requests/{Id}", token);
-            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Request}", token);
-            var requestTasksTask = LoadTasksAsync();
-            var workflowTimelineTask = LoadWorkflowTimelineAsync(reset: true);
-            var rolesTask = ResolveRolesAsync();
             accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
+            var categoriesTask = accessProfile.HasRestrictedWorkforceAccess
+                ? Task.FromResult<List<TicketCategoryDto>?>([])
+                : HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Request}", token);
+            var requestTasksTask = LoadTasksAsync();
+            var workflowTimelineTask = accessProfile.HasRestrictedWorkforceAccess ? Task.CompletedTask : LoadWorkflowTimelineAsync(reset: true);
+            var rolesTask = ResolveRolesAsync();
 
             await Task.WhenAll(requestTask, categoriesTask, requestTasksTask, workflowTimelineTask, rolesTask);
 
@@ -505,6 +526,9 @@ else
         {
             Id = source.Id,
             OrganizationId = source.OrganizationId,
+            AssignedSupportGroupId = source.AssignedSupportGroupId,
+            AssignedSupportGroupName = source.AssignedSupportGroupName,
+            QueueAssignmentVersion = source.QueueAssignmentVersion,
             Title = source.Title,
             Description = source.Description,
             State = source.State,
@@ -866,6 +890,8 @@ else
         await ExecuteTaskActionAsync(task.Id, "fail", "Task marked failed.");
     }
 
+    private Task ClaimTaskAsync(RequestTaskDto task) => ExecuteTaskActionAsync(task.Id, "claim", "Task claimed.");
+
     private async Task RetryTaskAsync(RequestTaskDto task)
     {
         if (!canRetryAutomationTasks)
@@ -904,7 +930,10 @@ else
         taskActionInProgress = true;
         try
         {
-            using var response = await HelpdeskApi.PostAsJsonAsync($"api/v1/request-tasks/{taskId}/{action}", new { }, token);
+            var taskPath = $"api/v1/request-tasks/{Uri.EscapeDataString(taskId)}";
+            using var response = action == "claim"
+                ? await HelpdeskApi.PatchAsJsonAsync(taskPath, new { claimForMe = true }, token)
+                : await HelpdeskApi.PostAsJsonAsync($"{taskPath}/{action}", new { }, token);
             if (!IsCurrent(version)) return;
             if (!response.IsSuccessStatusCode)
             {

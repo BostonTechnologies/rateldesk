@@ -2,16 +2,20 @@
 @page "/admin/support-routing"
 @implements IDisposable
 @using Microsoft.AspNetCore.Components.Routing
-@attribute [Authorize(Roles = "HelpdeskAdmin")]
+@attribute [Authorize(Roles = "HelpdeskAdmin,Tenant.Settings.Manage")]
 @using HelpDesk.NewWeb.Services
+@using Helpdesk.Shared.Auth
 @using Helpdesk.Shared.DTOs.Organization
 @using Helpdesk.Shared.DTOs.SupportNotifications
 @using Helpdesk.Shared.DTOs.User
 @using Helpdesk.Shared.Enums
+@using Helpdesk.Shared.Services
+@using System.Security.Claims
 @inject IHttpClientFactory HttpClientFactory
 @inject ISupportNotificationAdminClient SupportClient
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject AuthenticationStateProvider AuthenticationState
 
 <PageTitle>Support Routing</PageTitle>
 
@@ -39,13 +43,18 @@
     <MudPaper Elevation="0" Class="pa-2 mb-2">
         <MudGrid Spacing="3" AlignItems="Center">
             <MudItem xs="12" md="6">
-                <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search" AutoSelectSingle="false" Value="@selectedOrganizationId" ValueChanged="@(id => OnOrganizationChangedAsync(id ?? string.Empty))" Clearable="false" Disabled="@(loading || editing)" />
+                <OrganizationSearchPicker SearchUrl="@OrganizationSearchUrl" AutoSelectSingle="false" Value="@selectedOrganizationId" ValueChanged="@(id => OnOrganizationChangedAsync(id ?? string.Empty))" Clearable="false" Disabled="@(loading || editing)" />
             </MudItem>
             <MudItem xs="12" md="6">
                 <MudText Typo="Typo.overline">Selected organization</MudText>
                 <MudText Typo="Typo.subtitle1">@SelectedOrganizationName</MudText>
-                <MudText Typo="Typo.body2" Class="text-secondary">Provider/MSP: @ProviderOrganizationName</MudText>
+                @if (access?.IsHelpdeskAdmin == true)
+                {
+                    <MudText Typo="Typo.body2" Class="text-secondary">Provider/MSP: @ProviderOrganizationName</MudText>
+                }
             </MudItem>
+            @if (access?.IsHelpdeskAdmin == true)
+            {
             <MudItem xs="12">
                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
                     <MudChip T="string" Color="Color.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.People">
@@ -59,6 +68,7 @@
                     </MudChip>
                 </MudStack>
             </MudItem>
+            }
         </MudGrid>
     </MudPaper>
 
@@ -68,6 +78,8 @@
     }
 
     <MudTabs MinimumTabWidth="128px" Rounded="false" PanelClass="pt-2" KeepPanelsAlive="true" Class="compact-tabs">
+        @if (access?.IsHelpdeskAdmin == true)
+        {
         <MudTabPanel Text="Routing">
             <MudStack Spacing="3">
                 <MudSelect T="string" @bind-Value="routingConcern" Disabled="editing" Label="Routing concern" Variant="Variant.Outlined" Margin="Margin.Dense">
@@ -93,13 +105,25 @@
                 }
             </MudStack>
         </MudTabPanel>
+        }
         <MudTabPanel Text="Support groups">
             <SupportGroupMembersPanel @key="selectedOrganizationId" BusyChanged="OnEditingChanged" Groups="supportGroups"
                                       Organizations="organizations"
                                       Users="users"
                                       DefaultOwningOrganizationId="DefaultOwningOrganizationId"
+                                      FixedOwnership="@(access?.IsHelpdeskAdmin != true)"
                                       OnChanged="ReloadRoutingDataAsync" />
         </MudTabPanel>
+        @if (access?.IsHelpdeskAdmin != true)
+        {
+            <MudTabPanel Text="Coverage">
+                <OrganizationSupportCoveragePanel @key="selectedOrganizationId" BusyChanged="OnEditingChanged" SelectedOrganizationId="selectedOrganizationId"
+                                                  Rows="coverageRows" Organizations="organizations" SupportGroups="coverageGroups"
+                                                  OrganizationSearchUrl="@OrganizationSearchUrl" OnChanged="ReloadRoutingDataAsync" />
+            </MudTabPanel>
+        }
+        @if (access?.IsHelpdeskAdmin == true)
+        {
         <MudTabPanel Text="Diagnostics">
                 <MudGrid>            <MudItem xs="12" md="3">
                 <MudSelect T="SupportNotificationEventType"
@@ -111,6 +135,7 @@
                            Disabled="@(loading || editing)">
                     <MudSelectItem Value="SupportNotificationEventType.TicketCreatedUnassigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketCreatedUnassigned)</MudSelectItem>
                     <MudSelectItem Value="SupportNotificationEventType.TicketAssigned">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketAssigned)</MudSelectItem>
+                    <MudSelectItem Value="SupportNotificationEventType.TicketAssignedToSupportGroup">@SupportNotificationLabels.Event(SupportNotificationEventType.TicketAssignedToSupportGroup)</MudSelectItem>
                 </MudSelect>
             </MudItem>
 </MudGrid>
@@ -170,6 +195,7 @@
                 </MudStack>
             </MudPaper>
         </MudTabPanel>
+        }
     </MudTabs>
 </MudPaper>
 </div>
@@ -179,9 +205,17 @@
     public string? QueryOrganizationId { get; set; }
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
+    private CurrentUserAccessProfile? access;
+    private string? actorId;
+    private string OrganizationSearchUrl => access?.IsHelpdeskAdmin == true
+        ? "api/v1/admin/directories/organizations/search"
+        : "api/v1/tenant-admin/organizations/search?permission=Tenant.Settings.Manage";
+    private string SearchOrganizations(string parameter, string value) =>
+        Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(OrganizationSearchUrl, parameter, value);
     private readonly List<OrganizationDto> organizations = new();
     private readonly List<UserDto> users = new();
     private List<SupportGroupDto> supportGroups = new();
+    private List<SupportGroupDto> coverageGroups = new();
     private List<OrganizationSupportCoverageDto> coverageRows = new();
     private List<SupportNotificationSubscriptionDto> subscriptionRows = new();
     private SupportNotificationRecipientPreviewDto? preview;
@@ -233,6 +267,7 @@
     {
         get
         {
+            if (access?.IsHelpdeskAdmin != true) return selectedOrganizationId;
             if (SelectedOrganization is null)
             {
                 return selectedOrganizationId;
@@ -246,6 +281,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        access = CurrentUserAccessProfile.FromClaims(user);
+        actorId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
         await LoadBaseDataAsync();
         await ApplyQueryOrganizationAsync();
         await ReloadRoutingDataAsync();
@@ -276,15 +314,18 @@
         loadError = null;
         try
         {
-            var organizationsTask = HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>("api/v1/admin/directories/organizations/search?limit=1");
-            var usersTask = HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users");
-            var groupsTask = SupportClient.GetGroupsAsync();
-
+            var result = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>(SearchOrganizations("limit", "1"));
             organizations.Clear();
-            organizations.AddRange((await organizationsTask)?.Items ?? []);
-            users.Clear();
-            users.AddRange(await usersTask ?? []);
-            supportGroups = (await groupsTask).ToList();
+            organizations.AddRange(result?.Items ?? []);
+            if (access?.IsHelpdeskAdmin == true)
+            {
+                var usersTask = HelpdeskApi.GetFromJsonAsync<List<UserDto>>("api/v1/users");
+                var groupsTask = SupportClient.GetGroupsAsync();
+                await Task.WhenAll(usersTask, groupsTask);
+                users.Clear();
+                users.AddRange(usersTask.Result ?? []);
+                supportGroups = groupsTask.Result.ToList();
+            }
 
             if (string.IsNullOrWhiteSpace(selectedOrganizationId))
             {
@@ -310,7 +351,7 @@
         if (!string.IsNullOrWhiteSpace(QueryOrganizationId))
         {
             var queryId = QueryOrganizationId;
-            var current = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>($"api/v1/admin/directories/organizations/search?id={Uri.EscapeDataString(queryId)}");
+            var current = await HelpdeskApi.GetFromJsonAsync<CreationLookupResult<OrganizationDto>>(SearchOrganizations("id", queryId));
             if (queryId != QueryOrganizationId) return;
             if (current?.Items.FirstOrDefault(row => row.Id == queryId) is { } item)
             {
@@ -349,6 +390,11 @@
         loadError = null;
         try
         {
+            if (access?.IsHelpdeskAdmin != true)
+            {
+                await ReloadOwnedGroupsAsync(organizationId, version);
+                return;
+            }
             var groupsTask = SupportClient.GetGroupsAsync();
             var coverageTask = SupportClient.GetCoverageAsync(organizationId);
             var subscriptionsTask = SupportClient.GetSubscriptionsAsync(organizationId);
@@ -374,6 +420,34 @@
         }
         finally { if (!disposed && version == routingVersion) loading = false; }
     }
+
+    private async Task ReloadOwnedGroupsAsync(string organizationId, int version)
+    {
+        supportGroups = [];
+        coverageGroups = [];
+        users.Clear();
+        var groupsTask = SupportClient.GetGroupsAsync();
+        var coverageTask = SupportClient.GetCoverageAsync(organizationId);
+        await Task.WhenAll(groupsTask, coverageTask);
+        var references = await OrganizationReferences.LoadAsync(HelpdeskApi,
+            groupsTask.Result.Select(group => group.OwningOrganizationId).Concat(coverageTask.Result.Select(route => route.ProviderOrganizationId))
+                .Append(organizationId), OrganizationSearchUrl);
+        if (references.All(item => item.Id != organizationId)) return;
+        IReadOnlyList<TenantMember> members = [];
+        if (access?.HasPermission(HelpdeskPermissions.TenantUsersManage, organizationId) == true ||
+            access?.HasPermission(HelpdeskPermissions.TenantRolesAssign, organizationId) == true)
+            members = await HelpdeskApi.GetFromJsonAsync<TenantMember[]>($"api/v1/tenant-admin/organizations/{Uri.EscapeDataString(organizationId)}/users") ?? [];
+        if (disposed || version != routingVersion || organizationId != selectedOrganizationId) return;
+        organizations.Clear();
+        organizations.AddRange(references);
+        supportGroups = groupsTask.Result.Where(group => group.OwningOrganizationId == organizationId).ToList();
+        coverageGroups = groupsTask.Result.ToList();
+        coverageRows = coverageTask.Result.ToList();
+        users.AddRange(members.Where(member => member.UserId != actorId)
+            .Select(member => new UserDto(member.UserId, member.Name, member.Email, "", false, organizationId)));
+    }
+
+    private sealed record TenantMember(string UserId, string Name, string Email);
 
     private async Task LoadPreviewAsync()
     {

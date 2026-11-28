@@ -6,7 +6,8 @@ namespace Helpdesk.Application.RequestTasks;
 public interface IRequestTaskStartFence
 {
     Task<RequestTask?> TryRecordClosedAcknowledgementAsync(RequestTask task, OrchestrationIngestResult acknowledgement, CancellationToken ct);
-    Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct);
+    Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct, RequestTaskQueueAuthority? queueAuthority = null);
+    Task PersistAuthorizedTransitionAsync(RequestTask task, RequestTaskQueueAuthority queueAuthority, Func<Task> save, CancellationToken ct);
     Task PersistRetryAsync(RequestTask task, Request parent, CancellationToken ct);
 }
 

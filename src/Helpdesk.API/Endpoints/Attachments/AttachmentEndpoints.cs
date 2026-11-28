@@ -1,6 +1,8 @@
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Storage;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Attachment;
 using Helpdesk.Shared.Models;
@@ -48,7 +50,7 @@ public static class AttachmentEndpoints
                 return Results.NotFound("Attachment not found.");
             }
             return Results.File(filePath, attachment.ContentType, attachment.FileName);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         // A deleted parent has no remaining tenant authority to resolve. Restrict
         // this maintenance operation to an instance administrator and preserve
@@ -83,6 +85,7 @@ public static class AttachmentEndpoints
 
         var ticketAttachmentGroup = app.MapGroup("/api/v1/tickets/{ticketId}/attachments")
             .WithTags("Attachments")
+            .WithMetadata(new QueueAwareEndpoint())
             .RequireAuthorization();
 
         ticketAttachmentGroup.MapGet("/", async (
@@ -166,28 +169,14 @@ public static class AttachmentEndpoints
     }
 
     private static bool CanAccessTicket(CurrentUserAccessProfile access, Ticket ticket, bool requireManager) =>
-        requireManager
-            ? CanManageTicket(access, ticket) || CanSelfServiceUpload(access, ticket)
-            : CanViewTicket(access, ticket);
-
-    private static bool CanViewTicket(CurrentUserAccessProfile access, Ticket ticket) => ticket switch
-    {
-        Incident incident => access.CanViewIncident(incident.OrganizationId, incident.CustomerId, incident.RequesterEmail),
-        Request request => access.CanViewRequest(request.OrganizationId, request.CustomerId, request.RequesterEmail),
-        Change change => access.CanViewChange(change.OrganizationId, change.CustomerId, change.RequesterEmail),
-        _ => false
-    };
-
-    private static bool CanManageTicket(CurrentUserAccessProfile access, Ticket ticket) => ticket switch
-    {
-        Incident incident => access.CanManageIncident(incident.OrganizationId),
-        Request request => access.CanManageRequest(request.OrganizationId),
-        Change change => access.CanManageChange(change.OrganizationId),
-        _ => false
-    };
+        ticket is Incident or Request or Change && (requireManager
+            ? TicketAccessPolicy.CanWrite(access, ticket) || CanSelfServiceUpload(access, ticket)
+            : TicketAccessPolicy.CanRead(access, ticket));
 
     private static bool CanSelfServiceUpload(CurrentUserAccessProfile access, Ticket ticket) =>
         ticket is Incident or Request &&
+        (!access.HasRestrictedWorkforceAccess || (access.CustomerId != null && access.CustomerId == ticket.CustomerId &&
+            (ticket.OrganizationId == null || !access.RestrictedTicketOrganizationIds.Contains(ticket.OrganizationId)))) &&
         access.HasPermission(HelpdeskPermissions.SelfServiceUser, ticket.OrganizationId) &&
-        CanViewTicket(access, ticket);
+        TicketAccessPolicy.CanRead(access, ticket);
 }

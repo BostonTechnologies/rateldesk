@@ -1,8 +1,8 @@
 {
-  "schemaHash": "55a7e7163ef862f45f3af64b69dc231af898f47bbcce1e8af9221ed91c260f3f",
-  "catalogRevision": "2026-11-24.change-lifecycle-v36",
-  "catalogHash": "b551033ab74e9da6b4db5d8989b4101c0ac2e99a5ff07feb26757484aef6cdec",
-  "operationCount": 394,
+  "schemaHash": "43af5f668451e6a31f230f4abbae3d9c506faa14d20c558caff82b6360597402",
+  "catalogRevision": "2026-11-27.ticket-queues-v37",
+  "catalogHash": "235d7dcd05a4d558e73f9e48ab1b1640021a0cadf47d95247d1269403d7e7044",
+  "operationCount": 400,
   "operations": [
     {
       "tool": "helpdesk_auth",
@@ -1017,6 +1017,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "assignedSupportGroupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
           }
         },
         "required": [
@@ -1166,6 +1173,13 @@
                     "type": "string",
                     "format": "uuid"
                   }
+                },
+                "assignedSupportGroupId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
                 }
               },
               "required": [
@@ -2227,6 +2241,13 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "assignedSupportGroupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
           "title": {
             "type": "string",
             "minLength": 1
@@ -3084,6 +3105,13 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "assignedSupportGroupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
           "saveAsDraft": {
             "type": "boolean"
           },
@@ -4910,6 +4938,9 @@
           "descending": {
             "type": "boolean"
           },
+          "mainQueue": {
+            "type": "boolean"
+          },
           "state": {
             "enum": [
               "New",
@@ -4976,6 +5007,22 @@
             ]
           },
           "assigneeId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "supportGroupId": {
             "oneOf": [
               {
                 "type": "string",
@@ -5220,6 +5267,9 @@
           "descending": {
             "type": "boolean"
           },
+          "mainQueue": {
+            "type": "boolean"
+          },
           "state": {
             "enum": [
               "New",
@@ -5286,6 +5336,22 @@
             ]
           },
           "assigneeId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "supportGroupId": {
             "oneOf": [
               {
                 "type": "string",
@@ -5485,6 +5551,13 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "assignedSupportGroupId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
                 "title": {
                   "type": "string",
                   "minLength": 1
@@ -5913,6 +5986,9 @@
           "descending": {
             "type": "boolean"
           },
+          "mainQueue": {
+            "type": "boolean"
+          },
           "state": {
             "enum": [
               "New",
@@ -5979,6 +6055,22 @@
             ]
           },
           "assigneeId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "supportGroupId": {
             "oneOf": [
               {
                 "type": "string",
@@ -6219,6 +6311,13 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "assignedSupportGroupId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
                 "saveAsDraft": {
                   "type": "boolean"
                 },
@@ -6849,6 +6948,526 @@
       }
     },
     {
+      "tool": "helpdesk_incidents",
+      "operation": "queue_options",
+      "requestContract": "TicketQueueOptionsRequest",
+      "method": "GET",
+      "pathTemplate": "/api/v1/ticket-queues/incident/",
+      "effect": "read",
+      "readOnly": true,
+      "confirmationRequired": false,
+      "previewSupported": false,
+      "description": "List current authorized queue choices or transfer destinations.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Current module read authority limits queue discovery to authorized organizations and queue memberships. Transfer discovery also requires module write and Ticket.Queue.Transfer for the selected organization and destination.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "q": {
+            "type": "string",
+            "minLength": 1
+          },
+          "transfer": {
+            "type": "boolean"
+          },
+          "take": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "description": "TicketQueueOptionsRequest for helpdesk_incidents operation queue_options. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_incidents",
+      "operation": "move_queue",
+      "requestContract": "MoveTicketQueueRequest",
+      "method": "POST",
+      "pathTemplate": "/api/v1/ticket-queues/incident/assignment",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "move_queue operation.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Current module write and Ticket.Queue.Transfer authority in both the source and destination of every selected ticket. The API validates the active support topology and assignee eligibility.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Provide current assignment versions for every ticket. Supply a named supportGroupId or explicit null for Main Queue. A move with an ineligible assignee requires clear or replace."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expectedVersion": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "expectedVersion"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "supportGroupId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A named queue ID or explicit null for Main Queue."
+          },
+          "assigneeAction": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "assigneeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "tickets",
+          "supportGroupId"
+        ],
+        "description": "MoveTicketQueueRequest for helpdesk_incidents operation move_queue. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_requests",
+      "operation": "queue_options",
+      "requestContract": "TicketQueueOptionsRequest",
+      "method": "GET",
+      "pathTemplate": "/api/v1/ticket-queues/request/",
+      "effect": "read",
+      "readOnly": true,
+      "confirmationRequired": false,
+      "previewSupported": false,
+      "description": "List current authorized queue choices or transfer destinations.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Current module read authority limits queue discovery to authorized organizations and queue memberships. Transfer discovery also requires module write and Ticket.Queue.Transfer for the selected organization and destination.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "q": {
+            "type": "string",
+            "minLength": 1
+          },
+          "transfer": {
+            "type": "boolean"
+          },
+          "take": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "description": "TicketQueueOptionsRequest for helpdesk_requests operation queue_options. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_requests",
+      "operation": "move_queue",
+      "requestContract": "MoveTicketQueueRequest",
+      "method": "POST",
+      "pathTemplate": "/api/v1/ticket-queues/request/assignment",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "move_queue operation.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Current module write and Ticket.Queue.Transfer authority in both the source and destination of every selected ticket. The API validates the active support topology and assignee eligibility.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Provide current assignment versions for every ticket. Supply a named supportGroupId or explicit null for Main Queue. A move with an ineligible assignee requires clear or replace."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expectedVersion": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "expectedVersion"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "supportGroupId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A named queue ID or explicit null for Main Queue."
+          },
+          "assigneeAction": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "assigneeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "tickets",
+          "supportGroupId"
+        ],
+        "description": "MoveTicketQueueRequest for helpdesk_requests operation move_queue. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_changes",
+      "operation": "queue_options",
+      "requestContract": "TicketQueueOptionsRequest",
+      "method": "GET",
+      "pathTemplate": "/api/v1/ticket-queues/change/",
+      "effect": "read",
+      "readOnly": true,
+      "confirmationRequired": false,
+      "previewSupported": false,
+      "description": "List current authorized queue choices or transfer destinations.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Current module read authority limits queue discovery to authorized organizations and queue memberships. Transfer discovery also requires module write and Ticket.Queue.Transfer for the selected organization and destination.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "q": {
+            "type": "string",
+            "minLength": 1
+          },
+          "transfer": {
+            "type": "boolean"
+          },
+          "take": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "description": "TicketQueueOptionsRequest for helpdesk_changes operation queue_options. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
+      "tool": "helpdesk_changes",
+      "operation": "move_queue",
+      "requestContract": "MoveTicketQueueRequest",
+      "method": "POST",
+      "pathTemplate": "/api/v1/ticket-queues/change/assignment",
+      "effect": "write",
+      "readOnly": false,
+      "confirmationRequired": true,
+      "previewSupported": true,
+      "description": "move_queue operation.",
+      "sensitiveResultFields": [],
+      "transports": [
+        "stdio",
+        "http"
+      ],
+      "transportSupport": {
+        "stdio": "Available with explicitly configured API identity; authority and prerequisites apply",
+        "http": "available_subject_to_identity_permission_scope_and_prerequisites"
+      },
+      "credentialModes": [
+        "api-purpose account-bound credential (stdio)",
+        "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
+        "explicit external Authentik identity"
+      ],
+      "authority": "Current module write and Ticket.Queue.Transfer authority in both the source and destination of every selected ticket. The API validates the active support topology and assignee eligibility.",
+      "boundedIntegrationCredential": {
+        "support": "permission_and_organization_intersection",
+        "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
+      },
+      "ownerAdministrationCredential": {
+        "purpose": "mcp-owner",
+        "grantKind": "owner-administration",
+        "support": "subject_to_current_owner_authority_and_domain_prerequisites",
+        "reason": "Separate explicit administrator consent creates a resource-bound owner grant. The API revalidates the owning account\u0027s current administrator authority, credential expiry/revocation and MCP resource on each call; ordinary tenant grants never gain this authority."
+      },
+      "identifiers": [],
+      "prerequisites": [
+        "Configured exact API target and valid supported identity; no authentication-mode or target fallback on denial/unavailability.",
+        "Provide current assignment versions for every ticket. Supply a named supportGroupId or explicit null for Main Queue. A move with an ineligible assignee requires clear or replace.",
+        "Authorized organization/participants, valid type-specific change template and implementation window; approval, draft edit lock, implementation and closure invariants remain enforced."
+      ],
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expectedVersion": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "expectedVersion"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "supportGroupId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A named queue ID or explicit null for Main Queue."
+          },
+          "assigneeAction": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "assigneeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "tickets",
+          "supportGroupId"
+        ],
+        "description": "MoveTicketQueueRequest for helpdesk_changes operation move_queue. All operation-specific fields belong inside this request object, never at the tool root."
+      }
+    },
+    {
       "tool": "helpdesk_requests",
       "operation": "bulk_close",
       "requestContract": "CloseRequestWork",
@@ -7035,7 +7654,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Read, Request.Write or Request.Manager on the parent organization; owned-request permission alone does not grant task administration",
+      "authority": "Request.Read, Request.Write or Request.Manager on the parent request\u0027s organization and current queue",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7169,7 +7788,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Read, Request.Write or Request.Manager on the parent organization; owned-request permission alone does not grant task administration",
+      "authority": "Request.Read, Request.Write or Request.Manager on the parent request\u0027s organization and current queue",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7230,7 +7849,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity",
+      "authority": "Organization-wide Request.Write or Request.Manager on the parent organization",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7336,7 +7955,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity",
+      "authority": "Organization-wide Request.Write or Request.Manager for metadata edits. A manual task claim requires request write access in the parent queue and an eligible unassigned task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7411,6 +8030,10 @@
           },
           "clearDueDate": {
             "type": "boolean"
+          },
+          "claimForMe": {
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -7479,6 +8102,12 @@
                 "const": true
               }
             }
+          },
+          {
+            "required": [
+              "claimForMe"
+            ],
+            "properties": {}
           }
         ],
         "allOf": [
@@ -7506,6 +8135,60 @@
                   "const": true
                 }
               }
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "claimForMe"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "title"
+                  ]
+                },
+                {
+                  "required": [
+                    "description"
+                  ]
+                },
+                {
+                  "required": [
+                    "priority"
+                  ]
+                },
+                {
+                  "required": [
+                    "assignedToId"
+                  ]
+                },
+                {
+                  "required": [
+                    "linkedAssetIds"
+                  ]
+                },
+                {
+                  "required": [
+                    "attachments"
+                  ]
+                },
+                {
+                  "required": [
+                    "dueDate"
+                  ]
+                },
+                {
+                  "required": [
+                    "clearAssignment"
+                  ]
+                },
+                {
+                  "required": [
+                    "clearDueDate"
+                  ]
+                }
+              ]
             }
           }
         ]
@@ -7536,7 +8219,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Request.Write or Request.Manager on parent/task organization; immutable parent/customer/organization identity",
+      "authority": "Organization-wide Request.Delete or Request.Manager on the parent organization",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7597,7 +8280,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7658,7 +8341,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7719,7 +8402,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7780,7 +8463,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7842,7 +8525,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7901,7 +8584,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -7960,7 +8643,7 @@
         "mcp-purpose resource-bound credential with request-scoped API execution token (HTTP gateway)",
         "explicit external Authentik identity"
       ],
-      "authority": "Manual tasks require Request.Write or Request.Manager; automation tasks require Request.Execute or Request.Manager in the task organization. Approval tasks use the designated authenticated approver operations in helpdesk_automation or the existing signed approval flow. Retry additionally requires an eligible failed automation task.",
+      "authority": "Manual tasks require Request.Write or Request.Manager. Automation tasks require Request.Execute or Request.Manager. The authority applies to the parent request\u0027s organization and current queue. Approval tasks use helpdesk_automation or the existing signed approval flow. Retry requires an eligible failed automation task.",
       "boundedIntegrationCredential": {
         "support": "permission_and_organization_intersection",
         "reason": "API checks account state, expiry, revocation, credential purpose/resource, granted permissions and organization scope."
@@ -12041,6 +12724,7 @@
                 "Change.Write",
                 "Change.Delete",
                 "Change.Approve",
+                "Ticket.Queue.Transfer",
                 "DataManagement.Admin",
                 "Tenant.Users.Manage",
                 "Tenant.Roles.Assign",
@@ -12411,6 +13095,7 @@
                 "Change.Write",
                 "Change.Delete",
                 "Change.Approve",
+                "Ticket.Queue.Transfer",
                 "DataManagement.Admin",
                 "Tenant.Users.Manage",
                 "Tenant.Roles.Assign",
@@ -24899,7 +25584,8 @@
                 "type": "integer",
                 "enum": [
                   0,
-                  1
+                  1,
+                  2
                 ]
               },
               "recipientType": {
@@ -25007,7 +25693,8 @@
                 "type": "integer",
                 "enum": [
                   0,
-                  1
+                  1,
+                  2
                 ]
               },
               "recipientType": {
@@ -25205,7 +25892,8 @@
                 "type": "integer",
                 "enum": [
                   0,
-                  1
+                  1,
+                  2
                 ]
               },
               "channel": {
@@ -25353,7 +26041,8 @@
                 "type": "integer",
                 "enum": [
                   0,
-                  1
+                  1,
+                  2
                 ]
               },
               "channel": {
@@ -25431,7 +26120,8 @@
             "type": "integer",
             "enum": [
               0,
-              1
+              1,
+              2
             ]
           },
           "organizationId": {
@@ -36551,6 +37241,195 @@
       }
     },
     {
+      "tool": "helpdesk_incidents",
+      "operation": "queue_options",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "queue_options",
+          "request": {},
+          "confirm": true
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {},
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_incidents",
+      "operation": "move_queue",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "move_queue",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "move_queue",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_requests",
+      "operation": "queue_options",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "queue_options",
+          "request": {},
+          "confirm": true
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {},
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_requests",
+      "operation": "move_queue",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "move_queue",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "move_queue",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_changes",
+      "operation": "queue_options",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "queue_options",
+          "request": {},
+          "confirm": true
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {},
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
+      "tool": "helpdesk_changes",
+      "operation": "move_queue",
+      "examples": {
+        "schemaValidConfirmed": {
+          "operation": "move_queue",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": true
+        },
+        "schemaValidPreview": {
+          "operation": "move_queue",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": false
+        },
+        "schemaInvalid": {
+          "operation": "not_a_supported_operation",
+          "request": {
+            "tickets": [
+              {
+                "id": "Example",
+                "expectedVersion": 0
+              }
+            ],
+            "supportGroupId": "Example"
+          },
+          "confirm": true
+        },
+        "scope": "Synthetic schema construction only. Record existence, authority, effects and live prerequisites require independent fixtures and readback."
+      }
+    },
+    {
       "tool": "helpdesk_requests",
       "operation": "bulk_close",
       "examples": {
@@ -46499,6 +47378,7 @@
                         "Change.Write",
                         "Change.Delete",
                         "Change.Approve",
+                        "Ticket.Queue.Transfer",
                         "DataManagement.Admin",
                         "Tenant.Users.Manage",
                         "Tenant.Roles.Assign",
@@ -46840,6 +47720,7 @@
                         "Change.Write",
                         "Change.Delete",
                         "Change.Approve",
+                        "Ticket.Queue.Transfer",
                         "DataManagement.Admin",
                         "Tenant.Users.Manage",
                         "Tenant.Roles.Assign",
@@ -51906,6 +52787,13 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "assignedSupportGroupId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
                   "saveAsDraft": {
                     "type": "boolean"
                   },
@@ -53060,6 +53948,9 @@
                   "descending": {
                     "type": "boolean"
                   },
+                  "mainQueue": {
+                    "type": "boolean"
+                  },
                   "state": {
                     "enum": [
                       "New",
@@ -53126,6 +54017,22 @@
                     ]
                   },
                   "assigneeId": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    ]
+                  },
+                  "supportGroupId": {
                     "oneOf": [
                       {
                         "type": "string",
@@ -53343,6 +54250,13 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
+                        "assignedSupportGroupId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "minLength": 1
+                        },
                         "saveAsDraft": {
                           "type": "boolean"
                         },
@@ -53902,6 +54816,134 @@
                   "ids"
                 ],
                 "description": "ConfiguredAgentAssignmentRequest for helpdesk_changes operation assign_self. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "queue_options",
+                "description": "List current authorized queue choices or transfer destinations. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Unused for this read operation."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "organizationId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "q": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "transfer": {
+                    "type": "boolean"
+                  },
+                  "take": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [],
+                "description": "TicketQueueOptionsRequest for helpdesk_changes operation queue_options. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "move_queue",
+                "description": "move_queue operation. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tickets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "expectedVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "expectedVersion"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "supportGroupId": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A named queue ID or explicit null for Main Queue."
+                  },
+                  "assigneeAction": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "assigneeId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "tickets",
+                  "supportGroupId"
+                ],
+                "description": "MoveTicketQueueRequest for helpdesk_changes operation move_queue. All operation-specific fields belong inside this request object, never at the tool root."
               }
             },
             "required": [
@@ -60263,6 +61305,13 @@
                       "type": "string",
                       "format": "uuid"
                     }
+                  },
+                  "assignedSupportGroupId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
                   }
                 },
                 "required": [
@@ -60390,6 +61439,13 @@
                             "type": "string",
                             "format": "uuid"
                           }
+                        },
+                        "assignedSupportGroupId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "minLength": 1
                         }
                       },
                       "required": [
@@ -60899,6 +61955,9 @@
                   "descending": {
                     "type": "boolean"
                   },
+                  "mainQueue": {
+                    "type": "boolean"
+                  },
                   "state": {
                     "enum": [
                       "New",
@@ -60965,6 +62024,22 @@
                     ]
                   },
                   "assigneeId": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    ]
+                  },
+                  "supportGroupId": {
                     "oneOf": [
                       {
                         "type": "string",
@@ -61119,6 +62194,134 @@
                 },
                 "required": [],
                 "description": "ListRequest for helpdesk_incidents operation list. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "queue_options",
+                "description": "List current authorized queue choices or transfer destinations. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Unused for this read operation."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "organizationId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "q": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "transfer": {
+                    "type": "boolean"
+                  },
+                  "take": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [],
+                "description": "TicketQueueOptionsRequest for helpdesk_incidents operation queue_options. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "move_queue",
+                "description": "move_queue operation. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tickets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "expectedVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "expectedVersion"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "supportGroupId": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A named queue ID or explicit null for Main Queue."
+                  },
+                  "assigneeAction": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "assigneeId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "tickets",
+                  "supportGroupId"
+                ],
+                "description": "MoveTicketQueueRequest for helpdesk_incidents operation move_queue. All operation-specific fields belong inside this request object, never at the tool root."
               }
             },
             "required": [
@@ -63236,6 +64439,10 @@
                   },
                   "clearDueDate": {
                     "type": "boolean"
+                  },
+                  "claimForMe": {
+                    "type": "boolean",
+                    "const": true
                   }
                 },
                 "required": [
@@ -63304,6 +64511,12 @@
                         "const": true
                       }
                     }
+                  },
+                  {
+                    "required": [
+                      "claimForMe"
+                    ],
+                    "properties": {}
                   }
                 ],
                 "allOf": [
@@ -63331,6 +64544,60 @@
                           "const": true
                         }
                       }
+                    }
+                  },
+                  {
+                    "not": {
+                      "required": [
+                        "claimForMe"
+                      ],
+                      "anyOf": [
+                        {
+                          "required": [
+                            "title"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "description"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "priority"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "assignedToId"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "linkedAssetIds"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "attachments"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "dueDate"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "clearAssignment"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "clearDueDate"
+                          ]
+                        }
+                      ]
                     }
                   }
                 ]
@@ -63842,6 +65109,13 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "assignedSupportGroupId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
                   "title": {
                     "type": "string",
                     "minLength": 1
@@ -64242,6 +65516,9 @@
                   "descending": {
                     "type": "boolean"
                   },
+                  "mainQueue": {
+                    "type": "boolean"
+                  },
                   "state": {
                     "enum": [
                       "New",
@@ -64308,6 +65585,22 @@
                     ]
                   },
                   "assigneeId": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    ]
+                  },
+                  "supportGroupId": {
                     "oneOf": [
                       {
                         "type": "string",
@@ -64485,6 +65778,13 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
+                        "assignedSupportGroupId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "minLength": 1
+                        },
                         "title": {
                           "type": "string",
                           "minLength": 1
@@ -64755,6 +66055,134 @@
                   "ids"
                 ],
                 "description": "ConfiguredAgentAssignmentRequest for helpdesk_requests operation assign_self. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "queue_options",
+                "description": "List current authorized queue choices or transfer destinations. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Unused for this read operation."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "organizationId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "q": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "transfer": {
+                    "type": "boolean"
+                  },
+                  "take": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [],
+                "description": "TicketQueueOptionsRequest for helpdesk_requests operation queue_options. All operation-specific fields belong inside this request object, never at the tool root."
+              }
+            },
+            "required": [
+              "operation",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "move_queue",
+                "description": "move_queue operation. Select this operation in the outer operation field."
+              },
+              "confirm": {
+                "type": "boolean",
+                "default": false,
+                "description": "Required as true to perform this mutation. Calling with false performs no upstream change."
+              },
+              "request": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tickets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "expectedVersion": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "expectedVersion"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "supportGroupId": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A named queue ID or explicit null for Main Queue."
+                  },
+                  "assigneeAction": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "assigneeId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "tickets",
+                  "supportGroupId"
+                ],
+                "description": "MoveTicketQueueRequest for helpdesk_requests operation move_queue. All operation-specific fields belong inside this request object, never at the tool root."
               }
             },
             "required": [
@@ -67767,7 +69195,8 @@
                         "type": "integer",
                         "enum": [
                           0,
-                          1
+                          1,
+                          2
                         ]
                       },
                       "recipientType": {
@@ -67847,7 +69276,8 @@
                         "type": "integer",
                         "enum": [
                           0,
-                          1
+                          1,
+                          2
                         ]
                       },
                       "recipientType": {
@@ -67969,7 +69399,8 @@
                         "type": "integer",
                         "enum": [
                           0,
-                          1
+                          1,
+                          2
                         ]
                       },
                       "channel": {
@@ -68061,7 +69492,8 @@
                         "type": "integer",
                         "enum": [
                           0,
-                          1
+                          1,
+                          2
                         ]
                       },
                       "channel": {
@@ -68111,7 +69543,8 @@
                     "type": "integer",
                     "enum": [
                       0,
-                      1
+                      1,
+                      2
                     ]
                   },
                   "organizationId": {

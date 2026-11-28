@@ -140,7 +140,7 @@ public sealed class IntegrationCredentialAccessService(
         var organization = await db.Organizations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == credential.OrganizationId, ct);
         var access = await accessService.ResolveAsync(principal, ct);
         var available = organization?.IsEnabled == true
-            ? HelpdeskPermissions.AssignablePermissions.Where(p => access.HasPermission(p, credential.OrganizationId)).ToArray()
+            ? HelpdeskPermissions.AssignablePermissions.Where(p => access.HasPermissionInAnyQueue(p, credential.OrganizationId)).ToArray()
             : [];
         var unavailable = UnavailableReason(credential) ?? (organization?.IsEnabled != true
             ? "The credential's organization must be enabled before access can be edited."
@@ -173,7 +173,7 @@ public sealed class IntegrationCredentialAccessService(
         var handoffUsable = await IntegrationCredentialSetupAuthorization.IsUsableAsync(identity, credential.Id, Now, ct);
         var active = credential.RevokedAtUtc is null && credential.ExpiresAtUtc > Now && handoffUsable && policyActive && scopeMatches &&
             (ownerAdministration ? access.IsHelpdeskAdmin && configured.SequenceEqual([HelpdeskPermissions.HelpdeskAdmin]) : organization?.IsEnabled == true);
-        var effective = active ? configured.Where(permission => access.HasPermission(permission, credential.OrganizationId) &&
+        var effective = active ? configured.Where(permission => access.HasPermissionInAnyQueue(permission, credential.OrganizationId) &&
             (policy is null || allowedByPolicy!.Contains(permission, StringComparer.OrdinalIgnoreCase))).ToArray() : [];
         return new(credential.Id, credential.OrganizationId, organization?.Name, configured, available, effective,
             configured.Except(effective, StringComparer.OrdinalIgnoreCase).ToArray(), Version(credential), unavailable is null,

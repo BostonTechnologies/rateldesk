@@ -1,0 +1,79 @@
+@using Helpdesk.Shared.DTOs.TicketQueue
+@using Helpdesk.Shared.DTOs.User
+@inject IHttpClientFactory HttpClientFactory
+
+<MudDialog>
+    <DialogContent>
+        <TicketQueuePicker Module="@Module" OrganizationId="@OrganizationId" Label="Destination queue"
+                           Placeholder="Choose a queue" Transfer="true" Disabled="saving"
+                           Value="@(destination is null ? null : destination.Id ?? TicketQueuePicker.MainQueue)"
+                           SelectionChanged="SelectDestination" />
+        <MudSelect T="QueueAssigneeAction" @bind-Value="action" Label="Individual assignee" Dense="true" Disabled="saving">
+            <MudSelectItem Value="QueueAssigneeAction.Keep">Keep current assignee</MudSelectItem>
+            <MudSelectItem Value="QueueAssigneeAction.Clear">Clear individual assignment</MudSelectItem>
+            <MudSelectItem Value="QueueAssigneeAction.Replace">Replace individual assignee</MudSelectItem>
+        </MudSelect>
+        @if (action == QueueAssigneeAction.Replace)
+        {
+            <CreationSearchPicker TItem="UserDto" LookupUrl="@AssigneeLookupUrl" Value="@assigneeId"
+                                  Label="Assignee" Kind="assignees" Placeholder="Search by name or email" Disabled="saving"
+                                  ItemId="@(user => user.Id)" ItemLabel="@(user => user.Name)"
+                                  SelectionChanged="@(user => assigneeId = user?.Id)" />
+        }
+        <MudTextField T="string" @bind-Value="reason" Label="Reason" MaxLength="1024" Lines="2" Disabled="saving" />
+        @if (error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@error</MudAlert> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())" Disabled="saving">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="MoveAsync"
+                   Disabled="@(saving || destination == null || (action == QueueAssigneeAction.Replace && string.IsNullOrWhiteSpace(assigneeId)))">
+            @(Tickets.Count == 1 ? "Move ticket" : $"Move {Tickets.Count} tickets")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public string Module { get; set; } = "";
+    [Parameter, EditorRequired] public string OrganizationId { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyList<TicketQueueSelectionDto> Tickets { get; set; } = [];
+    private TicketQueueOptionDto? destination;
+    private QueueAssigneeAction action;
+    private string? assigneeId;
+    private string? reason;
+    private string? error;
+    private bool saving;
+
+    private string AssigneeLookupUrl => destination == null ? "" :
+        $"api/v1/ticket-queues/{Module}/assignees?organizationId={Uri.EscapeDataString(OrganizationId)}" +
+        (destination.Id == null ? "" : "&supportGroupId=" + Uri.EscapeDataString(destination.Id));
+
+    private void SelectDestination(TicketQueueOptionDto? queue)
+    {
+        if (queue != destination) assigneeId = null;
+        destination = queue;
+    }
+
+    private async Task MoveAsync()
+    {
+        if (saving || destination == null) return;
+        saving = true;
+        error = null;
+        try
+        {
+            var api = HttpClientFactory.CreateClient("HelpdeskApi");
+            var request = new AssignTicketQueueDto(Tickets, destination.Id, action,
+                action == QueueAssigneeAction.Replace ? assigneeId?.Trim() : null, reason);
+            using var response = await api.PostAsJsonAsync($"api/v1/ticket-queues/{Module}/assignment", request);
+            if (response.IsSuccessStatusCode) { Dialog.Close(DialogResult.Ok(true)); return; }
+            error = response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Conflict => "An assignment changed or an assignee is ineligible. Refresh the selection or clear or replace the assignee.",
+                System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound => "One or more tickets are unavailable for transfer.",
+                _ => "The destination queue or assignee is unavailable for the selected tickets."
+            };
+        }
+        catch (HttpRequestException) { error = "The queue service is unavailable. Try again."; }
+        finally { saving = false; }
+    }
+}

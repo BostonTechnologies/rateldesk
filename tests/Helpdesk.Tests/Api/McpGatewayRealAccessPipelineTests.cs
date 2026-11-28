@@ -15,22 +15,29 @@ using Helpdesk.API.Endpoints.Email;
 using Helpdesk.API.Endpoints.Incidents;
 using Helpdesk.API.Endpoints.Integrations;
 using Helpdesk.API.Endpoints.Requests;
+using Helpdesk.API.Endpoints.RequestTasks;
 using Helpdesk.API.Endpoints.Orchestration;
 using Helpdesk.API.Endpoints.Organization;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.API.Middleware;
 using Helpdesk.API.Services;
 using Helpdesk.API.Services.IntegrationCredentials;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.Sla;
+using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Application.WorkLogs;
+using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.RequestTasks;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.DTOs.Request;
+using Helpdesk.Shared.DTOs.TicketQueue;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
@@ -57,6 +64,200 @@ namespace Helpdesk.Tests.Api;
 /// </summary>
 public sealed partial class McpGatewayRealAccessPipelineTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Queue_scope_filters_real_gateway_reads_and_assignment_before_and_after_membership_revocation(bool postgres)
+    {
+        await using var harness = postgres
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync(unscopedData: true)
+            : await GatewayAccessHarness.CreateAsync(unscopedData: true);
+        await harness.SeedScopedQueuesAsync();
+        var credential = await harness.CreateCredentialAsync("org-a", permissions: string.Join(' ',
+            HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.TicketQueueTransfer));
+        var execution = await harness.DelegateAsync(credential);
+        var listed = await harness.GetAsync<PagedResponse<IncidentDto>>(execution, "/api/v1/incidents/?q=queue&page=1&pageSize=1&includeTotal=true");
+        Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
+        Assert.Equal(2, listed.Body!.TotalCount);
+        Assert.Single(listed.Body.Items);
+        var main = await harness.GetAsync<PagedResponse<IncidentDto>>(execution, "/api/v1/incidents/?mainQueue=true&includeTotal=true");
+        Assert.Equal(HttpStatusCode.OK, main.StatusCode);
+        Assert.Equal(0, main.Body!.TotalCount);
+        foreach (var id in new[] { "queue-main", "queue-hidden" })
+        {
+            using var hidden = await harness.GetAsync(execution, $"/api/v1/incidents/{id}");
+            Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        }
+        using var request = await harness.GetAsync(execution, "/api/v1/requests/request-a");
+        Assert.Equal(HttpStatusCode.Forbidden, request.StatusCode);
+        var relations = await harness.GetAsync<TicketRelationPage>(execution, "/api/v1/tickets/queue-visible/relations/");
+        Assert.Equal(HttpStatusCode.OK, relations.StatusCode);
+        Assert.Single(relations.Body!.Items);
+        Assert.All(relations.Body.Items, relation => Assert.DoesNotContain("queue-hidden", new[] { relation.SourceTicketId, relation.TargetTicketId }));
+        var relationChoices = await harness.GetAsync<TicketLinkChoicePage>(execution, "/api/v1/tickets/queue-visible/relations/choices?type=incidents");
+        Assert.Equal(HttpStatusCode.OK, relationChoices.StatusCode);
+        Assert.Equal("queue-linked", Assert.Single(relationChoices.Body!.Items).Id);
+        using var hiddenLink = await harness.SendAsync(execution, HttpMethod.Post, "/api/v1/tickets/queue-visible/relations/",
+            new LinkTicketRequest("queue-hidden", null));
+        Assert.Equal(HttpStatusCode.NotFound, hiddenLink.StatusCode);
+        var existingLink = Assert.Single(relations.Body.Items);
+        using var removeLink = await harness.SendAsync(execution, HttpMethod.Delete, $"/api/v1/tickets/queue-linked/relations/{existingLink.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, removeLink.StatusCode);
+        using var restoreLink = await harness.SendAsync(execution, HttpMethod.Post, "/api/v1/tickets/queue-visible/relations/",
+            new LinkTicketRequest("queue-linked", "Synthetic related work"));
+        Assert.Equal(HttpStatusCode.OK, restoreLink.StatusCode);
+        using var hiddenSource = await TransferAsync("queue-hidden", "app-vendor");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenSource.StatusCode);
+        using var hiddenDestination = await TransferAsync("queue-visible", "wintel-l2");
+        Assert.Equal(HttpStatusCode.BadRequest, hiddenDestination.StatusCode);
+        using var valid = await TransferAsync("queue-visible", "app-escalation");
+        Assert.Equal(HttpStatusCode.NoContent, valid.StatusCode);
+        var moved = await harness.GetAsync<IncidentDto>(execution, "/api/v1/incidents/queue-visible");
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        Assert.Equal("app-escalation", moved.Body!.AssignedSupportGroupId);
+        Assert.Equal(1, moved.Body.QueueAssignmentVersion);
+        using var claim = await harness.SendAsync(execution, HttpMethod.Post,
+            "/api/v1/ticket-queues/incident/queue-visible/claim?expectedVersion=1");
+        Assert.Equal(HttpStatusCode.NoContent, claim.StatusCode);
+        var claimed = await harness.GetAsync<IncidentDto>(execution, "/api/v1/incidents/queue-visible");
+        Assert.Equal(HttpStatusCode.OK, claimed.StatusCode);
+        Assert.Equal("owner", claimed.Body!.AssignedToId);
+        Assert.Equal("app-escalation", claimed.Body.AssignedSupportGroupId);
+
+        var tools = new HelpdeskTools(new HelpdeskAgentClient(AgentClientConfiguration.Empty with
+        {
+            ApiBaseUrl = "https://gateway-api.example.test", CredentialMode = "gateway"
+        }, new GatewayClientFactory(harness), new GatewayLifetime(), new GatewayToken(execution)),
+            new AgentClientConfigurationStore(Path.Combine("work", "queues", "unused-profile.json")));
+        var deniedRead = await tools.helpdesk_incidents("get", JsonSerializer.SerializeToElement(new { incidentId = "queue-hidden" }));
+        Assert.False(deniedRead.Success);
+        Assert.Equal(404, deniedRead.Failure!.UpstreamStatus);
+
+        var taskCredential = await harness.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.RequestRead);
+        var taskExecution = await harness.DelegateAsync(taskCredential);
+        var tasks = await harness.GetAsync<PagedResponse<RequestTaskListItemDto>>(taskExecution, "/api/v1/request-tasks/?q=Queue&includeTotal=true");
+        Assert.Equal(HttpStatusCode.OK, tasks.StatusCode);
+        Assert.Equal(1, tasks.Body!.TotalCount);
+        var task = Assert.Single(tasks.Body.Items);
+        Assert.Equal("task-visible", task.Id);
+        Assert.Null(task.OrchestrationExternalRunId);
+        using var hiddenTask = await harness.GetAsync(taskExecution, "/api/v1/request-tasks/task-hidden");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenTask.StatusCode);
+
+        await harness.RevokeQueueMembershipAsync();
+        using var revoked = await harness.GetAsync(execution, "/api/v1/incidents/queue-visible");
+        Assert.Contains(revoked.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+        using var revokedTask = await harness.GetAsync(taskExecution, "/api/v1/request-tasks/task-visible");
+        Assert.Contains(revokedTask.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+
+        Task<HttpResponseMessage> TransferAsync(string id, string destination) => harness.SendAsync(execution, HttpMethod.Post,
+            "/api/v1/ticket-queues/incident/assignment",
+            new AssignTicketQueueDto([new(id, 0)], destination, QueueAssigneeAction.Keep, null, null));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Restricted_request_tasks_follow_current_parent_and_operation_authority(bool postgres)
+    {
+        await using var harness = postgres
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync(unscopedData: true)
+            : await GatewayAccessHarness.CreateAsync(unscopedData: true);
+        await harness.SeedScopedQueuesAsync();
+        var writer = await harness.DelegateAsync(await harness.CreateCredentialAsync("org-a", permissions:
+            string.Join(' ', HelpdeskPermissions.RequestRead, HelpdeskPermissions.RequestWrite)));
+        var reader = await harness.DelegateAsync(await harness.CreateCredentialAsync("org-a", permissions: HelpdeskPermissions.RequestRead));
+        const string route = "/api/v1/request-tasks/";
+
+        using var unauthorized = await harness.SendAsync(reader, HttpMethod.Post, route + "task-visible/start");
+        Assert.Equal(HttpStatusCode.NotFound, unauthorized.StatusCode);
+        using var hidden = await harness.SendAsync(writer, HttpMethod.Post, route + "task-hidden/start");
+        Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        using var hiddenClaim = await harness.SendAsync(writer, HttpMethod.Patch, route + "task-hidden", new { claimForMe = true });
+        Assert.Equal(HttpStatusCode.NotFound, hiddenClaim.StatusCode);
+        using var ambiguousClaim = await harness.SendAsync(writer, HttpMethod.Patch, route + "task-visible", new { claimForMe = true, assignedToId = "another-user" });
+        Assert.Equal(HttpStatusCode.BadRequest, ambiguousClaim.StatusCode);
+        var tools = new HelpdeskTools(new HelpdeskAgentClient(AgentClientConfiguration.Empty with
+        {
+            ApiBaseUrl = "https://gateway-api.example.test", CredentialMode = "gateway"
+        }, new GatewayClientFactory(harness), new GatewayLifetime(), new GatewayToken(writer)),
+            new AgentClientConfigurationStore(Path.Combine("work", "queues", "unused-profile.json")));
+        var update = JsonSerializer.SerializeToElement(new { taskId = "task-visible", claimForMe = true });
+        Assert.Equal("confirmation_required", (await tools.helpdesk_request_tasks("update", update)).Status);
+        Assert.Null((await harness.GetAsync<RequestTaskDto>(writer, route + "task-visible")).Body!.AssignedToId);
+        Assert.True((await tools.helpdesk_request_tasks("update", update, confirm: true)).Success);
+        Assert.Equal("owner", (await harness.GetAsync<RequestTaskDto>(writer, route + "task-visible")).Body!.AssignedToId);
+        using var started = await harness.SendAsync(writer, HttpMethod.Post, route + "task-visible/start");
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var transition = await started.Content.ReadFromJsonAsync<RequestTaskTransitionDto>();
+        Assert.Equal(RequestTaskStatus.InProgress, transition!.Status);
+        Assert.Null(transition.ResultJson);
+        Assert.Null(transition.AutomationBindingId);
+
+        using var completed = await harness.SendAsync(writer, HttpMethod.Post, route + "bulk/complete",
+            new BulkRequestTaskActionDto { Ids = ["task-visible", "task-hidden", "missing"] });
+        Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal(1, (await completed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("updated").GetInt32());
+        var readback = await harness.GetAsync<RequestTaskDto>(writer, route + "task-visible");
+        Assert.Equal(RequestTaskStatus.Completed, readback.Body!.Status);
+        await harness.RevokeQueueMembershipAsync();
+        using var revoked = await harness.SendAsync(writer, HttpMethod.Post, route + "task-visible/fail");
+        Assert.Equal(HttpStatusCode.NotFound, revoked.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Queue_transfer_rejects_mixed_batches_and_commits_one_effect_per_version(bool postgres)
+    {
+        await using var harness = postgres
+            ? await GatewayAccessHarness.CreatePostgreSqlAsync(unscopedData: true)
+            : await GatewayAccessHarness.CreateConcurrentSqliteAsync();
+        await harness.SeedScopedQueuesAsync();
+        var credential = await harness.CreateCredentialAsync("org-a", permissions: string.Join(' ',
+            HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.TicketQueueTransfer));
+        var execution = await harness.DelegateAsync(credential);
+
+        using var mixed = await MoveAsync("app-escalation", [new("queue-visible", 0), new("queue-hidden", 0)]);
+        Assert.Equal(HttpStatusCode.NotFound, mixed.StatusCode);
+        var untouched = await harness.GetAsync<IncidentDto>(execution, "/api/v1/incidents/queue-visible");
+        Assert.Equal("app-vendor", untouched.Body!.AssignedSupportGroupId);
+        Assert.Equal(0, untouched.Body.QueueAssignmentVersion);
+        Assert.Empty(await harness.QueueEffectsAsync("queue-visible"));
+
+        var attempts = await Task.WhenAll(MoveAsync("app-escalation", [new("queue-visible", 0)]),
+            MoveAsync("app-escalation", [new("queue-visible", 0)]));
+        try
+        {
+            foreach (var attempt in attempts)
+            {
+                using var body = new StringReader(await attempt.Content.ReadAsStringAsync());
+                Assert.True(attempt.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.Conflict,
+                    $"{attempt.StatusCode}: {body.ReadLine()} {body.ReadLine()} {body.ReadLine()}");
+            }
+            Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.NoContent);
+            Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.Conflict);
+        }
+        finally
+        {
+            foreach (var attempt in attempts) attempt.Dispose();
+        }
+        using var noOp = await MoveAsync("app-escalation", [new("queue-visible", 1)]);
+        Assert.Equal(HttpStatusCode.NoContent, noOp.StatusCode);
+        using var returnToVendor = await MoveAsync("app-vendor", [new("queue-visible", 1)]);
+        Assert.Equal(HttpStatusCode.NoContent, returnToVendor.StatusCode);
+        using var batch = await MoveAsync("app-escalation", [new("queue-visible", 2), new("queue-linked", 0)]);
+        Assert.Equal(HttpStatusCode.NoContent, batch.StatusCode);
+
+        (long, string?, int)[] expected = [(1, "app-escalation", 1), (2, "app-vendor", 1), (3, "app-escalation", 1)];
+        Assert.Equal(expected, await harness.QueueEffectsAsync("queue-visible"));
+        Assert.Equal((1L, "app-escalation", 1), Assert.Single(await harness.QueueEffectsAsync("queue-linked")));
+
+        Task<HttpResponseMessage> MoveAsync(string destination, TicketQueueSelectionDto[] selected) =>
+            harness.SendAsync(execution, HttpMethod.Post, "/api/v1/ticket-queues/incident/assignment",
+                new AssignTicketQueueDto(selected, destination, QueueAssigneeAction.Keep, null, "Synthetic handoff"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -403,6 +604,25 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             return await CreateAsync(options => options.UseSqlite(connection), connection, unscopedData);
         }
 
+        public static async Task<GatewayAccessHarness> CreateConcurrentSqliteAsync()
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = $"queue-test-{Guid.NewGuid():N}", Mode = SqliteOpenMode.Memory, Cache = SqliteCacheMode.Shared, Pooling = false
+            }.ToString();
+            var keepAlive = new SqliteConnection(connectionString);
+            try
+            {
+                await keepAlive.OpenAsync();
+                return await CreateAsync(options => options.UseSqlite(connectionString), keepAlive, unscopedData: true);
+            }
+            catch
+            {
+                await keepAlive.DisposeAsync();
+                throw;
+            }
+        }
+
         public static async Task<GatewayAccessHarness> CreatePostgreSqlAsync(bool unscopedData = false)
         {
             var postgres = new PostgreSqlBuilder("postgres:16").Build();
@@ -438,8 +658,17 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             builder.Services.AddScoped<SelfServiceAudienceService>();
             builder.Services.AddSingleton<IRequestFormSchemaParser, RequestFormSchemaParser>();
             builder.Services.AddScoped<IRepository<Incident>, EfRepository<Incident>>();
+            builder.Services.AddScoped<IRepository<Request>, EfRepository<Request>>();
+            builder.Services.AddScoped<IRepository<RequestTask>, EfRepository<RequestTask>>();
+            builder.Services.AddScoped<IRequestTaskLifecycleService, RequestTaskLifecycleService>();
+            builder.Services.AddScoped<IRequestTaskStartFence, RequestTaskStartFence>();
+            builder.Services.AddSingleton(Substitute.For<IWorkflowEngine>());
+            builder.Services.AddSingleton(Substitute.For<IRequestTaskPayloadBuilder>());
+            builder.Services.AddSingleton(Substitute.For<IOrchestrationInternalClient>());
+            builder.Services.AddSingleton(Substitute.For<IFailurePolicyEngine>());
             builder.Services.AddSingleton(Substitute.For<IImageLinkSigner>());
             builder.Services.AddSingleton(Substitute.For<ITicketSlaService>());
+            builder.Services.AddSingleton(Substitute.For<ISupportNotificationService>());
             var slaRepository = Substitute.For<ITicketSlaRepository>();
             slaRepository.GetByTicketIdForUpdateAsync(Arg.Any<string>()).Returns(Task.FromResult<TicketSlaState?>(null));
             builder.Services.AddSingleton(slaRepository);
@@ -495,6 +724,8 @@ public sealed partial class McpGatewayRealAccessPipelineTests
                     HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.IncidentDelete, HelpdeskPermissions.HelpdeskAdmin));
                 options.AddPolicy("IncidentManager", policy => policy.RequireAuthenticatedUser().RequireRole(
                     HelpdeskPermissions.IncidentManager, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.HelpdeskAdmin));
+                options.AddPolicy("TicketReadAccess", policy => policy.RequireAuthenticatedUser().RequireRole(
+                    HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.HelpdeskAdmin));
                 options.AddPolicy("RequestAccess", policy => policy.RequireAuthenticatedUser().RequireRole(
                     HelpdeskPermissions.RequestUser, HelpdeskPermissions.RequestManager, HelpdeskPermissions.RequestRead,
                     HelpdeskPermissions.RequestWrite, HelpdeskPermissions.RequestDelete, HelpdeskPermissions.HelpdeskAdmin));
@@ -521,6 +752,9 @@ public sealed partial class McpGatewayRealAccessPipelineTests
             app.MapSelfServiceMyRequestsEndpoints();
             app.MapIncidentEndpoints();
             app.MapRequestEndpoints();
+            app.MapRequestTaskEndpoints();
+            app.MapTicketQueueEndpoints();
+            app.MapTicketRelationEndpoints();
             app.MapExternalOrchestrationEndpoints();
             app.MapTenantBrandingEndpoints();
             app.MapRoleDefinitionEndpoints();
@@ -620,6 +854,74 @@ public sealed partial class McpGatewayRealAccessPipelineTests
                 new Incident { Id = "incident-resolved", TrackingId = "INC-193-D", OrganizationId = "org-a", CustomerId = "customer-a", Title = "Needle resolved incident", State = TicketState.Resolved, CreatedAt = createdAt.AddMinutes(3) },
                 new Incident { Id = "incident-foreign", TrackingId = "INC-193-E", OrganizationId = "org-b", Title = "Needle foreign organization", CreatedAt = createdAt.AddMinutes(4) });
             await domain.SaveChangesAsync();
+        }
+
+        public async Task SeedScopedQueuesAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.SupportGroups.AddRange(new SupportGroup { Id = "app-vendor", OwningOrganizationId = "org-a", Name = "App Vendor" },
+                new SupportGroup { Id = "app-escalation", OwningOrganizationId = "org-a", Name = "App Escalation" },
+                new SupportGroup { Id = "wintel-l2", OwningOrganizationId = "org-a", Name = "Wintel L2" });
+            db.SupportGroupMembers.AddRange(new SupportGroupMember { SupportGroupId = "app-vendor", UserId = "owner" },
+                new SupportGroupMember { SupportGroupId = "app-escalation", UserId = "owner" },
+                new SupportGroupMember { SupportGroupId = "wintel-l2", UserId = "owner" });
+            var role = new Role
+            {
+                Key = "custom.queue-operator", Name = "App Vendor Operator", OwnerOrganizationId = "org-a",
+                TicketAccessScope = TicketAccessScope.SelectedSupportGroups,
+                Permissions = new[] { HelpdeskPermissions.IncidentRead, HelpdeskPermissions.IncidentWrite, HelpdeskPermissions.RequestRead,
+                    HelpdeskPermissions.RequestWrite, HelpdeskPermissions.TicketQueueTransfer }
+                    .Select(permission => new RolePermission { Permission = permission }).ToList()
+            };
+            role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = "app-vendor" });
+            role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = "app-escalation" });
+            db.Roles.Add(role);
+            db.ScopedRoleAssignments.AddRange(
+                new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-a", RoleKey = role.Key },
+                new ScopedRoleAssignment { UserId = "owner", OrganizationId = "org-a", RoleKey = ScopedRoleCatalog.Technician });
+            await TicketWorkforceRestrictions.EnsureAsync(db, "org-a", ["owner"], "synthetic-admin", default);
+
+            db.Incidents.AddRange(
+                new Incident { Id = "queue-visible", OrganizationId = "org-a", TrackingId = "INC-APP-1", Title = "Queue issue one", AssignedSupportGroupId = "app-vendor" },
+                new Incident { Id = "queue-linked", OrganizationId = "org-a", TrackingId = "INC-APP-2", Title = "Queue issue two", AssignedSupportGroupId = "app-vendor" },
+                new Incident { Id = "queue-hidden", OrganizationId = "org-a", TrackingId = "INC-WIN-1", Title = "Queue issue three", AssignedSupportGroupId = "wintel-l2" },
+                new Incident { Id = "queue-main", OrganizationId = "org-a", TrackingId = "INC-MAIN-1", Title = "Queue issue four" });
+            db.TicketRelations.AddRange(
+                new TicketRelation { SourceTicketId = "queue-visible", TargetTicketId = "queue-linked", RelationType = TicketRelationType.RelatedTo },
+                new TicketRelation { SourceTicketId = "queue-visible", TargetTicketId = "queue-hidden", RelationType = TicketRelationType.RelatedTo });
+            db.Requests.Add(new Request { Id = "request-visible", OrganizationId = "org-a", Title = "Queue workflow", AssignedSupportGroupId = "app-vendor" });
+            db.RequestTasks.AddRange(
+                new RequestTask { Id = "task-visible", RequestId = "request-visible", OrganizationId = "org-a", Name = "Queue task",
+                    OrchestrationExternalRunId = "internal-run-reference" },
+                new RequestTask { Id = "task-hidden", RequestId = "request-a", OrganizationId = "org-a", Name = "Queue task in Main" });
+            await db.SaveChangesAsync();
+        }
+
+        public async Task RevokeQueueMembershipAsync()
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var memberships = await db.SupportGroupMembers.Where(member => member.UserId == "owner" &&
+                (member.SupportGroupId == "app-vendor" || member.SupportGroupId == "app-escalation")).ToListAsync();
+            foreach (var membership in memberships) membership.IsEnabled = false;
+            await db.SaveChangesAsync();
+        }
+
+        public async Task<(long Version, string? Destination, int Effects)[]> QueueEffectsAsync(string ticketId)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var effects = db.Set<MailboxOutboxEffect>();
+            var rows = await db.TicketQueueTransitions.AsNoTracking().Where(row => row.TicketId == ticketId)
+                .OrderBy(row => row.AssignmentVersion).Select(row => new
+                {
+                    row.AssignmentVersion,
+                    row.AssignedSupportGroupId,
+                    Effects = effects.Count(effect => effect.EffectKey == "queue-assignment:" + row.Id &&
+                        effect.Kind == MailboxEffectKind.SupportGroupAssignment)
+                }).ToArrayAsync();
+            return rows.Select(row => (row.AssignmentVersion, row.AssignedSupportGroupId, row.Effects)).ToArray();
         }
 
         public async Task<Credential> CreateCredentialAsync(string organizationId, string? purpose = null, string? permissions = null, string ownerUserId = "owner")

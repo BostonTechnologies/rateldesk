@@ -82,6 +82,8 @@ The additive GET parameters on `/api/v1/incidents`, `/api/v1/requests` and
 | `customerOrgId`, `forId`, `assigneeId` | Repeat to OR up to 20 stable IDs within the dimension |
 | `stateValues` | Repeat ticket states; changes use lifecycle states |
 | `priority` | Repeat Low, Medium, High or Critical |
+| `supportGroupId` | Repeat to include named support-group queues |
+| `mainQueue=true` | Include Main Queue, OR with selected group IDs |
 | `unassigned=true` | Include null assignees, OR with selected assignee IDs |
 | `view` | `active` (default), `historic`, or `all`; explicit states replace the default view restriction |
 | `timeField` | `updated` (default, falling back to creation for never-updated tickets), or `created` |
@@ -129,3 +131,66 @@ local times are rejected; choose UTC or another valid wall time. The URL stores
 UTC instants plus the display timezone. A reversed or empty range is rejected.
 No indexes or schema changes are required by this additive contract; existing
 organization/ticket keys and provider timestamp mappings are retained.
+
+
+## Ticket queues
+
+Each ticket is associated with its existing organization and an optional
+`assignedSupportGroupId`. A null group is Main Queue. Assigning an individual
+and selecting Main Queue are independent. Current queue authorization applies
+before search, filters, totals and paging. Named queue and Main filters combine
+with OR. Other dimensions combine with AND. An unavailable queue filter returns
+only matching authorized results.
+
+Use `GET /api/v1/ticket-queues/{module}` with singular `incident`, `request` or
+`change`. It supports `organizationId`, `q`, `id` and `take`. Use
+`transfer=true` with a ticket organization to list permitted transfer
+destinations. Queue options use a null ID for Main Queue. Send optional
+`assignedSupportGroupId` on the ordinary ticket creation endpoint. Callers
+whose ticket write permission is group-scoped can use their own linked requester
+identity or a requester already associated with a visible ticket in the
+destination queue. Choosing additional change approvers requires the existing
+organization-level change write authority.
+
+To move one or more tickets, use `POST /api/v1/ticket-queues/{module}/assignment`.
+The API rechecks each ticket, its current version, destination, and individual
+eligibility before committing the batch. A null `supportGroupId` explicitly
+selects Main Queue. `assigneeAction` is 0 for keep, 1 for clear or 2 for replace.
+A replacement requires `assigneeId`. Use the current `queueAssignmentVersion`
+from a ticket read. Legacy responses may omit version 0.
+
+```json
+{
+  "tickets": [{ "id": "demo-ticket", "expectedVersion": 0 }],
+  "supportGroupId": "app-vendor",
+  "assigneeAction": 1,
+  "reason": "Application support handover"
+}
+```
+
+Current assignment is also checked by
+`POST /api/v1/ticket-queues/{module}/{ticketId}/claim?expectedVersion=0`.
+Claim requires an eligible account and an unassigned ticket. Individual changes
+to an active change's implementor require an eligible Draft. A stale version
+returns a conflict and preserves the committed assignment.
+
+CLI list accepts repeated `--support-group-id` and `--main-queue`. Pass the
+assignment document to `rateldesk incidents move-queue --body-file move.json`
+or use the corresponding requests or changes command. Stdio and HTTP MCP expose
+the same assignment through confirmed `move_queue`. [MCP operation contracts](mcp-operation-contracts.md#ticket-queues)
+
+Request tasks inherit the parent request's queue. Task listings include
+`requestAssignedSupportGroupId`. Claim an unassigned manual task with
+`{"claimForMe":true}` on `PATCH /api/v1/request-tasks/{id}`. The CLI command
+is `rateldesk request-tasks claim TASK-ID`. In either MCP transport, confirm
+`helpdesk_request_tasks` operation `update` with `taskId` and `claimForMe` set
+to true. Manual state changes require request write authority. Automation
+commands use request execute authority. Bulk start, completion and retry
+consider only eligible tasks in queues authorized for the operation. The
+committed transition rechecks the parent assignment and current authority.
+Scoped transition responses omit provider diagnostics and prepared automation data.
+
+An authenticated group-scoped request approver needs the designated approval and write
+authority on the parent request. A scoped change approver needs the designated
+approval and change approval authority in the current queue. Recipient-bound
+customer approval links retain their existing independent authority.

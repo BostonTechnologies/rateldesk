@@ -1,6 +1,7 @@
 using Helpdesk.API.Endpoints.Storage;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.API.Endpoints.Incidents;
+using Helpdesk.API.Endpoints.Ticketing;
 using System.Security.Claims;
 using System.Text.Json;
 using Helpdesk.Application.Messaging;
@@ -8,6 +9,7 @@ using Helpdesk.Application.Timeline;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Storage;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
@@ -46,10 +48,9 @@ public static class WorkLogEndpoints
             var timelineQuery = db.TicketTimelineEvents
                 .AsNoTracking()
                 .Where(evt => evt.TicketId == id);
-            if (!CanReadInternalNotes(authorization.Access!, authorization.OrganizationId))
-            {
-                timelineQuery = timelineQuery.Where(evt => evt.EventType != Helpdesk.Shared.Enums.TimelineEventType.InternalNote);
-            }
+            var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
+            timelineQuery = TicketTimelineAccess.Filter(timelineQuery,
+                TicketAccessPolicy.CanReadStaffContent(authorization.Access, authorization.Incident!), restricted);
 
             // Filter the authorized ticket in SQL, then sort its materialized events.
             // SQLite does not support DateTimeOffset ordering in SQL.
@@ -57,15 +58,19 @@ public static class WorkLogEndpoints
             var ordered = string.Equals(order, "asc", StringComparison.OrdinalIgnoreCase)
                 ? events.OrderBy(evt => evt.CreatedUtc)
                 : events.OrderByDescending(evt => evt.CreatedUtc);
-            var timeline = ordered.Select(evt => ToDto(evt, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl)).ToList();
+            var timeline = ordered.Select(evt => restricted
+                ? TicketTimelineAccess.Project(TicketTimelineProjection.ToDto(evt), true)
+                : ToDto(evt, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl)).ToList();
 
             return Results.Ok(timeline);
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("GetIncidentTimeline")
         .WithSummary("Gets timeline events for an incident")
         .WithDescription("Retrieves timeline events for the specified incident ordered by CreatedUtc. Defaults to descending (newest first); use ?order=asc for oldest first.");
 
         group.MapGet("/{id}/timeline/stream", StreamTimeline)
+            .WithMetadata(new QueueAwareEndpoint())
             .WithName("StreamIncidentTimeline")
             .WithSummary("Streams incident timeline events in real time")
             .WithDescription("Pushes timeline updates over server-sent events (SSE).");
@@ -99,7 +104,7 @@ public static class WorkLogEndpoints
                 dto.Notes,
                 techId,
                 techName,
-                NotifyCustomer: !dto.IsInternalNote,
+                NotifyCustomer: !dto.IsInternalNote && !authorization.Access!.HasRestrictedWorkforceAccess,
                 IsInternalNote: dto.IsInternalNote,
                 AuthorizedTicket: authorization.Incident));
 
@@ -118,18 +123,22 @@ public static class WorkLogEndpoints
 
             return Results.Created($"/api/v1/incidents/{id}/worklogs/{response.Id}", response);
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .WithName("CreateIncidentWorkLog")
         .WithSummary("Creates a work log for an incident")
         .WithDescription("Adds a work log to the incident and notifies the customer");
 
-        app.MapGet("/api/worklogs/{worklogId}/images/{filename}", (
+        app.MapGet("/api/worklogs/{worklogId}/images/{filename}", async (
             [FromRoute] string worklogId,
             [FromRoute] string filename,
             IWebHostEnvironment env,
             HttpContext httpContext,
             IImageLinkSigner signer,
             ILoggerFactory loggerFactory,
-            IOptions<StorageOptions> storageOptions) =>
+            IOptions<StorageOptions> storageOptions,
+            HelpdeskDbContext db,
+            ICurrentUserAccessService accessService,
+            CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("WorklogInlineImage");
             var safeWorklogId = SanitizePathSegment(worklogId);
@@ -144,9 +153,21 @@ public static class WorkLogEndpoints
                 return Results.Unauthorized();
             }
 
+            var ticketId = await db.WorkLogs.AsNoTracking().Where(log => log.Id == worklogId)
+                .Select(log => log.TicketId).SingleOrDefaultAsync(ct);
+            var ticket = await db.Tickets.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(row => row.Id == ticketId, ct);
+            if (ticket is RequestTask task)
+                ticket = await db.Requests.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(parent =>
+                    parent.Id == task.RequestId && parent.OrganizationId == task.OrganizationId, ct);
+            var access = await accessService.ResolveAsync(httpContext.User, ct);
+            if (ticket is not (Incident or Request or Change) || !TicketAccessPolicy.CanReadStaffContent(access, ticket))
+                return Results.NotFound();
+
             var storageRoot = storageOptions.Value.ResolveRootPath(env.ContentRootPath);
             return SignedRasterAsset.Serve(httpContext, Path.Combine(storageRoot, "worklogs", safeWorklogId, "inline"), safeFilename);
         })
+        .RequireAuthorization()
+        .WithMetadata(new QueueAwareEndpoint())
         .WithTags("Work Logs")
         .WithName("GetWorklogImage")
         .WithSummary("Gets a stored worklog inline image");
@@ -172,9 +193,10 @@ public static class WorkLogEndpoints
 
         var logger = loggerFactory.CreateLogger("WorkLogEndpoints");
         var reader = eventBus.Subscribe(id);
-        var canReadInternalNotes = CanReadInternalNotes(authorization.Access!, authorization.OrganizationId);
+        var canReadInternalNotes = TicketAccessPolicy.CanReadStaffContent(authorization.Access!, authorization.Incident!);
+        var restricted = authorization.Access!.HasRestrictedWorkforceAccess;
 
-        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.Headers.CacheControl = "no-cache, no-store";
         context.Response.Headers.Append("Connection", "keep-alive");
         context.Response.Headers.Append("X-Accel-Buffering", "no");
         context.Response.ContentType = "text/event-stream";
@@ -194,24 +216,6 @@ public static class WorkLogEndpoints
                 var keepAliveTask = Task.Delay(keepAliveInterval, ct);
                 var completedTask = await Task.WhenAny(waitForDataTask, keepAliveTask);
 
-                // The stream may outlive the authentication request that opened it. Re-resolve the
-                // incident scope before each delivery or keep-alive so membership revocation stops
-                // an active subscription instead of waiting for the browser to reconnect.
-                var currentAuthorization = await AuthorizeIncidentAsync(
-                    id,
-                    context.User,
-                    accessService,
-                    db,
-                    requireManager: false,
-                    ct);
-                if (!await LocalSessionValidator.IsValidAsync(context, ct) || currentAuthorization.Failure is not null)
-                {
-                    logger.LogInformation("Timeline stream authorization revoked {TicketId}", id);
-                    break;
-                }
-
-                canReadInternalNotes = CanReadInternalNotes(currentAuthorization.Access!, currentAuthorization.OrganizationId);
-
                 if (completedTask == waitForDataTask)
                 {
                     if (!await waitForDataTask)
@@ -221,25 +225,27 @@ public static class WorkLogEndpoints
 
                     while (reader.TryRead(out var evt))
                     {
-                        if (!canReadInternalNotes && evt.EventType == Helpdesk.Shared.Enums.TimelineEventType.InternalNote)
+                        if (!await RefreshScopeAsync()) return;
+                        if (!TicketTimelineAccess.Includes(evt.EventType, canReadInternalNotes, restricted))
                         {
                             continue;
                         }
 
                         // Project a fresh link per delivery without mutating the shared bus event.
-                        var payload = JsonSerializer.SerializeToNode(evt)!.AsObject();
-                        payload[nameof(TicketTimelineEventDto.MessageHtml)] = IncidentInlineImageLinks.Refresh(
-                            evt.MessageHtml, id, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl);
+                        var payload = JsonSerializer.SerializeToNode(TicketTimelineAccess.Project(evt, restricted))!.AsObject();
+                        if (!restricted)
+                            payload[nameof(TicketTimelineEventDto.MessageHtml)] = IncidentInlineImageLinks.Refresh(
+                                evt.MessageHtml, id, imageLinkSigner, storageOptions.Value.PublicApiBaseUrl);
                         var json = payload.ToJsonString();
 
-                        await context.Response.WriteAsync("event: timeline\n", ct);
-                        await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                        await context.Response.WriteAsync($"event: timeline\ndata: {json}\n\n", ct);
                     }
 
                     await context.Response.Body.FlushAsync(ct);
                 }
                 else
                 {
+                    if (!await RefreshScopeAsync()) return;
                     await context.Response.WriteAsync(": keepalive\n\n", ct);
                     await context.Response.Body.FlushAsync(ct);
                 }
@@ -258,6 +264,16 @@ public static class WorkLogEndpoints
             logger.LogInformation("Timeline stream disconnected {TicketId}", id);
             eventBus.Unsubscribe(id, reader);
         }
+
+        async Task<bool> RefreshScopeAsync()
+        {
+            if (!await LocalSessionValidator.IsValidAsync(context, ct)) return false;
+            var current = await AuthorizeIncidentAsync(id, context.User, accessService, db, requireManager: false, ct);
+            if (current.Failure is not null) return false;
+            restricted = current.Access!.HasRestrictedWorkforceAccess;
+            canReadInternalNotes = TicketAccessPolicy.CanReadStaffContent(current.Access, current.Incident!);
+            return true;
+        }
     }
 
     private static TicketTimelineEventDto ToDto(TicketTimelineEvent evt, IImageLinkSigner signer, string? publicApiBaseUrl)
@@ -266,9 +282,6 @@ public static class WorkLogEndpoints
         dto.MessageHtml = IncidentInlineImageLinks.Refresh(evt.MessageHtml, evt.TicketId, signer, publicApiBaseUrl);
         return dto;
     }
-
-    private static bool CanReadInternalNotes(CurrentUserAccessProfile access, string? organizationId) =>
-        access.HasPermission(HelpdeskPermissions.IncidentRead, organizationId) || access.CanManageIncident(organizationId);
 
     private static async Task<IncidentAuthorization> AuthorizeIncidentAsync(
         string incidentId,
@@ -282,32 +295,19 @@ public static class WorkLogEndpoints
             .SingleOrDefaultAsync(candidate => candidate.Id == incidentId, cancellationToken);
         if (incident is null)
         {
-            return new IncidentAuthorization(null, null, null, Results.NotFound());
+            return new IncidentAuthorization(null, null, Results.NotFound());
         }
 
-        var customer = !string.IsNullOrWhiteSpace(incident.CustomerId)
-            ? await db.Customers.AsNoTracking()
-                .Where(candidate => candidate.Id == incident.CustomerId)
-                .Select(candidate => new { candidate.Id, candidate.Email })
-                .FirstOrDefaultAsync(cancellationToken)
-            : null;
         var access = await accessService.ResolveAsync(user, cancellationToken);
-        var allowed = requireManager
-            ? access.CanManageIncident(incident.OrganizationId)
-            : access.CanViewIncident(
-                incident.OrganizationId,
-                customer?.Id ?? incident.CustomerId,
-                customer?.Email ?? incident.RequesterEmail);
+        var canRead = TicketAccessPolicy.CanRead(access, incident);
+        var allowed = requireManager ? TicketAccessPolicy.CanWrite(access, incident) : canRead;
         return allowed
-            ? new IncidentAuthorization(access, incident.OrganizationId, incident, null)
-            : new IncidentAuthorization(null, null, null, Results.Forbid());
+            ? new IncidentAuthorization(access, incident, null)
+            : new IncidentAuthorization(null, null, access.HasRestrictedWorkforceAccess && !canRead ? Results.NotFound() : Results.Forbid());
     }
-
-    private sealed record IncidentScope(string? OrganizationId, string? CustomerId, string? RequesterEmail);
 
     private sealed record IncidentAuthorization(
         CurrentUserAccessProfile? Access,
-        string? OrganizationId,
         Incident? Incident,
         IResult? Failure);
 

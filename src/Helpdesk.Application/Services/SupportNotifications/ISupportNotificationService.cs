@@ -11,4 +11,7 @@ public interface ISupportNotificationService
         string? previousAssignedToId,
         string? newAssignedToId,
         CancellationToken ct = default);
+
+    Task NotifyTicketAssignedToSupportGroupAsync(Ticket ticket, string transitionId,
+        IReadOnlyList<SupportNotificationRecipient> recipients, CancellationToken ct = default);
 }

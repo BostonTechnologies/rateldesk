@@ -1,5 +1,7 @@
 using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Infrastructure.Security;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.PublicAccess;
 using System.Data;
 using System.Security.Claims;
@@ -27,7 +29,8 @@ public static partial class ChangeEndpoints
         publicAccess.MapGet("/", GetPublicChangeApproval).Produces<PublicChangeApprovalDto>().WithName("GetPublicChangeApproval");
         publicAccess.MapPost("/decision", ReviewPublicChangeApproval).WithName("ReviewPublicChangeApproval");
 
-        var authenticated = app.MapGroup("/api/v1/changes/{changeId}/approval").WithTags("Changes").RequireAuthorization();
+        var authenticated = app.MapGroup("/api/v1/changes/{changeId}/approval").WithTags("Changes")
+            .RequireAuthorization().WithMetadata(new QueueAwareEndpoint());
         authenticated.MapGet("/", async (string changeId, ClaimsPrincipal user, [FromServices] ICurrentUserAccessService accessService,
             [FromServices] HelpdeskDbContext db, CancellationToken ct) =>
         {
@@ -75,9 +78,12 @@ public static partial class ChangeEndpoints
         if (!access.IsAuthenticated || string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(access.Email))
             return new(null, null, Results.NotFound());
         var change = await db.Changes.IgnoreQueryFilters().Include(item => item.Approvals).SingleOrDefaultAsync(item => item.Id == changeId, ct);
-        if (change is null || (!access.CanApproveChange(change.OrganizationId) &&
-            !access.CanViewChange(change.OrganizationId, change.CustomerId, change.RequesterEmail)))
-            return new(null, null, Results.NotFound());
+        if (change is null) return new(null, null, Results.NotFound());
+        var authorized = access.HasRestrictedWorkforceAccess
+            ? TicketAccessPolicy.CanPerformWorkflowAction(access, change)
+            : access.CanApproveChange(change.OrganizationId) ||
+              access.CanViewChange(change.OrganizationId, change.CustomerId, change.RequesterEmail);
+        if (!authorized) return new(null, null, Results.NotFound());
         var matches = change.Approvals.Where(item => string.Equals(item.ApproverEmail, access.Email, StringComparison.OrdinalIgnoreCase) &&
             (string.Equals(item.ApproverId, actorId, StringComparison.Ordinal) ||
              !string.IsNullOrWhiteSpace(access.CustomerId) && string.Equals(item.ApproverId, access.CustomerId, StringComparison.Ordinal))).Take(2).ToArray();
@@ -135,7 +141,8 @@ public static partial class ChangeEndpoints
         // Approval, lifecycle and draft-detail writers acquire the same row fence
         // inside a serializable transaction before validating mutable change state.
         return !db.Database.IsRelational() || await db.Changes.IgnoreQueryFilters()
-            .Where(item => item.Id == change.Id && item.LifecycleState == change.LifecycleState)
+            .Where(item => item.Id == change.Id && item.LifecycleState == change.LifecycleState &&
+                item.QueueAssignmentVersion == change.QueueAssignmentVersion)
             .ExecuteUpdateAsync(update => update.SetProperty(item => item.LifecycleState, item => item.LifecycleState), ct) == 1;
     }
 

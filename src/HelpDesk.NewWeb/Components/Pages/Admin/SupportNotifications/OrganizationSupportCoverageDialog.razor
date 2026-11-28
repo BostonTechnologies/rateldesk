@@ -12,8 +12,8 @@
     </TitleContent>
     <DialogContent>
         <MudForm @ref="form" Model="model" Class="mt-2">
-            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Customer organization" @bind-Value="model.CustomerOrganizationId" Clearable="false" />
-            <OrganizationSearchPicker SearchUrl="api/v1/admin/directories/organizations/search?assignable=true" AutoSelectSingle="false" Label="Provider organization" Value="@model.ProviderOrganizationId" ValueChanged="@(id => OnProviderChanged(id ?? string.Empty))" Clearable="false" />
+            <OrganizationSearchPicker SearchUrl="@OrganizationSearchUrl" AutoSelectSingle="false" Label="Customer organization" @bind-Value="model.CustomerOrganizationId" Clearable="false" />
+            <OrganizationSearchPicker SearchUrl="@OrganizationSearchUrl" AutoSelectSingle="false" Label="Provider organization" Value="@model.ProviderOrganizationId" ValueChanged="@(id => OnProviderChanged(id ?? string.Empty))" Clearable="false" />
             <MudSelect T="string" @bind-Value="model.SupportGroupId" Label="Support group" Required="true" Dense="true">
                 @foreach (var group in FilteredSupportGroups)
                 {
@@ -41,6 +41,7 @@
     [Parameter] public string? DefaultCustomerOrganizationId { get; set; }
     [Parameter] public List<OrganizationDto> Organizations { get; set; } = new();
     [Parameter] public List<SupportGroupDto> SupportGroups { get; set; } = new();
+    [Parameter] public string OrganizationSearchUrl { get; set; } = "api/v1/admin/directories/organizations/search?assignable=true";
 
     private static readonly SupportCoverageRole[] CoverageRoles =
     [

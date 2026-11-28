@@ -1,11 +1,14 @@
 using Helpdesk.API.Endpoints.PublicIngress;
+using Helpdesk.API.Endpoints.Ticketing;
 using System.Security.Claims;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Authentication;
@@ -113,6 +116,7 @@ public static class LocalAuthenticationEndpoints
             await context.SignOutAsync(LocalAuthenticationOptions.Scheme);
             return Results.NoContent();
         })
+        .WithMetadata(new QueueAwareEndpoint())
         .RequireAuthorization();
 
         group.MapPost("/two-factor/setup", async (
@@ -344,6 +348,7 @@ public static class LocalAuthenticationEndpoints
             [FromBody] ReplaceLocalScopedRoleAssignmentsRequest request,
             [FromServices] UserManager<ApplicationUser> users,
             [FromServices] HelpdeskDbContext db,
+            HttpContext context,
             CancellationToken cancellationToken) =>
         {
             var account = await users.FindByIdAsync(userId);
@@ -404,6 +409,9 @@ public static class LocalAuthenticationEndpoints
                 .Select(assignment => assignment.RoleKey)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            await using var assignmentTransaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
+                : null;
             var persistedRoles = await db.Roles.AsNoTracking()
                 .Where(role => requestedRoleKeys.Contains(role.Key))
                 .ToListAsync(cancellationToken);
@@ -425,6 +433,18 @@ public static class LocalAuthenticationEndpoints
             var existingAssignments = await db.ScopedRoleAssignments
                 .Where(assignment => assignment.UserId == userId)
                 .ToListAsync(cancellationToken);
+            var previousRoleKeys = existingAssignments.Select(assignment => assignment.RoleKey).ToArray();
+            var scopedRoleKeys = await db.Roles.AsNoTracking()
+                .Where(role => role.TicketAccessScope != TicketAccessScope.AllAuthorizedQueues &&
+                    (requestedRoleKeys.Contains(role.Key) || previousRoleKeys.Contains(role.Key)))
+                .Select(role => role.Key).ToListAsync(cancellationToken);
+            var scopedOrganizations = requestedAssignments.Select(assignment => (assignment.RoleKey, assignment.OrganizationId))
+                .Concat(existingAssignments.Select(assignment => (assignment.RoleKey, assignment.OrganizationId)))
+                .Where(assignment => scopedRoleKeys.Contains(assignment.RoleKey, StringComparer.OrdinalIgnoreCase))
+                .Select(assignment => assignment.OrganizationId).Distinct(StringComparer.OrdinalIgnoreCase);
+            foreach (var scopedOrganization in scopedOrganizations)
+                await TicketWorkforceRestrictions.EnsureAsync(db, scopedOrganization, [userId],
+                    context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub") ?? "unknown", cancellationToken);
             db.ScopedRoleAssignments.RemoveRange(existingAssignments);
             db.ScopedRoleAssignments.AddRange(requestedAssignments.Select(assignment => new ScopedRoleAssignment
             {
@@ -433,6 +453,7 @@ public static class LocalAuthenticationEndpoints
                 OrganizationId = assignment.OrganizationId
             }));
             await db.SaveChangesAsync(cancellationToken);
+            if (assignmentTransaction != null) await assignmentTransaction.CommitAsync(cancellationToken);
 
             if (account is not null)
             {

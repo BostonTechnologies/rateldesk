@@ -161,13 +161,15 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
         // Change lifecycle adds one administrator-only bulk cancellation operation.
         // Reviewed automation input changes add one administrator-only apply operation.
         // Paired automation readiness adds one administrator-only read operation.
+        // Support group queues add four ticket operations, three role and workforce
+        // operations, and six paired receiver and route-administration operations.
         // Debug also exposes the authorized /__debug/me endpoint. Keep both inventories
         // explicit so additions or omissions require a reviewed taxonomy update.
 #if DEBUG
         Assert.True(document.RootElement.GetProperty("paths").TryGetProperty("/__debug/me", out _));
-        Assert.Equal(546, operationCount);
+        Assert.Equal(559, operationCount);
 #else
-        Assert.Equal(545, operationCount);
+        Assert.Equal(558, operationCount);
 #endif
         var paths = document.RootElement.GetProperty("paths");
         foreach (var lookupPath in new[]
@@ -394,6 +396,14 @@ public class OpenApiAndVersionEndpointsTests : IClassFixture<WebApplicationFacto
             Assert.Equal([expectedTag], receiverOperation.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString()).OfType<string>().ToArray());
             Assert.Equal(path.Contains("/sources", StringComparison.Ordinal)
                 ? new[] { "JwtBearer", "LocalSession", "McpExecution" } : new[] { "IntegrationCredential", "ServiceIdentity" }, SecuritySchemes(document, path, method));
+        }
+        foreach (var (operation, method) in new[] { ("queue-capabilities", "get"), ("queues", "get"),
+                     ("queued-incidents", "post"), ("queue-receipt", "get") })
+        {
+            var path = $"/api/v1/integrations/netratel/{operation}";
+            var documented = paths.GetProperty(path).GetProperty(method);
+            Assert.Equal("NetRatel Queue Routing", Assert.Single(documented.GetProperty("tags").EnumerateArray()).GetString());
+            Assert.Equal(["ServiceIdentity"], SecuritySchemes(document, path, method));
         }
         Assert.Empty(SecuritySchemes(document, "/connect/token", "post"));
         Assert.Empty(SecuritySchemes(document, "/api/pairing/v1/metadata", "get"));

@@ -25,3 +25,8 @@ public class CreateIncidentDto
 
     public List<Guid>? CategoryIds { get; set; }
 }
+
+public sealed class CreateQueuedIncidentDto : CreateIncidentDto
+{
+    public string? AssignedSupportGroupId { get; set; }
+}

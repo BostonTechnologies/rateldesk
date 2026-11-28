@@ -1,9 +1,14 @@
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.DTOs;
+using Helpdesk.Shared.DTOs.TicketQueue;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 using System.Security.Claims;
 
 namespace Helpdesk.API.Endpoints.Authentication;
@@ -14,7 +19,29 @@ public static class RoleDefinitionEndpoints
     {
         var group = app.MapGroup("/api/v1/admin/role-definitions")
             .WithTags("Role definitions")
+            .WithMetadata(new QueueAwareEndpoint())
             .RequireAuthorization();
+
+        group.MapGet("/support-group-options", async (string organizationId, string? q, string? id, int? limit,
+            ClaimsPrincipal principal, ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct) =>
+        {
+            if (!CanManageOrganization(await accessService.ResolveAsync(principal, ct), organizationId)) return Results.Forbid();
+            if (q?.Length > 200 || id?.Length > 64) return Results.BadRequest();
+            var groups = db.SupportGroups.Where(candidate => candidate.OwningOrganizationId == organizationId &&
+                (id != null ? candidate.Id == id : candidate.IsEnabled));
+            var total = await groups.CountAsync(ct);
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                var term = q.Trim().ToLowerInvariant();
+                groups = groups.Where(candidate => candidate.Name.ToLower().Contains(term));
+            }
+            var size = Math.Clamp(limit ?? 20, 1, 50);
+            var items = await groups.OrderBy(candidate => candidate.Name).ThenBy(candidate => candidate.Id).Take(size + 1)
+                .Select(candidate => new TicketQueueOptionDto(candidate.Id, candidate.Name)).ToListAsync(ct);
+            var more = items.Count > size;
+            if (more) items.RemoveAt(size);
+            return Results.Ok(new CreationLookupResult<TicketQueueOptionDto>(items, total, more));
+        }).WithName("SearchRoleSupportGroups");
 
         group.MapGet("/", async (
             HttpContext context,
@@ -29,6 +56,7 @@ public static class RoleDefinitionEndpoints
             await RoleDefinitionSeeder.EnsureBuiltInsAsync(db, cancellationToken);
             var rolesQuery = db.Roles.AsNoTracking()
                 .Include(role => role.Permissions)
+                .Include(role => role.SupportGroups)
                 .OrderByDescending(role => role.IsBuiltIn)
                 .ThenBy(role => role.Name)
                 .AsQueryable();
@@ -64,6 +92,7 @@ public static class RoleDefinitionEndpoints
             var access = await accessService.ResolveAsync(context.User, cancellationToken);
             var role = await db.Roles.AsNoTracking()
                 .Include(candidate => candidate.Permissions)
+                .Include(candidate => candidate.SupportGroups)
                 .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
             if (role is null) return Results.NotFound();
             if (!CanManageOrganization(access, role.OwnerOrganizationId) && !role.IsBuiltIn) return Results.Forbid();
@@ -147,6 +176,11 @@ public static class RoleDefinitionEndpoints
                 });
             }
 
+            var queueScope = request.TicketAccessScope ?? TicketAccessScope.AllAuthorizedQueues;
+            var groupIds = NormalizeGroupIds(request.SupportGroupIds);
+            if (await ValidateQueueScopeAsync(db, request.OwnerOrganizationId!, queueScope, groupIds, validation.Permissions!, cancellationToken) is { } scopeError)
+                return Results.ValidationProblem(new Dictionary<string, string[]> { [scopeError.Key] = [scopeError.Message] });
+
             var role = new Role
             {
                 Key = validation.Key!,
@@ -155,11 +189,13 @@ public static class RoleDefinitionEndpoints
                 OwnerOrganizationId = request.OwnerOrganizationId!.Trim(),
                 IsBuiltIn = false,
                 IsProtected = false,
+                TicketAccessScope = queueScope,
                 Permissions = validation.Permissions!.Select(permission => new RolePermission { Permission = permission }).ToList()
             };
+            role.SupportGroups = groupIds.Select(groupId => new RoleSupportGroup { RoleId = role.Id, SupportGroupId = groupId }).ToList();
             db.Roles.Add(role);
             AddAuditLog(db, context.User, role,
-                $"Created custom role '{role.Name}' in organization '{role.OwnerOrganizationId}'. Permissions: [{FormatPermissions(role.Permissions.Select(permission => permission.Permission))}].");
+                $"Created custom role '{role.Name}' in organization '{role.OwnerOrganizationId}'. Ticket access: {queueScope}. Permissions: [{FormatPermissions(role.Permissions.Select(permission => permission.Permission))}].");
             await db.SaveChangesAsync(cancellationToken);
             return Results.Created($"/api/v1/admin/role-definitions/{role.Id}", ToResponse(role, 0));
         });
@@ -174,7 +210,10 @@ public static class RoleDefinitionEndpoints
         {
             var access = await accessService.ResolveAsync(context.User, cancellationToken);
             await RoleDefinitionSeeder.EnsureBuiltInsAsync(db, cancellationToken);
-            var role = await db.Roles.Include(candidate => candidate.Permissions)
+            await using var scopeTransaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
+                : null;
+            var role = await db.Roles.Include(candidate => candidate.Permissions).Include(candidate => candidate.SupportGroups)
                 .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
             if (role is null) return Results.NotFound();
             if (!CanManageOrganization(access, role.OwnerOrganizationId)) return Results.Forbid();
@@ -196,15 +235,42 @@ public static class RoleDefinitionEndpoints
                 });
             }
 
+            var queueScope = request.TicketAccessScope ?? role.TicketAccessScope;
+            var groupIds = queueScope == TicketAccessScope.SelectedSupportGroups
+                ? NormalizeGroupIds(request.SupportGroupIds ?? role.SupportGroups.Select(link => link.SupportGroupId))
+                : NormalizeGroupIds(request.SupportGroupIds);
+            if (await ValidateQueueScopeAsync(db, role.OwnerOrganizationId!, queueScope, groupIds, validation.Permissions!, cancellationToken) is { } scopeError)
+                return Results.ValidationProblem(new Dictionary<string, string[]> { [scopeError.Key] = [scopeError.Message] });
+
+            var assignedUsers = await db.ScopedRoleAssignments.AsNoTracking()
+                .Where(assignment => assignment.RoleKey == role.Key && assignment.OrganizationId == role.OwnerOrganizationId)
+                .Select(assignment => assignment.UserId).ToArrayAsync(cancellationToken);
+            if (!access.IsHelpdeskAdmin && (queueScope != TicketAccessScope.AllAuthorizedQueues || role.TicketAccessScope != TicketAccessScope.AllAuthorizedQueues) &&
+                access.DomainUserId is { } actorId && assignedUsers.Contains(actorId, StringComparer.OrdinalIgnoreCase))
+                return Results.Forbid();
+
             var previousName = role.Name;
+            var previousScope = role.TicketAccessScope;
+            var previousGroups = role.SupportGroups.Select(link => link.SupportGroupId).ToArray();
             var previousPermissions = role.Permissions.Select(permission => permission.Permission).ToArray();
             role.Name = request.Name.Trim();
             db.RolePermissions.RemoveRange(role.Permissions);
             role.Permissions = validation.Permissions!.Select(permission => new RolePermission { RoleId = role.Id, Permission = permission }).ToList();
+            role.TicketAccessScope = queueScope;
+            foreach (var link in role.SupportGroups.Where(link => !groupIds.Contains(link.SupportGroupId)).ToArray())
+                role.SupportGroups.Remove(link);
+            foreach (var groupId in groupIds.Except(previousGroups))
+                role.SupportGroups.Add(new RoleSupportGroup { RoleId = role.Id, SupportGroupId = groupId });
+            if (queueScope != TicketAccessScope.AllAuthorizedQueues || previousScope != TicketAccessScope.AllAuthorizedQueues)
+                await TicketWorkforceRestrictions.EnsureAsync(db, role.OwnerOrganizationId!, assignedUsers, ResolveActorId(context.User), cancellationToken);
+
             AddAuditLog(db, context.User, role,
-                $"Updated custom role '{previousName}' to '{role.Name}' in organization '{role.OwnerOrganizationId}'. Permissions: [{FormatPermissions(previousPermissions)}] -> [{FormatPermissions(validation.Permissions)}].");
+                $"Updated custom role '{previousName}' to '{role.Name}' in organization '{role.OwnerOrganizationId}'. " +
+                $"Ticket access: {previousScope} [{string.Join(", ", previousGroups)}] -> {queueScope} [{string.Join(", ", groupIds)}]. " +
+                $"Permissions: [{FormatPermissions(previousPermissions)}] -> [{FormatPermissions(validation.Permissions)}].");
             await db.SaveChangesAsync(cancellationToken);
-            return Results.Ok(ToResponse(role, await db.ScopedRoleAssignments.CountAsync(assignment => assignment.RoleKey == role.Key, cancellationToken)));
+            if (scopeTransaction != null) await scopeTransaction.CommitAsync(cancellationToken);
+            return Results.Ok(ToResponse(role, assignedUsers.Length));
         });
 
         group.MapDelete("/{id}", async (
@@ -310,6 +376,26 @@ public static class RoleDefinitionEndpoints
         string.Join('-', value.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries))
             .Where(character => char.IsAsciiLetterOrDigit(character) || character is '-').ToArray());
 
+    private static string[] NormalizeGroupIds(IEnumerable<string>? groupIds) =>
+        (groupIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToArray();
+
+    private static async Task<ValidationError?> ValidateQueueScopeAsync(
+        HelpdeskDbContext db, string organizationId, TicketAccessScope scope, string[] groupIds,
+        IReadOnlyList<string> permissions, CancellationToken ct)
+    {
+        if (!Enum.IsDefined(scope)) return new("ticketAccessScope", "Choose a supported ticket access scope.");
+        if (scope != TicketAccessScope.AllAuthorizedQueues && permissions.Any(permission => !RoleDefinitionCatalog.IsQueueScopedPermission(permission)))
+            return new("permissions", "Group-scoped roles may grant only workforce ticket operations.");
+        if (scope != TicketAccessScope.SelectedSupportGroups)
+            return groupIds.Length == 0 ? null : new("supportGroupIds", "Choose Selected support groups to specify individual groups.");
+
+        if (groupIds.Length is 0 or > 100 || groupIds.Any(id => id.Length > 64))
+            return new("supportGroupIds", "Choose between 1 and 100 enabled support groups.");
+        var matching = await db.SupportGroups.CountAsync(group => group.IsEnabled && group.OwningOrganizationId == organizationId &&
+            groupIds.Contains(group.Id), ct);
+        return matching == groupIds.Length ? null : new("supportGroupIds", "Selected groups must be enabled and owned by this role's organization.");
+    }
+
     private static RoleDefinitionResponse ToResponse(Role role, int assignmentCount) => new(
         role.Id,
         role.Key,
@@ -319,11 +405,27 @@ public static class RoleDefinitionEndpoints
         role.IsBuiltIn,
         role.IsProtected,
         role.Permissions.Select(permission => permission.Permission).OrderBy(permission => permission).ToArray(),
-        assignmentCount);
+        assignmentCount)
+    {
+        TicketAccessScope = role.TicketAccessScope,
+        SupportGroupIds = role.SupportGroups.Select(link => link.SupportGroupId).Order(StringComparer.Ordinal).ToArray()
+    };
 
-    public sealed record CreateRoleDefinitionRequest(string Name, string? Key, string? OwnerOrganizationId, IReadOnlyList<string> Permissions);
-    public sealed record UpdateRoleDefinitionRequest(string Name, IReadOnlyList<string> Permissions);
-    public sealed record RoleDefinitionResponse(string Id, string Key, string Name, RoleScopeKind Scope, string? OwnerOrganizationId, bool IsBuiltIn, bool IsProtected, IReadOnlyList<string> Permissions, int AssignmentCount);
+    public sealed record CreateRoleDefinitionRequest(string Name, string? Key, string? OwnerOrganizationId, IReadOnlyList<string> Permissions)
+    {
+        public TicketAccessScope? TicketAccessScope { get; init; }
+        public IReadOnlyList<string>? SupportGroupIds { get; init; }
+    }
+    public sealed record UpdateRoleDefinitionRequest(string Name, IReadOnlyList<string> Permissions)
+    {
+        public TicketAccessScope? TicketAccessScope { get; init; }
+        public IReadOnlyList<string>? SupportGroupIds { get; init; }
+    }
+    public sealed record RoleDefinitionResponse(string Id, string Key, string Name, RoleScopeKind Scope, string? OwnerOrganizationId, bool IsBuiltIn, bool IsProtected, IReadOnlyList<string> Permissions, int AssignmentCount)
+    {
+        public TicketAccessScope TicketAccessScope { get; init; }
+        public IReadOnlyList<string> SupportGroupIds { get; init; } = [];
+    }
     public sealed record RoleAssignmentResponse(string UserId, string Name, string Email, string OrganizationId);
 
     private sealed record RoleValidation(string? Key, IReadOnlyList<string>? Permissions, ValidationError? Error)

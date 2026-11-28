@@ -42,7 +42,7 @@ public class EmailDisplayDocumentTests
     {
         var result = EmailDisplayDocument.Create(html, null, "https://desk.example.test/");
         var document = new HtmlParser().ParseDocument(result.Html);
-        Assert.Single(document.QuerySelectorAll("script")); // only the hash-pinned geometry/Escape bridge
+        Assert.Single(document.QuerySelectorAll("script")); // only the hash-pinned sandbox bridge
         Assert.Empty(document.QuerySelectorAll("iframe,object,svg,math,form,input,[onload],[onmouseover],[href]"));
         Assert.DoesNotContain("evil", document.Body!.InnerHtml);
         Assert.DoesNotContain("tracker.example.test", result.Html);
@@ -57,7 +57,17 @@ public class EmailDisplayDocumentTests
         var result = EmailDisplayDocument.Create("<img src='https://historical.example.test/api/incidents/ticket-1/images/photo.png?token=scoped'><img src='/api/worklogs/log-1/images/photo.png?token=scoped'><img src='https://tracker.example.test/pixel' alt='Logo'><img src='cid:missing' alt='Chart'><img src='data:image/svg+xml,bad'>", null, "https://desk.example.test/");
         var document = new HtmlParser().ParseDocument(result.Html);
         Assert.Equal(2, document.QuerySelectorAll("img").Length);
-        Assert.All(document.QuerySelectorAll("img"), image => Assert.StartsWith("https://desk.example.test/api/", image.GetAttribute("src")));
+        Assert.All(document.QuerySelectorAll("img"), image =>
+        {
+            Assert.Null(image.GetAttribute("src"));
+            Assert.True(image.HasAttribute("data-rateldesk-asset"));
+        });
+        Assert.Equal(new[]
+        {
+            "https://desk.example.test/api/incidents/ticket-1/images/photo.png?token=scoped",
+            "https://desk.example.test/api/worklogs/log-1/images/photo.png?token=scoped"
+        }, result.StaffAssetUrls);
+        Assert.DoesNotContain("token=scoped", result.Html);
         Assert.Equal(3, result.BlockedImages);
         Assert.Contains("Image unavailable: Logo", result.Text);
         Assert.Contains("Image unavailable: Chart", result.Text);

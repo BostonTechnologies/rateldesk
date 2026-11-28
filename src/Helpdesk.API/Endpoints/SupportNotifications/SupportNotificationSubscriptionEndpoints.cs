@@ -29,7 +29,7 @@ public static class SupportNotificationSubscriptionEndpoints
 
         group.MapPost("/", async ([FromBody] CreateSupportNotificationSubscriptionDto dto, [FromServices] IRepository<SupportNotificationSubscription> repo) =>
         {
-            var validation = Validate(dto.CustomerOrganizationId, dto.RecipientId, dto.Channel);
+            var validation = Validate(dto.CustomerOrganizationId, dto.RecipientId, dto.Channel, dto.EventType, dto.RecipientType);
             if (validation is not null) return validation;
 
             var created = await repo.CreateAsync(new SupportNotificationSubscription
@@ -48,7 +48,7 @@ public static class SupportNotificationSubscriptionEndpoints
         {
             var existing = await repo.GetAsync(id);
             if (existing is null) return Results.NotFound();
-            var validation = Validate(dto.CustomerOrganizationId, dto.RecipientId, dto.Channel);
+            var validation = Validate(dto.CustomerOrganizationId, dto.RecipientId, dto.Channel, dto.EventType, dto.RecipientType);
             if (validation is not null) return validation;
 
             existing.CustomerOrganizationId = dto.CustomerOrganizationId.Trim();
@@ -66,7 +66,8 @@ public static class SupportNotificationSubscriptionEndpoints
             await repo.DeleteAsync(id) ? Results.NoContent() : Results.NotFound());
     }
 
-    private static IResult? Validate(string customerOrganizationId, string recipientId, SupportNotificationChannel channel)
+    private static IResult? Validate(string customerOrganizationId, string recipientId, SupportNotificationChannel channel,
+        SupportNotificationEventType eventType, SupportNotificationRecipientType recipientType)
     {
         if (string.IsNullOrWhiteSpace(customerOrganizationId) || string.IsNullOrWhiteSpace(recipientId))
         {
@@ -77,6 +78,8 @@ public static class SupportNotificationSubscriptionEndpoints
         {
             return Results.BadRequest("Only email support notifications are supported in v1.");
         }
+        if (eventType == SupportNotificationEventType.TicketAssignedToSupportGroup && recipientType != SupportNotificationRecipientType.SupportGroup)
+            return Results.BadRequest("Group assignment notifications require a support group recipient.");
 
         return null;
     }

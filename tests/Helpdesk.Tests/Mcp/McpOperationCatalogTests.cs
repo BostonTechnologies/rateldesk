@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Helpdesk.AgentClient;
 using Helpdesk.Mcp.Tools;
+using Json.Schema;
 using ModelContextProtocol.Server;
 using NSubstitute;
 using Xunit;
@@ -189,8 +190,15 @@ public sealed class McpOperationCatalogTests
 
         var taskUpdate = Alternative(tasks, "update").GetProperty("properties").GetProperty("request");
         Assert.False(taskUpdate.GetProperty("additionalProperties").GetBoolean());
-        Assert.True(taskUpdate.GetProperty("properties").TryGetProperty("clearDueDate", out _));
-        Assert.Equal(9, taskUpdate.GetProperty("anyOf").GetArrayLength());
+        var updateFields = taskUpdate.GetProperty("anyOf").EnumerateArray()
+            .Select(option => option.GetProperty("required")[0].GetString()).Order(StringComparer.Ordinal);
+        Assert.Equal(new[] { "assignedToId", "attachments", "claimForMe", "clearAssignment", "clearDueDate",
+            "description", "dueDate", "linkedAssetIds", "priority", "title" }, updateFields);
+
+        var updateSchema = JsonSchema.FromText(taskUpdate.GetRawText());
+        Assert.True(updateSchema.Evaluate(JsonSerializer.SerializeToElement(new { taskId = "task", claimForMe = true })).IsValid);
+        Assert.False(updateSchema.Evaluate(JsonSerializer.SerializeToElement(new { taskId = "task", claimForMe = false })).IsValid);
+        Assert.False(updateSchema.Evaluate(JsonSerializer.SerializeToElement(new { taskId = "task", claimForMe = true, assignedToId = "other" })).IsValid);
     }
 
     [Fact]
@@ -327,6 +335,11 @@ public sealed class McpOperationCatalogTests
     private static JsonElement? ContractRequest(McpOperationDefinition operation)
     {
         if (operation.RequestContract == "None") return null;
+        if (operation.RequestContract is "TicketQueueOptionsRequest" or "MoveTicketQueueRequest")
+        {
+            var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(ToolSchemas[operation.Tool], operation.Operation);
+            return JsonSerializer.SerializeToElement(arguments["request"]);
+        }
         if (operation.RequestContract == "OperatorRequest")
         {
             var arguments = McpExecutableSchemaTests.ArgumentsFromDiscovery(ToolSchemas[operation.Tool], operation.Operation);

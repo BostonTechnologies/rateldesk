@@ -11,7 +11,7 @@
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
             <MudText Typo="Typo.h6">Support Coverage</MudText>
-            <MudText Typo="Typo.body2" Class="text-secondary">Routes tickets for this organization to provider-owned support groups.</MudText>
+            <MudText Typo="Typo.body2" Class="text-secondary">Configure routing to provider-owned support groups. Coverage roles describe routing priority. Ticket access comes from permissions and group membership.</MudText>
         </div>
         <MudSpacer />
         <MudButton Variant="Variant.Filled"
@@ -58,6 +58,7 @@
     [Parameter] public List<OrganizationSupportCoverageDto> Rows { get; set; } = new();
     [Parameter] public List<OrganizationDto> Organizations { get; set; } = new();
     [Parameter] public List<SupportGroupDto> SupportGroups { get; set; } = new();
+    [Parameter] public string OrganizationSearchUrl { get; set; } = "api/v1/admin/directories/organizations/search?assignable=true";
     [Parameter] public EventCallback OnChanged { get; set; }
 
     private async Task OpenCreateDialogAsync()
@@ -169,6 +170,7 @@
         ["Coverage"] = row,
         ["DefaultCustomerOrganizationId"] = SelectedOrganizationId,
         ["Organizations"] = Organizations,
+        ["OrganizationSearchUrl"] = OrganizationSearchUrl,
         ["SupportGroups"] = SupportGroups
     };
 

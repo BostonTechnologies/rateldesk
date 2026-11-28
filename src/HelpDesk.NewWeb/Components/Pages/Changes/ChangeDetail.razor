@@ -82,6 +82,9 @@
                     }
                 </SecondaryMetadataContent>
             </HelpDesk.NewWeb.Components.Shared.TicketHeader>
+            <TicketQueueLabel Module="change" TicketId="@change.Id" OrganizationId="@change.OrganizationId"
+                              GroupId="@change.AssignedSupportGroupId" Name="@change.AssignedSupportGroupName" Version="@change.QueueAssignmentVersion"
+                              Unassigned="@(change.AssignedToId == null)" Access="@accessProfile" Changed="ReloadQueueDetails" />
 
             <TicketActivityTabs
                 TicketId="@Id"
@@ -296,8 +299,13 @@
     }
 
     private CurrentUserAccessProfile? accessProfile;
+    private Task ReloadQueueDetails()
+    {
+        return LoadChangeAsync();
+    }
     private bool CanManage => accessProfile?.CanManageChange(change?.OrganizationId) == true;
-    private bool CanContribute => change is not null && accessProfile?.CanContributeChange(change.OrganizationId, change.CustomerId, change.CustomerEmail) == true;
+    private bool CanContribute => change is not null && (accessProfile?.CanContributeChange(change.OrganizationId, change.CustomerId, change.CustomerEmail) == true ||
+        TicketQueueActions.CanWrite(accessProfile, "change", change.OrganizationId, change.AssignedSupportGroupId));
 
     private HttpClient HelpdeskApi => HttpClientFactory.CreateClient("HelpdeskApi");
     [Parameter] public string Id { get; set; } = string.Empty;
@@ -356,8 +364,10 @@
         try
         {
             var changeTask = HelpdeskApi.GetFromJsonAsync<ChangeDto>($"api/v1/changes/{Id}", token);
-            var categoriesTask = HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Change}", token);
             accessProfile = CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
+            var categoriesTask = accessProfile.HasRestrictedWorkforceAccess
+                ? Task.FromResult<List<TicketCategoryDto>?>([])
+                : HelpdeskApi.GetFromJsonAsync<List<TicketCategoryDto>>($"api/v1/categories?type={(int)TicketCategoryType.Change}", token);
             await Task.WhenAll(changeTask, categoriesTask);
             token.ThrowIfCancellationRequested();
 
@@ -461,6 +471,9 @@
         {
             Id = source.Id,
             OrganizationId = source.OrganizationId,
+            AssignedSupportGroupId = source.AssignedSupportGroupId,
+            AssignedSupportGroupName = source.AssignedSupportGroupName,
+            QueueAssignmentVersion = source.QueueAssignmentVersion,
             Title = source.Title,
             Description = source.Description,
             State = source.State,

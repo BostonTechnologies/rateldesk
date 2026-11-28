@@ -39,7 +39,7 @@
         new("Support Agents", "admin/users", "Tenant.Users.Manage,Tenant.Roles.Assign,HelpdeskAdmin"),
         new("Customer Contacts", "admin/customers", "HelpdeskAdmin"),
         new("Organizations", "admin/organizations", "Tenant.Roles.Assign,Tenant.Settings.Manage,HelpdeskAdmin", ["tenant-administration", "tenant-settings"]),
-        new("Support Routing", "admin/support-routing", "HelpdeskAdmin"),
+        new("Support Routing", "admin/support-routing", "HelpdeskAdmin,Tenant.Settings.Manage"),
         new("Service Levels", "admin/tenant-sla-settings", "HelpdeskAdmin"),
     ]);
     private static readonly Workspace Email = new("Email",

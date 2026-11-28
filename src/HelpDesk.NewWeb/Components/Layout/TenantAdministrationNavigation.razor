@@ -15,12 +15,14 @@
 @code {
     private static string[] PermittedAliases(System.Security.Claims.ClaimsPrincipal user)
     {
-        if (user.IsInRole("Tenant.Roles.Assign")) return AccountRoutes;
-        if (!user.IsInRole("Tenant.Users.Manage")) return ["admin/organizations", "tenant-settings"];
-        return user.IsInRole("Tenant.Settings.Manage") ? AccountRoutes : ["admin/users", "tenant-administration"];
+        var settings = user.IsInRole("Tenant.Settings.Manage");
+        if (user.IsInRole("Tenant.Roles.Assign")) return settings ? [.. AccountRoutes, "admin/support-routing"] : AccountRoutes;
+        if (!user.IsInRole("Tenant.Users.Manage"))
+            return settings ? ["admin/organizations", "tenant-settings", "admin/support-routing"] : ["admin/organizations", "tenant-settings"];
+        return settings ? [.. AccountRoutes, "admin/support-routing"] : ["admin/users", "tenant-administration"];
     }
 
     private static readonly string[] OrganizationAliases = ["tenant-administration", "tenant-settings"];
     private static readonly string[] AccountRoutes = ["admin/users", "admin/organizations", .. OrganizationAliases];
-    private static readonly string[] AdministrationRoutes = [.. AccountRoutes, "admin/roles"];
+    private static readonly string[] AdministrationRoutes = [.. AccountRoutes, "admin/roles", "admin/support-routing"];
 }

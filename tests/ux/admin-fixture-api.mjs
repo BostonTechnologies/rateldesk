@@ -144,6 +144,14 @@ http.createServer(async (req, res) => {
  if (path === '/api/v1/users') return reply(users);
  if (path === '/api/v1/customers') return reply([]);
  if (path === '/api/v1/admin/role-definitions') return reply(roles);
+ if (path === '/api/v1/admin/role-definitions/support-group-options') {
+  const permitted = url.searchParams.get('organizationId') === 'org-1'
+   ? [{ id: 'queue-vendor', name: 'Application Vendor' }, { id: 'queue-wintel', name: 'Wintel L1' }] : [];
+  const selected = url.searchParams.get('id');
+  const query = (url.searchParams.get('q') ?? '').toLowerCase();
+  return reply({ items: permitted.filter(group => (!selected || group.id === selected) && group.name.toLowerCase().includes(query)),
+   totalEligible: permitted.length, hasMore: false });
+ }
  if (path.endsWith('/assignments')) {
   const rows = [{ id: 'assignment-1', userId: 'user-1', name: 'Synthetic Operator', email: 'operator@example.test', organizationId: 'org-1', assignedAtUtc: '2026-10-01T00:00:00Z' }];
   return reply(url.searchParams.get('paged') === 'true' ? { items: rows, totalCount: rows.length, page: 1, pageSize: Number(url.searchParams.get('pageSize') ?? 25) } : rows);

@@ -6,9 +6,11 @@ using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs;
 using Helpdesk.Shared.DTOs.Request;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -67,6 +69,8 @@ public static class RequestTaskEndpoints
             {
                 return Results.Forbid();
             }
+            var restricted = access.HasRestrictedWorkforceAccess;
+            if (restricted && !string.IsNullOrWhiteSpace(serviceId)) return Results.Forbid();
 
             if (q?.Length > 200)
                 return Results.BadRequest(new { error = "Search is limited to 200 characters." });
@@ -77,9 +81,12 @@ public static class RequestTaskEndpoints
             var effectivePageSize = Math.Clamp(pageSize ?? 10, 1, 100);
             var shouldFilterAssignedToMe = assignedToMe ?? false;
 
+            var requests = restricted
+                ? TicketAccessPolicy.Readable(db.Requests.AsNoTracking(), access, TicketType.Request, includeOwned: false)
+                : db.Requests.AsNoTracking();
             var query =
                 from task in db.RequestTasks.AsNoTracking()
-                join request in db.Requests.AsNoTracking() on task.RequestId equals request.Id
+                join request in requests on task.RequestId equals request.Id
                 join assignedUser in db.Users.AsNoTracking() on task.AssignedToId equals assignedUser.Id into assignedUsers
                 from assignedUser in assignedUsers.DefaultIfEmpty()
                 select new
@@ -91,7 +98,7 @@ public static class RequestTaskEndpoints
 
             query = query.Where(x => x.Task.OrganizationId == x.Request.OrganizationId);
 
-            if (!access.IsHelpdeskAdmin)
+            if (!access.IsHelpdeskAdmin && !restricted)
             {
                 var requestManagerOrganizationIds = RequestReaderOrganizationIds(access).ToArray();
                 if (requestManagerOrganizationIds.Length == 0)
@@ -185,6 +192,24 @@ public static class RequestTaskEndpoints
                 .Take(effectivePageSize)
                 .ToListAsync(token);
 
+            if (restricted)
+                return Results.Ok(new PagedResponse<RequestTaskListItemDto>
+                {
+                    Page = effectivePage,
+                    PageSize = effectivePageSize,
+                    TotalCount = includeTotal ? totalCount : taskRows.Count,
+                    Items = taskRows.Select(x => new RequestTaskListItemDto
+                    {
+                        Id = x.Task.Id, RequestId = x.Task.RequestId, OrganizationId = x.Task.OrganizationId,
+                        RequestAssignedSupportGroupId = x.Request.AssignedSupportGroupId,
+                        RequestTrackingId = x.Request.TrackingId, RequestTitle = x.Request.Title, Name = x.Task.Name,
+                        Type = x.Task.Type, Status = x.Task.Status, AssignedToId = x.Task.AssignedToId,
+                        Order = x.Task.Order, StateVersion = x.Task.AutomationStateVersion,
+                        CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(x.Task.CreatedAt, DateTimeKind.Utc)),
+                        StartedAt = x.Task.StartedAt, DueAt = x.Task.DueAt
+                    }).ToList()
+                });
+
             var bindingStates = await LoadAutomationBindingStatesAsync(
                 db,
                 taskRows.Select(x => (RequestFormId: x.Request.RequestFormId, TemplateId: (string?)x.Task.TemplateId)),
@@ -199,6 +224,7 @@ public static class RequestTaskEndpoints
                         Id = x.Task.Id,
                         RequestId = x.Task.RequestId,
                         OrganizationId = x.Task.OrganizationId,
+                        RequestAssignedSupportGroupId = x.Request.AssignedSupportGroupId,
                         RequestTrackingId = x.Request.TrackingId,
                         RequestTitle = x.Request.Title,
                         Name = x.Task.Name,
@@ -263,7 +289,7 @@ public static class RequestTaskEndpoints
                 TotalCount = includeTotal ? totalCount : items.Count,
                 Items = items
             });
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapGet("/{id}", async (
             [FromRoute] string id,
@@ -278,16 +304,23 @@ public static class RequestTaskEndpoints
                 return Results.Forbid();
             }
 
-            var task = await db.RequestTasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, token);
+            var query = db.RequestTasks.AsNoTracking();
+            if (access.HasRestrictedWorkforceAccess)
+            {
+                var visible = TicketAccessPolicy.Readable(db.Requests.AsNoTracking(), access, TicketType.Request, includeOwned: false);
+                query = query.Where(task => visible.Any(request => request.Id == task.RequestId && request.OrganizationId == task.OrganizationId));
+            }
+            var task = await query.FirstOrDefaultAsync(x => x.Id == id, token);
             if (task is null)
             {
                 return Results.Problem("Task not found", statusCode: 404);
             }
 
+            if (access.HasRestrictedWorkforceAccess) return Results.Ok(ToScopedDto(task));
             return CanReadOrganization(access, task.OrganizationId)
                 ? Results.Ok(task)
                 : Results.Forbid();
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/", async (
             [FromBody] CreateRequestTaskDto dto,
@@ -424,10 +457,14 @@ public static class RequestTaskEndpoints
             [FromServices] IRepository<RequestTask> repo,
             [FromServices] HelpdeskDbContext db,
             [FromServices] ICurrentUserAccessService accessService,
+            [FromServices] IRequestTaskStartFence? queueFence,
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
             var access = await accessService.ResolveAsync(user, token);
+            if (dto.ClaimForMe)
+                return await ClaimTaskAsync(db, queueFence, access, accessService, user, id, dto, token);
+            if (access.HasRestrictedWorkforceAccess) return Results.Forbid();
             if (!CanManageTasks(access))
             {
                 return Results.Forbid();
@@ -496,7 +533,7 @@ public static class RequestTaskEndpoints
 
             var updated = await repo.UpdateAsync(existing);
             return Results.Ok(updated);
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapDelete("/{id}", async (
             [FromRoute] string id,
@@ -544,16 +581,13 @@ public static class RequestTaskEndpoints
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
-            var access = await accessService.ResolveAsync(user, token);
-            if (!await CanAccessTaskAsync(db, access, id, token))
-            {
-                return Results.Forbid();
-            }
+            var authorization = await AuthorizeTaskTransitionAsync(db, accessService, user, id, token);
+            if (authorization.Failure is not null) return authorization.Failure;
 
             RequestTask task;
             try
             {
-                task = await lifecycleService.StartAsync(id, token);
+                task = await lifecycleService.StartAsync(id, token, authorization.Queue);
             }
             catch (KeyNotFoundException)
             {
@@ -561,7 +595,7 @@ public static class RequestTaskEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return TransitionError(authorization, ex);
             }
 
             if (!string.IsNullOrWhiteSpace(task.RequestId))
@@ -569,8 +603,8 @@ public static class RequestTaskEndpoints
                 await workflowEngine.RunAsync(task.RequestId, WorkflowRunReason.ManualTrigger, token);
             }
 
-            return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
-        }).Produces<RequestTaskTransitionDto>();
+            return await TaskTransitionResponseAsync(db, authorization, task, correlationContext, token);
+        }).Produces<RequestTaskTransitionDto>().WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/{id}/complete", async (
             [FromRoute] string id,
@@ -582,16 +616,13 @@ public static class RequestTaskEndpoints
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
-            var access = await accessService.ResolveAsync(user, token);
-            if (!await CanAccessTaskAsync(db, access, id, token))
-            {
-                return Results.Forbid();
-            }
+            var authorization = await AuthorizeTaskTransitionAsync(db, accessService, user, id, token);
+            if (authorization.Failure is not null) return authorization.Failure;
 
             RequestTask task;
             try
             {
-                task = await lifecycleService.CompleteAsync(id, null, token);
+                task = await lifecycleService.CompleteAsync(id, null, token, authorization.Queue);
             }
             catch (KeyNotFoundException)
             {
@@ -599,7 +630,7 @@ public static class RequestTaskEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return TransitionError(authorization, ex);
             }
 
             if (!string.IsNullOrWhiteSpace(task.RequestId))
@@ -607,8 +638,8 @@ public static class RequestTaskEndpoints
                 await workflowEngine.RunAsync(task.RequestId, WorkflowRunReason.TaskCompleted, token);
             }
 
-            return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
-        }).Produces<RequestTaskTransitionDto>();
+            return await TaskTransitionResponseAsync(db, authorization, task, correlationContext, token);
+        }).Produces<RequestTaskTransitionDto>().WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/{id}/fail", async (
             [FromRoute] string id,
@@ -620,16 +651,13 @@ public static class RequestTaskEndpoints
             ClaimsPrincipal user,
             CancellationToken token) =>
         {
-            var access = await accessService.ResolveAsync(user, token);
-            if (!await CanAccessTaskAsync(db, access, id, token))
-            {
-                return Results.Forbid();
-            }
+            var authorization = await AuthorizeTaskTransitionAsync(db, accessService, user, id, token);
+            if (authorization.Failure is not null) return authorization.Failure;
 
             RequestTask task;
             try
             {
-                task = await lifecycleService.FailAsync(id, "Failed manually.", token);
+                task = await lifecycleService.FailAsync(id, "Failed manually.", token, authorization.Queue);
             }
             catch (KeyNotFoundException)
             {
@@ -637,7 +665,7 @@ public static class RequestTaskEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return TransitionError(authorization, ex);
             }
 
             if (!string.IsNullOrWhiteSpace(task.RequestId))
@@ -645,8 +673,8 @@ public static class RequestTaskEndpoints
                 await workflowEngine.RunAsync(task.RequestId, WorkflowRunReason.TaskFailed, token);
             }
 
-            return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
-        }).Produces<RequestTaskTransitionDto>();
+            return await TaskTransitionResponseAsync(db, authorization, task, correlationContext, token);
+        }).Produces<RequestTaskTransitionDto>().WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/{id}/retry", async (
             [FromRoute] string id,
@@ -657,13 +685,13 @@ public static class RequestTaskEndpoints
             [FromServices] IWorkflowEngine workflowEngine,
             CancellationToken token) =>
         {
-            var access = await accessService.ResolveAsync(user, token);
-            if (!await CanAccessTaskAsync(db, access, id, token)) return Results.Forbid();
+            var authorization = await AuthorizeTaskTransitionAsync(db, accessService, user, id, token);
+            if (authorization.Failure is not null) return authorization.Failure;
             RequestTask task;
             try
             {
-                task = await lifecycleService.RetryAsync(id, token);
-                task = await lifecycleService.StartAsync(id, token);
+                task = await lifecycleService.RetryAsync(id, token, authorization.Queue);
+                task = await lifecycleService.StartAsync(id, token, authorization.Queue);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -675,7 +703,7 @@ public static class RequestTaskEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(ex.Message);
+                return TransitionError(authorization, ex);
             }
 
             if (!string.IsNullOrWhiteSpace(task.RequestId))
@@ -684,7 +712,7 @@ public static class RequestTaskEndpoints
             }
 
             return Results.NoContent();
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/bulk/start", async (
             [FromBody] BulkRequestTaskActionDto dto,
@@ -697,6 +725,9 @@ public static class RequestTaskEndpoints
             CancellationToken token) =>
         {
             var access = await accessService.ResolveAsync(user, token);
+            if (access.HasRestrictedWorkforceAccess)
+                return await RunScopedBulkTransitionAsync(db, dto, access, accessService, user, workflowEngine,
+                    RequestTaskAction.Start, (id, authority) => lifecycleService.StartAsync(id, token, authority), token);
             if (!CanManageTasks(access) && !access.HasPermission(HelpdeskPermissions.RequestExecute))
             {
                 return Results.Forbid();
@@ -741,7 +772,7 @@ public static class RequestTaskEndpoints
             }
 
             return Results.Ok(new { updated });
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/bulk/complete", async (
             [FromBody] BulkRequestTaskActionDto dto,
@@ -754,6 +785,9 @@ public static class RequestTaskEndpoints
             CancellationToken token) =>
         {
             var access = await accessService.ResolveAsync(user, token);
+            if (access.HasRestrictedWorkforceAccess)
+                return await RunScopedBulkTransitionAsync(db, dto, access, accessService, user, workflowEngine,
+                    RequestTaskAction.Complete, (id, authority) => lifecycleService.CompleteAsync(id, null, token, authority), token);
             if (!CanManageTasks(access) && !access.HasPermission(HelpdeskPermissions.RequestExecute))
             {
                 return Results.Forbid();
@@ -800,7 +834,7 @@ public static class RequestTaskEndpoints
             }
 
             return Results.Ok(new { updated });
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         group.MapPost("/bulk/retry", async (
             [FromBody] BulkRequestTaskActionDto dto,
@@ -812,6 +846,13 @@ public static class RequestTaskEndpoints
             CancellationToken token) =>
         {
             var access = await accessService.ResolveAsync(user, token);
+            if (access.HasRestrictedWorkforceAccess)
+                return await RunScopedBulkTransitionAsync(db, dto, access, accessService, user, workflowEngine,
+                    RequestTaskAction.Retry, async (id, authority) =>
+                    {
+                        await lifecycleService.RetryAsync(id, token, authority);
+                        return await lifecycleService.StartAsync(id, token, authority);
+                    }, token);
             if (!access.IsHelpdeskAdmin && !access.HasPermission(HelpdeskPermissions.RequestExecute) && !access.HasPermission(HelpdeskPermissions.RequestManager))
             {
                 return Results.Forbid();
@@ -852,8 +893,53 @@ public static class RequestTaskEndpoints
             }
 
             return Results.Ok(new { updated });
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
     }
+
+    private static async Task<IResult> RunScopedBulkTransitionAsync(HelpdeskDbContext db, BulkRequestTaskActionDto dto,
+        CurrentUserAccessProfile access, ICurrentUserAccessService accessService, ClaimsPrincipal user, IWorkflowEngine workflowEngine,
+        RequestTaskAction action, Func<string, RequestTaskQueueAuthority, Task<RequestTask>> transition, CancellationToken ct)
+    {
+        var ids = NormalizeIds(dto.Ids);
+        if (ids.Count == 0) return Results.BadRequest("No ids.");
+        var tasks = db.RequestTasks.AsNoTracking().Where(task => ids.Contains(task.Id));
+        var candidates = await (action switch
+        {
+            RequestTaskAction.Complete => AuthorizableTaskTransitions(db, access, tasks.Where(task =>
+                task.Type == RequestTaskType.Manual && task.Status == RequestTaskStatus.InProgress)),
+            RequestTaskAction.Retry => AuthorizableTaskTransitions(db, access, tasks.Where(task =>
+                task.Type == RequestTaskType.Automation && task.Status == RequestTaskStatus.Failed)),
+            _ => AuthorizableTaskTransitions(db, access, tasks)
+        }).ToListAsync(ct);
+
+        var updated = 0;
+        var touchedRequests = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var task = await transition(candidate.Id, CreateQueueAuthority(candidate, accessService, user));
+                touchedRequests.Add(task.RequestId);
+                updated++;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException or DbUpdateConcurrencyException)
+            {
+                // An unavailable member of the batch has no effect on other authorized tasks.
+                db.ChangeTracker.Clear();
+            }
+        }
+
+        var reason = action switch
+        {
+            RequestTaskAction.Complete => WorkflowRunReason.TaskCompleted,
+            RequestTaskAction.Retry => WorkflowRunReason.TaskRetried,
+            _ => WorkflowRunReason.ManualTrigger
+        };
+        foreach (var requestId in touchedRequests) await workflowEngine.RunAsync(requestId, reason, ct);
+        return Results.Ok(new { updated });
+    }
+
+    private enum RequestTaskAction { Start, Complete, Retry }
 
     private static async Task<Dictionary<string, RequestTaskBindingStateProjection>> LoadAutomationBindingStatesAsync(
         HelpdeskDbContext db,
@@ -983,6 +1069,13 @@ public static class RequestTaskEndpoints
     internal static bool CanReadTasks(CurrentUserAccessProfile access) =>
         CanManageTasks(access) || access.HasPermission(HelpdeskPermissions.RequestRead);
 
+    internal static RequestTaskDto ToScopedDto(RequestTask task) => new()
+    {
+        Id = task.Id, Name = task.Name, Description = task.Description, Type = task.Type, Status = task.Status,
+        Order = task.Order, AssignedToId = task.AssignedToId, StateVersion = task.AutomationStateVersion,
+        StartedAt = task.StartedAt, CompletedAt = task.CompletedAt, DueAt = task.DueAt
+    };
+
     internal static bool CanReadOrganization(CurrentUserAccessProfile access, string? organizationId) =>
         access.IsHelpdeskAdmin || organizationId is not null && RequestReaderOrganizationIds(access).Contains(organizationId);
 
@@ -1008,6 +1101,86 @@ public static class RequestTaskEndpoints
         var task = await db.RequestTasks.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == taskId, token);
         return task is not null && CanTransitionTask(access, task);
     }
+
+    private static async Task<TaskTransitionAuthorization> AuthorizeTaskTransitionAsync(HelpdeskDbContext db,
+        ICurrentUserAccessService accessService, ClaimsPrincipal user, string id, CancellationToken ct)
+    {
+        var access = await accessService.ResolveAsync(user, ct);
+        if (!access.HasRestrictedWorkforceAccess)
+            return new(null, await CanAccessTaskAsync(db, access, id, ct) ? null : Results.Forbid());
+
+        var target = await AuthorizableTaskTransitions(db, access, db.RequestTasks.AsNoTracking().Where(task => task.Id == id)).SingleOrDefaultAsync(ct);
+        return target is not null
+            ? new(CreateQueueAuthority(target, accessService, user), null)
+            : new(null, Results.NotFound());
+    }
+
+    private static async Task<IResult> ClaimTaskAsync(HelpdeskDbContext db, IRequestTaskStartFence? queueFence,
+        CurrentUserAccessProfile access, ICurrentUserAccessService accessService, ClaimsPrincipal user,
+        string id, UpdateRequestTaskDto dto, CancellationToken ct)
+    {
+        if (dto.HasUpdate) return Results.BadRequest("Claim a task separately from other updates.");
+        if (queueFence is null || access.DomainUserId is not { } caller) return Results.Forbid();
+
+        var target = await AuthorizableTaskTransitions(db, access,
+            db.RequestTasks.AsNoTracking().Where(task => task.Id == id && task.Type == RequestTaskType.Manual)).SingleOrDefaultAsync(ct);
+        if (target is null) return Results.NotFound();
+        var task = await db.RequestTasks.SingleOrDefaultAsync(row => row.Id == target.Id, ct);
+        if (task is null || task.Type != RequestTaskType.Manual) return Results.NotFound();
+        if (task.AssignedToId == caller) return Results.NoContent();
+        if (task.AssignedToId != null || task.AdministrativeClosureReason != null ||
+            task.Status is not (RequestTaskStatus.Pending or RequestTaskStatus.InProgress))
+            return Results.Conflict("Refresh the task before claiming it.");
+
+        task.AssignedToId = caller;
+        task.UpdatedAt = DateTime.UtcNow;
+        await queueFence.PersistAuthorizedTransitionAsync(task, CreateQueueAuthority(target, accessService, user),
+            () => db.SaveChangesAsync(ct), ct);
+        return Results.NoContent();
+    }
+
+    private static IQueryable<ScopedTaskTransition> AuthorizableTaskTransitions(HelpdeskDbContext db, CurrentUserAccessProfile access,
+        IQueryable<RequestTask> tasks)
+    {
+        var parents = db.Requests.AsNoTracking();
+        var writable = TicketAccessPolicy.Writable(parents, access, TicketType.Request).Select(request => request.Id);
+        var executable = TicketAccessPolicy.ExecutableRequests(parents, access).Select(request => request.Id);
+        return from task in tasks
+            join parent in parents on task.RequestId equals parent.Id
+            where task.OrganizationId == parent.OrganizationId &&
+                (task.Type == RequestTaskType.Manual && writable.Contains(parent.Id) ||
+                 task.Type == RequestTaskType.Automation && executable.Contains(parent.Id))
+            select new ScopedTaskTransition(task.Id, parent.Id, parent.QueueAssignmentVersion);
+    }
+
+    private static RequestTaskQueueAuthority CreateQueueAuthority(ScopedTaskTransition target, ICurrentUserAccessService accessService,
+        ClaimsPrincipal user) => new(target.Id, target.ParentId, target.Version, token => accessService.ResolveAsync(user, token));
+
+    private static IResult TransitionError(TaskTransitionAuthorization authorization, InvalidOperationException error) =>
+        Results.BadRequest(authorization.Queue is null ? error.Message : "The task cannot make this transition in its current state.");
+
+    private static async Task<IResult> TaskTransitionResponseAsync(HelpdeskDbContext db, TaskTransitionAuthorization authorization,
+        RequestTask task, ICorrelationContext correlationContext, CancellationToken ct)
+    {
+        if (authorization.Queue is null) return Results.Ok(ToTransitionDto(task, GetCorrelationId(correlationContext)));
+
+        var access = await authorization.Queue.ResolveAccessAsync(ct);
+        var parent = await db.Requests.AsNoTracking().SingleOrDefaultAsync(request => request.Id == task.RequestId, ct);
+        if (parent is null || task.OrganizationId != parent.OrganizationId ||
+            !TicketAccessPolicy.CanTransitionRequestTask(access, parent, task.Type)) return Results.NotFound();
+
+        return Results.Ok(new RequestTaskTransitionDto
+        {
+            Id = task.Id, RequestId = task.RequestId, OrganizationId = task.OrganizationId, Title = task.Title, Name = task.Name,
+            Description = task.Description, Type = task.Type, State = task.State, Status = task.Status, Order = task.Order,
+            StateVersion = task.AutomationStateVersion, CreatedAt = task.CreatedAt, UpdatedAt = task.UpdatedAt,
+            AssignedToId = task.AssignedToId, StartedAt = task.StartedAt, CompletedAt = task.CompletedAt, DueAt = task.DueAt,
+            CorrelationId = GetCorrelationId(correlationContext)
+        });
+    }
+
+    private sealed record TaskTransitionAuthorization(RequestTaskQueueAuthority? Queue, IResult? Failure);
+    private sealed record ScopedTaskTransition(string Id, string ParentId, long Version);
 
     private static bool CanTransitionTask(CurrentUserAccessProfile access, RequestTask task) => task.Type switch
     {
@@ -1098,6 +1271,7 @@ public sealed record UpdateRequestTaskDto
     public TicketPriority? Priority { get; init; }
     public string? AssignedToId { get; init; }
     public bool ClearAssignment { get; init; }
+    public bool ClaimForMe { get; init; }
     public List<string>? LinkedAssetIds { get; init; }
     public List<string>? Attachments { get; init; }
     public DateTime? DueDate { get; init; }

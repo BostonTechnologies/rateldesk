@@ -58,7 +58,7 @@ public sealed class IntegrationCredentialIssuer(
         if (ownerAdministration && (!access.IsHelpdeskAdmin || !await identityDb.Users.AsNoTracking()
             .AnyAsync(user => user.Id == owner.UserId && user.IsEnabled && user.IsInstanceAdministrator, ct)))
             throw new CredentialGrantException(null);
-        if (!access.IsHelpdeskAdmin && permissions.Any(p => !access.HasPermission(p, organizationId)))
+        if (!access.IsHelpdeskAdmin && permissions.Any(p => !access.HasPermissionInAnyQueue(p, organizationId)))
             throw new CredentialGrantException(null);
         if (request.LifetimeDays is < 1 or > MaximumLifetimeDays)
             throw Invalid("lifetimeDays", $"Lifetime must be between 1 and {MaximumLifetimeDays} days.");

@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 
 public class CreateChangeDto
 {
+    public string? AssignedSupportGroupId { get; set; }
     public bool SaveAsDraft { get; set; }
     [Required]
     public string Title { get; set; } = string.Empty;

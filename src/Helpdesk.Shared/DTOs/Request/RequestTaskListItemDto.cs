@@ -9,6 +9,7 @@ public sealed class RequestTaskListItemDto
     public string Id { get; set; } = string.Empty;
     public string RequestId { get; set; } = string.Empty;
     public string? OrganizationId { get; set; }
+    public string? RequestAssignedSupportGroupId { get; set; }
     public string RequestTrackingId { get; set; } = string.Empty;
     public string RequestTitle { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;

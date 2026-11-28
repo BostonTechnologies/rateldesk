@@ -46,7 +46,9 @@
                  InitialPage="@(filters.Page - 1)" PageSize="filters.PageSize" QueryError="@queryError"
                  @ref="_table"
                  TicketType="requests"
-                 CanEditItem="@(item => accessProfile?.CanManageRequest(item.OrganizationId) == true)"
+                 CanTransferSelection="@(_selected.Count > 0 && _selected.All(item => TicketQueueActions.CanTransfer(accessProfile, "request", item.OrganizationId, item.AssignedSupportGroupId)))"
+                 BulkQueueRequested="MoveSelectedToQueueAsync"
+                 CanEditItem="@(item => TicketQueueActions.CanWrite(accessProfile, "request", item.OrganizationId, item.AssignedSupportGroupId))"
                  IsStateWriteDenied="@(id => deniedStateWrites.Contains(id))" StateWriteDenied="RememberStateWriteDenial"
                  EnableSelection="@CanWriteAny"
                  ServerData="LoadServerData"
@@ -55,6 +57,11 @@
                  OnRowClick="NavigateToRequest"
                  BulkStateRequested="ApplyBulkState"
                  BulkAssignRequested="ApplyBulkAssign">
+        <QueueTemplate Context="request">
+            <TicketQueueLabel Module="request" TicketId="@request.Id" OrganizationId="@request.OrganizationId"
+                              GroupId="@request.AssignedSupportGroupId" Name="@request.AssignedSupportGroupName" Version="@request.QueueAssignmentVersion"
+                              Unassigned="@(request.AssignedToId == null)" Access="@accessProfile" Changed="Reload" />
+        </QueueTemplate>
         <SubjectTemplate Context="request">
             <MudStack Spacing="0">
                 <MudText Typo="Typo.body2">@request.Title</MudText>
@@ -142,6 +149,16 @@
 
     private TicketTable<RequestDto>? _table;
     private HashSet<RequestDto> _selected = new();
+
+    private async Task MoveSelectedToQueueAsync()
+    {
+        if (await TicketQueueActions.MoveAsync(DialogService, Snackbar, "request",
+                _selected.Select(item => (item.Id, item.OrganizationId, item.QueueAssignmentVersion))))
+        {
+            _selected.Clear();
+            await Reload();
+        }
+    }
 
     private async Task<TableData<RequestDto>> LoadServerData(TableState state, CancellationToken token)
     {

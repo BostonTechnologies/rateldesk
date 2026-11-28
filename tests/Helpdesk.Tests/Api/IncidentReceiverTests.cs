@@ -22,9 +22,13 @@ using Helpdesk.Application.Incidents;
 using Helpdesk.Application.Services.Tickets;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Infrastructure;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Email;
+using Helpdesk.Infrastructure.EmailTemplates;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
@@ -44,6 +48,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -56,6 +61,133 @@ public sealed class IncidentReceiverCollection;
 [Collection("Incident receiver")]
 public sealed class IncidentReceiverTests
 {
+    [Theory]
+    [InlineData(false, TicketType.Incident)]
+    [InlineData(false, TicketType.Request)]
+    [InlineData(false, TicketType.Change)]
+    [InlineData(true, TicketType.Incident)]
+    [InlineData(true, TicketType.Request)]
+    [InlineData(true, TicketType.Change)]
+    public async Task Group_assignment_dispatches_once_to_current_ticket_readers(bool postgres, TicketType module)
+    {
+        var mailpitPort = Environment.GetEnvironmentVariable("RATELDESK_QUEUE_TEST_MAILPIT_SMTP_PORT");
+        await using var smtp = mailpitPort == null ? new Helpdesk.Tests.Infrastructure.Email.SmtpMailboxSenderTests.SmtpFixture() : null;
+        var port = smtp?.Port ?? int.Parse(mailpitPort!, global::System.Globalization.CultureInfo.InvariantCulture);
+        await using var harness = await Harness.CreateAsync(postgres);
+        await using (var scope = harness.App.Services.CreateAsyncScope())
+        {
+            var identity = scope.ServiceProvider.GetRequiredService<RatelDeskIdentityDbContext>();
+            identity.Users.AddRange(
+                new ApplicationUser { Id = "support-user", UserName = "support-user", IsEnabled = true },
+                new ApplicationUser { Id = "revoked-user", UserName = "revoked-user", IsEnabled = true });
+            await identity.SaveChangesAsync();
+
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Users.AddRange(
+                new User { Id = "revoked-user", OrganizationId = harness.OrganizationId, Email = "revoked@example.test" },
+                new User { Id = "ineligible-user", OrganizationId = harness.OrganizationId, Email = "ineligible@example.test" });
+            db.SupportGroupMembers.AddRange(
+                new SupportGroupMember { UserId = "revoked-user", SupportGroupId = "support-group" },
+                new SupportGroupMember { UserId = "ineligible-user", SupportGroupId = "support-group" });
+            var role = new Role
+            {
+                Key = "custom.support-queue-readers", Name = "Group readers", OwnerOrganizationId = harness.OrganizationId,
+                TicketAccessScope = TicketAccessScope.MySupportGroups,
+                Permissions = [new RolePermission { Permission = $"{module}.Read" }]
+            };
+            db.Roles.Add(role);
+            foreach (var userId in new[] { "support-user", "revoked-user" })
+                db.ScopedRoleAssignments.Add(new ScopedRoleAssignment
+                    { UserId = userId, OrganizationId = harness.OrganizationId, RoleKey = role.Key });
+            await TicketWorkforceRestrictions.EnsureAsync(db, harness.OrganizationId, ["support-user", "revoked-user"], "owner", default);
+            ConfigureQueueEmail(scope.ServiceProvider, harness.OrganizationId, "support-group", port,
+                smtp == null ? MailboxTlsMode.StartTls : MailboxTlsMode.TlsOnConnect);
+
+            Ticket ticket = module switch { TicketType.Incident => new Incident(), TicketType.Request => new Request(), _ => new Change() };
+            ticket.Id = "synthetic-queue-ticket";
+            ticket.OrganizationId = harness.OrganizationId;
+            ticket.TrackingId = $"QUEUE-{module}-{(postgres ? "PG" : "LOCAL")}";
+            ticket.Title = "Synthetic queue escalation";
+            db.Tickets.Add(ticket);
+            TicketQueueAssignment.Stage(db, ticket, "support-group", null, "owner", null, DateTime.UtcNow);
+            await db.SaveChangesAsync();
+        }
+
+        using var dispatcher = new MailboxOutboxDispatcher(harness.App.Services.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<MailboxOutboxDispatcher>.Instance);
+        Assert.Equal(1, await dispatcher.DispatchBatchAsync());
+        await using (var scope = harness.App.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var queued = await db.SupportNotificationDeliveries.AsNoTracking().ToListAsync();
+            Assert.Equal(2, queued.Count);
+            Assert.All(queued, row => Assert.True(row.Status == SupportNotificationDeliveryStatus.Pending, row.FailureReason));
+            var effects = await db.Set<MailboxOutboxEffect>().AsNoTracking().Where(row => row.Kind == MailboxEffectKind.Email).ToListAsync();
+            var failed = Assert.Single(effects, row => MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload).Recipients is ["revoked@example.test"]);
+            var outbox = scope.ServiceProvider.GetRequiredService<MailboxOutboxStore>();
+            var claim = Assert.IsType<MailboxOutboxEffect>(await outbox.TryClaimAsync(failed.Id, "synthetic-queue-worker", default));
+            Assert.True(await outbox.CompleteAsync(claim, false, "OutgoingDisabled", default, requiresReview: true));
+            (await db.SupportGroupMembers.SingleAsync(member => member.UserId == "revoked-user")).IsEnabled = false;
+            await db.SaveChangesAsync();
+            Assert.True(await outbox.RetryForTimelineAsync(failed.DeliveryEventId!.Value, default));
+        }
+        for (var cycle = 0; cycle < 4; cycle++)
+            await dispatcher.DispatchBatchAsync();
+
+        await using (var scope = harness.App.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var transition = await db.TicketQueueTransitions.SingleAsync();
+            await scope.ServiceProvider.GetRequiredService<TicketQueueNotificationProcessor>().DispatchAssignmentAsync(transition.Id, default);
+            var deliveries = await db.SupportNotificationDeliveries.OrderBy(row => row.RecipientEmail).ToListAsync();
+            Assert.Collection(deliveries,
+                revoked =>
+                {
+                    Assert.Equal("revoked@example.test", revoked.RecipientEmail);
+                    Assert.Equal(SupportNotificationDeliveryStatus.Skipped, revoked.Status);
+                    Assert.Equal("TicketRecipientScopeChanged", revoked.FailureReason);
+                },
+                sent => { Assert.Equal("support@example.test", sent.RecipientEmail); Assert.True(sent.Status == SupportNotificationDeliveryStatus.Sent, sent.FailureReason); });
+        }
+
+        if (smtp == null) return;
+        await smtp.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(smtp.Commands, command => command == "DATA");
+        Assert.Contains(smtp.Commands, command => command.Equals("RCPT TO:<support@example.test>", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(smtp.Commands, command => command.Contains("revoked@example.test", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains($"https://receiver.example.test/{module.ToString().ToLowerInvariant()}s/", smtp.Message);
+    }
+
+    internal static void ConfigureQueueEmail(IServiceProvider services, string organizationId, string groupId, int port, MailboxTlsMode tls)
+    {
+        var db = services.GetRequiredService<HelpdeskDbContext>();
+        db.SupportNotificationSubscriptions.Add(new SupportNotificationSubscription
+        {
+            CustomerOrganizationId = organizationId, RecipientId = groupId,
+            EventType = SupportNotificationEventType.TicketAssignedToSupportGroup
+        });
+        db.EmailTemplates.Add(new EmailTemplate
+        {
+            Name = "SupportTicketAssignedToSupportGroup", Subject = "Synthetic queue {{{TICKET_REF}}}",
+            HtmlContent = "<p><a href=\"{{TicketLink}}\">{{TicketRef}}</a></p>"
+        });
+        var mailbox = new EmailInboxSettings
+        {
+            Id = Guid.NewGuid(), Scope = MailboxScope.Global, MailboxAddress = "sender@example.test", SourceKey = "synthetic-support-queue", Enabled = true
+        };
+        db.EmailInboxSettings.Add(mailbox);
+        var outgoing = new MailboxOutgoingSettings
+        {
+            MailboxId = mailbox.Id, Enabled = true, Transport = MailboxOutgoingTransport.Smtp,
+            SmtpHost = "localhost", SmtpPort = port,
+            SmtpTlsMode = tls,
+            SmtpUsername = mailbox.MailboxAddress
+        };
+        outgoing.ProtectedSmtpPassword = services.GetRequiredService<MailboxOutgoingCredentialProtector>()
+            .Protect(outgoing, "synthetic-queue-fixture");
+        db.Add(outgoing);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -576,7 +708,8 @@ public sealed class IncidentReceiverTests
                 ["ConnectionStrings:HelpdeskDb"] = postgres ? connectionString : null,
                 ["StorageOptions:RootPath"] = Path.Combine(root, "storage"), ["StorageOptions:PublicApiBaseUrl"] = "https://receiver.example.test/prefix",
                 ["StorageOptions:ImageSigningSecret"] = "synthetic-receiver-signing-key-32-characters",
-                ["PublicWebAppUrl"] = "https://receiver.example.test", ["Netclaw:Enabled"] = "false"
+                ["PublicWebAppUrl"] = "https://receiver.example.test", ["Netclaw:Enabled"] = "false",
+                ["EmailSending:AllowedPrivateHosts:0"] = "localhost"
             });
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -644,6 +777,7 @@ public sealed class IncidentReceiverTests
             Helpdesk.API.Endpoints.Email.InternalIncidentTemplateEndpoints.MapInternalIncidentTemplateEndpoints(app);
             app.MapRequestTaskEndpoints();
             app.MapIncidentReceiverEndpoints();
+            app.MapIncidentQueueReceiverEndpoints();
             app.MapIncidentReceiverSourceEndpoints();
             app.MapServiceIdentityEndpoints();
             app.MapSystemPairing();
@@ -699,7 +833,7 @@ public sealed class IncidentReceiverTests
                 ["Database__Provider"] = postgres ? "PostgreSql" : "Sqlite", ["Database__Sqlite__Path"] = Path.Combine(root, "receiver.db"),
                 ["ConnectionStrings__HelpdeskDb"] = postgres ? connectionString : "", ["Bootstrap__StateDirectory"] = Path.Combine(root, "bootstrap"),
                 ["Bootstrap__DataDirectory"] = root, ["DataProtection__KeyRingPath"] = Path.Combine(root, "bootstrap", "keys"),
-                ["Authentication__Mode"] = "Local", ["Authentication__Local__AllowInsecureLocalhost"] = "true",
+                ["Authentication__Mode"] = "Local", ["Authentication__AllowInsecureLocalhost"] = "true",
                 ["StorageOptions__RootPath"] = Path.Combine(root, "storage"), ["StorageOptions__ImageSigningSecret"] = "synthetic-receiver-signing-key-32-characters",
                 ["StorageOptions__PublicApiBaseUrl"] = "https://receiver.example.test/prefix", ["Netclaw__Enabled"] = "false",
                 ["ServiceIdentity__ApiBaseUrl"] = "https://receiver.example.test", ["ServiceIdentity__WebBaseUrl"] = "https://receiver-web.example.test",

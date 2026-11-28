@@ -1,7 +1,9 @@
 using System.Security.Claims;
+using Helpdesk.API.Endpoints.Ticketing;
 using Helpdesk.Application.Messaging;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -20,14 +22,23 @@ public static class TicketEndpoints
         ticketGroup.MapGet("/timeline/count", async (string ticketType, string ticketId, HttpContext context, ICurrentUserAccessService access, HelpdeskDbContext db, CancellationToken ct) =>
         {
             var failure = await AuthorizeTicketViewAsync(ticketType, ticketId, context.User, access, db, ct);
-            return failure ?? Results.Ok(await db.TicketTimelineEvents.AsNoTracking().CountAsync(x => x.TicketId == ticketId, ct));
-        });
+            if (failure is not null) return failure;
+            var profile = await access.ResolveAsync(context.User, ct);
+            var events = db.TicketTimelineEvents.AsNoTracking().Where(item => item.TicketId == ticketId);
+            if (profile.HasRestrictedWorkforceAccess)
+            {
+                var ticket = await db.Tickets.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(item => item.Id == ticketId, ct);
+                if (ticket is null || !TicketAccessPolicy.CanRead(profile, ticket)) return Results.NotFound();
+                events = TicketTimelineAccess.Filter(events, TicketAccessPolicy.CanReadStaffContent(profile, ticket), true);
+            }
+            return Results.Ok(await events.CountAsync(ct));
+        }).WithMetadata(new QueueAwareEndpoint());
 
         ticketGroup.MapGet("/attachments/count", async (string ticketType, string ticketId, HttpContext context, ICurrentUserAccessService access, HelpdeskDbContext db, CancellationToken ct) =>
         {
             var failure = await AuthorizeTicketViewAsync(ticketType, ticketId, context.User, access, db, ct);
             return failure ?? Results.Ok(await db.Attachments.AsNoTracking().CountAsync(x => x.TicketId == ticketId, ct));
-        });
+        }).WithMetadata(new QueueAwareEndpoint());
 
         ticketGroup.MapGet("/listeners/count", async (string ticketType, string ticketId, HttpContext context, ICurrentUserAccessService access, HelpdeskDbContext db, CancellationToken ct) =>
         {
@@ -90,14 +101,16 @@ public static class TicketEndpoints
         var ticket = await db.Tickets.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.Id == ticketId, ct);
         if (ticket is null) return Results.NotFound();
         var profile = await accessService.ResolveAsync(user, ct);
-        var canView = ticket switch
+        var matches = ticketType.ToLowerInvariant() switch
         {
-            Incident => profile.CanViewIncident(ticket.OrganizationId, ticket.CustomerId, ticket.RequesterEmail),
-            TicketRequest => profile.CanViewRequest(ticket.OrganizationId, ticket.CustomerId, ticket.RequesterEmail),
-            Change => profile.CanViewChange(ticket.OrganizationId, ticket.CustomerId, ticket.RequesterEmail),
+            "incidents" => ticket is Incident,
+            "requests" => ticket is TicketRequest,
+            "changes" => ticket is Change,
             _ => false
         };
-        return canView ? null : Results.Forbid();
+        if (!matches) return Results.NotFound();
+        return TicketAccessPolicy.CanRead(profile, ticket) ? null :
+            profile.HasRestrictedWorkforceAccess ? Results.NotFound() : Results.Forbid();
     }
 
     internal static async Task<IResult?> AuthorizeTicketManageAsync(string ticketId, ClaimsPrincipal user, ICurrentUserAccessService accessService, HelpdeskDbContext db, CancellationToken ct)
@@ -109,13 +122,8 @@ public static class TicketEndpoints
     private static async Task<IResult?> AuthorizeTicketManageAsync(Ticket ticket, ClaimsPrincipal user, ICurrentUserAccessService accessService, CancellationToken ct)
     {
         var profile = await accessService.ResolveAsync(user, ct);
-        return ticket switch
-        {
-            Incident when profile.CanManageIncident(ticket.OrganizationId) => null,
-            TicketRequest when profile.CanManageRequest(ticket.OrganizationId) => null,
-            Change when profile.CanManageChange(ticket.OrganizationId) => null,
-            _ => Results.Forbid()
-        };
+        return TicketAccessPolicy.CanWrite(profile, ticket) ? null :
+            profile.HasRestrictedWorkforceAccess && !TicketAccessPolicy.CanRead(profile, ticket) ? Results.NotFound() : Results.Forbid();
     }
 
     private static async Task<Ticket?> GetTicketAsync(string type, string id, IRepository<Incident> incidents, IRepository<TicketRequest> requests, IRepository<Change> changes) => type.ToLowerInvariant() switch

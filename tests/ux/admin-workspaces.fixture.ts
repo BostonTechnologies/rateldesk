@@ -164,6 +164,29 @@ test.describe('focused admin tasks', () => {
   expect(state.saves[0].path).toBe('/api/v1/admin/role-definitions/custom');
   expect(state.saves[0].payload.permissions).toEqual(['Incident.Read', 'Request.Read']);
  });
+ test('custom role saves selected queue IDs and reopens with their labels', async ({ page, request }, info) => {
+  await open(page, '/admin/roles');
+  await page.getByRole('button', { name: 'Edit role', exact: true }).click();
+  await select(page, 'Ticket access', 'Selected support groups');
+  const editor = page.getByRole('dialog');
+  await select(page, 'Support groups', 'Application Vendor');
+  await expect(editor.getByText('Application Vendor', { exact: true })).toBeVisible();
+  await expect(editor.getByRole('combobox', { name: 'Support groups' })).toHaveValue('');
+  await select(page, 'Support groups', 'Wintel L1');
+  await expect(editor.getByText('Wintel L1', { exact: true })).toBeVisible();
+  await expect(editor).toContainText('requires active membership');
+  await page.screenshot({ path: info.outputPath('selected-support-groups.png') });
+  await editor.getByRole('button', { name: 'Save role', exact: true }).click();
+  await expect(editor).toBeHidden();
+  const state = await (await request.get(`${fixture}/state`)).json();
+  expect(state.saves).toHaveLength(1);
+  expect(state.saves[0].payload.ticketAccessScope).toBe(2);
+  expect(state.saves[0].payload.supportGroupIds).toEqual(['queue-vendor', 'queue-wintel']);
+  expect(state.saves[0].payload.permissions).toEqual(['Incident.Read', 'Request.Read']);
+  await page.getByRole('button', { name: 'Edit role', exact: true }).click();
+  await expect(editor.getByText('Application Vendor', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Wintel L1', { exact: true })).toBeVisible();
+ });
  test('dataset paging, retained drafts, explicit discard and stale searches', async ({ page, request }) => {
   await open(page, '/admin/resources/data-management');
   await expect(page.getByRole('tab', { name: 'Rows', exact: true })).toHaveAttribute('aria-selected', 'true');

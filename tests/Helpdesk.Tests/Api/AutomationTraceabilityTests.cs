@@ -3,19 +3,338 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AutomationTrace;
 using AutomationTrace.Contracts;
+using Helpdesk.API.Endpoints.Authentication;
+using Helpdesk.API.Services;
+using Helpdesk.Infrastructure.Auth.Rbac;
+using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.EmailTemplates;
+using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Persistence.Entities;
+using Helpdesk.Infrastructure.Storage;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.DTOs.Orchestration;
+using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
+using Helpdesk.Tests.Fixtures;
+using Helpdesk.Tests.Infrastructure.Email;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Tests.Api;
 
 [Collection("Incident receiver")]
 public sealed class AutomationTraceabilityTests
 {
+    [Fact]
+    public void Queue_fingerprint_matches_the_documented_vector_with_the_frozen_v2_payload()
+    {
+        var path = Path.Combine(TestEnvironment.RepositoryRoot, "docs", "contracts", "rateldesk-incident-create.v2.fixtures.json");
+        using var vector = JsonDocument.Parse(File.ReadAllText(path));
+        var incident = vector.RootElement.GetProperty("create").Deserialize<AutomationIncidentCreate>(AutomationTraceValidation.Json)!;
+        Assert.Equal(vector.RootElement.GetProperty("fingerprint").GetString(), AutomationTraceValidation.Fingerprint(incident));
+        Assert.Equal("bcfab6e3eb8b9e5a3a5f20d258bb2098e8af3e471c02cdd299ae5715ca4300b9",
+            IncidentQueueContract.Fingerprint(incident, "app-vendor"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Negotiated_queue_create_is_source_bound_and_replays_the_same_committed_assignment(bool postgres)
+    {
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
+        var client = await PairingBusinessFixture.CreateAsync(h);
+        var token = await PairingBusinessFixture.TokenAsync(h, client);
+        using var route = await h.AdminAsync(HttpMethod.Put,
+            $"/api/v1/integrations/netratel/sources/{client.MappingId:D}/queues",
+            new { expectedRevision = 1, supportGroupIds = new[] { "support-group" } });
+        Assert.Equal(HttpStatusCode.OK, route.StatusCode);
+        var body = Payload(h);
+        using var capabilities = await SendQueuedAsync(HttpMethod.Get, "queue-capabilities");
+        Assert.Equal(HttpStatusCode.OK, capabilities.StatusCode);
+        using var discovery = JsonDocument.Parse(await capabilities.Content.ReadAsStringAsync());
+        Assert.Equal(IncidentQueueContract.Version, discovery.RootElement.GetProperty("contractVersion").GetString());
+        Assert.Equal(client.MappingId, discovery.RootElement.GetProperty("sourceNamespaceId").GetGuid());
+        using var choices = await SendQueuedAsync(HttpMethod.Get, "queues");
+        Assert.Equal(HttpStatusCode.OK, choices.StatusCode);
+        Assert.Contains("support-group", await choices.Content.ReadAsStringAsync());
+
+        await SeedOriginAsync(h, client, body.Context);
+        using var unauthorized = await SendQueuedAsync(HttpMethod.Post, "queued-incidents", "unapproved-route", "not-allowlisted");
+        Assert.Equal(HttpStatusCode.Forbidden, unauthorized.StatusCode);
+
+        var attempts = await Task.WhenAll(
+            SendQueuedAsync(HttpMethod.Post, "queued-incidents", "queued-incident", "support-group"),
+            SendQueuedAsync(HttpMethod.Post, "queued-incidents", "queued-incident", "support-group"));
+        try
+        {
+            var created = Assert.Single(attempts, attempt => attempt.StatusCode == HttpStatusCode.Created);
+            var retry = Assert.Single(attempts, attempt => attempt.StatusCode == HttpStatusCode.OK);
+            var accepted = await created.Content.ReadAsStringAsync();
+            using var envelope = JsonDocument.Parse(accepted);
+            var receipt = envelope.RootElement.GetProperty("integrationReceipt");
+            Assert.Equal("support-group", receipt.GetProperty("assignedSupportGroupId").GetString());
+            Assert.Equal(IncidentQueueContract.Fingerprint(body, "support-group"), receipt.GetProperty("fingerprint").GetString());
+            Assert.Equal(accepted, await retry.Content.ReadAsStringAsync());
+
+            await h.RestartAsync();
+            using var lookup = await SendQueuedAsync(HttpMethod.Get, "queue-receipt", "queued-incident");
+            Assert.Equal(HttpStatusCode.OK, lookup.StatusCode);
+            Assert.Equal(accepted, await lookup.Content.ReadAsStringAsync());
+            using var conflict = await SendQueuedAsync(HttpMethod.Post, "queued-incidents", "queued-incident", "not-allowlisted");
+            Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+            using var legacyConflict = await SendAsync(h, token, "queued-incident", body);
+            Assert.Equal(HttpStatusCode.Conflict, legacyConflict.StatusCode);
+        }
+        finally
+        {
+            foreach (var attempt in attempts) attempt.Dispose();
+        }
+
+        await h.EditAsync(async db =>
+        {
+            Assert.Equal("support-group", (await db.Incidents.SingleAsync()).AssignedSupportGroupId);
+            Assert.Single(await db.TicketQueueTransitions.ToListAsync());
+            Assert.Single(await db.Set<MailboxOutboxEffect>().Where(effect => effect.Kind == MailboxEffectKind.SupportGroupAssignment).ToListAsync());
+            (await db.SupportGroups.SingleAsync()).IsEnabled = false;
+        });
+        using var revoked = await SendQueuedAsync(HttpMethod.Get, "queue-receipt", "queued-incident");
+        Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
+        Assert.Equal(1, (await h.CountsAsync()).Incidents);
+
+        async Task<HttpResponseMessage> SendQueuedAsync(HttpMethod method, string path, string? key = null, string? groupId = null)
+        {
+            using var request = new HttpRequestMessage(method, $"/api/v1/integrations/netratel/{path}");
+            request.Headers.Authorization = new("Bearer", token);
+            request.Headers.Add("X-NetRatel-Source-Instance", h.SourceId.ToString("D"));
+            if (key is not null) request.Headers.Add("Idempotency-Key", key);
+            if (groupId is not null) request.Content = JsonContent.Create(new IncidentQueueContract.Create(IncidentQueueContract.Version, groupId, body));
+            return await h.Client.SendAsync(request);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approved_queue_alert_sends_one_notification_and_the_signed_in_vendor_claims_the_linked_incident(bool postgres)
+    {
+        const string groupId = "app-vendor";
+        const string vendorId = "vendor-operator";
+        const string vendorEmail = "vendor@example.test";
+        const string password = "synthetic vendor support password";
+        var mailpitPort = Environment.GetEnvironmentVariable("RATELDESK_QUEUE_TEST_MAILPIT_SMTP_PORT");
+        await using var smtp = mailpitPort == null ? new SmtpMailboxSenderTests.SmtpFixture() : null;
+        var port = smtp?.Port ?? int.Parse(mailpitPort!, global::System.Globalization.CultureInfo.InvariantCulture);
+        await using var h = await IncidentReceiverTests.Harness.CreateAsync(postgres, serviceIdentity: true);
+        var providerId = Guid.NewGuid().ToString("D");
+        await using (var scope = h.App.Services.CreateAsyncScope())
+        {
+            var identity = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var account = await identity.CreateAsync(new ApplicationUser
+            {
+                Id = vendorId, UserName = vendorEmail, Email = vendorEmail, IsEnabled = true
+            }, password);
+            Assert.True(account.Succeeded, string.Join(", ", account.Errors.Select(error => error.Code)));
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            db.Organizations.Add(new Organization { Id = providerId, Name = "Synthetic application vendor", IsEnabled = true });
+            (await db.Organizations.SingleAsync(item => item.Id == h.OrganizationId)).ItSupportOrganizationId = providerId;
+            db.Users.Add(new User { Id = vendorId, OrganizationId = providerId, Name = "Application operator", Email = vendorEmail });
+            db.SupportGroups.Add(new SupportGroup { Id = groupId, Name = "App Vendor", OwningOrganizationId = providerId });
+            db.SupportGroupMembers.Add(new SupportGroupMember { UserId = vendorId, SupportGroupId = groupId });
+            db.OrganizationSupportCoverages.Add(new OrganizationSupportCoverage
+            {
+                CustomerOrganizationId = h.OrganizationId, ProviderOrganizationId = providerId, SupportGroupId = groupId
+            });
+            var role = new Role
+            {
+                Key = "custom.vendor-incidents", Name = "Application incident operator", OwnerOrganizationId = providerId,
+                TicketAccessScope = TicketAccessScope.MySupportGroups,
+                Permissions = [new RolePermission { Permission = HelpdeskPermissions.IncidentRead },
+                    new RolePermission { Permission = HelpdeskPermissions.IncidentWrite }]
+            };
+            db.Roles.Add(role);
+            db.ScopedRoleAssignments.Add(new ScopedRoleAssignment { UserId = vendorId, OrganizationId = providerId, RoleKey = role.Key });
+            await TicketWorkforceRestrictions.EnsureAsync(db, providerId, [vendorId], "owner", default);
+            db.Incidents.Add(new Incident { Id = "hidden-main", OrganizationId = h.OrganizationId, Title = "Private Main Queue incident" });
+            IncidentReceiverTests.ConfigureQueueEmail(scope.ServiceProvider, h.OrganizationId, groupId, port,
+                smtp == null ? MailboxTlsMode.StartTls : MailboxTlsMode.TlsOnConnect);
+            await db.SaveChangesAsync();
+        }
+
+        var peer = await PairingBusinessFixture.CreateAsync(h);
+        var token = await PairingBusinessFixture.TokenAsync(h, peer);
+        using var approval = await h.AdminAsync(HttpMethod.Put,
+            $"/api/v1/integrations/netratel/sources/{peer.MappingId:D}/queues", new { expectedRevision = 1, supportGroupIds = new[] { groupId } });
+        Assert.Equal(HttpStatusCode.OK, approval.StatusCode);
+        var payload = Payload(h);
+        await SeedOriginAsync(h, peer, payload.Context);
+        using var first = await SubmitAsync();
+        using var retry = await SubmitAsync();
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var accepted = await first.Content.ReadAsStringAsync();
+        Assert.Equal(accepted, await retry.Content.ReadAsStringAsync());
+        using var receipt = JsonDocument.Parse(accepted);
+        Assert.Equal("Automation Failed", receipt.RootElement.GetProperty("subject").GetString());
+        var incidentId = receipt.RootElement.GetProperty("integrationReceipt").GetProperty("incidentId").GetString();
+        var link = $"https://receiver.example.test/incidents/{incidentId}";
+
+        // Keep the independently authorized customer receipt queued while this SMTP fixture observes the group event.
+        await h.EditAsync(async db =>
+        {
+            var confirmation = Assert.Single(await db.Set<MailboxOutboxEffect>().Where(effect => effect.Kind == MailboxEffectKind.Email).ToListAsync());
+            confirmation.AvailableUnixMilliseconds = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeMilliseconds();
+        });
+        using var dispatcher = new MailboxOutboxDispatcher(h.App.Services.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<MailboxOutboxDispatcher>.Instance);
+        for (var cycle = 0; cycle < 4; cycle++) await dispatcher.DispatchBatchAsync();
+        await h.EditAsync(async db =>
+        {
+            var delivery = Assert.Single(await db.SupportNotificationDeliveries.ToListAsync());
+            Assert.Equal((incidentId, vendorEmail, SupportNotificationDeliveryStatus.Sent),
+                (delivery.TicketId, delivery.RecipientEmail, delivery.Status));
+        });
+        if (smtp != null)
+        {
+            await smtp.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Single(smtp.Commands, command => command == "DATA");
+            Assert.Contains(smtp.Commands, command => command.Equals($"RCPT TO:<{vendorEmail}>", StringComparison.OrdinalIgnoreCase));
+            using var raw = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(smtp.Message));
+            Assert.Contains(link, (await MimeKit.MimeMessage.LoadAsync(raw)).HtmlBody);
+        }
+
+        await h.PrepareProcessBootstrapAsync();
+        var storage = h.App.Services.GetRequiredService<IOptions<StorageOptions>>();
+        var signer = new ImageLinkSigner(storage, NullLogger<ImageLinkSigner>.Instance);
+        const string worklogId = "vendor-inline-worklog";
+        await h.EditAsync(db =>
+        {
+            db.WorkLogs.Add(new WorkLog { Id = worklogId, TicketId = incidentId, NotesText = "Synthetic inline worklog" });
+            return Task.CompletedTask;
+        });
+        var visibleAssets = new[]
+        {
+            await StoreRasterAsync("incident", "incidents", incidentId!),
+            await StoreRasterAsync("worklog", "worklogs", worklogId)
+        };
+        var hiddenAsset = await StoreRasterAsync("incident", "incidents", "hidden-main");
+        var (process, vendor) = await h.StartApiProcessAsync();
+        try
+        {
+            using var anonymous = await vendor.GetAsync($"/api/v1/incidents/{incidentId}");
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+            foreach (var asset in visibleAssets)
+            {
+                using var anonymousAsset = await vendor.GetAsync(asset);
+                Assert.Equal(HttpStatusCode.Unauthorized, anonymousAsset.StatusCode);
+            }
+            vendor.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+            using var login = await vendor.PostAsJsonAsync("/api/v1/local-auth/login", new LocalAuthenticationEndpoints.LocalLoginRequest(vendorEmail, password));
+            Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+            var incidentPath = "/api/v1" + new Uri(link).AbsolutePath;
+            var opened = await vendor.GetFromJsonAsync<IncidentDto>(incidentPath);
+            Assert.Equal(groupId, opened!.AssignedSupportGroupId);
+            Assert.Equal("Automation Failed", opened.Subject);
+            using var state = await vendor.PostAsJsonAsync(incidentPath + "/state", new { newState = TicketState.InProgress });
+            Assert.Equal(HttpStatusCode.OK, state.StatusCode);
+            using var hidden = await vendor.GetAsync("/api/v1/incidents/hidden-main");
+            Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+            using var deniedAsset = await vendor.GetAsync(hiddenAsset);
+            Assert.Equal(HttpStatusCode.NotFound, deniedAsset.StatusCode);
+            foreach (var asset in visibleAssets)
+                SyntheticRaster.AssertPng(42, await vendor.GetByteArrayAsync(asset));
+            foreach (var unsupported in new[]
+            {
+                $"/api/v1/tickets/{incidentId}/automation-reports",
+                $"/api/v1/reports/sla/breached?tenantId={h.OrganizationId}&ticketType=Incident&page=1&pageSize=10",
+                $"/api/v1/reports/sla/compliance?tenantId={h.OrganizationId}&ticketType=Incident&fromUtc=2026-11-01T00:00:00Z&toUtc=2026-12-01T00:00:00Z",
+                "/api/v1/sla-report-subscriptions/",
+                "/api/v1/notifications?page=1&pageSize=10",
+                "/api/v1/notifications/stream",
+                "/api/v1/incidents/hidden-main/ai-assistant/chat",
+                "/api/v1/incidents/hidden-main/ai-assistant/eligible-configurations"
+            })
+            {
+                using var denied = await vendor.GetAsync(unsupported);
+                Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+                Assert.Empty(await denied.Content.ReadAsStringAsync());
+            }
+            using var claim = await vendor.PostAsync($"/api/v1/ticket-queues/incident/{incidentId}/claim?expectedVersion={opened.QueueAssignmentVersion}", null);
+            Assert.Equal(HttpStatusCode.NoContent, claim.StatusCode);
+            Assert.Equal(vendorId, (await vendor.GetFromJsonAsync<IncidentDto>(incidentPath))!.AssignedToId);
+
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+            using var hiddenStream = await vendor.GetAsync("/api/v1/incidents/hidden-main/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            Assert.Equal(HttpStatusCode.NotFound, hiddenStream.StatusCode);
+            using var stream = await vendor.GetAsync(incidentPath + "/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            Assert.Equal(HttpStatusCode.OK, stream.StatusCode);
+            using var reader = new StreamReader(await stream.Content.ReadAsStreamAsync(deadline.Token));
+            Assert.Equal(": connected", await reader.ReadLineAsync(deadline.Token));
+            Assert.Equal(string.Empty, await reader.ReadLineAsync(deadline.Token));
+            await h.EditAsync(async db => (await db.SupportGroupMembers.SingleAsync(member => member.UserId == vendorId)).IsEnabled = false);
+            Assert.Null(await reader.ReadLineAsync(deadline.Token));
+            using var revoked = await vendor.GetAsync(incidentPath);
+            Assert.Contains(revoked.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+            foreach (var asset in visibleAssets)
+            {
+                using var revokedAsset = await vendor.GetAsync(asset);
+                Assert.Equal(HttpStatusCode.NotFound, revokedAsset.StatusCode);
+            }
+
+            await h.EditAsync(async db =>
+            {
+                (await db.SupportGroupMembers.SingleAsync(member => member.UserId == vendorId)).IsEnabled = true;
+                var role = await db.Roles.Include(role => role.Permissions).SingleAsync(role => role.Key == "custom.vendor-incidents");
+                role.Permissions.Add(new RolePermission { Permission = HelpdeskPermissions.ChangeRead });
+                db.Changes.AddRange(
+                    new Change { Id = "visible-change", Title = "Synthetic vendor change", OrganizationId = h.OrganizationId, AssignedSupportGroupId = groupId },
+                    new Change { Id = "hidden-change", Title = "Synthetic hidden change", OrganizationId = h.OrganizationId });
+            });
+            using var changeDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+            using var hiddenChange = await vendor.GetAsync("/api/v1/changes/hidden-change/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, changeDeadline.Token);
+            Assert.Equal(HttpStatusCode.NotFound, hiddenChange.StatusCode);
+            using var changeStream = await vendor.GetAsync("/api/v1/changes/visible-change/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, changeDeadline.Token);
+            Assert.Equal(HttpStatusCode.OK, changeStream.StatusCode);
+            using var changeReader = new StreamReader(await changeStream.Content.ReadAsStreamAsync(changeDeadline.Token));
+            Assert.Equal(": connected", await changeReader.ReadLineAsync(changeDeadline.Token));
+            Assert.Equal(string.Empty, await changeReader.ReadLineAsync(changeDeadline.Token));
+            await h.EditAsync(async db => (await db.SupportGroupMembers.SingleAsync(member => member.UserId == vendorId)).IsEnabled = false);
+            Assert.Null(await changeReader.ReadLineAsync(changeDeadline.Token));
+            using var deniedReconnect = await vendor.GetAsync("/api/v1/changes/visible-change/timeline/stream",
+                HttpCompletionOption.ResponseHeadersRead, changeDeadline.Token);
+            Assert.Contains(deniedReconnect.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+        }
+        finally { await IncidentReceiverTests.Harness.StopProcessAsync(process, vendor); }
+
+        async Task<string> StoreRasterAsync(string scope, string collection, string id)
+        {
+            const string filename = "synthetic-inline.png";
+            var directory = Path.Combine(storage.Value.RootPath, collection, id, "inline");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(Path.Combine(directory, filename), SyntheticRaster.Png(42));
+            var signature = signer.GenerateToken(scope, id, filename, DateTimeOffset.UtcNow.AddMinutes(10));
+            return $"/api/{collection}/{id}/images/{filename}?token={Uri.EscapeDataString(signature)}";
+        }
+
+        async Task<HttpResponseMessage> SubmitAsync()
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/integrations/netratel/queued-incidents")
+            {
+                Content = JsonContent.Create(new IncidentQueueContract.Create(IncidentQueueContract.Version, groupId, payload))
+            };
+            h.Authorize(request, "synthetic-vendor-alert", credential: token);
+            return await h.Client.SendAsync(request);
+        }
+    }
+
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Human_report_origin_relation_and_effects_commit_once_and_replay_after_restart(bool postgres)
     {

@@ -1,11 +1,31 @@
-// The opaque-origin child can only report a bounded height or request dismissal.
-// Ignore messages from any other frame; never read or execute email content.
-export function observe(frame, receiver) {
+// Only the parent uses its Web session. The opaque-origin child receives raster bytes.
+export function observe(frame, receiver, assetUrls) {
+    const cancellation = new AbortController();
+    let assetsStarted = false;
+    const loadAssets = async () => {
+        for (const [index, url] of assetUrls.entries()) {
+            if (cancellation.signal.aborted) return;
+            try {
+                const response = await fetch(url, {
+                    credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: cancellation.signal
+                });
+                if (!response.ok || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(response.headers.get('Content-Type'))) continue;
+                const blob = await response.blob();
+                if (!cancellation.signal.aborted) frame.contentWindow?.postMessage({ type: 'rateldesk-email-asset', index, blob }, '*');
+            } catch {
+                // Leave the email image's alternative text visible on failure.
+            }
+        }
+    };
     const receive = event => {
         if (event.source !== frame.contentWindow || !event.data) return;
         if (event.data.type === 'rateldesk-email-size' && Number.isFinite(event.data.height))
             frame.style.height = `${Math.min(4000, Math.max(160, event.data.height))}px`;
         if (event.data.type === 'rateldesk-email-escape') receiver.invokeMethodAsync('DismissPreview');
+        if (event.data.type === 'rateldesk-email-assets-ready' && !assetsStarted) {
+            assetsStarted = true;
+            void loadAssets();
+        }
     };
     // CSS zoom changes the layout root size without changing media-query widths.
     // Keep enlarged preview controls/content inside that actual layout viewport.
@@ -31,5 +51,5 @@ export function observe(frame, receiver) {
     fitZoomedPreview();
     window.addEventListener('message', receive);
     frame.contentWindow?.postMessage('rateldesk-email-measure', '*');
-    return { dispose: () => { window.removeEventListener('message', receive); layout.disconnect(); } };
+    return { dispose: () => { cancellation.abort(); window.removeEventListener('message', receive); layout.disconnect(); } };
 }

@@ -21,6 +21,28 @@ public sealed record CurrentUserAccessProfile(
     public IReadOnlySet<ScopedPermissionGrant> ScopedPermissionGrants { get; init; } =
         new HashSet<ScopedPermissionGrant>();
 
+    public IReadOnlySet<TicketQueuePermissionGrant> TicketQueuePermissionGrants { get; init; } =
+        new HashSet<TicketQueuePermissionGrant>();
+
+    public IReadOnlySet<string> RestrictedTicketOrganizationIds { get; init; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public string? DomainUserId { get; init; }
+
+    public bool HasProjectedWorkforceRestriction { get; init; }
+
+    public bool HasRestrictedWorkforceAccess => !IsHelpdeskAdmin &&
+        (RestrictedTicketOrganizationIds.Count > 0 || HasProjectedWorkforceRestriction);
+
+    public bool HasPermission(string permission, string? organizationId, string? supportGroupId) =>
+        HasPermission(permission, organizationId) || (supportGroupId != null && TicketQueuePermissionGrants.Any(grant =>
+            grant.Permission == permission && grant.OrganizationId == organizationId && grant.SupportGroupId == supportGroupId));
+
+    public bool HasPermissionInAnyQueue(string permission, string? organizationId) =>
+        HasPermission(permission, organizationId) || TicketQueuePermissionGrants.Any(grant =>
+            string.Equals(grant.Permission, permission, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(grant.OrganizationId, organizationId, StringComparison.OrdinalIgnoreCase));
+
     public bool HasPermission(string permission) =>
         IsHelpdeskAdmin || Permissions.Contains(permission);
 
@@ -169,7 +191,10 @@ public sealed record CurrentUserAccessProfile(
                 .ToHashSet(StringComparer.OrdinalIgnoreCase))
         {
             UsesScopedPermissions = user.HasClaim("permission_scope_mode", "scoped"),
-            ScopedPermissionGrants = scopedPermissionGrants
+            ScopedPermissionGrants = scopedPermissionGrants,
+            HasProjectedWorkforceRestriction = user.HasClaim("ticket_workforce_scope", "restricted"),
+            TicketQueuePermissionGrants = user.FindAll("ticket_queue_permission")
+                .Select(claim => TicketQueuePermissionGrant.TryParse(claim.Value)).OfType<TicketQueuePermissionGrant>().ToHashSet()
         };
     }
 
@@ -202,11 +227,24 @@ public sealed record CurrentUserAccessProfile(
 
     private bool CanOwn(string permission, string? organizationId, string? customerId, string? requesterEmail) =>
         HasPermission(permission, organizationId) &&
+        (organizationId == null || !RestrictedTicketOrganizationIds.Contains(organizationId)) &&
         !string.IsNullOrWhiteSpace(customerId) &&
         string.Equals(customerId, CustomerId, StringComparison.OrdinalIgnoreCase);
 
     private bool InAllowedOrg(string? organizationId) =>
         !string.IsNullOrWhiteSpace(organizationId) && AllowedOrganizationIds.Contains(organizationId);
+}
+
+public sealed record TicketQueuePermissionGrant(string Permission, string OrganizationId, string SupportGroupId, string OwnerOrganizationId)
+{
+    public override string ToString() => $"{Permission}|{OrganizationId}|{SupportGroupId}|{OwnerOrganizationId}";
+
+    public static TicketQueuePermissionGrant? TryParse(string value)
+    {
+        var parts = value.Split('|');
+        return parts.Length == 4 && parts.All(part => !string.IsNullOrWhiteSpace(part))
+            ? new TicketQueuePermissionGrant(parts[0], parts[1], parts[2], parts[3]) : null;
+    }
 }
 
 public sealed record ScopedPermissionGrant(string Permission, string OrganizationId)

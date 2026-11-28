@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Linq.Expressions;
+using Helpdesk.Infrastructure.Ticketing;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +15,8 @@ internal sealed class TicketListQuery
     public string[] CustomerOrgIds { get; private set; } = [];
     public string[] ForIds { get; private set; } = [];
     public string[] AssigneeIds { get; private set; } = [];
+    public string[] SupportGroupIds { get; private set; } = [];
+    public bool MainQueue { get; private set; }
     public int[] States { get; private set; } = [];
     public TicketPriority[] Priorities { get; private set; } = [];
     public bool Unassigned { get; private set; }
@@ -31,6 +35,8 @@ internal sealed class TicketListQuery
             result.CustomerOrgIds = Values(query["customerOrgId"]);
             result.ForIds = Values(query["forId"]);
             result.AssigneeIds = Values(query["assigneeId"]);
+            result.SupportGroupIds = Values(query["supportGroupId"]);
+            result.MainQueue = Boolean(query["mainQueue"], false);
             result.States = Values(query["stateValues"]).Select(value => changes ? (int)ParseEnum<ChangeLifecycleState>(value) : (int)ParseEnum<TicketState>(value)).ToArray();
             result.Priorities = Values(query["priority"]).Select(ParseEnum<TicketPriority>).ToArray();
             result.Unassigned = Boolean(query["unassigned"], false);
@@ -74,6 +80,9 @@ internal sealed class TicketListQuery
 
     public IQueryable<T> Apply<T>(IQueryable<T> query, bool changes) where T : Ticket
     {
+        if (MainQueue || SupportGroupIds.Length > 0)
+            query = query.Where(ticket => ticket.AssignedSupportGroupId == null
+                ? MainQueue : SupportGroupIds.Contains(ticket.AssignedSupportGroupId));
         if (CustomerOrgIds.Length > 0) query = query.Where(ticket => CustomerOrgIds.Contains(ticket.OrganizationId!));
         if (ForIds.Length > 0) query = changes
             ? query.Where(ticket => ForIds.Contains(EF.Property<string>(ticket, nameof(Change.RequestedForUserId))))
@@ -111,11 +120,12 @@ internal sealed class TicketListQuery
 
     public static IQueryable<T> Authorized<T>(IQueryable<T> query, CurrentUserAccessProfile access, string module) where T : Ticket
     {
-        if (access.IsHelpdeskAdmin) return query;
-        var prefix = char.ToUpperInvariant(module[0]) + module[1..];
-        var read = access.OrganizationIdsFor(prefix + ".Read").Concat(access.OrganizationIdsFor(prefix + ".Write")).Concat(access.OrganizationIdsFor(prefix + ".Manager")).Distinct().ToArray();
-        var own = access.OrganizationIdsFor(prefix + ".User").ToArray();
-        var hasCustomer = !string.IsNullOrWhiteSpace(access.CustomerId);
-        return query.Where(ticket => read.Contains(ticket.OrganizationId!) || (own.Contains(ticket.OrganizationId!) && hasCustomer && ticket.CustomerId == access.CustomerId));
+        return TicketAccessPolicy.Readable(query, access, module switch
+        {
+            "incident" => TicketType.Incident,
+            "request" => TicketType.Request,
+            "change" => TicketType.Change,
+            _ => throw new ArgumentOutOfRangeException(nameof(module))
+        });
     }
 }

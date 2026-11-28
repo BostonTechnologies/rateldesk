@@ -52,10 +52,12 @@ public static class RatelDeskOpenApiCatalog
         new("System Connections", "Automation & Integrations", "Administrator-owned named tenant and customer mappings, verification, and local-first deletion."),
         new("MCP Gateway", "Automation & Integrations", "Paired MCP credential delegation."),
         new("NetRatel Incident Receiver", "Automation & Integrations", "Authenticated incident-create capability, target validation and immutable receipt reconciliation."),
+        new("NetRatel Queue Routing", "Automation & Integrations", "Paired incident queue discovery, assignment and receipt reconciliation."),
         new("Automation Incident Presentation", "Automation & Integrations", "Negotiated v2 incident acceptance and read-only scoped presentation catalogue/preview."),
         new("Internal Incident Templates", "Automation & Integrations", "Organization-scoped internal report drafts, preview, immutable publication and retirement."),
         new("Automation Reports", "Ticketing", "Staff-only accepted automation reports visible from their incident or source request."),
         new("Ticket Relations", "Ticketing", "Permission-filtered reciprocal neutral links across supported ticket types."),
+        new("Ticket Queues", "Ticketing", "Permission-filtered support group queues, transfers and claims."),
         new("NetRatel Source Administration", "Automation & Integrations", "Administrator-approved stable incident source namespaces and audited credential rotation."),
         new("Organizations", "Organizations & Customers", "Application tenant organizations."),
         new("Administration Directories", "Organizations & Customers", "Paged instance administration directories; legacy lookup arrays remain compatible."),
@@ -256,6 +258,7 @@ public static class RatelDeskOpenApiCatalog
 
         operation.Security = policies switch
         {
+            _ when tag == "NetRatel Queue Routing" => Requirements(document, ServiceIdentityScheme),
             _ when tag == "NetRatel Incident Receiver" => Requirements(document, IntegrationCredentialScheme, ServiceIdentityScheme),
             // Policy management additionally rejects machine principals in its endpoint filter.
             _ when tag == "MCP Policies" => Requirements(document, JwtBearerScheme, LocalSessionScheme),

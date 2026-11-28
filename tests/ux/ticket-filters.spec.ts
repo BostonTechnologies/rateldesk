@@ -3,12 +3,69 @@ import { reviewCapture, reviewPage } from './owner-review-matrix';
 import {test,expect} from '@playwright/test';
 test.use({ timezoneId: 'Africa/Johannesburg' });
 const fixture='http://127.0.0.1:18330/fixture';
-test.beforeEach(async({page,request})=>{
+const vendorWeb = 'https://127.0.0.1:5202';
+test.beforeEach(async({page,request,baseURL})=>{
  page.on('pageerror',error=>console.error('Browser error:',error.message));
  page.on('console',message=>{if(message.type()==='error')console.error('Browser console:',message.text());});
- await request.get(fixture+'/reset');await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
+ await request.get(fixture+'/reset');
+ if (baseURL === vendorWeb) await request.get(fixture + '/permissions?mode=vendor');
+ await page.goto('/auth/development',{waitUntil:'domcontentloaded'});
+});
+test.describe('restricted vendor', () => {
+ test.use({ baseURL: vendorWeb });
+
+ test('can claim an incident in the authorized queue', async ({ page, request }, info) => {
+  await page.goto('/incidents?sort=trackingId&descending=false');
+  await expect(page.getByTestId('app-main-content')).toHaveAttribute('data-interactive', 'true');
+  await expect(page.getByText('1-20 of 20')).toBeVisible();
+  await expect(page.getByText('Main Queue', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Move to queue', exact: true })).toHaveCount(0);
+  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'SYN-000', exact: true }) });
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Application Vendor');
+  const claim = row.getByRole('button', { name: 'Claim ticket', exact: true });
+  await page.screenshot({ path: info.outputPath('vendor-queue.png'), fullPage: true });
+  await claim.click();
+  await expect.poll(async () => (await (await request.get(fixture + '/state')).json()).mutations)
+   .toEqual([{ path: '/api/v1/ticket-queues/incident/row-0/claim', version: 1 }]);
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Application Vendor');
+  await expect(claim).toHaveCount(0);
+ });
 });
 for(const module of ['incidents','requests','changes']) {
+ test(module+' queue selection filters before paging and restores from the URL',async({page},info)=>{
+  await page.goto('/'+module);
+  await expect(page.getByText('1-25 of 60')).toBeVisible();
+  const queue=page.getByLabel('Queue',{exact:true});
+  await queue.fill('Application');
+  await page.getByRole('option',{name:'Application Vendor',exact:true}).click();
+  await expect(page).toHaveURL(url=>url.searchParams.get('supportGroupId')==='app-vendor');
+  await expect(page.getByText('1-20 of 20')).toBeVisible();
+  await expect(page.getByTestId('ticket-assigned-queue')).toHaveCount(20);
+  await expect(page.getByTestId('ticket-assigned-queue').first()).toHaveText('Application Vendor');
+  await page.screenshot({path:info.outputPath('queue-filter.png'),fullPage:true});
+  await page.reload();
+  await expect(queue).toHaveValue('Application Vendor');
+  await expect(page.getByText('1-20 of 20')).toBeVisible();
+  await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+ });
+ test(`${module} moves a Main Queue ticket using its current version`, async ({ page, request }, info) => {
+  await page.goto(`/${module}?sort=trackingId&descending=false`);
+  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'SYN-001', exact: true }) });
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Main Queue');
+  await row.getByRole('button', { name: 'Move to queue', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox', { name: 'Destination queue' }).fill('Application');
+  await page.getByRole('option', { name: 'Application Vendor', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Reason' }).fill('Synthetic handover');
+  await page.screenshot({ path: info.outputPath('move-queue.png'), fullPage: true });
+  await dialog.getByRole('button', { name: 'Move ticket', exact: true }).click();
+  await expect(row.getByTestId('ticket-assigned-queue')).toHaveText('Application Vendor');
+  const state = await (await request.get(fixture + '/state')).json();
+  expect(state.mutations).toEqual([{
+   path: `/api/v1/ticket-queues/${module.slice(0, -1)}/assignment`,
+   body: { tickets: [{ id: 'row-1', expectedVersion: 0 }], supportGroupId: 'app-vendor', assigneeAction: 0, assigneeId: null, reason: 'Synthetic handover' }
+  }]);
+ });
  test(`${module} opening a ticket and browser Back restores the exact filtered page`,async({page,request})=>{
   const listUrl=`/${module}?customerOrgId=org-b&q=Synthetic&page=2&pageSize=25&sort=trackingId&descending=false`;
   await page.goto(listUrl);

@@ -8,6 +8,7 @@ using Helpdesk.Infrastructure.Pairing;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
+using Helpdesk.Tests.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -337,6 +338,7 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+            PublishedCampaignSeedModel.OmitTicketQueueAssignment(builder);
             builder.Entity<Request>().Ignore(request => request.WorkflowFailureTaskId);
             builder.Entity<Request>().Ignore(request => request.WorkflowFailureAttemptId);
             builder.Entity<Request>().Ignore(request => request.WorkflowFailureCategory);

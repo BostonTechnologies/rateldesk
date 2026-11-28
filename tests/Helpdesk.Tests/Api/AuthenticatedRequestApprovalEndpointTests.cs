@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Helpdesk.API.Endpoints.RequestTasks;
+using Helpdesk.API.Middleware;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Services.Notifications;
 using Helpdesk.Application.Tickets;
@@ -65,12 +66,35 @@ public sealed class AuthenticatedRequestApprovalEndpointTests
         await fixture.AssertStoredAsync(RequestTaskApprovalStatus.Pending, RequestTaskStatus.PendingApproval, 0);
     }
 
+    [Fact]
+    public async Task Scoped_request_review_requires_write_access_to_the_current_parent_queue()
+    {
+        await using var fixture = await Fixture.StartAsync(scoped: true);
+        using var client = fixture.Application.GetTestClient();
+        const string route = "/api/v1/request-tasks/task-1/approval";
+
+        await fixture.SetAssignedGroupAsync(null);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(route)).StatusCode);
+        await fixture.SetAssignedGroupAsync("wintel");
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(route + "/approve", null)).StatusCode);
+        await fixture.AssertStoredAsync(RequestTaskApprovalStatus.Pending, RequestTaskStatus.PendingApproval, 0);
+
+        await fixture.SetAssignedGroupAsync("vendor");
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(route)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync(route + "/approve", null)).StatusCode);
+        await fixture.AssertStoredAsync(RequestTaskApprovalStatus.Approved, RequestTaskStatus.Completed, 1);
+
+        await fixture.SetAssignedGroupAsync("wintel");
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(route + "/approve", null)).StatusCode);
+        Assert.Equal(1, fixture.ContinuationCalls);
+    }
+
     private sealed class Fixture(WebApplication application, SqliteConnection connection) : IAsyncDisposable
     {
         public WebApplication Application { get; } = application;
         public int ContinuationCalls { get; private set; }
 
-        public static async Task<Fixture> StartAsync(bool failFirstContinuation = false)
+        public static async Task<Fixture> StartAsync(bool failFirstContinuation = false, bool scoped = false)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -84,6 +108,16 @@ public sealed class AuthenticatedRequestApprovalEndpointTests
             builder.Services.AddDbContext<HelpdeskDbContext>(options => options.UseSqlite(connection));
             var access = new CurrentUserAccessProfile(true, "Designated owner", "owner@example.test", "org-1", "Synthetic organization", null, true,
                 new HashSet<string>(), new HashSet<string> { HelpdeskPermissions.HelpdeskAdmin }, new HashSet<string> { "org-1" }, new HashSet<string> { "org-1" });
+            if (scoped)
+                access = access with
+                {
+                    IsHelpdeskAdmin = false, UsesScopedPermissions = true, RestrictedTicketOrganizationIds = new HashSet<string> { "org-1" },
+                    Permissions = new HashSet<string> { HelpdeskPermissions.RequestWrite },
+                    TicketQueuePermissionGrants = new HashSet<TicketQueuePermissionGrant>
+                    {
+                        new(HelpdeskPermissions.RequestWrite, "org-1", "vendor", "org-1")
+                    }
+                };
             var accessService = Substitute.For<ICurrentUserAccessService>();
             accessService.ResolveAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<CancellationToken>()).Returns(access);
             builder.Services.AddSingleton(accessService);
@@ -112,6 +146,7 @@ public sealed class AuthenticatedRequestApprovalEndpointTests
                 return context.Response.WriteAsync("Synthetic continuation failure.");
             }));
             app.UseAuthentication();
+            app.UseMiddleware<UserAccessClaimsMiddleware>();
             app.UseAuthorization();
             app.MapAuthenticatedRequestApprovalEndpoints();
             await using (var scope = app.Services.CreateAsyncScope())
@@ -119,6 +154,10 @@ public sealed class AuthenticatedRequestApprovalEndpointTests
                 var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
                 await db.Database.EnsureCreatedAsync();
                 db.Organizations.Add(new Organization { Id = "org-1", Name = "Synthetic organization" });
+                if (scoped)
+                    db.SupportGroups.AddRange(
+                        new SupportGroup { Id = "vendor", Name = "App Vendor", OwningOrganizationId = "org-1" },
+                        new SupportGroup { Id = "wintel", Name = "Wintel", OwningOrganizationId = "org-1" });
                 db.Requests.Add(new Request { Id = "request-1", Title = "Approval fixture", TrackingId = "REQ-APPROVAL", OrganizationId = "org-1" });
                 db.RequestTasks.Add(new RequestTask { Id = "task-1", Title = "Designated decision", RequestId = "request-1", OrganizationId = "org-1", Type = RequestTaskType.Approval, Status = RequestTaskStatus.PendingApproval, DueAt = DateTimeOffset.UtcNow.AddHours(1) });
                 db.RequestTaskApprovals.Add(new RequestTaskApproval
@@ -130,6 +169,15 @@ public sealed class AuthenticatedRequestApprovalEndpointTests
             }
             await app.StartAsync();
             return fixture;
+        }
+
+        public async Task SetAssignedGroupAsync(string? groupId)
+        {
+            await using var scope = Application.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var request = await db.Requests.SingleAsync();
+            request.AssignedSupportGroupId = groupId;
+            await db.SaveChangesAsync();
         }
 
         public async Task AssertStoredAsync(RequestTaskApprovalStatus approval, RequestTaskStatus task, int auditCount)

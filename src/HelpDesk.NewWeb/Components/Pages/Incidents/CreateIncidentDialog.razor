@@ -12,7 +12,7 @@
 
     private Task<HttpResponseMessage> CreateIncidentAsync(OperatorTicketCreateFormModel model)
     {
-        var dto = new CreateIncidentDto
+        var dto = new CreateQueuedIncidentDto
         {
             Title = model.Title,
             Description = model.Description,
@@ -20,6 +20,7 @@
             OrganizationId = model.OrganizationId,
             CustomerId = model.CustomerId,
             AssignedToId = model.AssignedToId,
+            AssignedSupportGroupId = model.AssignedSupportGroupId,
             CategoryIds = model.CategoryIds.ToList()
         };
 

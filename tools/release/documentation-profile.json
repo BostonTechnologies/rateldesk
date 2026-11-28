@@ -21,6 +21,8 @@
     "docs/contracts/rateldesk-incident-create.v2.fixtures.json",
     "docs/contracts/rateldesk-incident-create.v2.json",
     "docs/contracts/rateldesk-incident-create.v2.md",
+    "docs/contracts/rateldesk-incident-create.v3.json",
+    "docs/contracts/rateldesk-incident-create.v3.md",
     "docs/contracts/ticket-list-queries.md",
     "docs/customization/README.md",
     "docs/customization/branding.md",

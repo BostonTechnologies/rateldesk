@@ -4,13 +4,14 @@ using Helpdesk.API.Authentication;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.ServiceIdentity;
+using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helpdesk.API.Services;
 
-public enum IncidentReceiverOperation { Create, ReadReceipt, ValidateTarget, ReadPresentation }
+public enum IncidentReceiverOperation { Create, ReadReceipt, ValidateTarget, ReadPresentation, CreateQueued, ReadQueuedReceipt }
 public sealed record AuthorizedIncidentSource(IncidentReceiverSource Source, Customer Customer, Organization Organization);
 
 /// <summary>Resolves current, explicitly approved receiver membership without granting a machine human authority.</summary>
@@ -34,8 +35,8 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
             if (services is null) return null;
             var scope = operation switch
             {
-                IncidentReceiverOperation.Create => ServiceIdentityScopes.IncidentCreate,
-                IncidentReceiverOperation.ReadReceipt => ServiceIdentityScopes.IncidentReceipts,
+                IncidentReceiverOperation.Create or IncidentReceiverOperation.CreateQueued => ServiceIdentityScopes.IncidentCreate,
+                IncidentReceiverOperation.ReadReceipt or IncidentReceiverOperation.ReadQueuedReceipt => ServiceIdentityScopes.IncidentReceipts,
                 IncidentReceiverOperation.ValidateTarget => ServiceIdentityScopes.IncidentTargets,
                 IncidentReceiverOperation.ReadPresentation => ServiceIdentityScopes.IncidentTemplates,
                 _ => throw new ArgumentOutOfRangeException(nameof(operation))
@@ -58,7 +59,8 @@ public sealed class IncidentReceiverAuthorization(HelpdeskDbContext db, RatelDes
             if (!customers.Contains(serviceSource.CustomerId, StringComparer.Ordinal)) return null;
             return await ResolveEnabledMappingAsync(serviceSource, ct);
         }
-        if (principal.Identity?.IsAuthenticated != true || principal.FindFirstValue("auth_mode") != "integration" ||
+        if (operation is IncidentReceiverOperation.CreateQueued or IncidentReceiverOperation.ReadQueuedReceipt ||
+            principal.Identity?.IsAuthenticated != true || principal.FindFirstValue("auth_mode") != "integration" ||
             !Guid.TryParseExact(principal.FindFirstValue("integration_credential_id"), "N", out var id)) return null;
         var credential = await identity.IntegrationCredentials.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
         if (credential is null || credential.Purpose != IntegrationCredentialAuthenticationHandler.ApiPurpose ||

@@ -72,7 +72,7 @@ for (const module of ['incidents', 'requests']) {
     await expect(page.getByText('1-25 of 60')).toBeVisible();
     const row = page.locator('tbody tr').first();
     const originalUrl = page.url();
-    const picker = row.getByPlaceholder('Select user');
+    const picker = row.getByRole('combobox', { name: /Select user/ });
     await picker.fill('Regional');
     await page.getByRole('option').filter({ hasText: 'Example Company Regional Recruitment' }).click();
     await expect(row.locator('[data-label="For"]')).toContainText('Regional Recruitment');

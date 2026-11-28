@@ -1,12 +1,15 @@
 using Helpdesk.API.Endpoints.Organizations;
+using Helpdesk.Infrastructure.Auth.Rbac;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.API.Endpoints.Authentication;
 using Helpdesk.Shared.Auth;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 using System.Security.Claims;
 
 namespace Helpdesk.API.Endpoints.Users;
@@ -333,6 +336,9 @@ public static class TenantAdministrationEndpoints
                 .Select(key => key.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            await using var assignmentTransaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
+                : null;
             var delegableRoleKeys = await GetDelegableRoleKeysAsync(organizationId, db, cancellationToken);
             if (roleKeys.Any(key => !delegableRoleKeys.Contains(key)))
             {
@@ -347,6 +353,15 @@ public static class TenantAdministrationEndpoints
             var existing = await db.ScopedRoleAssignments
                 .Where(assignment => assignment.UserId == userId && assignment.OrganizationId == organizationId)
                 .ToListAsync(cancellationToken);
+            var changedKeys = roleKeys.Concat(existing.Select(assignment => assignment.RoleKey)).Distinct().ToArray();
+            var restrictedRoleAttached = await db.Roles.AnyAsync(role => role.OwnerOrganizationId == organizationId &&
+                role.TicketAccessScope != TicketAccessScope.AllAuthorizedQueues && changedKeys.Contains(role.Key), cancellationToken);
+            if (restrictedRoleAttached)
+            {
+                var actorAccess = await accessService.ResolveAsync(context.User, cancellationToken);
+                if (!actorAccess.IsHelpdeskAdmin && actorAccess.DomainUserId == userId) return Results.Forbid();
+                await TicketWorkforceRestrictions.EnsureAsync(db, organizationId, [userId], ResolveActorId(context.User), cancellationToken);
+            }
             var hasDelegableAccess = roleKeys.Length > 0;
             db.ScopedRoleAssignments.RemoveRange(existing.Where(assignment => delegableRoleKeys.Contains(assignment.RoleKey)));
             db.ScopedRoleAssignments.AddRange(roleKeys.Select(key => new ScopedRoleAssignment
@@ -376,6 +391,7 @@ public static class TenantAdministrationEndpoints
                 });
             }
             await db.SaveChangesAsync(cancellationToken);
+            if (assignmentTransaction != null) await assignmentTransaction.CommitAsync(cancellationToken);
 
             target.AuthorizationRevision++;
             target.SecurityStamp = Guid.NewGuid().ToString("N");

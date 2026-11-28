@@ -12,14 +12,45 @@ namespace HelpDesk.NewWeb.Services;
 public static class EmailDisplayDocument
 {
     // This is the only script permitted by the document CSP. The sandbox has no same-origin,
-    // forms, popup or navigation privileges. It reports geometry and keyboard dismissal only.
-    private const string Bridge = "(()=>{const send=()=>parent.postMessage({type:'rateldesk-email-size',height:document.documentElement.scrollHeight},'*');new ResizeObserver(send).observe(document.body);addEventListener('load',send);addEventListener('message',e=>{if(e.source===parent&&e.data==='rateldesk-email-measure')send()});addEventListener('keydown',e=>{if(e.key==='Escape')parent.postMessage({type:'rateldesk-email-escape'},'*')});send()})()";
+    // forms, popup or navigation privileges. The parent fetches staff assets with its live session.
+    private const string Bridge = """
+        (() => {
+            const images = Array.from(document.querySelectorAll('img[data-rateldesk-asset]'));
+            const size = () => parent.postMessage({type:'rateldesk-email-size',height:document.documentElement.scrollHeight}, '*');
+            const ready = () => {
+                size();
+                if (images.length) parent.postMessage({type:'rateldesk-email-assets-ready'}, '*');
+            };
+            new ResizeObserver(size).observe(document.body);
+            addEventListener('load', ready);
+            addEventListener('message', event => {
+                if (event.source !== parent) return;
+                if (event.data === 'rateldesk-email-measure') return ready();
+                const { type, index, blob } = event.data ?? {};
+                if (type !== 'rateldesk-email-asset' || !Number.isInteger(index) || !(blob instanceof Blob) || !images[index]) return;
+                const image = images[index];
+                const source = URL.createObjectURL(blob);
+                image.addEventListener('load', () => URL.revokeObjectURL(source), { once: true });
+                image.addEventListener('error', () => URL.revokeObjectURL(source), { once: true });
+                image.src = source;
+            });
+            addEventListener('keydown', event => {
+                if (event.key === 'Escape') parent.postMessage({type:'rateldesk-email-escape'}, '*');
+            });
+            ready();
+        })()
+        """;
     private static readonly string BridgeHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(Bridge)));
     private static readonly Regex SignedImagePath = new(@"^/api/(?:incidents|worklogs)/[a-zA-Z0-9_-]+/images/[a-zA-Z0-9_.%-]+$", RegexOptions.CultureInvariant);
     private static readonly Regex RasterData = new(@"^data:image/(?:png|jpeg|gif|webp);base64,[a-zA-Z0-9+/=\r\n]+$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     public sealed record Link(string Text, string Url);
-    public sealed record Result(string Html, string Text, IReadOnlyList<Link> Links, int BlockedImages);
+    public sealed record Result(string Html, string Text, IReadOnlyList<Link> Links, int BlockedImages)
+    {
+        public IReadOnlyList<string> StaffAssetUrls { get; init; } = [];
+    }
+
+    internal static bool IsStaffAssetPath(string? path) => path is { Length: > 0 } && SignedImagePath.IsMatch(path);
 
     public static Result Create(string? html, string? text, string applicationBaseUri, string? publicAssetPrefix = null)
     {
@@ -55,6 +86,7 @@ public static class EmailDisplayDocument
             anchor.RemoveAttribute("href");
         }
         var blockedImages = 0;
+        var staffAssetUrls = new List<string>();
         foreach (var image in document.QuerySelectorAll("img"))
         {
             var source = image.GetAttribute("src") ?? string.Empty;
@@ -69,15 +101,16 @@ public static class EmailDisplayDocument
                 image.SetAttribute("referrerpolicy", "no-referrer");
                 continue;
             }
-            // Rebase historical absolute image links onto the existing local gateway, never the
-            // host supplied by an email. The image endpoint still verifies its scoped bearer token.
+            // Rebase historical links onto the local gateway. The sandbox receives only the
+            // validated raster fetched by its authenticated parent.
             if (publicAssetPrefix is null && Uri.TryCreate(new Uri(origin), source, out var imageUri) &&
-                imageUri.Scheme is "http" or "https" && SignedImagePath.IsMatch(imageUri.AbsolutePath) &&
-                imageUri.Query.StartsWith("?token=", StringComparison.Ordinal) && imageUri.Query.Length > 7 &&
+                imageUri.Scheme is "http" or "https" && IsStaffAssetPath(imageUri.AbsolutePath) &&
+                imageUri.Query.StartsWith("?token=", StringComparison.Ordinal) && imageUri.Query.Length is > 7 and <= 1024 &&
                 !imageUri.Query.Contains('&') && !imageUri.AbsolutePath.Contains("..", StringComparison.Ordinal))
             {
-                image.SetAttribute("src", origin + imageUri.PathAndQuery);
-                image.SetAttribute("referrerpolicy", "no-referrer");
+                image.RemoveAttribute("src");
+                image.SetAttribute("data-rateldesk-asset", "");
+                staffAssetUrls.Add(origin + imageUri.PathAndQuery);
                 continue;
             }
             blockedImages++;
@@ -98,9 +131,12 @@ public static class EmailDisplayDocument
         var body = document.Body!;
         SupplyMissingColourPairs(body, false, false);
         var plain = string.IsNullOrWhiteSpace(text) ? ToText(body.InnerHtml) : text;
-        var csp = $"default-src 'none'; script-src 'sha256-{BridgeHash}'; style-src 'unsafe-inline'; img-src data: {origin}; base-uri 'none'; form-action 'none'; connect-src 'none'";
+        var csp = $"default-src 'none'; script-src 'sha256-{BridgeHash}'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'; connect-src 'none'";
         var output = $"<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\"><meta http-equiv=\"Content-Security-Policy\" content=\"{WebUtility.HtmlEncode(csp)}\"><style>html{{color-scheme:light;background:#fff;color:#111}}body{{margin:12px;font:14px/1.5 Arial,sans-serif;overflow-wrap:anywhere}}table{{max-width:100%}}img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap}}a{{text-decoration:underline}}*{{box-sizing:border-box}}</style></head><body>{body.InnerHtml}<script>{Bridge}</script></body></html>";
-        return new Result(publicAssetPrefix is null ? output : body.InnerHtml, plain ?? string.Empty, links.Distinct().ToArray(), blockedImages);
+        return new Result(publicAssetPrefix is null ? output : body.InnerHtml, plain ?? string.Empty, links.Distinct().ToArray(), blockedImages)
+        {
+            StaffAssetUrls = staffAssetUrls
+        };
     }
 
     private static void SupplyMissingColourPairs(IElement element, bool inheritedForeground, bool inheritedBackground)

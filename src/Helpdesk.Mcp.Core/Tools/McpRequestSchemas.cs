@@ -91,6 +91,30 @@ internal static class McpRequestSchemas
                 if (op == "assign") fields["assignedToId"] = Nullable(Text());
                 else fields["agentUserEmail"] = Text();
                 break;
+            case "TicketQueueOptionsRequest":
+                foreach (var key in new[] { "organizationId", "id", "q" }) fields[key] = Text();
+                fields["transfer"] = Boolean();
+                fields["take"] = Integer(1, 100);
+                break;
+            case "MoveTicketQueueRequest":
+                var ticketRow = Object();
+                var ticketFields = (JsonObject)ticketRow["properties"]!;
+                var ticketRequired = (JsonArray)ticketRow["required"]!;
+                Field(ticketFields, ticketRequired, "id", Text(), true);
+                Field(ticketFields, ticketRequired, "expectedVersion", new JsonObject { ["type"] = "integer", ["minimum"] = 0 }, true);
+                Field(fields, required, "tickets", new JsonObject
+                {
+                    ["type"] = "array", ["items"] = ticketRow, ["minItems"] = 1, ["maxItems"] = 100
+                }, true);
+                Field(fields, required, "supportGroupId", new JsonObject
+                {
+                    ["oneOf"] = new JsonArray(Text(), new JsonObject { ["type"] = "null" }),
+                    ["description"] = "A named queue ID or explicit null for Main Queue."
+                }, true);
+                fields["assigneeAction"] = Integer(0, 2);
+                fields["assigneeId"] = Nullable(Text());
+                fields["reason"] = Text();
+                break;
             case "IncidentWorklogRequest": case "TicketWorklogRequest":
                 Field(fields, required, "hours", new JsonObject { ["type"] = "number", ["minimum"] = 0 }, true);
                 Field(fields, required, "notes", Text(), true); fields["isInternalNote"] = Boolean(); break;
@@ -134,12 +158,22 @@ internal static class McpRequestSchemas
                 fields["priority"] = Named(Enum.GetNames<TicketPriority>());
                 fields["linkedAssetIds"] = Strings(); fields["attachments"] = Strings(); fields["dueDate"] = Date();
                 fields["clearAssignment"] = Boolean(); fields["clearDueDate"] = Boolean();
-                schema["anyOf"] = new JsonArray(new[] { "title", "description", "priority", "assignedToId", "linkedAssetIds", "attachments", "dueDate", "clearAssignment", "clearDueDate" }.Select(name => (JsonNode)new JsonObject
+                fields["claimForMe"] = new JsonObject { ["type"] = "boolean", ["const"] = true };
+                string[] taskMetadataFields = ["title", "description", "priority", "assignedToId", "linkedAssetIds", "attachments", "dueDate", "clearAssignment", "clearDueDate"];
+                schema["anyOf"] = new JsonArray(taskMetadataFields.Append("claimForMe").Select(name => (JsonNode)new JsonObject
                 {
                     ["required"] = new JsonArray(name),
                     ["properties"] = name.StartsWith("clear", StringComparison.Ordinal) ? new JsonObject { [name] = new JsonObject { ["const"] = true } } : new JsonObject()
                 }).ToArray());
-                schema["allOf"] = new JsonArray(ExclusiveClear("clearAssignment", "assignedToId"), ExclusiveClear("clearDueDate", "dueDate"));
+                schema["allOf"] = new JsonArray(ExclusiveClear("clearAssignment", "assignedToId"), ExclusiveClear("clearDueDate", "dueDate"),
+                    new JsonObject
+                    {
+                        ["not"] = new JsonObject
+                        {
+                            ["required"] = new JsonArray("claimForMe"),
+                            ["anyOf"] = new JsonArray(taskMetadataFields.Select(name => (JsonNode)new JsonObject { ["required"] = new JsonArray(name) }).ToArray())
+                        }
+                    });
                 break;
         }
 
@@ -167,6 +201,7 @@ internal static class McpRequestSchemas
                 }
                 if (op is "create" or "bulk_create")
                 {
+                    targetFields["assignedSupportGroupId"] = Nullable(Text());
                     foreach (var name in new[] { "title", "description", "organizationId" }) Require(targetRequired, name);
                     if (tool != "helpdesk_changes") Require(targetRequired, "customerId");
                     else
@@ -289,9 +324,9 @@ internal static class McpRequestSchemas
             }
             else
             {
-                foreach (var name in new[] { "activeOnly", "summaryOnly", "unassigned", "descending" }) fields[name] = Boolean();
+                foreach (var name in new[] { "activeOnly", "summaryOnly", "unassigned", "descending", "mainQueue" }) fields[name] = Boolean();
                 fields["state"] = EnumSchema<TicketState>(true); fields["view"] = Named("all", "active", "historic");
-                foreach (var name in new[] { "customerOrgId", "forId", "assigneeId" }) fields[name] = Repeated(Text());
+                foreach (var name in new[] { "customerOrgId", "forId", "assigneeId", "supportGroupId" }) fields[name] = Repeated(Text());
                 fields["stateValues"] = Repeated(EnumSchema(tool == "helpdesk_changes" ? typeof(ChangeLifecycleState) : typeof(TicketState), true));
                 fields["priority"] = Repeated(EnumSchema<TicketPriority>(true));
                 fields["timeField"] = Named("updated", "created"); fields["sort"] = Named("updated", "created", "trackingId", "subject", "priority", "state");

@@ -9,6 +9,7 @@ public class SupportNotificationDelivery
     public string DeduplicationKey { get; set; } = string.Empty;
     public string TicketId { get; set; } = string.Empty;
     public string? TicketTrackingId { get; set; }
+    public string? QueueTransitionId { get; set; }
     public SupportNotificationEventType EventType { get; set; }
     public SupportNotificationChannel Channel { get; set; } = SupportNotificationChannel.Email;
     public string? RecipientUserId { get; set; }

@@ -35,7 +35,7 @@ public sealed class RequestTaskLifecycleService(
     private readonly ICorrelationContext _correlationContext = correlationContext;
     private readonly ILogger<RequestTaskLifecycleService> _logger = logger;
 
-    public async Task<RequestTask> StartAsync(string taskId, CancellationToken ct)
+    public async Task<RequestTask> StartAsync(string taskId, CancellationToken ct, RequestTaskQueueAuthority? queueAuthority = null)
     {
         var task = await GetRequiredTaskAsync(taskId);
 
@@ -74,9 +74,10 @@ public sealed class RequestTaskLifecycleService(
 
         var startIntent = new RequestTaskStartIntent(DateTimeOffset.UtcNow, correlationId);
         if (startFence is not null)
-            await startFence.PersistAsync(task, startIntent, ct);
+            await startFence.PersistAsync(task, startIntent, ct, queueAuthority);
         else
         {
+            if (queueAuthority is not null) throw new InvalidOperationException("Task queue authorization is unavailable.");
             startIntent.Apply(task);
             await _requestTasks.UpdateAsync(task);
         }
@@ -297,7 +298,7 @@ public sealed class RequestTaskLifecycleService(
         }
     }
 
-    public async Task<RequestTask> CompleteAsync(string taskId, string? notes, CancellationToken ct)
+    public async Task<RequestTask> CompleteAsync(string taskId, string? notes, CancellationToken ct, RequestTaskQueueAuthority? queueAuthority = null)
     {
         var task = await GetRequiredTaskAsync(taskId);
 
@@ -321,7 +322,7 @@ public sealed class RequestTaskLifecycleService(
             task.ResultJson = notes;
         }
 
-        await _requestTasks.UpdateAsync(task);
+        await PersistTransitionAsync(task, queueAuthority, () => _requestTasks.UpdateAsync(task), ct);
 
         await _domainEvents.PublishAsync(
             new RequestTaskCompletedEvent(
@@ -348,11 +349,11 @@ public sealed class RequestTaskLifecycleService(
         return task;
     }
 
-    public async Task<RequestTask> FailAsync(string taskId, string reason, CancellationToken ct) =>
-        await FailAsync(await GetRequiredTaskAsync(taskId), reason, ct);
+    public async Task<RequestTask> FailAsync(string taskId, string reason, CancellationToken ct, RequestTaskQueueAuthority? queueAuthority = null) =>
+        await FailAsync(await GetRequiredTaskAsync(taskId), reason, ct, queueAuthority: queueAuthority);
 
     private async Task<RequestTask> FailAsync(RequestTask task, string reason, CancellationToken ct,
-        AutomationPreDispatchFailure? preDispatchFailure = null)
+        AutomationPreDispatchFailure? preDispatchFailure = null, RequestTaskQueueAuthority? queueAuthority = null)
     {
         if (task.Status is RequestTaskStatus.Completed or RequestTaskStatus.Skipped)
         {
@@ -377,7 +378,7 @@ public sealed class RequestTaskLifecycleService(
             : JsonSerializer.Serialize(new { PreDispatchFailure = preDispatchFailure }, JsonSerializerOptions.Web);
         task.UpdatedAt = DateTime.UtcNow;
 
-        await _requestTasks.UpdateAsync(task);
+        await PersistTransitionAsync(task, queueAuthority, () => _requestTasks.UpdateAsync(task), ct);
 
         await _domainEvents.PublishAsync(
             new RequestTaskFailedEvent(
@@ -411,7 +412,7 @@ public sealed class RequestTaskLifecycleService(
         return task;
     }
 
-    public async Task<RequestTask> RetryAsync(string taskId, CancellationToken ct)
+    public async Task<RequestTask> RetryAsync(string taskId, CancellationToken ct, RequestTaskQueueAuthority? queueAuthority = null)
     {
         var task = await GetRequiredTaskAsync(taskId);
         if (task.Type != RequestTaskType.Automation)
@@ -465,9 +466,10 @@ public sealed class RequestTaskLifecycleService(
             RequestTaskRetryRecovery.ReleaseHold(parent, siblings.Where(sibling => sibling.Id != task.Id).Append(task).ToArray(), now);
 
         if (startFence is not null)
-            await startFence.PersistRetryAsync(task, parent, ct);
+            await PersistTransitionAsync(task, queueAuthority, () => startFence.PersistRetryAsync(task, parent, ct), ct);
         else
         {
+            if (queueAuthority is not null) throw new InvalidOperationException("Task queue authorization is unavailable.");
             await _requestTasks.UpdateAsync(task);
             if (releasesHold) await _requests.UpdateAsync(parent);
         }
@@ -520,6 +522,13 @@ public sealed class RequestTaskLifecycleService(
         task.OrchestratorExecutionId = null;
         task.ResultJson = null;
         task.ProviderDiagnostic = null;
+    }
+
+    private Task PersistTransitionAsync(RequestTask task, RequestTaskQueueAuthority? queueAuthority, Func<Task> save, CancellationToken ct)
+    {
+        if (queueAuthority is null) return save();
+        if (startFence is null) throw new InvalidOperationException("Task queue authorization is unavailable.");
+        return startFence.PersistAuthorizedTransitionAsync(task, queueAuthority, save, ct);
     }
 
     private async Task<RequestTask> HandleAutomationSubmissionFailureAsync(

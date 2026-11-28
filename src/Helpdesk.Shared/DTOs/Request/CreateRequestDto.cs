@@ -5,6 +5,7 @@ using System.ComponentModel.DataAnnotations;
 
 public class CreateRequestDto
 {
+    public string? AssignedSupportGroupId { get; set; }
     public string? Title { get; set; }
     [Required]
     public string Description { get; set; } = string.Empty;

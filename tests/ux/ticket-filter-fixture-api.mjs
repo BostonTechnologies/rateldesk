@@ -3,6 +3,9 @@ import http from 'node:http';
 let queries = [], details = [], mutations = [], fault = '', permissionMode = 'admin';
 const createRows = () => Array.from({length: 65}, (_, i) => ({ id: `row-${i}`, title: `Synthetic ticket ${i}`, subject: `Synthetic ticket ${i}`,
   trackingId: `SYN-${String(i).padStart(3, '0')}`, description: 'Synthetic fixture', organizationId: i % 2 ? 'org-b' : 'org-a',
+  assignedSupportGroupId: i % 3 === 0 ? 'app-vendor' : null,
+  assignedSupportGroupName: i % 3 === 0 ? 'Application Vendor' : null,
+  queueAssignmentVersion: i % 3 === 0 ? 1 : 0,
   customerOrgName: i % 2 ? 'Beta customer' : 'Alpha customer', customerId: 'contact', customerName: 'Contact', customerEmail: 'contact@example.test',
   requestedForUserId: 'contact', requestedForUserName: 'Contact', requestedForUserEmail: 'contact@example.test',
   state: i < 60 ? 0 : 6, lifecycleState: i < 60 ? 0 : 5, priority: i % 2 ? 0 : 2,
@@ -42,15 +45,69 @@ http.createServer(async (req,res) => {
  if (url.pathname === '/fixture/fault') { fault=q.get('mode');return reply({ok:true}); }
  if (url.pathname.endsWith('/system/token')) {
   const enc=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
-  const roles=req.headers['x-system-secret']==='filter-reader'||permissionMode==='reader'?['Incident.Read','Request.Read','Change.Read']:['HelpdeskAdmin'];
-  return reply({token:`${enc({alg:'none'})}.${enc({sub:'filter-operator',auth_mode:'development',preferred_username:'Synthetic operator',roles,allowed_organization_id:['org-a','org-b'],exp:Math.floor(Date.now()/1000)+3600})}.fixture`});
+  const vendor = req.headers['x-system-secret'] === 'filter-vendor';
+  const roles=vendor?['Incident.Read','Incident.Write']:
+   req.headers['x-system-secret']==='filter-reader'||permissionMode==='reader'?['Incident.Read','Request.Read','Change.Read']:['HelpdeskAdmin'];
+  const queueClaims = vendor ? { permission_scope_mode: 'scoped', ticket_workforce_scope: 'restricted',
+   ticket_queue_permission: ['org-a', 'org-b'].flatMap(org => roles.map(role => `${role}|${org}|app-vendor|org-a`)) } : {};
+  return reply({token:`${enc({alg:'none'})}.${enc({sub:'filter-operator',auth_mode:'development',preferred_username:vendor?'Synthetic vendor':'Synthetic operator',roles,allowed_organization_id:['org-a','org-b'],...queueClaims,exp:Math.floor(Date.now()/1000)+3600})}.fixture`});
+ }
+ if (url.pathname === '/api/v1/auth/me' && permissionMode === 'vendor') {
+  const permissions = ['Incident.Read', 'Incident.Write'];
+  return reply({ isAuthenticated: true, name: 'Synthetic vendor', email: 'Synthetic vendor', userId: 'filter-operator',
+   primaryOrganizationId: null, customerId: null, isHelpdeskAdmin: false,
+   roleBundles: [], permissions, allowedOrganizationIds: ['org-a', 'org-b'], managedOrganizationIds: [], usesScopedPermissions: true,
+   scopedPermissionGrants: [], hasRestrictedWorkforceAccess: true,
+   ticketQueuePermissionGrants: ['org-a', 'org-b'].flatMap(organizationId => permissions.map(permission =>
+    ({ permission, organizationId, supportGroupId: 'app-vendor', ownerOrganizationId: 'org-a' }))) });
  }
  if(url.pathname==='/api/v1/auth/me') return reply({isAuthenticated:true,name:'Synthetic operator',email:'Synthetic operator',userId:'filter-operator',customerId:null,primaryOrganizationId:null,primaryOrganizationName:null,isHelpdeskAdmin:permissionMode!=='reader',roleBundles:permissionMode==='reader'?[]:['HelpdeskAdmin'],permissions:permissionMode==='reader'?['Incident.Read','Request.Read','Change.Read']:[],allowedOrganizationIds:['org-a','org-b'],managedOrganizationIds:[]});
  if(url.pathname==='/api/v1/branding') return reply({applicationName:'RatelDesk'});
+ if (/^\/api\/v1\/ticket-queues\/(incident|request|change)\/?$/.test(url.pathname)) {
+  const queues = [{id:'app-vendor',name:'Application Vendor'}];
+  if (permissionMode !== 'vendor') queues.unshift({id:null,name:'Main Queue'});
+  const choices = queues.filter(queue => (!q.has('id') || q.get('id') === (queue.id ?? 'main')) &&
+   queue.name.toLowerCase().includes((q.get('q') ?? '').toLowerCase()));
+  return reply(q.get('picker') === 'true' ? {items:choices,totalEligible:queues.length,hasMore:false} : choices);
+ }
+ if (req.method === 'POST' && /^\/api\/v1\/ticket-queues\/(incident|request|change)\/assignment$/.test(url.pathname)) {
+  let raw = '';
+  for await (const chunk of req) raw += chunk;
+  const body = JSON.parse(raw);
+  const selection = body.tickets.map(ticket => ({ request: ticket, row: rows.find(row => row.id === ticket.id) }));
+  if (selection.some(item => !item.row || item.row.queueAssignmentVersion !== item.request.expectedVersion)) return reply({}, 409);
+  mutations.push({ path: url.pathname, body });
+  for (const { row } of selection) {
+   if (row.assignedSupportGroupId !== body.supportGroupId) row.queueAssignmentVersion++;
+   row.assignedSupportGroupId = body.supportGroupId;
+   row.assignedSupportGroupName = body.supportGroupId === 'app-vendor' ? 'Application Vendor' : null;
+  }
+  res.writeHead(204);
+  return res.end();
+ }
+ const claim = url.pathname.match(/^\/api\/v1\/ticket-queues\/incident\/(row-\d+)\/claim$/);
+ if (claim && req.method === 'POST') {
+  const row = rows.find(ticket => ticket.id === claim[1] && ticket.assignedSupportGroupId === 'app-vendor');
+  if (permissionMode !== 'vendor' || !row) return reply({}, 404);
+  if (row.assignedToId !== null || String(row.queueAssignmentVersion) !== q.get('expectedVersion')) return reply({}, 409);
+  row.assignedToId = 'filter-operator';
+  mutations.push({ path: url.pathname, version: Number(q.get('expectedVersion')) });
+  res.writeHead(204);
+  return res.end();
+ }
  if(url.pathname==='/api/v1/ticketing/filter-options') return reply({totalEligible:(options[q.get('dimension')]??[]).length,items:(options[q.get('dimension')]??[]).filter(o=>(!q.has('selectedId')||q.getAll('selectedId').includes(o.id))&&o.label.toLowerCase().includes((q.get('q')??'').toLowerCase())),hasMore:false});
  if(url.pathname.endsWith('/assignees/current')) return reply(null);
  if(url.pathname==='/api/v1/ticketing/organizations') return reply(options.customer.map(o=>({id:o.id,name:o.label,state:0})));
  if(url.pathname==='/api/v1/ticketing/customers') return reply(layoutCustomers.map(customer=>({...customer,organizationId:q.get('organizationId'),isEnabled:true})));
+ if (url.pathname === '/api/v1/ticketing/customers/search') {
+  const id = q.get('id');
+  const search = (q.get('q') ?? '').trim().toLowerCase();
+  const limit = Number(q.get('limit') ?? 20);
+  const matches = layoutCustomers.filter(customer => id ? customer.id === id :
+   `${customer.name} ${customer.email}`.toLowerCase().includes(search));
+  return reply({ items: matches.slice(0, limit).map(customer => ({ ...customer, organizationId: q.get('organizationId'), state: 0 })),
+   totalEligible: layoutCustomers.length, hasMore: matches.length > limit });
+ }
  const customerMutation=url.pathname.match(/^\/api\/v1\/(incidents|requests)\/(row-\d+)\/customer$/);
  if(customerMutation&&req.method==='POST') {
   let raw='';for await(const chunk of req)raw+=chunk;
@@ -120,6 +177,7 @@ http.createServer(async (req,res) => {
  if(detail) {
   const row=rows.find(r=>r.id===detail[2]);
   if(!row) return reply({error:'Synthetic ticket not found'},404);
+  if (permissionMode === 'vendor' && (detail[1] !== 'incidents' || row.assignedSupportGroupId !== 'app-vendor')) return reply({}, 404);
   details.push(url.pathname);
   return reply({...row,approverUserIds:[],approvers:[],approvals:[],changeTemplate:{},templateValidationErrors:[],isTemplateComplete:false,ccRecipients:[]});
  }
@@ -132,8 +190,12 @@ http.createServer(async (req,res) => {
   const changes=url.pathname.includes('/changes');
   const closed=row=>changes?terminal(row.lifecycleState):row.state===6;
   let filtered=rows.filter(r=>q.get('view')==='all'||(q.get('view')==='historic'?closed(r):!closed(r)));
-  if(q.get('q')) filtered=q.get('q')==='slow'?[rows[0]]:filtered.filter(r=>r.title.toLowerCase().includes(q.get('q').toLowerCase()));
+  if (permissionMode === 'vendor') filtered = url.pathname.includes('/incidents')
+   ? filtered.filter(row => row.assignedSupportGroupId === 'app-vendor') : [];
+  if(q.get('q')) filtered=q.get('q')==='slow'?filtered.filter(row => row.id === 'row-0'):filtered.filter(r=>r.title.toLowerCase().includes(q.get('q').toLowerCase()));
   if(q.has('customerOrgId')) filtered=filtered.filter(r=>q.getAll('customerOrgId').includes(r.organizationId));
+  if(q.has('supportGroupId') || q.get('mainQueue') === 'true')
+   filtered=filtered.filter(r=>r.assignedSupportGroupId === null ? q.get('mainQueue') === 'true' : q.getAll('supportGroupId').includes(r.assignedSupportGroupId));
   if(q.has('forId')) filtered=filtered.filter(r=>q.getAll('forId').includes(r.customerId));
   if(q.has('assigneeId')&&!q.has('unassigned')) filtered=[];
   if(q.has('priority')) filtered=filtered.filter(r=>q.getAll('priority').includes(r.priority===2?'High':'Low'));

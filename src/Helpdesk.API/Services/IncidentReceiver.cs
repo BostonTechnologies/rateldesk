@@ -8,7 +8,9 @@ using Helpdesk.Application.Services.SupportNotifications;
 using Helpdesk.Application.WorkLogs;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.Incident;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
 using Helpdesk.Shared.Services;
 using Microsoft.Data.Sqlite;
@@ -25,28 +27,51 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
     IHtmlSanitizerService sanitizer, IHtmlToPlainTextConverter converter, IIngressEffectContext ingress,
     MailboxOutboxStore outbox, TimeProvider time,
     InternalIncidentTemplateService? presentations = null, IncidentOriginValidator? origins = null,
-    Helpdesk.Infrastructure.ServiceIdentity.IServicePublicSettingsResolver? publicSettings = null)
+    Helpdesk.Infrastructure.ServiceIdentity.IServicePublicSettingsResolver? publicSettings = null,
+    ICurrentUserAccessService? queueAccess = null)
 {
     public async Task<IResult> CreateAsync(ClaimsPrincipal principal, Guid sourceId, string key, CreateIncidentDto dto,
-        HttpContext http, CancellationToken ct, AutomationIncidentCreate? trace = null)
+        HttpContext http, CancellationToken ct, AutomationIncidentCreate? trace = null, string? groupId = null)
     {
-        var approved = await authorization.ResolveAsync(principal, sourceId, IncidentReceiverOperation.Create, ct);
+        if (groupId != null && (trace == null || !IncidentQueueContract.ValidGroupId(groupId)))
+            return IncidentReceiverContract.Problem(400, "invalid-queue-request");
+        var operation = groupId == null ? IncidentReceiverOperation.Create : IncidentReceiverOperation.CreateQueued;
+        var approved = await authorization.ResolveAsync(principal, sourceId, operation, ct);
         if (approved is null) return IncidentReceiverContract.Problem(403, "source-not-authorized");
         if (dto.OrganizationId != approved.Organization.Id || dto.CustomerId != approved.Customer.Id)
             return IncidentReceiverContract.Problem(403, "target-not-authorized");
         if (!IncidentReceiverContract.ValidRequest(dto)) return IncidentReceiverContract.Problem(400, "invalid-incident-request");
         if (trace is not null && !AutomationTraceValidation.Create(trace))
             return IncidentReceiverContract.Problem(400, "invalid-incident-context");
-        var fingerprint = trace is null ? IncidentReceiverContract.Fingerprint(dto, sanitizer, converter) : AutomationTraceValidation.Fingerprint(trace);
+        var fingerprint = trace is null ? IncidentReceiverContract.Fingerprint(dto, sanitizer, converter) :
+            groupId == null ? AutomationTraceValidation.Fingerprint(trace) : IncidentQueueContract.Fingerprint(trace, groupId);
         var prior = await db.IncidentCreateReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
             x.SourceNamespaceId == approved.Source.SourceNamespaceId && x.Key == key, ct);
-        if (prior is not null) return Replay(prior, approved, fingerprint, http);
-        var targetError = await ValidateSelectionAsync(dto.AssignedToId, IncidentReceiverContract.Categories(dto.CategoryIds), approved, ct);
+        if (prior is not null)
+        {
+            if (prior.AssignedSupportGroupId != null && prior.Fingerprint == fingerprint &&
+                !await CanUseQueueAsync(approved, prior.AssignedSupportGroupId, ct))
+                return IncidentReceiverContract.Problem(403, "queue-not-authorized");
+            return Replay(prior, approved, fingerprint, http);
+        }
+        var targetError = await ValidateSelectionAsync(groupId == null ? dto.AssignedToId : null,
+            IncidentReceiverContract.Categories(dto.CategoryIds), approved, ct);
         if (targetError is not null) return targetError;
         var receiverId = await ReceiverIdAsync(ct);
         if (receiverId is null) return IncidentReceiverContract.Problem(503, "receiver-not-initialized");
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = groupId == null ? await db.Database.BeginTransactionAsync(ct) :
+            await db.Database.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable, ct);
+        if (groupId != null)
+        {
+            var renewed = await authorization.ResolveAsync(principal, sourceId, operation, ct);
+            if (renewed == null || renewed.Source.SourceNamespaceId != approved.Source.SourceNamespaceId ||
+                !await CanUseQueueAsync(approved, groupId, ct))
+                return IncidentReceiverContract.Problem(403, "queue-not-authorized");
+            if (!string.IsNullOrWhiteSpace(dto.AssignedToId) && (queueAccess is null ||
+                !await AssigneeQueries.CanAssignToQueueAsync(db, queueAccess, TicketType.Incident, approved.Organization.Id, groupId, dto.AssignedToId, ct)))
+                return IncidentReceiverContract.Problem(422, "invalid-incident-target", "assignedToId");
+        }
         IncidentTemplatePreview? report = null;
         Helpdesk.Shared.Models.Request? originRequest = null;
         if (trace is not null)
@@ -65,7 +90,8 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         var receipt = new IncidentCreateReceipt
         {
             Id = Guid.NewGuid(), SourceNamespaceId = approved.Source.SourceNamespaceId, Key = key,
-            Fingerprint = fingerprint, OrganizationId = approved.Organization.Id, CustomerId = approved.Customer.Id
+            Fingerprint = fingerprint, OrganizationId = approved.Organization.Id, CustomerId = approved.Customer.Id,
+            AssignedSupportGroupId = groupId
         };
         db.IncidentCreateReceipts.Add(receipt);
         // Reserve the unique namespace/key before invoking any business handler. An uncommitted reservation is invisible.
@@ -75,10 +101,16 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         var categories = IncidentReceiverContract.Categories(dto.CategoryIds);
         var cc = IncidentReceiverContract.Cc(dto.CcRecipients);
         cc.Remove(approved.Customer.Email.Trim().ToLowerInvariant());
-        var created = await sender.Send(new CreateIncidentCommand(report?.Subject ?? dto.Title,
+        // A queued incident can be visible to an operator who has no access to the source request.
+        // Keep presentation fields derived from that request in the separately authorized report.
+        var subject = groupId == null ? report?.Subject ?? dto.Title : $"Automation {trace!.Context.SourceOutcome}";
+        var created = await sender.Send(new CreateIncidentCommand(subject,
             report?.Summary ?? converter.Convert(sanitizer.Sanitize(dto.Description)), dto.Priority, approved.Customer.Id, approved.Organization.Id,
             dto.LinkedAssetIds, dto.Attachments, IncidentReceiverContract.DueDateUtc(dto.DueDate), dto.Impact,
-            approved.Customer.Email, cc, dto.AssignedToId), ct);
+            approved.Customer.Email, cc, dto.AssignedToId) { SuppressUnassignedSupportNotification = groupId != null }, ct);
+        if (groupId != null)
+            TicketQueueAssignment.Stage(db, created, groupId, created.AssignedToId,
+                $"source:{approved.Source.SourceNamespaceId:D}", null, time.GetUtcNow().UtcDateTime);
         db.IncidentCategoryLinks.AddRange(categories.Select(id => new IncidentCategoryLink
             { IncidentId = created.Id, TicketCategoryId = id }));
         await db.SaveChangesAsync(ct);
@@ -125,15 +157,24 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
             var publicLink = Uri.TryCreate(web, UriKind.Absolute, out var publicOrigin) && publicOrigin.Scheme == "https" &&
                 publicOrigin.UserInfo.Length == 0 && publicOrigin.Query.Length == 0 && publicOrigin.Fragment.Length == 0
                 ? web + "/incidents/" + Uri.EscapeDataString(created.Id) : null;
-            var integrationReceipt = new AutomationIncidentReceipt(AutomationTraceContract.IncidentVersion,
+            var integrationReceipt = new AutomationIncidentReceipt(groupId == null ? AutomationTraceContract.IncidentVersion : IncidentQueueContract.Version,
                 receiverId.Value.ToString("D"), approved.Source.SourceNamespaceId.ToString("D"), sourceId.ToString("D"), key,
                 fingerprint, "committed", created.Id, created.TrackingId, created.OrganizationId!, created.CustomerId!,
                 receipt.CommittedAtUtc, receipt.Location, publicLink, trace.Context.FlowRunId, trace.Context.ActionId,
                 new(originRelation is null ? "not-applicable" : "linked", originRelation?.Id.ToString("D"), originRequest?.Id,
                     originRequest is null ? null : trace.Context.Origin!.AttemptId), trace.Presentation);
-            receipt.AcceptedJson = JsonSerializer.Serialize(new { id = created.Id, trackingId = created.TrackingId,
-                organizationId = created.OrganizationId, customerId = created.CustomerId, subject = created.Title,
-                summary = created.Description, integrationReceipt }, AutomationTraceValidation.Json);
+            if (groupId == null)
+                receipt.AcceptedJson = JsonSerializer.Serialize(new { id = created.Id, trackingId = created.TrackingId,
+                    organizationId = created.OrganizationId, customerId = created.CustomerId, subject = created.Title,
+                    summary = created.Description, integrationReceipt }, AutomationTraceValidation.Json);
+            else
+            {
+                var queuedReceipt = JsonSerializer.SerializeToNode(integrationReceipt, AutomationTraceValidation.Json)!.AsObject();
+                queuedReceipt["assignedSupportGroupId"] = groupId;
+                receipt.AcceptedJson = JsonSerializer.Serialize(new { id = created.Id, trackingId = created.TrackingId,
+                    organizationId = created.OrganizationId, customerId = created.CustomerId, subject = created.Title,
+                    summary = created.Description, integrationReceipt = queuedReceipt }, AutomationTraceValidation.Json);
+            }
         }
         await outbox.FlushAsync(ct);
         await transaction.CommitAsync(ct);
@@ -141,14 +182,23 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         return Results.Content(receipt.AcceptedJson, "application/json", statusCode: 201);
     }
 
-    public async Task<IResult> LookupAsync(ClaimsPrincipal principal, Guid sourceId, string key, HttpContext http, CancellationToken ct)
+    public async Task<IResult> LookupAsync(ClaimsPrincipal principal, Guid sourceId, string key, HttpContext http, CancellationToken ct, bool queued = false)
     {
-        var approved = await authorization.ResolveAsync(principal, sourceId, IncidentReceiverOperation.ReadReceipt, ct);
+        var approved = await authorization.ResolveAsync(principal, sourceId,
+            queued ? IncidentReceiverOperation.ReadQueuedReceipt : IncidentReceiverOperation.ReadReceipt, ct);
         if (approved is null) return IncidentReceiverContract.Problem(403, "source-not-authorized");
         var receipt = await db.IncidentCreateReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
             x.SourceNamespaceId == approved.Source.SourceNamespaceId && x.Key == key, ct);
-        return receipt is null ? Results.NotFound() : Replay(receipt, approved, null, http);
+        if (receipt == null || queued != (receipt.AssignedSupportGroupId != null)) return Results.NotFound();
+        if (receipt.AssignedSupportGroupId is { } groupId && !await CanUseQueueAsync(approved, groupId, ct))
+            return IncidentReceiverContract.Problem(403, "queue-not-authorized");
+        return Replay(receipt, approved, null, http);
     }
+
+    private async Task<bool> CanUseQueueAsync(AuthorizedIncidentSource source, string groupId, CancellationToken ct) =>
+        await db.IncidentReceiverQueueRoutes.AnyAsync(route =>
+            route.SourceNamespaceId == source.Source.SourceNamespaceId && route.SupportGroupId == groupId, ct) &&
+        await TicketQueueAssignment.Destinations(db, source.Organization.Id).AnyAsync(group => group.Id == groupId, ct);
 
     private static IResult Replay(IncidentCreateReceipt receipt, AuthorizedIncidentSource approved, string? fingerprint, HttpContext http)
     {
@@ -176,7 +226,8 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
 
     /// <summary>Execution strategy and losing-writer retries always use fresh scoped contexts and captured-effect buffers.</summary>
     public static async Task<IResult> ExecuteCreateAsync(IServiceProvider services, ClaimsPrincipal principal,
-        Guid sourceId, string key, CreateIncidentDto dto, HttpContext http, CancellationToken ct, AutomationIncidentCreate? trace = null)
+        Guid sourceId, string key, CreateIncidentDto dto, HttpContext http, CancellationToken ct, AutomationIncidentCreate? trace = null,
+        string? groupId = null)
     {
         var strategy = services.GetRequiredService<HelpdeskDbContext>().Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -187,7 +238,7 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
                 try
                 {
                     return await scope.ServiceProvider.GetRequiredService<IncidentReceiver>()
-                        .CreateAsync(principal, sourceId, key, dto, http, ct, trace);
+                        .CreateAsync(principal, sourceId, key, dto, http, ct, trace, groupId);
                 }
                 catch (Exception error) when (attempt < 3 && IsCompetingWriter(error))
                 {
@@ -204,6 +255,8 @@ public sealed class IncidentReceiver(HelpdeskDbContext db, IIncidentReceiverAuth
         DbUpdateException { InnerException: SqliteException sqlite } => sqlite.SqliteErrorCode == 5 ||
             sqlite.SqliteExtendedErrorCode == 2067 && sqlite.Message.Contains("IncidentCreateReceipts", StringComparison.Ordinal),
         SqliteException sqlite => sqlite.SqliteErrorCode is 5 or 6,
+        PostgresException { SqlState: PostgresErrorCodes.SerializationFailure } => true,
+        DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.SerializationFailure } } => true,
         _ => false
     };
 }

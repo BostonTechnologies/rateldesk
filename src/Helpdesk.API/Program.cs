@@ -1160,10 +1160,12 @@ app.MapGet("/api/v1/auth/ai-agent/status", (ClaimsPrincipal user) => Results.Ok(
 app.MapAiAgentOpsEndpoints();
 app.MapActivityEndpoints();
 app.MapIncidentEndpoints();
+app.MapTicketQueueEndpoints();
 app.MapTicketRelationEndpoints();
 app.MapAutomationReportEndpoints();
 Helpdesk.API.Endpoints.Integrations.AutomationIncidentEndpoints.MapAutomationIncidentEndpoints(app);
 Helpdesk.API.Endpoints.Integrations.IncidentReceiverEndpoints.MapIncidentReceiverEndpoints(app);
+Helpdesk.API.Endpoints.Integrations.IncidentQueueReceiverEndpoints.MapIncidentQueueReceiverEndpoints(app);
 Helpdesk.API.Endpoints.Integrations.IncidentReceiverSourceEndpoints.MapIncidentReceiverSourceEndpoints(app);
 app.MapEmailEndpoints();
 app.MapEmailSettingsEndpoints();
@@ -1235,6 +1237,7 @@ app.MapGet("/health/db", async ([FromServices] HelpdeskDbContext db, Cancellatio
 
 app.MapGlobalSearchLookupEndpoints();
 app.MapRoleDefinitionEndpoints();
+app.MapTicketWorkforceEndpoints();
 MapCrudEndpoints<Organization>(app, "/api/v1/organizations");
 MapCrudEndpoints<Customer>(app, "/api/v1/customers");
 MapCrudEndpoints<Asset>(app, "/api/v1/assets");

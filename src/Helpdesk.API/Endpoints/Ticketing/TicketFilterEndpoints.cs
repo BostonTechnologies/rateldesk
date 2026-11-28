@@ -24,6 +24,7 @@ internal static class TicketFilterEndpoints
                 module == "task" && dimension != "customer" || q?.Length > 200 || take is <= 0)
                 return Results.BadRequest();
             var access = await accessService.ResolveAsync(user, token);
+            if (access.HasRestrictedWorkforceAccess && module == "task") return Results.Forbid();
             if (module == "task" && !RequestTasks.RequestTaskEndpoints.CanReadTasks(access)) return Results.Forbid();
             var changes = TicketListQuery.Authorized(db.Changes.AsNoTracking(), access, "change");
             IQueryable<Ticket> tickets = module switch {
@@ -57,7 +58,12 @@ internal static class TicketFilterEndpoints
                 }
                 else
                 {
-                    users = AssigneeQueries.Eligible(db, module, db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)));
+                    var visibleAssignees = module == "change"
+                        ? changes.Select(change => change.ImplementorUserId)
+                        : tickets.Select(ticket => ticket.AssignedToId);
+                    users = access.HasRestrictedWorkforceAccess
+                        ? db.Users.AsNoTracking().Where(candidate => visibleAssignees.Contains(candidate.Id))
+                        : AssigneeQueries.Eligible(db, module, db.Organizations.AsNoTracking().Where(organization => organizationIds.Contains(organization.Id)));
                     if (selectedIds.Length > 0)
                     {
                         // Restored filters may refer to former assignees. Resolve their labels only
@@ -91,7 +97,7 @@ internal static class TicketFilterEndpoints
             if (hasMore) items.RemoveAt(limit);
             if (picker == true) return Results.Ok(new CreationLookupResult<TicketFilterOptionDto>(items, await eligibleOptions!.CountAsync(token), hasMore));
             return Results.Ok(new TicketFilterOptionsDto(items, hasMore));
-        }).WithName("SearchTicketFilterOptions");
+        }).WithMetadata(new QueueAwareEndpoint()).WithName("SearchTicketFilterOptions");
     }
 
     private static IQueryable<Ticket> RequestsWithAuthorizedTasks(HelpdeskDbContext db, CurrentUserAccessProfile access)

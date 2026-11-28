@@ -2,6 +2,7 @@ using Helpdesk.Application.Notifications;
 using Helpdesk.Application.Services.Email;
 using Helpdesk.Application.Timeline;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.Notification;
 using Helpdesk.Shared.DTOs.Worklog;
 using Helpdesk.Shared.Enums;
@@ -82,7 +83,7 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             requiresReview = result.Status is "Needs configuration" or "Needs review" or "Outcome unknown";
             errorCode = result.Status switch
             {
-                "Suppressed" => "Suppressed",
+                "Suppressed" => result.ErrorCode == "TicketRecipientScopeChanged" ? result.ErrorCode : "Suppressed",
                 "Outcome unknown" => "SubmissionOutcomeUnknown",
                 _ => result.ErrorCode
             };
@@ -115,16 +116,39 @@ public sealed class MailboxOutboxDispatcher(IServiceScopeFactory scopes, ILogger
             case MailboxEffectKind.Email:
                 var store = services.GetRequiredService<MailboxOutboxStore>();
                 var email = store.PrepareEmailForDelivery(effect);
+                var queueNotifications = services.GetService<TicketQueueNotificationProcessor>();
+                if (queueNotifications != null)
+                {
+                    var authorized = await queueNotifications.AuthorizeDeliveryAsync(email, ct);
+                    if (authorized == null) return new("Suppressed", "TicketRecipientScopeChanged");
+                    email = authorized;
+                }
                 if (email.MailboxId is null)
                     return new("Needs review", email.SenderBindingError ?? "LegacySenderBindingMissing");
-                return await services.GetRequiredService<MailboxEmailService>().SendPinnedAsync(email.MailboxId.Value,
+                var recipientScopeChanged = false;
+                var result = await services.GetRequiredService<MailboxEmailService>().SendPinnedAsync(email.MailboxId.Value,
                     email.OrganizationId, email.TicketId, email.Recipients, email.Cc,
                     email.Subject, email.Html, email.Attachments, email.ReplyTo, effect.Id, ct,
                     email.MailboxConfigurationVersion, email.OutgoingConfigurationVersion, email.Bcc,
-                    token => store.TryBeginSubmissionAsync(effect, token));
+                    async token =>
+                    {
+                        if (queueNotifications != null && email.TicketId != null)
+                        {
+                            var current = await queueNotifications.AuthorizeDeliveryAsync(email, token);
+                            recipientScopeChanged = current == null || !email.Recipients.SequenceEqual(current.Recipients) ||
+                                !(email.Cc ?? []).SequenceEqual(current.Cc ?? []) || !email.Bcc.SequenceEqual(current.Bcc);
+                            if (recipientScopeChanged) return false;
+                        }
+                        return await store.TryBeginSubmissionAsync(effect, token);
+                    });
+                return recipientScopeChanged ? new("Suppressed", "TicketRecipientScopeChanged") : result;
             case MailboxEffectKind.Notification:
                 services.GetRequiredService<INotificationEventBus>().Publish(
                     MailboxOutboxStore.Deserialize<NotificationDto>(effect.Payload));
+                return new("Accepted by provider");
+            case MailboxEffectKind.SupportGroupAssignment:
+                await services.GetRequiredService<TicketQueueNotificationProcessor>().DispatchAssignmentAsync(
+                    MailboxOutboxStore.Deserialize<string>(effect.Payload), ct);
                 return new("Accepted by provider");
             case MailboxEffectKind.Timeline:
                 var timeline = MailboxOutboxStore.Deserialize<TicketTimelineEventDto>(effect.Payload);

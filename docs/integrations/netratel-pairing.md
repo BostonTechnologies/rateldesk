@@ -66,6 +66,26 @@ also removes the pair credentials. An unused pairing can be deleted. Any
 peer cleanup runs automatically; an offline peer has not acknowledged it.
 Existing incidents, receipts, Flow runs and task history remain intact.
 
+## Route monitoring incidents to a named queue
+
+1. Create the destination support groups and grant their active members
+   permission to read incidents for the customer. Configure enabled coverage
+   for the customer's current IT support organization.
+2. Enable the **Ticket assigned to support group** email rule for each
+   destination that should receive alerts. Confirm mailbox configuration and
+   the Web origin used in authenticated ticket links.
+3. From an instance administrator session, read the paired source namespace's
+   queue allowlist and current revision, then approve the destinations.
+4. After the compatible RatelDesk receiver and NetRatel writer are published,
+   select a queue in the NetRatel action and verify one incident, one assignment
+   and one email per eligible address. The recipient opens the ticket after
+   signing in. For a deployed legacy writer, create the incident in Main Queue
+   and move it from the RatelDesk workspace.
+
+Use the existing support delivery history and mailbox outbox to review outcomes.
+An empty queue lookup can indicate missing current coverage, a disabled group
+or an unapproved source destination. [Queue routing contract](../contracts/rateldesk-incident-create.v3.md)
+
 ## Addresses and credentials
 
 Valid HTTPS works with public or private DNS and reverse proxies. Deliberately

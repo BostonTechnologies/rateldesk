@@ -3,6 +3,7 @@
 These documents retain dated plans, source pins and evidence. Current operator
 guidance is linked from the [documentation index](../README.md).
 
+- [#511 support group ticket queues acceptance](511-support-group-queues.md)
 - [#464 Daybreak remediation and verification map](daybreak-remediation-20261123.md)
 - [#444 AI conversation lifecycle and rendered evidence](444-ai-lifecycle.md)
 - [#445 organization and contact lookup inventory](445-search-controls.md)

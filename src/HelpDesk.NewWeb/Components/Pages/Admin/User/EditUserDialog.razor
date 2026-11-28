@@ -1,5 +1,6 @@
 @using System.ComponentModel.DataAnnotations
 @using Helpdesk.Shared.DTOs.Organization
+@using Helpdesk.Shared.Enums
 @inject IHttpClientFactory HttpClientFactory
 
 <WorkspaceEditGuard Dirty="@formChanged" Message="Discard unsaved support agent changes and leave?" />
@@ -31,7 +32,7 @@
                         <MudSelect T="string" @bind-Value="newRoleKey" Label="Role" Required="true">
                             @foreach (var role in AvailableRolesForNewAssignment)
                             {
-                                <MudSelectItem T="string" Value="@role.Key">@role.Name</MudSelectItem>
+                                <MudSelectItem T="string" Value="@role.Key">@role.Name · @HelpDesk.NewWeb.Components.Pages.Admin.Role.RoleManagement.TicketScopeLabel(role.TicketAccessScope)</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
@@ -40,6 +41,17 @@
                     </MudItem>
                 </MudGrid>
                 <MudButton OnClick="AddAssignment" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2">Add scoped role</MudButton>
+                @if (workforceStatus is { } status)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-3">Ticket access for @OrganizationLabel(newOrganizationId!): @(status.Restricted ? "Restricted to authorized support groups" : "All authorized queues")</MudText>
+                    @if (status.ConflictingRoleKeys.Count > 0)
+                    {
+                        <MudText Typo="Typo.caption">Broad ticket grants suppressed: @string.Join(", ", status.ConflictingRoleKeys.Select(RoleLabel))</MudText>
+                    }
+                    <MudTextField T="string" @bind-Value="scopeReason" Label="Reason for changing ticket access" MaxLength="1024" Immediate="true" Margin="Margin.Dense" />
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(formChanged || scopeSaving || string.IsNullOrWhiteSpace(scopeReason))"
+                               OnClick="ChangeWorkforceScopeAsync">@(status.Restricted ? "Switch to unrestricted" : "Restrict workforce access")</MudButton>
+                }
                 <MudList T="LocalScopedRoleAssignment" Dense="true" Class="mt-3">
                     @foreach (var assignment in assignments)
                     {
@@ -102,6 +114,9 @@
     private string newRoleKey = "SelfServiceUser";
     private string? newOrganizationId;
     private string? error;
+    private TicketWorkforceStatus? workforceStatus;
+    private string? scopeReason;
+    private bool scopeSaving;
 
     protected override async Task OnInitializedAsync()
     {
@@ -125,7 +140,7 @@
             hasScopedRoleAssignments = true;
             isLocalAccount = response?.IsLocalAccount == true;
             isInstanceAdministrator = response?.IsInstanceAdministrator == true;
-            newOrganizationId = organizations.FirstOrDefault()?.Id;
+            newOrganizationId = assignments.FirstOrDefault()?.OrganizationId ?? User.OrganizationId ?? organizations.FirstOrDefault()?.Id;
             organizations.AddRange(await HelpDesk.NewWeb.Services.OrganizationReferences.LoadAsync(HelpdeskApi, assignments.Select(row => row.OrganizationId)));
             var roleResponse = await HelpdeskApi.GetAsync("api/v1/admin/role-definitions/");
             if (roleResponse.IsSuccessStatusCode)
@@ -133,6 +148,7 @@
                 roleDefinitions = await roleResponse.Content.ReadFromJsonAsync<List<RoleDefinition>>() ?? new();
                 newRoleKey = AvailableRolesForNewAssignment.FirstOrDefault()?.Key ?? newRoleKey;
             }
+            await LoadWorkforceStatusAsync(newOrganizationId);
         }
     }
 
@@ -201,9 +217,41 @@
         formChanged |= assignments.Remove(assignment);
     }
 
-    private void RememberOrganization(OrganizationDto? item)
+    private async Task RememberOrganization(OrganizationDto? item)
     {
         if (item is not null && !organizations.Any(row => row.Id == item.Id)) organizations.Add(item);
+        await LoadWorkforceStatusAsync(item?.Id);
+    }
+
+    private async Task LoadWorkforceStatusAsync(string? organizationId)
+    {
+        workforceStatus = null;
+        scopeReason = null;
+        if (organizationId == null || isInstanceAdministrator) return;
+        try
+        {
+            using var response = await HelpdeskApi.GetAsync($"api/v1/admin/users/{Uri.EscapeDataString(User.Id)}/ticket-workforce/{Uri.EscapeDataString(organizationId)}");
+            if (response.IsSuccessStatusCode)
+                workforceStatus = await response.Content.ReadFromJsonAsync<TicketWorkforceStatus>();
+        }
+        catch (HttpRequestException) { error = "Ticket access scope could not be loaded."; }
+    }
+
+    private async Task ChangeWorkforceScopeAsync()
+    {
+        if (workforceStatus is not { } current || newOrganizationId is not { } tenant || string.IsNullOrWhiteSpace(scopeReason)) return;
+        scopeSaving = true;
+        error = null;
+        try
+        {
+            using var response = await HelpdeskApi.PutAsJsonAsync(
+                $"api/v1/admin/users/{Uri.EscapeDataString(User.Id)}/ticket-workforce/{Uri.EscapeDataString(tenant)}",
+                new { restricted = !current.Restricted, reason = scopeReason });
+            if (response.IsSuccessStatusCode) await LoadWorkforceStatusAsync(tenant);
+            else error = "Ticket access scope could not be changed. For unrestricted access, remove group-scoped roles first.";
+        }
+        catch (HttpRequestException) { error = "Ticket access scope could not be changed. Try again."; }
+        finally { scopeSaving = false; }
     }
     private string OrganizationLabel(string organizationId) =>
         organizations.FirstOrDefault(organization => organization.Id == organizationId)?.Name ?? organizationId;
@@ -247,5 +295,10 @@
         bool IsBuiltIn,
         bool IsProtected,
         IReadOnlyList<string> Permissions,
-        int AssignmentCount);
+        int AssignmentCount)
+    {
+        public TicketAccessScope TicketAccessScope { get; init; }
+    }
+
+    private sealed record TicketWorkforceStatus(bool Restricted, IReadOnlyList<string> ConflictingRoleKeys);
 }

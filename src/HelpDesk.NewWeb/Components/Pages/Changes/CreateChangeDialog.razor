@@ -12,6 +12,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject IErrorLoggingService ErrorLogger
 @inject ILogger<CreateChangeDialog> Logger
+@inject AuthenticationStateProvider AccessAuthenticationState
 @using HelpDesk.NewWeb.Services
 
 <MudDialog Class="change-create-dialog premium-workspace">
@@ -54,7 +55,13 @@
                     <div id="change-window"><MudGrid Spacing="2">
                         <MudItem xs="12" sm="6"><MudDatePicker Editable="true" DateFormat="yyyy-MM-dd" Label="Start date (UTC)" Date="implementationStartDate" DateChanged="OnImplementationStartDateChanged" Variant="Variant.Outlined" Margin="Margin.Dense" /><MudTimePicker Editable="true" Label="Start time (UTC)" Time="implementationStartTime" TimeChanged="OnImplementationStartTimeChanged" AmPm="false" /></MudItem>
                         <MudItem xs="12" sm="6"><MudDatePicker Editable="true" DateFormat="yyyy-MM-dd" Label="End date (UTC)" Date="implementationEndDate" DateChanged="OnImplementationEndDateChanged" Variant="Variant.Outlined" Margin="Margin.Dense" /><MudTimePicker Editable="true" Label="End time (UTC)" Time="implementationEndTime" TimeChanged="OnImplementationEndTimeChanged" AmPm="false" /></MudItem>
-                        <MudItem xs="12" sm="6"><div id="change-implementor"><AssigneeSelector Module="change" OrganizationId="@model.OrganizationId" Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="false" Busy="isSubmitting" SelectionChanged="user => model.ImplementorUserId = user?.Id" /></div></MudItem>
+                        @if (HelpDesk.NewWeb.Services.TicketQueueActions.CanChooseDestination(accessProfile, "change", model.OrganizationId))
+                        {
+                            <MudItem xs="12" sm="6"><TicketQueuePicker Module="change" OrganizationId="@model.OrganizationId" Transfer="true"
+                                Label="Assigned group" Placeholder="Main Queue" Value="@model.AssignedSupportGroupId"
+                                SelectionChanged="@(queue => model.AssignedSupportGroupId = queue?.Id)" Disabled="isSubmitting" /></MudItem>
+                        }
+                        <MudItem xs="12" sm="6"><div id="change-implementor"><AssigneeSelector Module="change" OrganizationId="@model.OrganizationId" Value="@model.ImplementorUserId" Label="Implementor" AllowUnassigned="@(model.AssignedSupportGroupId != null)" Busy="isSubmitting" SelectionChanged="user => model.ImplementorUserId = user?.Id" /></div></MudItem>
                         <MudItem xs="12" sm="6"><ChangeParticipantSearchPicker OrganizationId="@model.OrganizationId" Label="Approvers" Multiple="true" Required="false" SelectedIds="selectedApproverIds" SelectedIdsChanged="OnApproversChanged" Disabled="isSubmitting" /></MudItem>
                         <MudItem xs="12"><ServiceCategoryPicker RequestedType="TicketCategoryType.Change" OrganizationId="@model.OrganizationId" SelectedCategoryIds="@((model.CategoryIds ?? new()).ToHashSet())" SelectedCategoryIdsChanged="ids => model.CategoryIds = ids.ToList()" /></MudItem>
                     </MudGrid></div>
@@ -119,6 +126,7 @@
         model.RequestedForUserId = null;
         model.CategoryIds = new();
         model.ImplementorUserId = null;
+        model.AssignedSupportGroupId = null;
         model.ApproverUserIds = new();
         selectedApproverIds = new(StringComparer.OrdinalIgnoreCase);
         return Task.CompletedTask;
@@ -232,8 +240,14 @@
     private bool IsDirty => !allowClose && (JsonSerializer.Serialize(model) != EmptyDraft ||
         implementationStartDate.HasValue || implementationStartTime.HasValue || implementationEndDate.HasValue || implementationEndTime.HasValue);
 
-    protected override async Task OnInitializedAsync() => await Dialog.SetOptionsAsync(Dialog.Options with
-        { BackdropClick = false, CloseOnEscapeKey = false, CloseButton = false });
+    private Helpdesk.Shared.Services.CurrentUserAccessProfile? accessProfile;
+
+    protected override async Task OnInitializedAsync()
+    {
+        accessProfile = Helpdesk.Shared.Services.CurrentUserAccessProfile.FromClaims((await AccessAuthenticationState.GetAuthenticationStateAsync()).User);
+        await Dialog.SetOptionsAsync(Dialog.Options with
+            { BackdropClick = false, CloseOnEscapeKey = false, CloseButton = false });
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -249,7 +263,7 @@
         if (string.IsNullOrWhiteSpace(model.Description)) errors.Add(new(0, "change-description", "Description is required."));
         if (string.IsNullOrWhiteSpace(model.OrganizationId)) errors.Add(new(0, "change-organization", "Organization is required."));
         if (string.IsNullOrWhiteSpace(model.RequestedForUserId)) errors.Add(new(0, "change-requested-for", "Requested for is required."));
-        if (string.IsNullOrWhiteSpace(model.ImplementorUserId)) errors.Add(new(2, "change-implementor", "Implementor is required."));
+        if (model.AssignedSupportGroupId == null && string.IsNullOrWhiteSpace(model.ImplementorUserId)) errors.Add(new(2, "change-implementor", "Implementor is required."));
         var start = CombineDateTime(implementationStartDate, implementationStartTime);
         var end = CombineDateTime(implementationEndDate, implementationEndTime);
         if (start is null || end is null) errors.Add(new(2, "change-window", "Implementation start and end date/time are required."));

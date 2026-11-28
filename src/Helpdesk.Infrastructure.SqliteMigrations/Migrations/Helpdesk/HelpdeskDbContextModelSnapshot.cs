@@ -1139,6 +1139,84 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.ToTable("NotificationReads", (string)null);
                 });
 
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.TicketQueueTransition", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AssignedSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AssignedToId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("AssignmentVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreviousAssigneeId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreviousSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TicketType")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId", "AssignmentVersion")
+                        .IsUnique();
+
+                    b.ToTable("TicketQueueTransitions");
+                });
+
+            modelBuilder.Entity("Helpdesk.Infrastructure.Persistence.Entities.TicketWorkforceRestriction", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrganizationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RestrictedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "OrganizationId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.ToTable("TicketWorkforceRestrictions");
+                });
+
             modelBuilder.Entity("Helpdesk.Infrastructure.Security.PublicLinkCapability", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3047,6 +3125,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AssignedSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset>("CommittedAtUtc")
                         .HasColumnType("TEXT");
 
@@ -3110,6 +3192,22 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasKey("SourceNamespaceId", "PrincipalKind", "PrincipalId");
 
                     b.ToTable("IncidentReceiverPrincipalBindings");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverQueueRoute", b =>
+                {
+                    b.Property<Guid>("SourceNamespaceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("SourceNamespaceId", "SupportGroupId");
+
+                    b.HasIndex("SupportGroupId");
+
+                    b.ToTable("IncidentReceiverQueueRoutes");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverSource", b =>
@@ -3782,6 +3880,11 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<int>("Scope")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("TicketAccessScope")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Key")
@@ -3805,6 +3908,22 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.HasKey("RoleId", "Permission");
 
                     b.ToTable("RolePermissions");
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.RoleSupportGroup", b =>
+                {
+                    b.Property<string>("RoleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("RoleId", "SupportGroupId");
+
+                    b.HasIndex("SupportGroupId");
+
+                    b.ToTable("RoleSupportGroups");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.ScopedRoleAssignment", b =>
@@ -4161,6 +4280,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasMaxLength(2048)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("QueueTransitionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RecipientEmail")
                         .IsRequired()
                         .HasMaxLength(320)
@@ -4368,6 +4491,10 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<string>("AdministrativelyClosedBy")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AssignedSupportGroupId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AssignedToId")
                         .HasColumnType("TEXT");
 
@@ -4424,6 +4551,12 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<int>("Priority")
                         .HasColumnType("INTEGER");
 
+                    b.Property<long>("QueueAssignmentVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0L);
+
                     b.Property<int>("Replies")
                         .HasColumnType("INTEGER");
 
@@ -4455,9 +4588,13 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedSupportGroupId");
+
                     b.HasIndex("State");
 
                     b.HasIndex("OrganizationId", "ClosedAt");
+
+                    b.HasIndex("OrganizationId", "AssignedSupportGroupId", "State");
 
                     b.ToTable("Tickets");
 
@@ -5534,6 +5671,21 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.IncidentReceiverQueueRoute", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.IncidentReceiverSource", null)
+                        .WithMany()
+                        .HasForeignKey("SourceNamespaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Helpdesk.Shared.Models.SupportGroup", null)
+                        .WithMany()
+                        .HasForeignKey("SupportGroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.MailboxIngestionState", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.EmailInboxSettings", null)
@@ -5627,6 +5779,21 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Helpdesk.Shared.Models.RoleSupportGroup", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.Role", null)
+                        .WithMany("SupportGroups")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Helpdesk.Shared.Models.SupportGroup", null)
+                        .WithMany()
+                        .HasForeignKey("SupportGroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Helpdesk.Shared.Models.SlaEscalationRule", b =>
                 {
                     b.HasOne("Helpdesk.Shared.Models.SlaPolicy", null)
@@ -5652,6 +5819,14 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                         .HasForeignKey("SupportGroupId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Helpdesk.Shared.Models.Ticket", b =>
+                {
+                    b.HasOne("Helpdesk.Shared.Models.SupportGroup", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedSupportGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.TicketCategory", b =>
@@ -5699,6 +5874,8 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
             modelBuilder.Entity("Helpdesk.Shared.Models.Role", b =>
                 {
                     b.Navigation("Permissions");
+
+                    b.Navigation("SupportGroups");
                 });
 
             modelBuilder.Entity("Helpdesk.Shared.Models.SlaPolicy", b =>

@@ -6,8 +6,11 @@ using Helpdesk.Application.Services.EmailTemplates;
 using Helpdesk.Application.Tickets;
 using Helpdesk.Infrastructure.Email;
 using Helpdesk.Infrastructure.Persistence;
+using Helpdesk.Infrastructure.Ticketing;
 using Helpdesk.Shared.DTOs.PublicAccess;
+using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
+using Helpdesk.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
@@ -16,7 +19,7 @@ using Microsoft.Extensions.Configuration;
 namespace Helpdesk.Infrastructure.Security;
 
 public sealed class PublicLinkService(HelpdeskDbContext db, IPublicTicketLinkSigner legacySigner, IDataProtectionProvider keys,
-    IConfiguration options, TimeProvider clock) : IPublicLinkIssuer
+    IConfiguration options, TimeProvider clock, ICurrentUserAccessService? accessService = null) : IPublicLinkIssuer
 {
     private readonly ITimeLimitedDataProtector _grants = keys.CreateProtector("RatelDesk.PublicLinkGrant.v1").ToTimeLimitedDataProtector();
 
@@ -25,7 +28,8 @@ public sealed class PublicLinkService(HelpdeskDbContext db, IPublicTicketLinkSig
     {
         var normalized = recipient.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(ticket.Id) || string.IsNullOrWhiteSpace(ticket.OrganizationId) ||
-            !ValidRecipient(normalized) || !MatchesPurpose(ticket, purpose, taskId))
+            !ValidRecipient(normalized) || !MatchesPurpose(ticket, purpose, taskId) ||
+            !await CanUseTicketViewAsync(ticket, purpose, normalized, cancellationToken))
             return string.Empty;
 
         var launch = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
@@ -205,7 +209,9 @@ public sealed class PublicLinkService(HelpdeskDbContext db, IPublicTicketLinkSig
 
     private async Task<bool> IsCurrentBindingAsync(PublicLinkCapability link, CancellationToken ct)
     {
-        if (!await db.Tickets.IgnoreQueryFilters().AnyAsync(row => row.Id == link.TicketId && row.OrganizationId == link.OrganizationId, ct) ||
+        var ticket = await db.Tickets.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(row =>
+            row.Id == link.TicketId && row.OrganizationId == link.OrganizationId, ct);
+        if (ticket == null ||
             !await db.Organizations.AnyAsync(row => row.Id == link.OrganizationId &&
                 row.State == Helpdesk.Shared.Models.EntityState.Enabled, ct))
             return false;
@@ -216,6 +222,34 @@ public sealed class PublicLinkService(HelpdeskDbContext db, IPublicTicketLinkSig
         if (link.Purpose == PublicLinkPurpose.ChangeApproval)
             return await db.Set<ChangeApproval>().AnyAsync(row => row.ChangeId == link.TicketId &&
                 row.ApproverEmail.ToLower() == link.Recipient, ct);
+        return await CanUseTicketViewAsync(ticket, link.Purpose, link.Recipient, ct);
+    }
+
+    private async Task<bool> CanUseTicketViewAsync(Ticket ticket, PublicLinkPurpose purpose, string recipient, CancellationToken ct)
+    {
+        if (purpose is PublicLinkPurpose.RequestApproval or PublicLinkPurpose.ChangeApproval) return true;
+        if (ticket.CustomerId != null && await db.Customers.AnyAsync(customer => customer.Id == ticket.CustomerId &&
+            customer.OrganizationId == ticket.OrganizationId && customer.IsEnabled && customer.Email.ToLower() == recipient, ct))
+            return true;
+        if (purpose == PublicLinkPurpose.ChangeView && await db.ChangeApprovals.AnyAsync(approval =>
+            approval.ChangeId == ticket.Id && approval.ApproverEmail.ToLower() == recipient, ct))
+            return true;
+
+        var workforce = await db.Users.AsNoTracking().Where(user => user.Email.ToLower() == recipient)
+            .Select(user => new
+            {
+                user.Id, user.IsDeleted,
+                IsRestricted = db.TicketWorkforceRestrictions.Any(restriction => restriction.UserId == user.Id) ||
+                    db.ScopedRoleAssignments.Any(assignment => assignment.UserId == user.Id && db.Roles.Any(role =>
+                        role.Key == assignment.RoleKey && role.TicketAccessScope != TicketAccessScope.AllAuthorizedQueues))
+            }).ToArrayAsync(ct);
+        foreach (var account in workforce)
+        {
+            if (account.IsRestricted) return false;
+            if (ticket.AssignedSupportGroupId != null && (account.IsDeleted || accessService == null ||
+                await AssigneeQueries.ResolveAccountAccessAsync(db, accessService, account.Id, ct) is not { } access ||
+                !TicketAccessPolicy.CanReadStaffContent(access, ticket))) return false;
+        }
         return true;
     }
 
