@@ -502,8 +502,10 @@ public sealed class RequestTaskLifecycleServiceTests
         var task = new RequestTask { Id = "task-1", RequestId = "request-1", Title = "Automation", Type = RequestTaskType.Automation,
             Status = RequestTaskStatus.Failed, AutoStart = false, OrchestrationExternalRunId = "run-1",
             OrchestrationExternalRequestId = "provider-request-1", AutomationAttemptCorrelationId = "first-attempt",
-            LastAutomationStatus = status };
-        var parent = new Request { Id = task.RequestId, WorkflowStatus = "Blocked", WorkflowBlockReason = "Task 'Automation' failed." };
+            LastAutomationStatus = status, StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            LastAutomationUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-1), FailureReason = "Known provider outcome." };
+        var parent = new Request { Id = task.RequestId, State = TicketState.OnHold, WorkflowStatus = "Blocked",
+            WorkflowBlockReason = "Task 'Automation' failed.", WorkflowUpdatedAt = DateTimeOffset.UtcNow };
         var tasks = Substitute.For<IRepository<RequestTask>>();
         tasks.GetAsync(task.Id).Returns(task);
         tasks.GetAllAsync().Returns([task]);

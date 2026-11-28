@@ -11,16 +11,19 @@ using Helpdesk.Infrastructure.EmailTemplates;
 using Helpdesk.Infrastructure.Identity;
 using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Persistence.Entities;
+using Helpdesk.Infrastructure.Storage;
 using Helpdesk.Shared.DTOs.Incident;
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Auth;
 using Helpdesk.Shared.Enums;
 using Helpdesk.Shared.Models;
+using Helpdesk.Tests.Fixtures;
 using Helpdesk.Tests.Infrastructure.Email;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Helpdesk.Tests.Api;
 
@@ -205,11 +208,30 @@ public sealed class AutomationTraceabilityTests
         }
 
         await h.PrepareProcessBootstrapAsync();
+        var storage = h.App.Services.GetRequiredService<IOptions<StorageOptions>>();
+        var signer = new ImageLinkSigner(storage, NullLogger<ImageLinkSigner>.Instance);
+        const string worklogId = "vendor-inline-worklog";
+        await h.EditAsync(db =>
+        {
+            db.WorkLogs.Add(new WorkLog { Id = worklogId, TicketId = incidentId, NotesText = "Synthetic inline worklog" });
+            return Task.CompletedTask;
+        });
+        var visibleAssets = new[]
+        {
+            await StoreRasterAsync("incident", "incidents", incidentId!),
+            await StoreRasterAsync("worklog", "worklogs", worklogId)
+        };
+        var hiddenAsset = await StoreRasterAsync("incident", "incidents", "hidden-main");
         var (process, vendor) = await h.StartApiProcessAsync();
         try
         {
             using var anonymous = await vendor.GetAsync($"/api/v1/incidents/{incidentId}");
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+            foreach (var asset in visibleAssets)
+            {
+                using var anonymousAsset = await vendor.GetAsync(asset);
+                Assert.Equal(HttpStatusCode.Unauthorized, anonymousAsset.StatusCode);
+            }
             vendor.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
             using var login = await vendor.PostAsJsonAsync("/api/v1/local-auth/login", new LocalAuthenticationEndpoints.LocalLoginRequest(vendorEmail, password));
             Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
@@ -221,10 +243,18 @@ public sealed class AutomationTraceabilityTests
             Assert.Equal(HttpStatusCode.OK, state.StatusCode);
             using var hidden = await vendor.GetAsync("/api/v1/incidents/hidden-main");
             Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+            using var deniedAsset = await vendor.GetAsync(hiddenAsset);
+            Assert.Equal(HttpStatusCode.NotFound, deniedAsset.StatusCode);
+            foreach (var asset in visibleAssets)
+                SyntheticRaster.AssertPng(42, await vendor.GetByteArrayAsync(asset));
             foreach (var unsupported in new[]
             {
                 $"/api/v1/tickets/{incidentId}/automation-reports",
                 $"/api/v1/reports/sla/breached?tenantId={h.OrganizationId}&ticketType=Incident&page=1&pageSize=10",
+                $"/api/v1/reports/sla/compliance?tenantId={h.OrganizationId}&ticketType=Incident&fromUtc=2026-11-01T00:00:00Z&toUtc=2026-12-01T00:00:00Z",
+                "/api/v1/sla-report-subscriptions/",
+                "/api/v1/notifications?page=1&pageSize=10",
+                "/api/v1/notifications/stream",
                 "/api/v1/incidents/hidden-main/ai-assistant/chat",
                 "/api/v1/incidents/hidden-main/ai-assistant/eligible-configurations"
             })
@@ -251,6 +281,11 @@ public sealed class AutomationTraceabilityTests
             Assert.Null(await reader.ReadLineAsync(deadline.Token));
             using var revoked = await vendor.GetAsync(incidentPath);
             Assert.Contains(revoked.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+            foreach (var asset in visibleAssets)
+            {
+                using var revokedAsset = await vendor.GetAsync(asset);
+                Assert.Equal(HttpStatusCode.NotFound, revokedAsset.StatusCode);
+            }
 
             await h.EditAsync(async db =>
             {
@@ -278,6 +313,16 @@ public sealed class AutomationTraceabilityTests
             Assert.Contains(deniedReconnect.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
         }
         finally { await IncidentReceiverTests.Harness.StopProcessAsync(process, vendor); }
+
+        async Task<string> StoreRasterAsync(string scope, string collection, string id)
+        {
+            const string filename = "synthetic-inline.png";
+            var directory = Path.Combine(storage.Value.RootPath, collection, id, "inline");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(Path.Combine(directory, filename), SyntheticRaster.Png(42));
+            var signature = signer.GenerateToken(scope, id, filename, DateTimeOffset.UtcNow.AddMinutes(10));
+            return $"/api/{collection}/{id}/images/{filename}?token={Uri.EscapeDataString(signature)}";
+        }
 
         async Task<HttpResponseMessage> SubmitAsync()
         {

@@ -254,7 +254,8 @@ An automation binding's **Execution readiness** shows the status of its
 selected NetRatel job and saved system connection. A job can need saved-account
 approval even when the connection is Connected and the binding is In Sync.
 Review and approve the saved account scope under **Paired Run as** in NetRatel.
-An older NetRatel peer may leave readiness unreported.
+Refresh **Execution readiness** to confirm the selected job and connection.
+An older or unavailable NetRatel peer can leave readiness unknown.
 
 Self-service returns the tracking reference after validation and durable
 commit. The workflow and notifications progress in the background. Use
@@ -265,3 +266,11 @@ and open the automation task for the provider stage and reason. A rejection
 such as `run_as_denied` has no provider execution. For an admitted failure,
 the diagnostics show the provider request and run when available. Reconcile
 an uncertain attempt before retrying.
+
+### Recover a rejected request
+
+1. Upgrade NetRatel first, then RatelDesk. Keep the existing system connection and job input mapping.
+2. In NetRatel, open **System connections → Paired Run as** on the automation connection. Select the job, verify the effective targets and account profiles, and choose **Approve saved accounts**. The operator needs tenant administration, integration management, job management, Run as and secret-use permissions for the mapped tenant.
+3. In RatelDesk, refresh **Execution readiness** on the affected job binding. In the request's **Tasks** tab, expand the automation task and confirm the admission record shows **No execution created**. If beta.11 already left the task **Pending**, check **Previous provider rejections** for that record.
+4. Choose **Retry task**. A failed task gets one new attempt. An unstarted retry whose previous failure owns the legacy hold resumes with its existing attempt reference. Independent holds and dependencies continue to govern when the attempt can start.
+5. Check the parent workflow status and the provider request and run links after the callback. If the UI reports that the hold cannot be attributed, check the task's archived attempt and the outstanding request holds in **Operations** before resuming. Reconcile any attempt whose execution outcome is uncertain.

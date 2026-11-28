@@ -143,7 +143,7 @@
                     {
                         <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseTasksAsync([context])" />
                     }
-                    @if (context.AdministrativeClosureReason == null && context.Status == RequestTaskStatus.Pending)
+                    @if (context.AdministrativeClosureReason == null && context.Status == RequestTaskStatus.Pending && !context.PendingRetryRecovery)
                     {
                         <WorkspaceAction Label="Start task" Icon="@Icons.Material.Filled.PlayArrow" Disabled="@GetStartDisabled(context)" DisabledReason="@(context.AutomationBlockReason ?? "Task permission or readiness is required")" OnClick="() => StartTaskAsync(context.Id)" />
                     }
@@ -151,7 +151,7 @@
                     {
                         <WorkspaceAction Label="Complete task" Icon="@Icons.Material.Outlined.CheckCircle" Disabled="@(rowActionBusy || !CanOperate(context))" DisabledReason="Task permission is required" OnClick="() => CompleteTaskAsync(context.Id)" />
                     }
-                    @if (context.AdministrativeClosureReason == null && context.Type == RequestTaskType.Automation && context.Status == RequestTaskStatus.Failed && CanOperate(context) && !RequiresManualReconciliation(context.LastAutomationStatus))
+                    @if (context.AdministrativeClosureReason == null && context.Type == RequestTaskType.Automation && (context.Status == RequestTaskStatus.Failed || context.PendingRetryRecovery) && CanOperate(context) && !RequiresManualReconciliation(context.LastAutomationStatus))
                     {
                         <WorkspaceAction Label="Retry task" Icon="@Icons.Material.Filled.Replay" Disabled="@(rowActionBusy || !CanOperate(context))" OnClick="() => RetryTaskAsync(context.Id)" />
                     }
@@ -195,6 +195,7 @@
                         { <ProviderExecutionDetails Diagnostic="providerFailure" /> }
                         else if (!string.IsNullOrWhiteSpace(context.FailureReason))
                         { <span>@context.FailureReason</span> }
+                        <ProviderRejectionHistory Rejections="context.PreviousProviderRejections" />
                     </section>
                 }
 

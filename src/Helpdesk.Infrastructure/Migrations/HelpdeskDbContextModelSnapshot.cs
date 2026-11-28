@@ -5158,6 +5158,17 @@ namespace Helpdesk.Infrastructure.Persistence.Migrations
                     b.Property<string>("WorkflowBlockReason")
                         .HasColumnType("text");
 
+                    b.Property<string>("WorkflowFailureAttemptId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int?>("WorkflowFailureCategory")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WorkflowFailureTaskId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<long>("WorkflowStateVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()

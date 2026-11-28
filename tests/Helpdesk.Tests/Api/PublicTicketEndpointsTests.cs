@@ -29,29 +29,48 @@ namespace Helpdesk.Tests.Api;
 
 public sealed class PublicTicketEndpointsTests
 {
-    [Fact]
-    public async Task Old_ticket_view_grant_stops_working_for_restricted_workforce_but_requester_access_is_independent()
+    [Theory]
+    [InlineData(false, TicketType.Incident)]
+    [InlineData(false, TicketType.Request)]
+    [InlineData(false, TicketType.Change)]
+    [InlineData(true, TicketType.Incident)]
+    [InlineData(true, TicketType.Request)]
+    [InlineData(true, TicketType.Change)]
+    public async Task Old_ticket_view_grant_stops_working_for_restricted_workforce_but_requester_access_is_independent(bool postgres, TicketType module)
     {
-        await using var harness = await Harness.CreateAsync();
-        var ticket = new Incident();
+        await using var harness = await Harness.CreateAsync(postgres);
+        Ticket ticket = module switch { TicketType.Request => new Request(), TicketType.Change => new Change(), _ => new Incident() };
         await harness.SeedAsync(ticket);
         const string recipient = "vendor@example.test";
         var launch = await PublicLinkFixture.IssueAsync(harness.Services, ticket.Id, recipient);
         var unusedLaunch = await PublicLinkFixture.IssueAsync(harness.Services, ticket.Id, recipient);
         var grant = await PublicLinkFixture.ExchangeAsync(harness.Services, launch);
+        using var beforeRestriction = await PublicLinkFixture.SendAsync(harness.Client, grant, "ticket");
+        Assert.Equal(HttpStatusCode.OK, beforeRestriction.StatusCode);
+        var signer = harness.Services.GetRequiredService<IPublicTicketLinkSigner>();
+        var legacy = new LegacyPublicLink(PublicLinkPurpose.Ticket, ticket.TrackingId, null, recipient,
+            signer.GenerateToken(ticket.TrackingId, recipient, DateTimeOffset.UtcNow.AddMinutes(5)));
 
         await using var scope = harness.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
-        var current = await db.Incidents.IgnoreQueryFilters().SingleAsync(row => row.Id == ticket.Id);
+        var current = await db.Tickets.IgnoreQueryFilters().SingleAsync(row => row.Id == ticket.Id);
         var vendor = new User { Id = "public-link-vendor", OrganizationId = current.OrganizationId, Email = recipient };
         db.Users.Add(vendor);
+        db.SupportGroups.Add(new SupportGroup { Id = "hidden-workforce-queue", OwningOrganizationId = current.OrganizationId, Name = "Hidden workforce queue" });
+        current.AssignedSupportGroupId = "hidden-workforce-queue";
         await TicketWorkforceRestrictions.EnsureAsync(db, current.OrganizationId!, [vendor.Id], "synthetic-admin", default);
         await db.SaveChangesAsync();
 
-        using var denied = await PublicLinkFixture.SendAsync(harness.Client, grant, "ticket");
-        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        foreach (var resource in new[] { "ticket", "timeline", "asset/synthetic-image" })
+        {
+            using var denied = await PublicLinkFixture.SendAsync(harness.Client, grant, resource);
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+            Assert.Empty(await denied.Content.ReadAsStringAsync());
+        }
         using var deniedExchange = await harness.ExchangeAsync(new(unusedLaunch, null, PublicLinkFixture.Browser()));
         Assert.Equal(HttpStatusCode.Unauthorized, deniedExchange.StatusCode);
+        using var deniedLegacy = await harness.ExchangeAsync(new(null, legacy, PublicLinkFixture.Browser()));
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedLegacy.StatusCode);
         var service = scope.ServiceProvider.GetRequiredService<PublicLinkService>();
         Assert.Empty(await service.IssueAsync(current, recipient, PublicLinkPurpose.Ticket, "https://desk.example.test", default));
 

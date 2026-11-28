@@ -159,7 +159,8 @@ public sealed class WorkflowEngine(
                 {
                     if ((task.Type != RequestTaskType.Automation && task.Type != RequestTaskType.Approval)
                         || task.Status != RequestTaskStatus.Pending
-                        || (task.Type == RequestTaskType.Automation && task.AutoStart == false)
+                        || (task.Type == RequestTaskType.Automation && task.AutoStart == false
+                            && !RequestTaskRetryRecovery.HasPendingRetryIntent(task))
                         || task.IsBlocked)
                     {
                         continue;

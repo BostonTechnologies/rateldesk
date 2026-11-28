@@ -362,7 +362,7 @@ builder.Services.AddReverseProxy()
     .LoadFromConfig(gatewayConfiguration.EffectiveConfiguration.GetSection("ReverseProxy"))
     .AddTransforms(route =>
     {
-        route.AddRequestTransform(transform =>
+        route.AddRequestTransform(async transform =>
         {
             var request = transform.ProxyRequest;
             request.Headers.Remove(PublicIngressIdentity.RelayHeader);
@@ -371,7 +371,14 @@ builder.Services.AddReverseProxy()
                 var proof = transform.HttpContext.RequestServices.GetRequiredService<PublicIngressIdentity>();
                 proof.AddProof(request, PublicIngressIdentity.FromAddress(transform.HttpContext.Connection.RemoteIpAddress));
             }
-            return ValueTask.CompletedTask;
+            if (HttpMethods.IsGet(transform.HttpContext.Request.Method) &&
+                EmailDisplayDocument.IsStaffAssetPath(transform.HttpContext.Request.Path.Value) &&
+                transform.HttpContext.User.Identity?.IsAuthenticated == true && request.Headers.Authorization is null)
+            {
+                var tokens = transform.HttpContext.RequestServices.GetRequiredService<ITokenService>();
+                if (await tokens.GetValidAccessTokenAsync() is { Length: > 0 } token)
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
         });
     });
 

@@ -128,14 +128,17 @@ public static class WorkLogEndpoints
         .WithSummary("Creates a work log for an incident")
         .WithDescription("Adds a work log to the incident and notifies the customer");
 
-        app.MapGet("/api/worklogs/{worklogId}/images/{filename}", (
+        app.MapGet("/api/worklogs/{worklogId}/images/{filename}", async (
             [FromRoute] string worklogId,
             [FromRoute] string filename,
             IWebHostEnvironment env,
             HttpContext httpContext,
             IImageLinkSigner signer,
             ILoggerFactory loggerFactory,
-            IOptions<StorageOptions> storageOptions) =>
+            IOptions<StorageOptions> storageOptions,
+            HelpdeskDbContext db,
+            ICurrentUserAccessService accessService,
+            CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("WorklogInlineImage");
             var safeWorklogId = SanitizePathSegment(worklogId);
@@ -150,9 +153,21 @@ public static class WorkLogEndpoints
                 return Results.Unauthorized();
             }
 
+            var ticketId = await db.WorkLogs.AsNoTracking().Where(log => log.Id == worklogId)
+                .Select(log => log.TicketId).SingleOrDefaultAsync(ct);
+            var ticket = await db.Tickets.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(row => row.Id == ticketId, ct);
+            if (ticket is RequestTask task)
+                ticket = await db.Requests.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(parent =>
+                    parent.Id == task.RequestId && parent.OrganizationId == task.OrganizationId, ct);
+            var access = await accessService.ResolveAsync(httpContext.User, ct);
+            if (ticket is not (Incident or Request or Change) || !TicketAccessPolicy.CanReadStaffContent(access, ticket))
+                return Results.NotFound();
+
             var storageRoot = storageOptions.Value.ResolveRootPath(env.ContentRootPath);
             return SignedRasterAsset.Serve(httpContext, Path.Combine(storageRoot, "worklogs", safeWorklogId, "inline"), safeFilename);
         })
+        .RequireAuthorization()
+        .WithMetadata(new QueueAwareEndpoint())
         .WithTags("Work Logs")
         .WithName("GetWorklogImage")
         .WithSummary("Gets a stored worklog inline image");

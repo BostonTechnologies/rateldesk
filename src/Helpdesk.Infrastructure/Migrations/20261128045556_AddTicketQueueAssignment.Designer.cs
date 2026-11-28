@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Helpdesk.Infrastructure.Migrations
 {
     [DbContext(typeof(HelpdeskDbContext))]
-    [Migration("20261127193031_AddSupportQueueRouting")]
-    partial class AddSupportQueueRouting
+    [Migration("20261128045556_AddTicketQueueAssignment")]
+    partial class AddTicketQueueAssignment
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -5160,6 +5160,17 @@ namespace Helpdesk.Infrastructure.Migrations
 
                     b.Property<string>("WorkflowBlockReason")
                         .HasColumnType("text");
+
+                    b.Property<string>("WorkflowFailureAttemptId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int?>("WorkflowFailureCategory")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WorkflowFailureTaskId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<long>("WorkflowStateVersion")
                         .IsConcurrencyToken()

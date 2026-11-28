@@ -732,6 +732,9 @@ public sealed partial class ManagedOrchestrationCallbackHttpTests
             builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativelyClosedBy);
             Helpdesk.Tests.Infrastructure.Persistence.PublishedCampaignSeedModel.OmitTicketQueueAssignment(builder);
             builder.Entity<Request>().Ignore(request => request.OperatorHold);
+            builder.Entity<Request>().Ignore(request => request.WorkflowFailureTaskId);
+            builder.Entity<Request>().Ignore(request => request.WorkflowFailureAttemptId);
+            builder.Entity<Request>().Ignore(request => request.WorkflowFailureCategory);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationOriginJson);
             builder.Entity<RequestTask>().Ignore(task => task.AutomationDispatchPayloadJson);
             builder.Entity<RequestTask>().Ignore(task => task.ProviderDiagnostic);

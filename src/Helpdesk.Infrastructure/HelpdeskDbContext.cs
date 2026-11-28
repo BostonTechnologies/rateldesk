@@ -210,6 +210,8 @@ public class HelpdeskDbContext(
         Helpdesk.Infrastructure.EmailTemplates.InternalIncidentTemplateModel.ConfigureAutomationPresentation(modelBuilder);
         modelBuilder.Entity<Request>().Property(request => request.WorkflowStateVersion)
             .IsConcurrencyToken().HasDefaultValue(0L);
+        modelBuilder.Entity<Request>().Property(request => request.WorkflowFailureTaskId).HasMaxLength(256);
+        modelBuilder.Entity<Request>().Property(request => request.WorkflowFailureAttemptId).HasMaxLength(256);
         modelBuilder.Entity<Helpdesk.Infrastructure.Email.PendingEmailOperationRecord>(entity =>
         {
             entity.HasKey(x => x.Id);

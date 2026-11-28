@@ -5188,6 +5188,17 @@ namespace Helpdesk.Infrastructure.SqliteMigrations.Migrations.Helpdesk
                     b.Property<string>("WorkflowBlockReason")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("WorkflowFailureAttemptId")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("WorkflowFailureCategory")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WorkflowFailureTaskId")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("WorkflowStateVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()

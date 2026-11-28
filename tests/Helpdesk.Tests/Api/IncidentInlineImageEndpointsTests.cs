@@ -3,10 +3,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Helpdesk.Application.WorkLogs;
+using Helpdesk.Infrastructure.Persistence;
 using Helpdesk.Infrastructure.Storage;
 using System.Text.Json;
 using Helpdesk.Shared.Models;
 using HtmlAgilityPack;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,8 +36,18 @@ public partial class IncidentCcRecipientsEndpointsTests
             {
                 services.AddSingleton<IOptions<StorageOptions>>(options);
                 services.AddSingleton<IImageLinkSigner>(signer);
+                services.AddAuthorization(authorization => authorization.DefaultPolicy =
+                    new AuthorizationPolicyBuilder("Test").RequireAuthenticatedUser().Build());
             }));
             using var browser = factory.CreateClient();
+            browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
+            await using (var services = factory.Services.CreateAsyncScope())
+            {
+                var db = services.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                db.Incidents.Add(new Incident { Id = "fixture", Title = "Synthetic legacy image" });
+                db.WorkLogs.Add(new WorkLog { Id = "fixture", TicketId = "fixture", NotesText = "Synthetic legacy image" });
+                await db.SaveChangesAsync();
+            }
             foreach (var name in new[] { "legacy.svg", "legacy.png" })
             {
                 await File.WriteAllTextAsync(Path.Combine(assetPath, name), "<svg xmlns='http://www.w3.org/2000/svg'/>");
@@ -79,8 +91,16 @@ public partial class IncidentCcRecipientsEndpointsTests
             {
                 services.AddSingleton<IOptions<StorageOptions>>(options);
                 services.AddSingleton<IImageLinkSigner>(signer);
+                services.AddAuthorization(authorization => authorization.DefaultPolicy =
+                    new AuthorizationPolicyBuilder("Test").RequireAuthenticatedUser().Build());
             }));
             using var client = factory.CreateClient();
+            await using (var services = factory.Services.CreateAsyncScope())
+            {
+                var db = services.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+                db.Incidents.Add(new Incident { Id = "inc-images", Title = "Images", TrackingId = "INC-IMAGES" });
+                await db.SaveChangesAsync();
+            }
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test", "HelpdeskAdmin");
             var peek = await client.GetFromJsonAsync<JsonElement>("/api/v1/incidents/inc-images/peek");
             var document = new HtmlDocument();

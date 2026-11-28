@@ -116,13 +116,21 @@ public sealed class IncidentReceiverTests
         using var dispatcher = new MailboxOutboxDispatcher(harness.App.Services.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<MailboxOutboxDispatcher>.Instance);
         Assert.Equal(1, await dispatcher.DispatchBatchAsync());
-        await harness.EditAsync(async db =>
+        await using (var scope = harness.App.Services.CreateAsyncScope())
         {
-            var queued = await db.SupportNotificationDeliveries.ToListAsync();
+            var db = scope.ServiceProvider.GetRequiredService<HelpdeskDbContext>();
+            var queued = await db.SupportNotificationDeliveries.AsNoTracking().ToListAsync();
             Assert.Equal(2, queued.Count);
             Assert.All(queued, row => Assert.True(row.Status == SupportNotificationDeliveryStatus.Pending, row.FailureReason));
+            var effects = await db.Set<MailboxOutboxEffect>().AsNoTracking().Where(row => row.Kind == MailboxEffectKind.Email).ToListAsync();
+            var failed = Assert.Single(effects, row => MailboxOutboxStore.Deserialize<IngressEmailEffect>(row.Payload).Recipients is ["revoked@example.test"]);
+            var outbox = scope.ServiceProvider.GetRequiredService<MailboxOutboxStore>();
+            var claim = Assert.IsType<MailboxOutboxEffect>(await outbox.TryClaimAsync(failed.Id, "synthetic-queue-worker", default));
+            Assert.True(await outbox.CompleteAsync(claim, false, "OutgoingDisabled", default, requiresReview: true));
             (await db.SupportGroupMembers.SingleAsync(member => member.UserId == "revoked-user")).IsEnabled = false;
-        });
+            await db.SaveChangesAsync();
+            Assert.True(await outbox.RetryForTimelineAsync(failed.DeliveryEventId!.Value, default));
+        }
         for (var cycle = 0; cycle < 4; cycle++)
             await dispatcher.DispatchBatchAsync();
 
@@ -133,7 +141,12 @@ public sealed class IncidentReceiverTests
             await scope.ServiceProvider.GetRequiredService<TicketQueueNotificationProcessor>().DispatchAssignmentAsync(transition.Id, default);
             var deliveries = await db.SupportNotificationDeliveries.OrderBy(row => row.RecipientEmail).ToListAsync();
             Assert.Collection(deliveries,
-                revoked => { Assert.Equal("revoked@example.test", revoked.RecipientEmail); Assert.True(revoked.Status == SupportNotificationDeliveryStatus.Skipped, revoked.FailureReason); },
+                revoked =>
+                {
+                    Assert.Equal("revoked@example.test", revoked.RecipientEmail);
+                    Assert.Equal(SupportNotificationDeliveryStatus.Skipped, revoked.Status);
+                    Assert.Equal("TicketRecipientScopeChanged", revoked.FailureReason);
+                },
                 sent => { Assert.Equal("support@example.test", sent.RecipientEmail); Assert.True(sent.Status == SupportNotificationDeliveryStatus.Sent, sent.FailureReason); });
         }
 

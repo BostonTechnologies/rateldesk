@@ -141,7 +141,7 @@ else
                                             {
                                                 <WorkspaceAction Label="Close task" Icon="@Icons.Material.Outlined.Close" OnClick="() => CloseWorkAsync(context.Task)" />
                                             }
-                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Status == RequestTaskStatus.Pending)
+                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Status == RequestTaskStatus.Pending && !context.Task.PendingRetryRecovery)
                                             {
                                                 <WorkspaceAction Label="Start task" Icon="@Icons.Material.Filled.PlayArrow"
                                                     Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress || (context.Task.Type == RequestTaskType.Automation && !context.Task.AutomationReadyToStart))"
@@ -152,7 +152,7 @@ else
                                                 <WorkspaceAction Label="Complete task" Icon="@Icons.Material.Outlined.CheckCircle" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => CompleteTaskAsync(context.Task)" />
                                                 <WorkspaceAction Label="Fail task" Icon="@Icons.Material.Outlined.ErrorOutline" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => FailTaskAsync(context.Task)" />
                                             }
-                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Type == RequestTaskType.Automation && context.Task.Status == RequestTaskStatus.Failed && canRetryAutomationTasks && !RequiresManualReconciliation(context.Task.LastAutomationStatus))
+                                            @if (context.Task.AdministrativeClosureReason == null && context.Task.Type == RequestTaskType.Automation && (context.Task.Status == RequestTaskStatus.Failed || context.Task.PendingRetryRecovery) && canRetryAutomationTasks && !RequiresManualReconciliation(context.Task.LastAutomationStatus))
                                             {
                                                 <WorkspaceAction Label="Retry task" Icon="@Icons.Material.Filled.Replay" Disabled="@(!CanOperateTask(context.Task) || taskActionInProgress)" OnClick="() => RetryTaskAsync(context.Task)" />
                                             }
@@ -210,6 +210,7 @@ else
                                                         <ProviderExecutionDetails Diagnostic="providerFailure" />
                                                     }
                                                     else if (!string.IsNullOrWhiteSpace(context.Task.FailureReason)) { <p class="request-task-error">@context.Task.FailureReason</p> }
+                                                    <ProviderRejectionHistory Rejections="context.Task.PreviousProviderRejections" />
                                                 </section>
                                             </td>
                                         </MudTr>

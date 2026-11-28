@@ -25,6 +25,44 @@ public static class RequestHoldPolicy
     public static bool BlocksStart(Request request) => request.AdministrativeClosureReason != null || IsOperatorHeld(request) || HasUnrelatedWorkflowHold(request)
         || IsStatus(request, "NeedsReconciliation") || IsStatus(request, OperatorStatus);
 
+    internal static bool IsFailureState(Request request) => IsStatus(request, "Blocked") || IsStatus(request, "Failed");
+
+    internal static bool OwnsFailureHold(Request request, RequestTask task) =>
+        IsFailureState(request) && request.WorkflowFailureTaskId == task.Id
+        && request.WorkflowFailureAttemptId == task.AutomationAttemptCorrelationId
+        && request.WorkflowFailureCategory == FailureCategory(task.LastAutomationStatus);
+
+    internal static RequestFailureCategory FailureCategory(string? status) => status switch
+    {
+        AutomationTaskStatuses.SubmitRejectedManualRetry => RequestFailureCategory.SubmissionRejected,
+        AutomationTaskStatuses.SubmitFailedManualRetry => RequestFailureCategory.PreDispatchFailure,
+        _ => RequestFailureCategory.TaskFailed
+    };
+
+    internal static void SetFailureHold(Request request, RequestTask task, string status, string reason, DateTimeOffset now)
+    {
+        request.OperatorHold ??= IsOperatorHeld(request);
+        request.WorkflowFailureTaskId = task.Id;
+        request.WorkflowFailureAttemptId = task.AutomationAttemptCorrelationId;
+        request.WorkflowFailureCategory = FailureCategory(task.LastAutomationStatus);
+        request.WorkflowStatus = status;
+        request.WorkflowBlockReason = reason;
+        request.State = TicketState.OnHold;
+        request.WorkflowUpdatedAt = now;
+        request.UpdatedAt = now.UtcDateTime;
+        request.ClosedAt = null;
+    }
+
+    internal static void ClearFailureHold(Request request)
+    {
+        request.OperatorHold ??= IsOperatorHeld(request);
+        request.WorkflowFailureTaskId = null;
+        request.WorkflowFailureAttemptId = null;
+        request.WorkflowFailureCategory = null;
+        request.WorkflowStatus = null;
+        request.WorkflowBlockReason = null;
+    }
+
     private static bool IsStatus(Request request, string status)
         => string.Equals(request.WorkflowStatus, status, StringComparison.OrdinalIgnoreCase);
 }

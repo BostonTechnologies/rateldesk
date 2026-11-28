@@ -2,6 +2,7 @@ using Helpdesk.API.Endpoints.Ticketing;
 using System.ComponentModel.DataAnnotations;
 using Helpdesk.Application.Events;
 using Helpdesk.Application.Messaging;
+using Helpdesk.Application.Orchestration;
 using Helpdesk.Application.RequestTasks;
 using Helpdesk.Application.Workflow;
 using Helpdesk.Infrastructure.Persistence;
@@ -241,6 +242,8 @@ public static class RequestTaskEndpoints
                         RetryCount = x.Task.RetryCount,
                         FailureReason = x.Task.FailureReason,
                         ProviderDiagnostic = x.Task.ProviderDiagnostic,
+                        PreviousProviderRejections = ProviderExecutionDiagnostics.RecentRejections(x.Task),
+                        PendingRetryRecovery = RequestTaskRetryRecovery.IsUnstartedRetry(x.Task),
                         OrchestrationExternalRequestId = x.Task.OrchestrationExternalRequestId,
                         OrchestrationExternalRunId = x.Task.OrchestrationExternalRunId,
                         LastAutomationStatus = x.Task.LastAutomationStatus,
@@ -690,6 +693,10 @@ public static class RequestTaskEndpoints
                 task = await lifecycleService.RetryAsync(id, token, authorization.Queue);
                 task = await lifecycleService.StartAsync(id, token, authorization.Queue);
             }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict("The request or task changed during retry. Refresh before trying again.");
+            }
             catch (KeyNotFoundException)
             {
                 return Results.Problem("Task not found", statusCode: 404);
@@ -868,7 +875,7 @@ public static class RequestTaskEndpoints
                     task = await lifecycleService.RetryAsync(id, token);
                     task = await lifecycleService.StartAsync(id, token);
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
+                catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException or DbUpdateConcurrencyException)
                 {
                     continue;
                 }

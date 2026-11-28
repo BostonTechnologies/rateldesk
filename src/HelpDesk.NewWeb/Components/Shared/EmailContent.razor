@@ -1,6 +1,7 @@
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject ILogger<EmailContent> Logger
 
 <div class="email-content" data-testid="email-content">
     @if (!string.IsNullOrWhiteSpace(Html))
@@ -62,11 +63,13 @@
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/email-content.js");
             if (_disposed) { await _module.DisposeAsync(); _module = null; return; }
             _reference ??= DotNetObjectReference.Create(this);
-            _binding = await _module.InvokeAsync<IJSObjectReference>("observe", _frame, _reference);
+            _binding = await _module.InvokeAsync<IJSObjectReference>("observe", _frame, _reference, _document.StaffAssetUrls);
             if (_disposed) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); _binding = null; }
         }
-        catch (JSDisconnectedException) { }
-        catch (TaskCanceledException) { }
+        catch (Exception error) when (error is JSDisconnectedException or TaskCanceledException)
+        {
+            Logger.LogDebug("Email preview interop ended with {ExceptionType}", error.GetType().Name);
+        }
     }
 
     [JSInvokable] public Task DismissPreview() => OnEscape.InvokeAsync();
@@ -79,8 +82,10 @@
             if (_binding is not null) { await _binding.InvokeVoidAsync("dispose"); await _binding.DisposeAsync(); }
             if (_module is not null) await _module.DisposeAsync();
         }
-        catch (JSDisconnectedException) { }
-        catch (TaskCanceledException) { }
+        catch (Exception error) when (error is JSDisconnectedException or TaskCanceledException)
+        {
+            Logger.LogDebug("Email preview cleanup ended with {ExceptionType}", error.GetType().Name);
+        }
         _reference?.Dispose();
     }
 }

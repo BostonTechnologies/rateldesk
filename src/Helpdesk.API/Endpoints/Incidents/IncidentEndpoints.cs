@@ -1206,14 +1206,17 @@ public static class IncidentEndpoints
                 : Results.Problem("Incident not found", statusCode: 404);
         });
 
-        app.MapGet("/api/incidents/{incidentId}/images/{filename}", (
+        app.MapGet("/api/incidents/{incidentId}/images/{filename}", async (
             [FromRoute] string incidentId,
             [FromRoute] string filename,
             IWebHostEnvironment env,
             HttpContext httpContext,
             IImageLinkSigner signer,
             ILoggerFactory loggerFactory,
-            IOptions<StorageOptions> storageOptions) =>
+            IOptions<StorageOptions> storageOptions,
+            HelpdeskDbContext db,
+            ICurrentUserAccessService accessService,
+            CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("IncidentInlineImage");
             var safeIncidentId = SanitizePathSegment(incidentId);
@@ -1228,9 +1231,16 @@ public static class IncidentEndpoints
                 return Results.Unauthorized();
             }
 
+            var access = await accessService.ResolveAsync(httpContext.User, ct);
+            if (!await TicketAccessPolicy.Readable(db.Incidents.IgnoreQueryFilters(), access, TicketType.Incident, includeOwned: false)
+                .AnyAsync(incident => incident.Id == incidentId, ct))
+                return Results.NotFound();
+
             var storageRoot = storageOptions.Value.ResolveRootPath(env.ContentRootPath);
             return SignedRasterAsset.Serve(httpContext, Path.Combine(storageRoot, "incidents", safeIncidentId, "inline"), safeFilename);
         })
+        .RequireAuthorization()
+        .WithMetadata(new QueueAwareEndpoint())
         .WithTags("Incidents")
         .WithName("GetIncidentInlineImage")
         .WithSummary("Gets a stored incident inline image");

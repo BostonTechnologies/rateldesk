@@ -57,7 +57,34 @@ public sealed class RequestTaskStateService(
         }
 
         var tasks = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, requestId, cancellationToken);
+        var previousState = request.State;
+        if (!ApplyTaskState(request, tasks, DateTimeOffset.UtcNow))
+            return false;
 
+        await _requests.UpdateAsync(request);
+
+        await _domainEvents.PublishAsync(
+            new RequestStateChangedEvent(
+                request.Id,
+                previousState,
+                request.State,
+                request.OrganizationId,
+                DateTimeOffset.UtcNow,
+                GetCorrelationId()),
+            cancellationToken);
+
+        if (previousState != TicketState.Resolved &&
+            request.State == TicketState.Resolved &&
+            !string.IsNullOrWhiteSpace(request.RequestFormId))
+        {
+            await SendSelfServiceCompletionAsync(request, cancellationToken);
+        }
+
+        return true;
+    }
+
+    internal static bool ApplyTaskState(Request request, IReadOnlyList<RequestTask> tasks, DateTimeOffset now)
+    {
         var needsReconciliation = tasks.Any(task => task.Type == RequestTaskType.Automation
             && AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus));
         var operatorHeld = RequestHoldPolicy.IsOperatorHeld(request);
@@ -82,39 +109,18 @@ public sealed class RequestTaskStateService(
             && (!timeoutOwnedHold || needsReconciliation))
             return false;
 
-        var previousState = request.State;
         request.State = nextState;
-        request.UpdatedAt = DateTime.UtcNow;
-        request.ClosedAt = nextState == TicketState.Resolved ? DateTimeOffset.UtcNow : null;
+        request.UpdatedAt = now.UtcDateTime;
+        request.ClosedAt = nextState == TicketState.Resolved ? now : null;
         request.WorkflowStatus = nextWorkflowStatus;
         request.WorkflowBlockReason = needsReconciliation
             ? AutomationTaskStatuses.ReconciliationHoldReason
             : operatorHeld ? RequestHoldPolicy.OperatorReason : null;
-        request.WorkflowUpdatedAt = DateTimeOffset.UtcNow;
-
-        await _requests.UpdateAsync(request);
-
-        await _domainEvents.PublishAsync(
-            new RequestStateChangedEvent(
-                request.Id,
-                previousState,
-                nextState,
-                request.OrganizationId,
-                DateTimeOffset.UtcNow,
-                GetCorrelationId()),
-            cancellationToken);
-
-        if (previousState != TicketState.Resolved &&
-            nextState == TicketState.Resolved &&
-            !string.IsNullOrWhiteSpace(request.RequestFormId))
-        {
-            await SendSelfServiceCompletionAsync(request, cancellationToken);
-        }
-
+        request.WorkflowUpdatedAt = now;
         return true;
     }
 
-    private static TicketState ResolveState(List<RequestTask> tasks)
+    private static TicketState ResolveState(IReadOnlyList<RequestTask> tasks)
     {
         if (tasks.Any(x => x.Status == RequestTaskStatus.Failed))
         {

@@ -24,7 +24,12 @@ public sealed class TicketQueueMigrationTests
         var legacyTickets = new Ticket[]
         {
             new Incident { Id = "incident", TrackingId = "INC-LEGACY", AssignedToId = assignedUserId, DueDate = dueDate },
-            new Request { Id = "request", TrackingId = "REQ-LEGACY", WorkflowStatus = "Running" },
+            new Request
+            {
+                Id = "request", TrackingId = "REQ-LEGACY", WorkflowStatus = "Blocked",
+                WorkflowFailureTaskId = "failed-task", WorkflowFailureAttemptId = "rejected-attempt",
+                WorkflowFailureCategory = RequestFailureCategory.SubmissionRejected
+            },
             new Change { Id = "change", TrackingId = "CHG-LEGACY", AssignedToId = assignedUserId, ImplementorUserId = assignedUserId }
         };
         string precedingMigration;
@@ -34,6 +39,7 @@ public sealed class TicketQueueMigrationTests
             var migrationIndex = Array.FindIndex(migrations, name => name.EndsWith("_AddTicketQueueAssignment", StringComparison.Ordinal));
             Assert.True(migrationIndex > 0);
             precedingMigration = migrations[migrationIndex - 1];
+            Assert.EndsWith("_OwnRequestFailureHolds", precedingMigration);
             await db.GetService<IMigrator>().MigrateAsync(precedingMigration);
             await using var seed = new BeforeQueueAssignmentContext(db);
             seed.Organizations.Add(new Organization { Id = organizationId, Name = "Managed Customer" });
@@ -69,7 +75,7 @@ public sealed class TicketQueueMigrationTests
                 Assert.Equal(legacy.State, current.State);
                 Assert.Equal(legacy.DueDate, current.DueDate);
             }
-            Assert.Equal("Running", Assert.IsType<Request>(hydrated["request"]).WorkflowStatus);
+            AssertRetainedHold(Assert.IsType<Request>(hydrated["request"]));
             Assert.Equal(assignedUserId, Assert.IsType<Change>(hydrated["change"]).ImplementorUserId);
             Assert.Equal("Preserved workflow note", (await db.TicketTimelineEvents.SingleAsync()).MessageText);
             Assert.Empty(await db.TicketQueueTransitions.ToListAsync());
@@ -93,8 +99,17 @@ public sealed class TicketQueueMigrationTests
             await using var previous = new BeforeQueueAssignmentContext(db);
             Assert.Equal(legacyTickets.Length, await previous.Tickets.CountAsync());
             Assert.Equal(assignedUserId, (await previous.Changes.SingleAsync()).ImplementorUserId);
+            AssertRetainedHold(await previous.Requests.SingleAsync());
             Assert.Equal("Preserved workflow note", (await previous.TicketTimelineEvents.SingleAsync()).MessageText);
         }
+    }
+
+    private static void AssertRetainedHold(Request request)
+    {
+        Assert.Equal("Blocked", request.WorkflowStatus);
+        Assert.Equal("failed-task", request.WorkflowFailureTaskId);
+        Assert.Equal("rejected-attempt", request.WorkflowFailureAttemptId);
+        Assert.Equal(RequestFailureCategory.SubmissionRejected, request.WorkflowFailureCategory);
     }
 
     private sealed class BeforeQueueAssignmentContext(HelpdeskDbContext current) : HelpdeskDbContext(
