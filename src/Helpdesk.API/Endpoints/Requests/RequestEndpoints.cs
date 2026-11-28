@@ -190,6 +190,8 @@ public static class RequestEndpoints
                     FailureReason = !showProviderDiagnostics && t.ProviderDiagnostic is not null
                         ? "Automation needs support review." : t.FailureReason,
                     ProviderDiagnostic = showProviderDiagnostics ? t.ProviderDiagnostic : null,
+                    PreviousProviderRejections = showProviderDiagnostics ? ProviderExecutionDiagnostics.RecentRejections(t) : [],
+                    PendingRetryRecovery = showProviderDiagnostics && RequestTaskRetryRecovery.IsUnstartedRetry(t),
                     OrchestratorExecutionId = t.OrchestratorExecutionId,
                     AutomationBindingId = t.AutomationBindingId,
                     OrchestrationRequestDefinitionId = t.OrchestrationRequestDefinitionId,

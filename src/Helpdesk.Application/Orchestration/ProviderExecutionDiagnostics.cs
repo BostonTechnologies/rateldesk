@@ -1,16 +1,35 @@
 using Helpdesk.Shared.DTOs.Orchestration;
 using Helpdesk.Shared.Models;
+using System.Text.Json;
 
 namespace Helpdesk.Application.Orchestration;
 
 public static class ProviderExecutionDiagnostics
 {
+    private const string ReviewDestination = "Open NetRatel → System connections → Paired Run as for this connection and job.";
+
+    public static string? PairedRunAsReason(string? reason) => reason is "approval_required" or "approval_revoked"
+        or "approval_scope_changed" or "connection_authority_unavailable" or "run_as_approval_denied" ? reason : null;
+
+    public static string DescribePairedRunAs(string? reason) => reason switch
+    {
+        "approval_required" => $"The saved execution accounts need approval. {ReviewDestination}",
+        "approval_revoked" => $"The saved execution-account approval was revoked. {ReviewDestination}",
+        "approval_scope_changed" => $"The approved scope changed. Review the current targets and accounts. {ReviewDestination}",
+        "connection_authority_unavailable" => "Review the saved connection, its retained tenant authority and its credentials in NetRatel System connections.",
+        "run_as_approval_denied" => $"Ask an authorised NetRatel administrator to review and approve this scope. {ReviewDestination}",
+        _ => $"Review the saved execution-account approval. {ReviewDestination}"
+    };
+
     public static ProviderExecutionDiagnostic Rejection(int? httpStatus, string? code, OrchestrationIngestRequest request,
         string? mappingId, ProviderExecutionDiagnostic? provider = null)
     {
+        var safeReason = provider is { Provider: "NetRatel", Stage: "admission", ExecutionCreated: false }
+            && provider.CorrelationId == request.CorrelationId && (code ?? provider.Code) == "run_as_denied"
+            ? PairedRunAsReason(provider.Reason) : null;
         var reason = (code ?? provider?.Code) switch
         {
-            "run_as_denied" => ("run_as_denied", "Review the paired job's saved execution-account approval in NetRatel."),
+            "run_as_denied" => ("run_as_denied", DescribePairedRunAs(safeReason)),
             "required_shell_unavailable" => ("required_shell_unavailable", "Install the required shell or select a compatible execution engine."),
             "shell_executor_conflict" => ("shell_executor_conflict", "Review the step's runner and library payload executor in NetRatel."),
             "run_as_unsupported" => ("run_as_unsupported", "Install an agent version that supports the selected execution account."),
@@ -21,10 +40,39 @@ public static class ProviderExecutionDiagnostics
                 ("access_denied", "Review the tenant mapping and current paired credential in NetRatel."),
             _ => ("provider_rejected", "Review the paired job and connection in NetRatel.")
         };
-        return new("NetRatel", "admission", reason.Item1, reason.Item2, "configuration_required", request.CorrelationId,
+        return new ProviderExecutionDiagnostic("NetRatel", "admission", reason.Item1, reason.Item2, "configuration_required", request.CorrelationId,
             false, httpStatus, SafeReference(mappingId), SafeReference(request.OrchestrationJobDefinitionId),
             NodeId: provider?.NodeId, StepOrdinal: SafeOrdinal(provider?.StepOrdinal),
-            RequestedExecutor: Engine(provider?.RequestedExecutor), RequiredShell: Engine(provider?.RequiredShell));
+            RequestedExecutor: Engine(provider?.RequestedExecutor), RequiredShell: Engine(provider?.RequiredShell))
+        {
+            Reason = safeReason
+        };
+    }
+
+    public static IReadOnlyList<ProviderExecutionDiagnostic> RecentRejections(RequestTask task)
+    {
+        if (task.AutomationAttemptHistoryJson is null) return [];
+        try
+        {
+            using var history = JsonDocument.Parse(task.AutomationAttemptHistoryJson);
+            if (history.RootElement.ValueKind != JsonValueKind.Array) return [];
+            var result = new List<ProviderExecutionDiagnostic>();
+            foreach (var attempt in history.RootElement.EnumerateArray().Reverse().Take(5))
+            {
+                if (attempt.ValueKind != JsonValueKind.Object || !attempt.TryGetProperty("ProviderDiagnostic", out var stored)) continue;
+                var diagnostic = stored.Deserialize<ProviderExecutionDiagnostic>(JsonSerializerOptions.Web);
+                if (diagnostic is not { Provider: "NetRatel", Stage: "admission", ExecutionCreated: false }
+                    || SafeReference(diagnostic.CorrelationId) is not { } correlation) continue;
+                result.Add(Rejection(diagnostic.HttpStatus is >= 400 and <= 599 ? diagnostic.HttpStatus : null,
+                    diagnostic.Code, new() { CorrelationId = correlation, OrchestrationJobDefinitionId = diagnostic.JobDefinitionId },
+                    diagnostic.ConnectionId, diagnostic));
+            }
+            return result;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     public static ProviderExecutionDiagnostic? Outcome(RequestTask task, OrchestrationCallbackDto callback, string status,

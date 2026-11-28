@@ -1,0 +1,16 @@
+@using Helpdesk.Shared.DTOs.Orchestration
+
+@if (Rejections.Count > 0)
+{
+    <details>
+        <summary>Previous provider rejections</summary>
+        @foreach (var rejection in Rejections)
+        {
+            <ProviderExecutionDetails Diagnostic="rejection" />
+        }
+    </details>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ProviderExecutionDiagnostic> Rejections { get; set; } = [];
+}

@@ -15,7 +15,8 @@ internal static class PublishedCampaignSeedModel
         builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativeClosureReason);
         builder.Entity<Ticket>().Ignore(ticket => ticket.AdministrativelyClosedBy);
         foreach (var name in new[] { nameof(Request.SelfServiceSubmissionId), nameof(Request.SelfServiceSubmitterId),
-                     nameof(Request.SelfServiceSubmissionHash), nameof(Request.WorkflowStateVersion), nameof(Request.OperatorHold) })
+                     nameof(Request.SelfServiceSubmissionHash), nameof(Request.WorkflowStateVersion), nameof(Request.OperatorHold),
+                     nameof(Request.WorkflowFailureTaskId), nameof(Request.WorkflowFailureAttemptId), nameof(Request.WorkflowFailureCategory) })
             builder.Entity<Request>().Ignore(name);
         foreach (var name in new[] { nameof(RequestTask.AutomationDeadlineUtcTicks), nameof(RequestTask.AutomationNextCheckUtcTicks),
                      nameof(RequestTask.AutomationTimedOutAt), nameof(RequestTask.AutomationTimedOutAttemptId),

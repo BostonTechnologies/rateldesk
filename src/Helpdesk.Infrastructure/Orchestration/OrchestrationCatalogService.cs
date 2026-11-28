@@ -29,17 +29,34 @@ public sealed class OrchestrationCatalogService(
 
     public async Task<AutomationExecutionReadinessDto> GetExecutionReadinessAsync(ulong jobId, string organizationId, Guid connectionId, CancellationToken ct = default)
     {
-        var readiness = await GetDocumentAsync<AutomationExecutionReadinessDto>(
-            $"jobs/{jobId.ToString(CultureInfo.InvariantCulture)}/execution-readiness", organizationId, connectionId, true, ct);
+        AutomationExecutionReadinessDto? readiness;
+        try
+        {
+            readiness = await GetDocumentAsync<AutomationExecutionReadinessDto>(
+                $"jobs/{jobId.ToString(CultureInfo.InvariantCulture)}/execution-readiness", organizationId, connectionId, true, ct);
+        }
+        catch (OrchestrationProviderException error) when (error.Error.Status is 401 or 403 ||
+            error.Error.Code is "capability_target_unavailable" or "capability_credentials_unavailable")
+        {
+            const string reason = "connection_authority_unavailable";
+            return new(null, "unavailable", ProviderExecutionDiagnostics.DescribePairedRunAs(reason)) { Reason = reason };
+        }
         return (readiness?.Ready, readiness?.Code) switch
         {
             (true, "agent_account") => new(true, "agent_account", "The job uses the agent service account."),
             (true, "run_as_approved") => new(true, "run_as_approved", "Saved execution accounts are approved in NetRatel."),
-            (false, "run_as_denied") => new(false, "run_as_denied", "Approve the saved execution accounts for this connection and job in NetRatel."),
+            (false, "run_as_denied" or "connection_authority_unavailable" or "run_as_approval_denied") =>
+                PairedRunAsReadiness(readiness!),
             (false, "required_shell_unavailable") => new(false, "required_shell_unavailable", "Review the required engine and target availability in NetRatel."),
             (false, _) => new(false, "configuration_required", "Review the current job targets and execution accounts in NetRatel."),
             _ => new(null, "unreported", "The NetRatel peer has not reported execution readiness.")
         };
+    }
+
+    private static AutomationExecutionReadinessDto PairedRunAsReadiness(AutomationExecutionReadinessDto readiness)
+    {
+        var reason = ProviderExecutionDiagnostics.PairedRunAsReason(readiness.Reason ?? readiness.Code);
+        return new(false, readiness.Code, ProviderExecutionDiagnostics.DescribePairedRunAs(reason)) { Reason = reason };
     }
 
     public async Task<OrchestrationAutomationCapabilitiesDto> GetCapabilitiesAsync(string? organizationId, Guid? connectionId, CancellationToken ct = default)

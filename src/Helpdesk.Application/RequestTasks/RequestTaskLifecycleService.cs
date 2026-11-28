@@ -7,7 +7,6 @@ using Helpdesk.Shared.Services;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Helpdesk.Application.RequestTasks;
 
@@ -415,55 +414,82 @@ public sealed class RequestTaskLifecycleService(
     public async Task<RequestTask> RetryAsync(string taskId, CancellationToken ct)
     {
         var task = await GetRequiredTaskAsync(taskId);
-
         if (task.Type != RequestTaskType.Automation)
-        {
             throw new InvalidOperationException("Only automation tasks can be retried.");
-        }
-
-        if (task.Status != RequestTaskStatus.Failed)
-        {
-            throw new InvalidOperationException("Only failed tasks can be retried.");
-        }
 
         if (AutomationTaskStatuses.RequiresManualReconciliation(task.LastAutomationStatus))
             throw new InvalidOperationException("The previous automation outcome is uncertain. Reconcile its provider execution before retrying.");
-        var parent = await _requests.GetAsync(task.RequestId);
-        if (string.Equals(parent?.WorkflowStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("A cancelled request cannot be resumed by retrying a task.");
+        var parent = await _requests.GetAsync(task.RequestId) ?? throw new KeyNotFoundException("Request not found");
+        if (parent.AdministrativeClosureReason is not null
+            || string.Equals(parent.WorkflowStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("A closed or cancelled request cannot be resumed by retrying a task.");
+        if (task.RequestId != parent.Id || task.OrganizationId != parent.OrganizationId)
+            throw new InvalidOperationException("The task does not belong to this request.");
 
-        JsonArray history;
-        try
+        var pending = RequestTaskRetryRecovery.IsUnstartedRetry(task);
+        if (task.Status != RequestTaskStatus.Failed && !pending)
+            throw new InvalidOperationException("Only failed tasks and an unstarted retry can be retried.");
+        if (RequestTaskRetryRecovery.HasPendingRetryIntent(task))
+            return task;
+
+        var now = DateTimeOffset.UtcNow;
+        var history = RequestTaskRetryRecovery.ReadHistory(task);
+        var siblings = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, task.RequestId, ct);
+        var releasesHold = RequestTaskRetryRecovery.CanReleaseHold(parent, task, siblings, history);
+        if (pending && !releasesHold)
+            throw new RequestProgressionHeldException("Review the request holds and the previous attempt before starting this pending retry.");
+
+        if (!pending)
         {
-            history = string.IsNullOrWhiteSpace(task.AutomationAttemptHistoryJson)
-                ? new JsonArray()
-                : JsonNode.Parse(task.AutomationAttemptHistoryJson) as JsonArray
-                    ?? throw new JsonException();
+            history.Add(JsonSerializer.SerializeToNode(new
+            {
+                TaskId = task.Id, task.RequestId, task.Status, task.AutomationAttemptCorrelationId, task.AutomationBindingId,
+                task.OrchestrationRequestDefinitionId, task.OrchestrationJobDefinitionId,
+                task.OrchestrationExternalRequestId, task.OrchestrationExternalRunId,
+                task.OrchestratorExecutionId, task.LastAutomationStatus,
+                task.OrchestrationLinkId, task.OrchestrationPeerInstanceId, task.OrchestrationLinkRevision,
+                task.AutomationDeadlineUtcTicks, task.AutomationTimedOutAt, task.AutomationTimedOutAttemptId, task.TimeoutIncidentId,
+                task.ExpectedRuntimeSeconds, task.GraceSeconds, task.HardTimeoutSeconds, task.LastAutomationUpdatedAt,
+                task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson, task.ProviderDiagnostic,
+                task.AutomationOriginJson, task.AutomationDispatchPayloadJson,
+                RetriedAtUtc = now
+            }));
+            task.AutomationAttemptHistoryJson = history.ToJsonString();
+            ResetExecutionForRetry(task);
         }
-        catch (JsonException)
+
+        task.AutomationContinuationPending = true;
+        task.UpdatedAt = now.UtcDateTime;
+        var previousParentState = parent.State;
+        if (releasesHold)
+            RequestTaskRetryRecovery.ReleaseHold(parent, siblings.Where(sibling => sibling.Id != task.Id).Append(task).ToArray(), now);
+
+        if (startFence is not null)
+            await startFence.PersistRetryAsync(task, parent, ct);
+        else
         {
-            throw new InvalidOperationException("Automation attempt history is invalid. Reconcile it before retrying.");
+            await _requestTasks.UpdateAsync(task);
+            if (releasesHold) await _requests.UpdateAsync(parent);
         }
-        history.Add(JsonSerializer.SerializeToNode(new
-        {
-            task.AutomationAttemptCorrelationId, task.AutomationBindingId,
-            task.OrchestrationRequestDefinitionId, task.OrchestrationJobDefinitionId,
-            task.OrchestrationExternalRequestId, task.OrchestrationExternalRunId,
-            task.OrchestratorExecutionId, task.LastAutomationStatus,
-            task.OrchestrationLinkId, task.OrchestrationPeerInstanceId, task.OrchestrationLinkRevision,
-            task.AutomationDeadlineUtcTicks, task.AutomationTimedOutAt, task.AutomationTimedOutAttemptId,
-            task.ExpectedRuntimeSeconds, task.GraceSeconds, task.HardTimeoutSeconds, task.LastAutomationUpdatedAt,
-            task.StartedAt, task.CompletedAt, task.FailureReason, task.ResultJson, task.ProviderDiagnostic,
-            task.AutomationOriginJson, task.AutomationDispatchPayloadJson,
-            RetriedAtUtc = DateTimeOffset.UtcNow
-        }));
-        task.AutomationAttemptHistoryJson = history.ToJsonString();
-        // A new explicit attempt gets a durable identity before another provider call.
-        // Transport reconciliation must reuse the previous identity, never manufacture a retry.
-        task.AutomationAttemptCorrelationId = $"automation-attempt-{Guid.NewGuid():N}";
+
+        var correlationId = GetCorrelationId();
+        if (parent.State != previousParentState)
+            await _domainEvents.PublishAsync(new RequestStateChangedEvent(parent.Id, previousParentState, parent.State,
+                parent.OrganizationId, now, correlationId), ct);
+
+        _logger.LogInformation(
+            "Automation retry recorded. RequestId={RequestId} TaskId={TaskId} AttemptCorrelationId={AttemptCorrelationId}",
+            task.RequestId, task.Id, task.AutomationAttemptCorrelationId);
+        await _domainEvents.PublishAsync(
+            new RequestTaskRetryRequestedEvent(task.Id, task.RequestId, task.OrganizationId, now, correlationId), ct);
+        return task;
+    }
+
+    private static void ResetExecutionForRetry(RequestTask task)
+    {
+        task.AutomationAttemptCorrelationId = RequestTaskRetryRecovery.AttemptPrefix + Guid.NewGuid().ToString("N");
         task.AutomationOriginJson = null;
         task.AutomationDispatchPayloadJson = null;
-
         task.Status = RequestTaskStatus.Pending;
         task.State = TicketState.New;
         task.StartedAt = null;
@@ -473,7 +499,7 @@ public sealed class RequestTaskLifecycleService(
         task.AutomationTimedOutAttemptId = null;
         task.AutomationReconciliationLeaseId = null;
         task.AutomationReconciliationLeaseUntilUtcTicks = null;
-        task.AutomationContinuationPending = false;
+        task.TimeoutIncidentId = null;
         task.CompletedAt = null;
         task.SlaStartedAt = null;
         task.DueAt = null;
@@ -487,46 +513,13 @@ public sealed class RequestTaskLifecycleService(
         task.OrchestrationJobDefinitionId = null;
         task.OrchestrationExternalRequestId = null;
         task.OrchestrationExternalRunId = null;
+        task.OrchestrationPeerInstanceId = null;
+        task.OrchestrationLinkRevision = null;
         task.LastAutomationStatus = null;
         task.LastAutomationUpdatedAt = null;
         task.OrchestratorExecutionId = null;
         task.ResultJson = null;
         task.ProviderDiagnostic = null;
-        task.UpdatedAt = DateTime.UtcNow;
-
-        await _requestTasks.UpdateAsync(task);
-
-        if (parent is not null && (parent.WorkflowStatus is "Blocked" or "Failed"))
-        {
-            var siblings = await RequestTaskQueries.ForRequestAsync(_requestTasks, requestTaskReadStore, task.RequestId, ct);
-            var taskFailureBlock = siblings.Any(x => parent.WorkflowBlockReason == $"Task '{x.Name}' failed."
-                || parent.WorkflowBlockReason == $"Critical task '{x.Name}' failed.");
-            if (taskFailureBlock && !siblings.Any(x => x.Status is RequestTaskStatus.Failed or RequestTaskStatus.Cancelled))
-            {
-                parent.WorkflowStatus = "InProgress";
-                parent.WorkflowBlockReason = null;
-                parent.WorkflowUpdatedAt = DateTimeOffset.UtcNow;
-                parent.UpdatedAt = DateTime.UtcNow;
-                await _requests.UpdateAsync(parent);
-            }
-        }
-
-        _logger.LogInformation(
-            "Manual automation retry requested. RequestId={RequestId} TaskId={TaskId} CorrelationId={CorrelationId}",
-            task.RequestId,
-            task.Id,
-            GetCorrelationId());
-
-        await _domainEvents.PublishAsync(
-            new RequestTaskRetryRequestedEvent(
-                task.Id,
-                task.RequestId,
-                task.OrganizationId,
-                DateTimeOffset.UtcNow,
-                GetCorrelationId()),
-            ct);
-
-        return task;
     }
 
     private async Task<RequestTask> HandleAutomationSubmissionFailureAsync(
@@ -685,9 +678,9 @@ public sealed class RequestTaskLifecycleService(
         task.FailureReason = reason;
 
         var failed = await FailAsync(task, reason, ct);
-        _logger.LogInformation("NetRatel admission rejected. RequestId={RequestId} TaskId={TaskId} ConnectionId={ConnectionId} JobDefinitionId={JobDefinitionId} CorrelationId={CorrelationId} HttpStatus={HttpStatus} ReasonCode={ReasonCode} RetryDisposition={RetryDisposition}",
+        _logger.LogInformation("NetRatel admission rejected. RequestId={RequestId} TaskId={TaskId} ConnectionId={ConnectionId} JobDefinitionId={JobDefinitionId} CorrelationId={CorrelationId} HttpStatus={HttpStatus} Code={Code} Reason={Reason} RetryDisposition={RetryDisposition}",
             task.RequestId, task.Id, diagnostic.ConnectionId, diagnostic.JobDefinitionId, correlationId,
-            diagnostic.HttpStatus, diagnostic.Code, diagnostic.RetryDisposition);
+            diagnostic.HttpStatus, diagnostic.Code, diagnostic.Reason, diagnostic.RetryDisposition);
         await _domainEvents.PublishAsync(new RequestTaskAutomationSubmitRejectedEvent(task.Id, task.RequestId,
             diagnostic.Message, task.OrganizationId, DateTimeOffset.UtcNow, correlationId, diagnostic), ct);
         return failed;

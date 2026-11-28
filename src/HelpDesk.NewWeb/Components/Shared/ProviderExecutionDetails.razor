@@ -4,6 +4,7 @@
     <MudText Typo="Typo.subtitle2">@Diagnostic.Provider · @Diagnostic.Stage.Replace('-', ' ')</MudText>
     <MudText Typo="Typo.body2">
         <code>@Diagnostic.Code</code>
+        @if (Diagnostic.Reason is { } reason) { <span> · <code>@reason</code></span> }
         @if (Diagnostic.HttpStatus is { } status) { <span> · HTTP @status</span> }
         <span> · @ExecutionState</span>
     </MudText>

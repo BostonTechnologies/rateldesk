@@ -182,7 +182,7 @@ public sealed class IntegrationCredentialDetailsTests
         var page = context.Render<Page>();
         page.WaitForAssertion(() => Assert.Contains("2 permissions", page.Find(".credential-table").TextContent));
         Button(page, "Details").Click();
-        var details = page.FindComponent<Details>();
+        var details = page.WaitForComponent<Details>();
         details.Find("[data-testid=credential-edit-access]").Click();
         Toggle(details, "Incident.Write", true);
         Button(details, "Review changes").Click();

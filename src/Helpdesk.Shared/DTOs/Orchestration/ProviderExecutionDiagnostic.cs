@@ -5,6 +5,12 @@ public sealed record ProviderExecutionDiagnostic(string Provider, string Stage, 
     string? ConnectionId = null, string? JobDefinitionId = null, string? ProviderRequestId = null,
     string? ProviderRunId = null, Guid? NodeId = null, int? StepOrdinal = null,
     string? RequestedExecutor = null, string? ResolvedEngine = null, string? RequiredShell = null,
-    string? ParentResult = null, string? ProviderRequestUrl = null, string? ProviderRunUrl = null);
+    string? ParentResult = null, string? ProviderRequestUrl = null, string? ProviderRunUrl = null)
+{
+    public string? Reason { get; init; }
+}
 
-public sealed record AutomationExecutionReadinessDto(bool? Ready, string Code, string Message);
+public sealed record AutomationExecutionReadinessDto(bool? Ready, string Code, string Message)
+{
+    public string? Reason { get; init; }
+}

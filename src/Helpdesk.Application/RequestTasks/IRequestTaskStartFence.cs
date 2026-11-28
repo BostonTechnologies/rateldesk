@@ -7,6 +7,7 @@ public interface IRequestTaskStartFence
 {
     Task<RequestTask?> TryRecordClosedAcknowledgementAsync(RequestTask task, OrchestrationIngestResult acknowledgement, CancellationToken ct);
     Task PersistAsync(RequestTask task, RequestTaskStartIntent intent, CancellationToken ct);
+    Task PersistRetryAsync(RequestTask task, Request parent, CancellationToken ct);
 }
 
 public sealed class RequestProgressionHeldException(string message) : InvalidOperationException(message);

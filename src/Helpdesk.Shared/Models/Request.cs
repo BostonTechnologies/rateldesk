@@ -18,8 +18,18 @@ public class Request : Ticket
     public string? SelfServiceSubmissionHash { get; set; }
     public string? WorkflowStatus { get; set; }
     public string? WorkflowBlockReason { get; set; }
+    public string? WorkflowFailureTaskId { get; set; }
+    public string? WorkflowFailureAttemptId { get; set; }
+    public RequestFailureCategory? WorkflowFailureCategory { get; set; }
     public DateTimeOffset? WorkflowUpdatedAt { get; set; }
     public long WorkflowStateVersion { get; set; }
     // Null preserves conservative interpretation of an unmigrated legacy hold.
     public bool? OperatorHold { get; set; } = false;
+}
+
+public enum RequestFailureCategory
+{
+    TaskFailed = 1,
+    SubmissionRejected = 2,
+    PreDispatchFailure = 3
 }
